@@ -13,6 +13,8 @@ A pause ends once every sensor it watches has been closed for **Resume After Eve
 
 Safety protection still applies while paused: a room that breaches its safety limits is still conditioned, so an open window in winter cannot freeze the house.
 
+The Dashboard shows a paused zone or room, and names the open door or window.
+
 ## Rules for the timer
 
 - Only a **closed â†’ open** change starts the timer. A sensor that is already open when HomeClimate starts, or that comes back open after being offline, pauses nothing until it closes and opens again.
@@ -28,7 +30,7 @@ Each zone and each room can override the house-wide values. In **Smart Control â
 | Where | What |
 |---|---|
 | `system_settings` | `openings_zone_pause_enabled`, `openings_zone_pause_min`, `openings_room_pause_enabled`, `openings_room_pause_min`, `openings_resume_min` |
-| `contact_sensors` | One row per sensor, with its `room_id` and `pauses` (`room` or `zone`). Deleting the room removes the row. Rows from before sensors moved into rooms may carry a `thermostat_entity_id` instead, and pause that zone. |
+| `contact_sensors` | One row per sensor, with its `room_id` and `pauses` (`room` or `zone`). Deleting the room removes the row. A sensor that was attached straight to a zone, from before sensors belonged to rooms, is moved into that zone's first room at start-up and keeps pausing the whole zone. |
 | `smart_control_overrides` | `(scope, scope_id, key, value)` per-zone and per-room overrides |
 
 ## API

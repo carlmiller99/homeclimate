@@ -93,6 +93,12 @@ describe("Settings page", () => {
     }
   });
 
+  it("falls back to General for an unknown section", () => {
+    renderSettings({ section: "nope" });
+    expect(screen.getByText(/Backup & Restore/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "General" })).toHaveAttribute("aria-current", "page");
+  });
+
   it("shows the sensors used everywhere under Sensors", () => {
     renderSettings({ section: "sensors" });
     expect(screen.getByText("outside sensor")).toBeInTheDocument();

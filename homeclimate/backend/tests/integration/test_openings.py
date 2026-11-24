@@ -223,6 +223,64 @@ async def test_legacy_zone_rows_still_pause_their_zone(client, fake_ha, house):
     assert (t.scope, t.scope_id) == ("zone", T1)
 
 
+async def test_zone_attached_sensors_move_into_a_room_at_start(client, house):
+    conn = await client.app["scheduler"].get_db()
+    await conn.execute(
+        "INSERT INTO contact_sensors(entity_id, thermostat_entity_id) VALUES(?,?)", (FRONT, T1)
+    )
+    # A zone with no room: its sensor has nowhere to go and stays as it is.
+    await conn.execute(
+        "INSERT INTO thermostat_configs(thermostat_entity_id) VALUES('climate.empty')"
+    )
+    await conn.execute(
+        "INSERT INTO contact_sensors(entity_id, thermostat_entity_id) VALUES(?,?)",
+        (PORCH, "climate.empty"),
+    )
+    await conn.commit()
+
+    assert await openings.adopt_zone_contacts(conn) == 1
+    by_id = {c.entity_id: c for c in await openings.list_contacts(conn)}
+    # Bunk Room sorts before Craft Room; the sensor still pauses the whole zone.
+    front = by_id[FRONT]
+    assert (front.thermostat_entity_id, front.room_id, front.pauses) == (
+        None,
+        house["bunk"],
+        "zone",
+    )
+    porch = by_id[PORCH]
+    assert (porch.thermostat_entity_id, porch.room_id, porch.pauses) == (
+        "climate.empty",
+        None,
+        "zone",
+    )
+    # Running it again changes nothing.
+    assert await openings.adopt_zone_contacts(conn) == 0
+
+
+async def test_start_up_moves_zone_attached_sensors_and_logs_it(client, house):
+    scheduler = client.app["scheduler"]
+    conn = await scheduler.get_db()
+    await conn.execute(
+        "INSERT INTO contact_sensors(entity_id, thermostat_entity_id) VALUES(?,?)", (FRONT, T1)
+    )
+    await conn.commit()
+    await scheduler.adopt_zone_contacts()
+    [sensor] = [
+        s
+        for s in (await (await client.get("/api/smart-control")).json())["sensors"]
+        if s["entity_id"] == FRONT
+    ]
+    assert (sensor["room_id"], sensor["pauses"]) == (house["bunk"], "zone")
+    events = await (await client.get("/api/logs/events?category=openings")).json()
+    messages = [e["message"] for e in (events["events"] if isinstance(events, dict) else events)]
+    assert "Moved 1 door or window sensor(s) from their zone into a room" in messages
+    # Nothing left to move: nothing more is logged.
+    await scheduler.adopt_zone_contacts()
+    events = await (await client.get("/api/logs/events?category=openings")).json()
+    again = [e["message"] for e in (events["events"] if isinstance(events, dict) else events)]
+    assert again.count("Moved 1 door or window sensor(s) from their zone into a room") == 1
+
+
 async def test_body_must_be_a_json_object(client):
     resp = await client.put("/api/smart-control/settings", json=[1])
     assert resp.status == 400

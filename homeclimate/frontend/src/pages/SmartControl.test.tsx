@@ -154,6 +154,16 @@ describe("Smart Control", () => {
     expect(sc.getSmartControl).not.toHaveBeenCalled();
   });
 
+  it("falls back to Schedules for an unknown or planned section", () => {
+    const first = renderAt("/smart-control?section=nope");
+    expect(screen.getByText("schedules page")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Schedules" })).toHaveAttribute("aria-current", "page");
+    first.unmount();
+    renderAt(`/smart-control?section=${encodeURIComponent(sc.PLANNED_SECTIONS[0])}`);
+    expect(screen.getByText("schedules page")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Schedules" })).toHaveAttribute("aria-current", "page");
+  });
+
   it("shows a loading line, then the rules, overrides and shades", async () => {
     renderAt(DOORS);
     expect(screen.getByText("Loading…")).toBeInTheDocument();

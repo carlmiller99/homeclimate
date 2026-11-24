@@ -137,6 +137,7 @@ function ZoneEditor({
     hp_aux_policy: zone.hp_aux_policy,
   });
   const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const hp = form.system_type === "heat_pump";
   const needsKitCheck = hp && form.backup_heat === "electric" && !form.heat_kit_confirmed;
@@ -144,8 +145,10 @@ function ZoneEditor({
   const save = async () => {
     setSaving(true);
     setErr(null);
+    setSaved(false);
     try {
       onSaved(await updateZone(zone.thermostat_entity_id, form));
+      setSaved(true);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Could not save this zone");
     } finally {
@@ -348,9 +351,16 @@ function ZoneEditor({
 
         {err && <p className="form-error">{err}</p>}
         <div className="zone-editor-actions">
+          {saved && (
+            <span className="field-help" role="status">
+              Zone saved.
+            </span>
+          )}
           <span className="spacer" />
+          {/* Saving keeps the zone open: the thermostat settings below save
+              separately, and closing here would drop edits made to them. */}
           <button type="button" className="btn btn-secondary" onClick={onCancel}>
-            Cancel
+            Close
           </button>
           <button type="button" className="btn btn-primary" onClick={save} disabled={saving}>
             Save Zone
@@ -434,6 +444,9 @@ function BuildingHeader({
   );
 }
 
+const BUILDING_NOT_SET =
+  "The zone was added, but could not be put in its building. Edit the zone to try again.";
+
 const VENT_COUNT_HELP =
   "Count every register this thermostat serves, smart vents and ordinary ones. " +
   "HomeClimate uses it to keep enough vents open to protect the equipment.";
@@ -441,11 +454,15 @@ const VENT_COUNT_HELP =
 /** Register a thermostat as a zone together with its first room. */
 function AddZone({
   buildings,
+  taken,
   onAdded,
   onCancel,
 }: {
   buildings: Building[];
-  onAdded: () => void;
+  /** Thermostats that are already zones. */
+  taken: string[];
+  /** Called once the zone exists; ``warning`` when a later step failed. */
+  onAdded: (warning?: string) => void;
   onCancel: () => void;
 }) {
   const [thermostat, setThermostat] = useState("");
@@ -457,6 +474,8 @@ function AddZone({
   const [saving, setSaving] = useState(false);
   // The backend requires a whole number of registers, at least one (#213).
   const ventCount = /^\d+$/.test(vents.trim()) ? parseInt(vents, 10) : 0;
+  // Registering a thermostat again would overwrite that zone's settings.
+  const isTaken = taken.includes(thermostat);
 
   const add = async () => {
     setErr(null);
@@ -474,7 +493,15 @@ function AddZone({
         await deleteThermostat(thermostat).catch(() => {});
         throw e;
       }
-      if (buildingId) await updateZone(thermostat, { building_id: buildingId });
+      if (buildingId) {
+        try {
+          await updateZone(thermostat, { building_id: buildingId });
+        } catch {
+          // The zone and its room exist; only the building is missing.
+          onAdded(BUILDING_NOT_SET);
+          return;
+        }
+      }
       onAdded();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Could not add the zone");
@@ -553,6 +580,11 @@ function AddZone({
         </label>
       </div>
       <p className="field-help">{VENT_COUNT_HELP}</p>
+      {isTaken && (
+        <p className="form-error">
+          That thermostat is already a zone. Use Add Room to add a room to it.
+        </p>
+      )}
       {err && <p className="form-error">{err}</p>}
       <div className="zone-editor-actions">
         <button type="button" className="btn btn-secondary" onClick={onCancel}>
@@ -561,7 +593,9 @@ function AddZone({
         <button
           type="button"
           className="btn btn-primary"
-          disabled={!thermostat || !name.trim() || !roomName.trim() || ventCount < 1 || saving}
+          disabled={
+            isTaken || !thermostat || !name.trim() || !roomName.trim() || ventCount < 1 || saving
+          }
           onClick={add}
         >
           Add Zone
@@ -681,10 +715,11 @@ export default function Zones({
       {addingZone && (
         <AddZone
           buildings={buildings}
+          taken={zoneList.map((z) => z.thermostat_entity_id)}
           onCancel={() => setAddingZone(false)}
-          onAdded={() => {
+          onAdded={(warning) => {
             setAddingZone(false);
-            void changed();
+            void changed().then(() => setErr(warning ?? null));
           }}
         />
       )}
@@ -732,7 +767,6 @@ export default function Zones({
                       buildings={buildings}
                       onCancel={() => setEditing(null)}
                       onSaved={(saved) => {
-                        setEditing(null);
                         setZones(
                           zoneList.map((x) =>
                             x.thermostat_entity_id === saved.thermostat_entity_id ? saved : x
@@ -749,15 +783,23 @@ export default function Zones({
                             setEditing(null);
                             void changed();
                           }}
-                          onSaved={(updated) =>
+                          onSaved={(updated) => {
                             setConfigs((cs) =>
                               cs.map((x) =>
                                 x.thermostat_entity_id === updated.thermostat_entity_id
                                   ? updated
                                   : x
                               )
-                            )
-                          }
+                            );
+                            // The zone's name is the thermostat's friendly name.
+                            setZones(
+                              zoneList.map((x) =>
+                                x.thermostat_entity_id === updated.thermostat_entity_id
+                                  ? { ...x, name: updated.name }
+                                  : x
+                              )
+                            );
+                          }}
                         />
                       </div>
                     )}

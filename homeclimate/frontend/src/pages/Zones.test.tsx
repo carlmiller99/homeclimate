@@ -237,6 +237,16 @@ describe("Zones page", () => {
         ...HP_DEFAULTS,
       })
     );
+    // Saving keeps the zone open (its thermostat settings save separately),
+    // now under its new building.
+    await waitFor(() => expect(zonesApi.updateZone).toHaveBeenCalled());
+    const moved = await screen.findByRole("region", { name: "Edit South Wing" });
+    await waitFor(() => expect(within(moved).getByLabelText("Building")).toHaveValue("b2"));
+    fireEvent.click(
+      within(screen.getByRole("region", { name: "Edit South Wing" })).getByRole("button", {
+        name: "Close",
+      })
+    );
     expect(await screen.findByText("Heat Pump, 2 Stage, No Auxiliary Heat")).toBeInTheDocument();
   });
 
@@ -311,6 +321,8 @@ describe("Zones page", () => {
         })
       )
     );
+    // Saved in place: the editor stays open and says so.
+    expect(await within(editor).findByText("Zone saved.")).toBeInTheDocument();
   });
 
   it("switches back to conventional, unassigns, cancels and reports save errors", async () => {
@@ -329,7 +341,9 @@ describe("Zones page", () => {
     fireEvent.click(within(editor).getByRole("button", { name: "Save Zone" }));
     expect(await within(editor).findByText("Could not save this zone")).toBeInTheDocument();
 
-    fireEvent.click(within(editor).getByRole("button", { name: "Cancel" }));
+    // A failed save shows no "saved" note.
+    expect(within(editor).queryByRole("status")).toBeNull();
+    fireEvent.click(within(editor).getByRole("button", { name: "Close" }));
     expect(screen.queryByRole("region", { name: "Edit climate.loose" })).toBeNull();
   });
 
@@ -449,6 +463,9 @@ describe("Zones page", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "stub save" }));
     expect(screen.getByText("card Renamed")).toBeInTheDocument();
+    // The zone takes its name from the thermostat, so its heading follows.
+    expect(screen.getByRole("region", { name: "Renamed" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "climate.loose" })).toBeInTheDocument();
 
     // Deleting the zone closes its editor and tells the page to reload.
     fireEvent.click(screen.getByRole("button", { name: "stub delete" }));
@@ -496,5 +513,55 @@ describe("Zones page", () => {
     );
     await waitFor(() => expect(zonesApi.getZones).toHaveBeenCalledTimes(2));
     expect(screen.getByRole("heading", { name: "My Home" })).toBeInTheDocument();
+  });
+
+  it("will not add a thermostat that is already a zone", async () => {
+    vi.mocked(zonesApi.getZones).mockResolvedValue([
+      zone({ thermostat_entity_id: "climate.wing_cloud", name: "Cloud Wing" }),
+    ]);
+    renderPage();
+    await screen.findByText("Cloud Wing");
+    fireEvent.click(screen.getByRole("button", { name: "Add Zone" }));
+    const form = screen.getByRole("group", { name: "Add Zone" });
+    fireEvent.click(within(form).getByRole("button", { name: "pick Search thermostats…" }));
+    fireEvent.change(within(form).getByLabelText("Zone Name"), { target: { value: "Again" } });
+    fireEvent.change(within(form).getByLabelText("First Room"), { target: { value: "Bay" } });
+    fireEvent.change(within(form).getByLabelText("Total Vent Count"), { target: { value: "4" } });
+    expect(
+      within(form).getByText("That thermostat is already a zone. Use Add Room to add a room to it.")
+    ).toBeInTheDocument();
+    expect(within(form).getByRole("button", { name: "Add Zone" })).toBeDisabled();
+    expect(api.createThermostat).not.toHaveBeenCalled();
+  });
+
+  it("keeps a new zone whose building could not be set, and says so", async () => {
+    vi.mocked(api.createThermostat).mockResolvedValue({} as api.ThermostatConfig);
+    vi.mocked(api.createRoom).mockResolvedValue({} as api.Room);
+    vi.mocked(zonesApi.updateZone).mockRejectedValueOnce(new Error("no such building"));
+    const onChanged = vi.fn();
+    render(
+      <MemoryRouter>
+        <Zones onChanged={onChanged} />
+      </MemoryRouter>
+    );
+    await screen.findByText("South Wing");
+    fireEvent.click(screen.getByRole("button", { name: "Add Zone" }));
+    const form = screen.getByRole("group", { name: "Add Zone" });
+    fireEvent.click(within(form).getByRole("button", { name: "pick Search thermostats…" }));
+    fireEvent.change(within(form).getByLabelText("Zone Name"), { target: { value: "Shop" } });
+    fireEvent.change(within(form).getByLabelText("First Room"), { target: { value: "Bay" } });
+    fireEvent.change(within(form).getByLabelText("Total Vent Count"), { target: { value: "4" } });
+    fireEvent.change(within(form).getByLabelText("Building"), { target: { value: "b2" } });
+    fireEvent.click(within(form).getByRole("button", { name: "Add Zone" }));
+
+    expect(
+      await screen.findByText(
+        "The zone was added, but could not be put in its building. Edit the zone to try again."
+      )
+    ).toBeInTheDocument();
+    // The form closed and the list was reloaded; nothing was rolled back.
+    expect(screen.queryByRole("group", { name: "Add Zone" })).toBeNull();
+    expect(onChanged).toHaveBeenCalled();
+    expect(api.deleteThermostat).not.toHaveBeenCalled();
   });
 });

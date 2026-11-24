@@ -244,7 +244,7 @@ function RoomSettings({
     // forced on without a configured outside-temperature sensor.
     if (ecoEnabled === "on" && !hasOutsideSensor) {
       setError(
-        "Eco Mode needs an outside-temperature sensor. Configure one on the Thermostats page " +
+        "Eco Mode needs an outside-temperature sensor. Configure one in Settings, Sensors " +
           "(e.g. via a PirateWeather sensor) before forcing Eco on for this room."
       );
       return;
@@ -340,8 +340,8 @@ function RoomSettings({
           </label>
           {thermostats.length === 0 ? (
             <div className="form-hint" style={{ color: "var(--orange)" }}>
-              No thermostats registered yet. Go to the <strong>Thermostats</strong> page first to
-              register and name your thermostats.
+              No zones yet. Go back to My Home and use <strong>Add Zone</strong>, which adds a zone
+              together with its first room.
             </div>
           ) : (
             <select

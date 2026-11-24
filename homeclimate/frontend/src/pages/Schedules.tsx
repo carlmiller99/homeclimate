@@ -918,7 +918,7 @@ export default function Schedules() {
         <div className="card">
           <div className="empty-state">
             <p>
-              No rooms configured yet. Go to <strong>Rooms</strong> first.
+              No rooms yet. Add them in <strong>My Home</strong> first.
             </p>
           </div>
         </div>

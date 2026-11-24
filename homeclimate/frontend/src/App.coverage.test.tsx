@@ -5,6 +5,12 @@ import App from "./App";
 import * as api from "./api";
 
 vi.mock("./api");
+vi.mock("./smartControlApi", async (orig) => ({
+  ...(await orig<typeof import("./smartControlApi")>()),
+  getSmartControl: vi
+    .fn()
+    .mockResolvedValue({ settings: {}, overrides: [], sensors: [], paused: [] }),
+}));
 vi.mock("./zonesApi", async (orig) => ({
   ...(await orig<typeof import("./zonesApi")>()),
   getZones: vi.fn().mockResolvedValue([]),

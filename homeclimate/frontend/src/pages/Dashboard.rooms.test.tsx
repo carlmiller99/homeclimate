@@ -4,11 +4,16 @@ import { render, screen, fireEvent, waitFor, within } from "@testing-library/rea
 import Dashboard from "./Dashboard";
 import * as api from "../api";
 import * as zonesApi from "../zonesApi";
+import * as sc from "../smartControlApi";
 import { UnitContext, buildUnitContext } from "../contexts";
-import { HP_DEFAULTS } from "../zoneFixtures";
+import { HP_DEFAULTS, smartControl } from "../zoneFixtures";
 import { makeHold } from "../testFixtures";
 
 vi.mock("../api");
+vi.mock("../smartControlApi", async (orig) => ({
+  ...(await orig<typeof import("../smartControlApi")>()),
+  getSmartControl: vi.fn(),
+}));
 vi.mock("../zonesApi", async (orig) => ({
   ...(await orig<typeof import("../zonesApi")>()),
   getZones: vi.fn(),
@@ -108,6 +113,7 @@ beforeEach(() => {
     // A sensor that has not reported counts for nothing.
     "sensor.bunk": reading(null),
   });
+  vi.mocked(sc.getSmartControl).mockResolvedValue(smartControl() as sc.SmartControl);
   vi.mocked(zonesApi.getBuildings).mockResolvedValue([
     { id: "b1", name: "Main House", sort_order: 0 },
     { id: "b2", name: "The Den", sort_order: 1 },
@@ -192,9 +198,9 @@ describe("Dashboard rooms and zones", () => {
   it("starts a hold from a room, preselecting that room", async () => {
     render(<Dashboard />);
     const mudroom = await screen.findByTestId("dash-room-mudroom");
-    fireEvent.click(within(mudroom).getByRole("button", { name: "Hold" }));
+    fireEvent.click(within(mudroom).getByRole("button", { name: /^Hold for / }));
     expect(screen.getByTestId("hold-modal")).toBeInTheDocument();
-    expect(screen.getByLabelText(/Room/)).toHaveValue("mudroom");
+    expect(screen.getByTestId("hold-modal").querySelector("#hold-room")).toHaveValue("mudroom");
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     expect(screen.queryByTestId("hold-modal")).toBeNull();
   });
@@ -206,13 +212,13 @@ describe("Dashboard rooms and zones", () => {
     const mudroom = await screen.findByTestId("dash-room-mudroom");
     // A held room offers Cancel Hold in place of Hold, and carries the badge
     // even though it is not part of a running cycle.
-    expect(within(mudroom).queryByRole("button", { name: "Hold" })).toBeNull();
+    expect(within(mudroom).queryByRole("button", { name: /^Hold for / })).toBeNull();
     expect(within(mudroom).getByTitle(/temporary hold is driving this room/i)).toBeInTheDocument();
     expect(
-      within(screen.getByTestId("dash-room-kitchen")).getByRole("button", { name: "Hold" })
+      within(screen.getByTestId("dash-room-kitchen")).getByRole("button", { name: /^Hold for / })
     ).toBeInTheDocument();
 
-    fireEvent.click(within(mudroom).getByRole("button", { name: "Cancel Hold" }));
+    fireEvent.click(within(mudroom).getByRole("button", { name: "Cancel Hold for Mudroom" }));
     await waitFor(() => expect(api.clearOverride).toHaveBeenCalledWith("mudroom"));
     await waitFor(() => expect(api.getStatus).toHaveBeenCalledTimes(2));
   });
@@ -221,8 +227,8 @@ describe("Dashboard rooms and zones", () => {
     vi.mocked(api.clearPresenceHoldover).mockResolvedValue(undefined as never);
     render(<Dashboard />);
     const kitchen = await screen.findByTestId("dash-room-kitchen");
-    expect(screen.getAllByRole("button", { name: "Clear Presence" })).toHaveLength(1);
-    fireEvent.click(within(kitchen).getByRole("button", { name: "Clear Presence" }));
+    expect(screen.getAllByRole("button", { name: /^Clear Presence for / })).toHaveLength(1);
+    fireEvent.click(within(kitchen).getByRole("button", { name: "Clear Presence for Kitchen" }));
     await waitFor(() => expect(api.clearPresenceHoldover).toHaveBeenCalledWith("kitchen"));
     await waitFor(() => expect(api.getStatus).toHaveBeenCalledTimes(2));
   });
@@ -256,8 +262,9 @@ describe("Dashboard rooms and zones", () => {
     expect(within(other).getByText("Other Zones")).toBeInTheDocument();
     expect(within(other).getByTestId("dash-room-bunk")).toBeInTheDocument();
     expect(within(other).getByTestId("dash-room-loft")).toBeInTheDocument();
-    // An empty building still shows, so the layout matches My Home.
-    expect(within(await building("b2")).queryByTestId("dash-room-loft")).toBeNull();
+    // A building with no zones has nothing to show on the Dashboard.
+    expect(screen.queryByTestId("dash-building-b2")).toBeNull();
+    expect(screen.queryByText("The Den")).toBeNull();
   });
 
   it("falls back to a plain list of zones when the layout cannot be read", async () => {
@@ -281,5 +288,169 @@ describe("Dashboard rooms and zones", () => {
     const mudroom = await screen.findByTestId("dash-room-mudroom");
     await waitFor(() => expect(api.getEntityStates).toHaveBeenCalled());
     expect(within(mudroom).getByText("—")).toBeInTheDocument();
+  });
+
+  it("shows the thermostat's own reading for a room that includes it", async () => {
+    vi.mocked(api.getRooms).mockResolvedValue([
+      { ...room("bunk", "Bunk Room", "climate.up"), include_thermostat_sensor: true },
+      { ...room("mudroom", "Mudroom", "climate.north"), include_thermostat_sensor: true },
+      { ...room("orphan", "Orphan", "climate.gone"), include_thermostat_sensor: true },
+    ]);
+    render(<Dashboard />);
+    // Bunk Room's only sensor has not reported, so the thermostat's 68° stands alone.
+    await waitFor(() => expect(screen.getByTestId("dash-room-bunk")).toHaveTextContent("68.0°F"));
+    // Mudroom: 64, 68 and the thermostat's 68.
+    expect(screen.getByTestId("dash-room-mudroom")).toHaveTextContent("66.7°F");
+  });
+
+  it("leaves stale sensors out of a room's temperature, as the engine does", async () => {
+    vi.mocked(api.getSensorHealth).mockResolvedValue({
+      stale_after_min: 30,
+      rooms: [
+        {
+          room_id: "mudroom",
+          room_name: "Mudroom",
+          thermostat_entity_id: "climate.north",
+          stale_sensors: [{ entity_id: "sensor.mud_a", age_seconds: 4000, reason: "stale" }],
+        },
+      ],
+    });
+    render(<Dashboard />);
+    await waitFor(() =>
+      expect(screen.getByTestId("dash-room-mudroom")).toHaveTextContent("68.0°F")
+    );
+  });
+
+  it("still shows temperatures when sensor health and pauses cannot be read", async () => {
+    vi.mocked(api.getSensorHealth).mockRejectedValue(new Error("down"));
+    vi.mocked(sc.getSmartControl).mockRejectedValue(new Error("down"));
+    render(<Dashboard />);
+    await waitFor(() =>
+      expect(screen.getByTestId("dash-room-mudroom")).toHaveTextContent("66.0°F")
+    );
+    expect(screen.queryByText(/Paused/)).toBeNull();
+  });
+
+  it("re-reads sensor lists after five minutes, and at once after a failed read", async () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
+    vi.mocked(api.getRoom).mockRejectedValueOnce(new Error("blip"));
+    render(<Dashboard />);
+    await waitFor(() => expect(api.getEntityStates).toHaveBeenCalledTimes(1));
+    expect(api.getRoom).toHaveBeenCalledTimes(4);
+
+    // One list could not be read, so the next refresh reads them all again.
+    fireEvent.click(screen.getByRole("button", { name: /Refresh/ }));
+    await waitFor(() => expect(api.getRoom).toHaveBeenCalledTimes(8));
+
+    // Now complete: trusted until five minutes have passed.
+    now.mockReturnValue(1_000_000 + 4 * 60_000);
+    fireEvent.click(screen.getByRole("button", { name: /Refresh/ }));
+    await waitFor(() => expect(api.getEntityStates).toHaveBeenCalledTimes(3));
+    expect(api.getRoom).toHaveBeenCalledTimes(8);
+
+    // A sensor removed elsewhere is picked up once the list is read again.
+    vi.mocked(api.getRoom).mockImplementation(
+      async (id) => ({ id, sensors: [] }) as unknown as api.Room
+    );
+    now.mockReturnValue(1_000_000 + 6 * 60_000);
+    fireEvent.click(screen.getByRole("button", { name: /Refresh/ }));
+    await waitFor(() => expect(api.getRoom).toHaveBeenCalledTimes(12));
+    await waitFor(() =>
+      expect(within(screen.getByTestId("dash-room-mudroom")).getByText("—")).toBeInTheDocument()
+    );
+    now.mockRestore();
+  });
+
+  it("says which door or window is pausing a zone or a room", async () => {
+    const sensor = (over: Partial<sc.ContactSensor>): sc.ContactSensor => ({
+      entity_id: "binary_sensor.x",
+      name: "X",
+      thermostat_entity_id: null,
+      room_id: null,
+      pauses: "room",
+      state: "open",
+      open_since: null,
+      pausing: true,
+      ...over,
+    });
+    vi.mocked(sc.getSmartControl).mockResolvedValue({
+      ...smartControl([
+        sensor({ name: "Mudroom Door", room_id: "mudroom", pauses: "zone" }),
+        // A sensor attached to the zone itself, from before sensors moved into rooms.
+        sensor({ name: "Side Door", thermostat_entity_id: "climate.north", pauses: "zone" }),
+        sensor({ name: "Bunk Window", room_id: "bunk" }),
+        // Open, but not (yet) pausing anything.
+        sensor({ name: "Kitchen Door", room_id: "kitchen", pauses: "zone", pausing: false }),
+        // Pausing another zone and another room.
+        sensor({ name: "Loft Door", room_id: "loft", pauses: "zone" }),
+      ]),
+      paused: [
+        { scope: "zone", scope_id: "climate.north", since: "2026-01-05T12:00:00Z" },
+        { scope: "room", scope_id: "bunk", since: "2026-01-05T12:00:00Z" },
+        // Paused with no sensor still reporting open (it is counting down to resume).
+        { scope: "room", scope_id: "loft", since: "2026-01-05T12:00:00Z" },
+      ],
+    } as sc.SmartControl);
+    render(<Dashboard />);
+
+    const north = (await screen.findByTestId("dash-room-kitchen")).closest(".card") as HTMLElement;
+    await waitFor(() =>
+      expect(within(north).getByText("Paused: Mudroom Door, Side Door open")).toBeInTheDocument()
+    );
+    // The zone is paused, not its rooms individually.
+    expect(within(screen.getByTestId("dash-room-kitchen")).queryByText("Paused")).toBeNull();
+
+    const bunk = within(screen.getByTestId("dash-room-bunk")).getByText("Paused");
+    expect(bunk).toHaveAttribute("title", "Paused: Bunk Window open");
+    // Upstairs itself is not paused.
+    const up = screen.getByTestId("dash-room-bunk").closest(".card") as HTMLElement;
+    expect(within(up).queryByText(/^Paused:/)).toBeNull();
+
+    const loft = within(screen.getByTestId("dash-room-loft")).getByText("Paused");
+    expect(loft).toHaveAttribute("title", "Paused: door or window open");
+  });
+
+  it("reports a hold that could not be cancelled, and presence that could not be cleared", async () => {
+    vi.mocked(api.getOverrides).mockResolvedValue([makeHold({ room_id: "mudroom" })]);
+    vi.mocked(api.clearOverride).mockRejectedValueOnce(new Error("Room not found"));
+    render(<Dashboard />);
+    const mudroom = await screen.findByTestId("dash-room-mudroom");
+    fireEvent.click(within(mudroom).getByRole("button", { name: "Cancel Hold for Mudroom" }));
+    expect(await screen.findByText("Room not found")).toBeInTheDocument();
+    vi.mocked(api.clearOverride).mockRejectedValueOnce("x");
+    fireEvent.click(
+      within(screen.getByTestId("dash-room-mudroom")).getByRole("button", {
+        name: "Cancel Hold for Mudroom",
+      })
+    );
+    expect(await screen.findByText("Could not cancel the hold")).toBeInTheDocument();
+
+    const clear = () =>
+      within(screen.getByTestId("dash-room-kitchen")).getByRole("button", {
+        name: "Clear Presence for Kitchen",
+      });
+    vi.mocked(api.clearPresenceHoldover).mockRejectedValueOnce(new Error("HA is unreachable"));
+    fireEvent.click(clear());
+    expect(await screen.findByText("HA is unreachable")).toBeInTheDocument();
+    vi.mocked(api.clearPresenceHoldover).mockRejectedValueOnce(null);
+    await waitFor(() => expect(clear()).toBeEnabled());
+    fireEvent.click(clear());
+    expect(await screen.findByText("Could not clear presence")).toBeInTheDocument();
+  });
+
+  it("offers Try Again when the first load fails, and keeps the page on a failed refresh", async () => {
+    vi.mocked(api.getStatus).mockRejectedValueOnce(new Error("down"));
+    render(<Dashboard />);
+    expect(
+      await screen.findByText("Could not load the dashboard. Check that HomeClimate is running.")
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Try Again" }));
+    expect(await screen.findByTestId("dash-room-kitchen")).toBeInTheDocument();
+
+    vi.mocked(api.getStatus).mockRejectedValueOnce(new Error("blip"));
+    fireEvent.click(screen.getByRole("button", { name: /Refresh/ }));
+    await waitFor(() => expect(api.getStatus).toHaveBeenCalledTimes(3));
+    expect(screen.getByTestId("dash-room-kitchen")).toBeInTheDocument();
+    expect(screen.queryByText(/Could not load the dashboard/)).toBeNull();
   });
 });

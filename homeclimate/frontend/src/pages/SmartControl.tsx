@@ -265,7 +265,11 @@ function DoorsWindows() {
 
 export default function SmartControl() {
   const [params] = useSearchParams();
-  const section = params.get("section") ?? "schedules";
+  // An unknown or planned section falls back to the first one.
+  const asked = params.get("section");
+  const section = (
+    SMART_CONTROL_SECTIONS.find((x) => x.id === asked && !x.planned) ?? SMART_CONTROL_SECTIONS[0]
+  ).id;
   return (
     <SectionLayout
       title="Smart Control"

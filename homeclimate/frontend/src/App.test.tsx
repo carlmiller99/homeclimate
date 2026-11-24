@@ -7,6 +7,12 @@ import { ecoThermostatDefaults } from "./testFixtures";
 import { MemoryRouter } from "react-router";
 
 vi.mock("./api");
+vi.mock("./smartControlApi", async (orig) => ({
+  ...(await orig<typeof import("./smartControlApi")>()),
+  getSmartControl: vi
+    .fn()
+    .mockResolvedValue({ settings: {}, overrides: [], sensors: [], paused: [] }),
+}));
 vi.mock("./zonesApi", async (orig) => ({
   ...(await orig<typeof import("./zonesApi")>()),
   getZones: vi.fn().mockResolvedValue([]),

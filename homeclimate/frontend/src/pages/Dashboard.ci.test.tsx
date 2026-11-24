@@ -10,6 +10,12 @@ import { within, render, screen } from "@testing-library/react";
 // re-import with a fresh module registry (same approach as ci.test.tsx).
 
 vi.mock("../api");
+vi.mock("../smartControlApi", async (orig) => ({
+  ...(await orig<typeof import("../smartControlApi")>()),
+  getSmartControl: vi
+    .fn()
+    .mockResolvedValue({ settings: {}, overrides: [], sensors: [], paused: [] }),
+}));
 vi.mock("../zonesApi", async (orig) => ({
   ...(await orig<typeof import("../zonesApi")>()),
   getZones: vi.fn().mockResolvedValue([]),
@@ -98,10 +104,12 @@ describe("Dashboard — CI build", () => {
     expect(row).toHaveTextContent("Living Room");
     expect(row).toHaveTextContent("71.4°F");
     expect(row).toHaveTextContent(/requesting 68.0°F/);
-    expect(screen.getAllByRole("button", { name: "Clear Presence" })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: /^Clear Presence for / })).toHaveLength(1);
     // A hold is user-set state, not engine-driven, so it still shows.
-    expect(within(row).getByRole("button", { name: "Cancel Hold" })).toBeInTheDocument();
-    expect(within(row).queryByRole("button", { name: "Hold" })).toBeNull();
+    expect(
+      within(row).getByRole("button", { name: "Cancel Hold for Living Room" })
+    ).toBeInTheDocument();
+    expect(within(row).queryByRole("button", { name: /^Hold for / })).toBeNull();
     // The real, engine-driven reading for that room is frozen out under CI.
     expect(screen.queryByText("76.1°F")).not.toBeInTheDocument();
     expect(screen.queryByText(/requesting 72.0°F/)).not.toBeInTheDocument();
@@ -133,7 +141,7 @@ describe("Dashboard — CI build", () => {
     expect(screen.getByText(/requesting 68.0°F/)).toBeInTheDocument();
     expect(screen.getByText(/requesting 70.0°F/)).toBeInTheDocument();
     // Only the first zone carries the sample; the second renders no rooms.
-    expect(screen.getAllByRole("button", { name: "Clear Presence" })).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: /^Clear Presence for / })).toHaveLength(2);
     expect(screen.queryByText("room-1")).not.toBeInTheDocument();
   });
 });

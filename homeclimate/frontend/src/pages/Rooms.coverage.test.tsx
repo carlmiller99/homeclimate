@@ -316,11 +316,11 @@ describe("Rooms settings form — validation guards", () => {
     expect(await screen.findByText("Save failed")).toBeInTheDocument();
   });
 
-  it("points the user at the Thermostats page when none are registered", async () => {
+  it("points the user at Add Zone when there are no zones", async () => {
     vi.mocked(api.getThermostats).mockResolvedValue([]);
     await openNewRoom();
 
-    expect(screen.getByText(/No thermostats registered yet/i)).toBeInTheDocument();
+    expect(screen.getByText(/No zones yet\. Go back to My Home and use/)).toBeInTheDocument();
     expect(screen.queryByRole("combobox", { name: /Thermostat/i })).not.toBeInTheDocument();
   });
 
@@ -928,7 +928,9 @@ describe("My Home — page edge cases", () => {
     ).toBeInTheDocument();
     // The zoned room sits inside its zone's panel.
     expect(
-      within(screen.getByRole("region", { name: "Test Thermostat" })).getByText("Living Room")
+      within(await screen.findByRole("region", { name: "Test Thermostat" })).getByText(
+        "Living Room"
+      )
     ).toBeInTheDocument();
   });
 

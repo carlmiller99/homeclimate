@@ -86,7 +86,7 @@ test.describe.serial("Temporary hold (#576)", () => {
     // A held room carries the Hold badge and swaps Hold for Cancel Hold.
     await expect(row.getByTitle(/temporary hold is driving this room/i)).toBeVisible();
     await expect(row.getByRole("button", { name: "Cancel Hold" })).toBeVisible();
-    await expect(row.getByRole("button", { name: "Hold", exact: true })).toHaveCount(0);
+    await expect(row.getByRole("button", { name: /^Hold for / })).toHaveCount(0);
 
     // Element-scoped shot of just the held row. Live temps come from the
     // fixed fake sensors; cycle membership is frozen under CI.

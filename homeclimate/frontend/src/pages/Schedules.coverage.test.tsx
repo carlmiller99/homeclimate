@@ -400,7 +400,7 @@ describe("Schedules — empty state", () => {
     vi.mocked(api.getRooms).mockResolvedValue([]);
     render(<Schedules />);
 
-    expect(await screen.findByText(/No rooms configured yet/)).toBeInTheDocument();
+    expect(await screen.findByText(/No rooms yet\. Add them in/)).toBeInTheDocument();
     expect(api.getSchedules).not.toHaveBeenCalled();
   });
 

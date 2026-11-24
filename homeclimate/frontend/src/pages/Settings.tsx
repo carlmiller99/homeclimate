@@ -130,7 +130,11 @@ function TimeZoneCard() {
 export default function Settings() {
   const { requireAuth } = useAuth();
   const [params] = useSearchParams();
-  const section = params.get("section") ?? "general";
+  // An unknown or planned section falls back to the first one.
+  const asked = params.get("section");
+  const section = (
+    SETTINGS_SECTIONS.find((x) => x.id === asked && !x.planned) ?? SETTINGS_SECTIONS[0]
+  ).id;
 
   let body: ReactNode;
   if (section === "sensors") {

@@ -6,6 +6,12 @@ import { SystemContext, DevModeContext, UnitContext, buildUnitContext } from "..
 import { ecoThermostatDefaults, ecoRoomDefaults, makeHold } from "../testFixtures";
 
 vi.mock("../api");
+vi.mock("../smartControlApi", async (orig) => ({
+  ...(await orig<typeof import("../smartControlApi")>()),
+  getSmartControl: vi
+    .fn()
+    .mockResolvedValue({ settings: {}, overrides: [], sensors: [], paused: [] }),
+}));
 vi.mock("../zonesApi", async (orig) => ({
   ...(await orig<typeof import("../zonesApi")>()),
   getZones: vi.fn().mockResolvedValue([]),
@@ -282,8 +288,8 @@ describe("Dashboard — uncovered branches", () => {
     for (const id of ["r1", "r2"]) {
       const row = within(card).getByTestId(`dash-room-${id}`);
       expect(within(row).getByText("—")).toBeInTheDocument();
-      expect(within(row).getByRole("button", { name: "Hold" })).toBeInTheDocument();
-      expect(within(row).queryByRole("button", { name: "Clear Presence" })).toBeNull();
+      expect(within(row).getByRole("button", { name: /^Hold for / })).toBeInTheDocument();
+      expect(within(row).queryByRole("button", { name: /^Clear Presence/ })).toBeNull();
       expect(within(row).queryByText(/requesting/)).toBeNull();
     }
   });

@@ -231,6 +231,29 @@ async def list_contacts(conn: aiosqlite.Connection) -> list[ContactSensor]:
     ]
 
 
+async def adopt_zone_contacts(conn: aiosqlite.Connection) -> int:
+    """Move sensors that are attached to a zone into one of the zone's rooms.
+
+    Sensors used to attach to a zone directly. They now belong to a room and
+    say what they pause, so each one moves to its zone's first room (by name)
+    and keeps pausing the whole zone. A sensor whose zone has no room stays as
+    it is. Safe to run at every start; returns how many sensors moved.
+    """
+    cur = await conn.execute(
+        """UPDATE contact_sensors SET
+               room_id = (SELECT r.id FROM rooms r
+                          WHERE r.thermostat_entity_id = contact_sensors.thermostat_entity_id
+                          ORDER BY r.name, r.id LIMIT 1),
+               thermostat_entity_id = NULL,
+               pauses = 'zone'
+           WHERE thermostat_entity_id IS NOT NULL
+             AND EXISTS (SELECT 1 FROM rooms r
+                         WHERE r.thermostat_entity_id = contact_sensors.thermostat_entity_id)"""
+    )
+    await conn.commit()
+    return cur.rowcount
+
+
 async def save_contact(
     conn: aiosqlite.Connection,
     entity_id: str,

@@ -489,14 +489,14 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
       await page.waitForLoadState("networkidle");
 
       // Open the hold modal pre-scoped to Living Room (the room this spec
-      // owns) from its row. `exact: true` — the row offers "Cancel Hold"
+      // owns) from its row. `exact: true` — the row offers "Cancel Hold for …"
       // instead when a hold is already live, which would mean leaked state
       // from an earlier run.
       await page
         .locator(".dash-room")
         .filter({ hasText: "Living Room" })
         .first()
-        .getByRole("button", { name: "Hold", exact: true })
+        .getByRole("button", { name: "Hold for Living Room", exact: true })
         .click();
       const modal = page.getByTestId("hold-modal");
       await modal.waitFor({ state: "visible", timeout: 10_000 });

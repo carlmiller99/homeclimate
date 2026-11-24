@@ -261,8 +261,8 @@ export default function VacationModeModal({ current, onClose, onChanged }: Props
       </p>
       <p style={{ marginBottom: "1.25rem", color: "var(--gray-600)", fontSize: ".9rem" }}>
         This applies to <strong>all thermostats</strong>. Each thermostat's hold strategy (range or
-        single setpoint) and its <em>Welcome home</em> warm-up are configured on the Thermostats
-        page.
+        single setpoint) and its <em>Welcome home</em> warm-up are configured in its zone's
+        Thermostat Settings, in My Home.
       </p>
 
       {!editingScheduled && (

@@ -723,7 +723,7 @@ export function ThermostatCard({
       </div>
 
       {/* Eco Mode — outdoor-temperature-compensated setpoint drift (Issue #404).
-          Global per-thermostat; overridable per room on the Rooms page. Fields
+          Global per-thermostat; overridable per room in Room Settings. Fields
           hold display units and submit the raw value (the backend converts). */}
       <hr className="divider" />
       <div
