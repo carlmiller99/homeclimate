@@ -104,6 +104,7 @@ function RoomRow({
   temp,
   held,
   paused,
+  fireplace,
   onHold,
   onCancelHold,
   onClearPresence,
@@ -114,6 +115,8 @@ function RoomRow({
   held: boolean;
   /** Names of the open doors/windows pausing this room, or null. */
   paused: string[] | null;
+  /** Name of the lit fireplace keeping this room out of demand, or null. */
+  fireplace: string | null;
   onHold: () => void;
   onCancelHold: () => void;
   onClearPresence: () => void;
@@ -155,6 +158,15 @@ function RoomRow({
           {paused && (
             <span className="badge badge-orange" role="status" title={pausedText(paused)}>
               Paused
+            </span>
+          )}
+          {fireplace && (
+            <span
+              className="badge badge-orange"
+              role="status"
+              title={`${fireplace} is warming this room, so it isn't calling for heating or cooling`}
+            >
+              Fireplace
             </span>
           )}
         </span>
@@ -240,6 +252,7 @@ function roomsBlock(
   temps: Record<string, number | null>,
   heldRoomIds: Set<string>,
   pausedRooms: Record<string, string[] | null>,
+  fireplaceRooms: Record<string, string>,
   controls: {
     onHold: (roomId: string) => void;
     onCancelHold: (roomId: string) => void;
@@ -265,6 +278,7 @@ function roomsBlock(
           temp={temps[room.id] ?? null}
           held={heldRoomIds.has(room.id)}
           paused={pausedRooms[room.id] ?? null}
+          fireplace={fireplaceRooms[room.id] ?? null}
           onHold={() => controls.onHold(room.id)}
           onCancelHold={() => controls.onCancelHold(room.id)}
           onClearPresence={controls.onClearPresence}
@@ -329,6 +343,9 @@ function ZoneCard({
   const totalRooms = zoneRooms.length;
   const pausedRooms = Object.fromEntries(
     zoneRooms.map((r) => [r.id, pausedBy(smart, "room", r.id, rooms)])
+  );
+  const fireplaceRooms = Object.fromEntries(
+    (smart?.fireplace_rooms ?? []).map((f) => [f.room_id, f.fireplace])
   );
   const activeRooms = zone.rooms.length;
   const doneRooms = zone.rooms.filter((r) =>
@@ -427,10 +444,11 @@ function ZoneCard({
           // engine, so they stay live under CI.
           heldRoomIds,
           pausedRooms,
+          fireplaceRooms,
           { onHold, onCancelHold, onClearPresence }
         )}
       >
-        {roomsBlock(zoneRooms, zone.rooms, temps, heldRoomIds, pausedRooms, {
+        {roomsBlock(zoneRooms, zone.rooms, temps, heldRoomIds, pausedRooms, fireplaceRooms, {
           onHold,
           onCancelHold,
           onClearPresence,

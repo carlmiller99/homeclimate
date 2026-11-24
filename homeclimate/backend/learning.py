@@ -101,6 +101,8 @@ class RoomSample:
     zone_vent_open: float | None
     occupied: bool | None
     opening: bool | None
+    # A fireplace that warms this room is lit or cooling down; None with no fireplace.
+    fireplace: bool | None = None
 
 
 def _mean(values: Iterable[float | None], digits: int) -> float | None:
@@ -129,6 +131,7 @@ async def collect(
     vent_openness: Callable[[RoomVent], float | None],
     aux_running: Callable[[str], bool],
     contact_states: dict[str, list[str]],
+    fireplace_rooms: dict[str, bool] | None = None,
 ) -> list[RoomSample]:
     """Read one sample for every room from Home Assistant's current state.
 
@@ -172,6 +175,7 @@ async def collect(
                 zone_vent_open=_mean(zone_vents[room.thermostat_entity_id], 3),
                 occupied=_occupied([ha.get_state(p.entity_id) for p in presence]),
                 opening=_opening(contacts),
+                fireplace=(fireplace_rooms or {}).get(room.id),
             )
         )
     return samples
@@ -241,13 +245,15 @@ async def store(conn: aiosqlite.Connection, samples: list[RoomSample]) -> None:
             _scaled(s.zone_vent_open, VENT_SCALE),
             _flag(s.occupied),
             _flag(s.opening),
+            _flag(s.fireplace),
         )
         for s in samples
     ]
     await conn.executemany(
         """INSERT OR REPLACE INTO room_readings(room_key, ts, zone_key, action_key, room_temp,
-               zone_temp, outside_temp, aux_heat, vent_open, zone_vent_open, occupied, opening)
-           VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+               zone_temp, outside_temp, aux_heat, vent_open, zone_vent_open, occupied, opening,
+               fireplace)
+           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         rows,
     )
     await conn.commit()
@@ -286,6 +292,7 @@ async def load(
                 zone_vent_open=_unscaled(r["zone_vent_open"], VENT_SCALE),
                 occupied=None if r["occupied"] is None else bool(r["occupied"]),
                 opening=None if r["opening"] is None else bool(r["opening"]),
+                fireplace=None if r["fireplace"] is None else bool(r["fireplace"]),
             )
             for r in rows
         )

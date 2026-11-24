@@ -802,11 +802,17 @@ class PausedScopeSchema(Schema):
     since = fields.Str()
 
 
+class FireplaceRoomSchema(Schema):
+    room_id = fields.Str()
+    fireplace = fields.Str(metadata={"description": "Name of the fireplace setting the room aside"})
+
+
 class SmartControlSchema(Schema):
     settings = fields.Nested(SmartControlSettingsSchema)
     overrides = fields.List(fields.Nested(SmartControlOverrideSchema))
     sensors = fields.List(fields.Nested(ContactSensorSchema))
     paused = fields.List(fields.Nested(PausedScopeSchema))
+    fireplace_rooms = fields.List(fields.Nested(FireplaceRoomSchema))
 
 
 class ShadeSettingsSchema(Schema):
@@ -857,6 +863,26 @@ class ShadesSchema(Schema):
     settings = fields.Nested(ShadeSettingsSchema)
     sun = fields.Nested(SunSchema)
     shades = fields.List(fields.Nested(ShadeSchema))
+
+
+class FireplaceWriteSchema(Schema):
+    name = fields.Str()
+    entity_id = fields.Str(metadata={"description": "The entity that is on while the fire is lit"})
+    room_ids = fields.List(fields.Str(), metadata={"description": "Every room the fire warms"})
+    cooldown_min = fields.Int(metadata={"description": "0 to 240"})
+    control = fields.Str(metadata={"description": "off, watch or on"})
+
+
+class FireplaceSchema(FireplaceWriteSchema):
+    id = fields.Str()
+    state = fields.Str(metadata={"description": "lit, cooling, out or unknown"})
+    lit_since = fields.Str(allow_none=True)
+    cooling_until = fields.Str(allow_none=True)
+    setting_aside = fields.Bool(metadata={"description": "Its rooms are out of demand right now"})
+
+
+class FireplacesSchema(Schema):
+    fireplaces = fields.List(fields.Nested(FireplaceSchema))
 
 
 class ForecastSettingsSchema(Schema):

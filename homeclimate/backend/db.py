@@ -254,8 +254,26 @@ CREATE TABLE IF NOT EXISTS room_readings (
     zone_vent_open INTEGER,
     occupied INTEGER,
     opening INTEGER,
+    fireplace INTEGER,
     PRIMARY KEY (room_key, ts)
 ) WITHOUT ROWID;
+
+-- Fireplaces (backend/fireplace.py): the entity that says one is lit, the
+-- rooms it warms, and what to do about it. last_lit_at is Unix seconds, so a
+-- cool-down survives a restart.
+CREATE TABLE IF NOT EXISTS fireplaces (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    entity_id TEXT NOT NULL,
+    cooldown_min INTEGER NOT NULL DEFAULT 60,
+    control TEXT NOT NULL DEFAULT 'watch' CHECK (control IN ('off', 'watch', 'on')),
+    last_lit_at INTEGER
+);
+CREATE TABLE IF NOT EXISTS fireplace_rooms (
+    fireplace_id TEXT NOT NULL,
+    room_id TEXT NOT NULL,
+    PRIMARY KEY (fireplace_id, room_id)
+);
 
 -- The weather forecast (backend/forecast.py). forecast_hours is the forecast
 -- in use: one row per hour, replaced on each fetch and kept through outages.
@@ -1444,6 +1462,7 @@ async def upsert_room(conn: aiosqlite.Connection, room: Room) -> None:
 
 async def delete_room(conn: aiosqlite.Connection, room_id: str) -> None:
     await conn.execute("DELETE FROM rooms WHERE id=?", (room_id,))
+    await conn.execute("DELETE FROM fireplace_rooms WHERE room_id=?", (room_id,))
     await conn.commit()
 
 

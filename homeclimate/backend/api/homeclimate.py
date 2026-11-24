@@ -11,7 +11,7 @@ from datetime import date, datetime, time, timedelta
 
 from aiohttp import web
 
-from .. import db, forecast, ha_import, heat_pump, learning, openings, shades, tz, zones
+from .. import db, fireplace, forecast, ha_import, heat_pump, learning, openings, shades, tz, zones
 from ..units import delta_to_f, to_f
 from ..user_errors import UserError, safe_text
 from . import schemas
@@ -244,6 +244,10 @@ async def _smart_control_snapshot(request: web.Request) -> dict:
             {"scope": scope, "scope_id": scope_id, "since": since.isoformat()}
             for (scope, scope_id), since in monitor.paused_items()
         ],
+        "fireplace_rooms": [
+            {"room_id": room_id, "fireplace": name}
+            for room_id, name in sorted(scheduler.fireplaces.set_aside_rooms().items())
+        ],
     }
 
 
@@ -414,6 +418,78 @@ async def update_learning_settings(request: web.Request) -> web.Response:
         return error(safe_text(exc))
     await emit(request, "info", "api", "Smart Learning settings updated", body)
     return json_response(await _learning_snapshot(request))
+
+
+async def _fireplaces_snapshot(request: web.Request) -> dict:
+    scheduler = request.app["scheduler"]
+    await scheduler.refresh_fireplaces()
+    return {
+        "fireplaces": [
+            {
+                "id": s.fireplace.id,
+                "name": s.fireplace.name,
+                "entity_id": s.fireplace.entity_id,
+                "room_ids": list(s.fireplace.room_ids),
+                "cooldown_min": s.fireplace.cooldown_min,
+                "control": s.fireplace.control,
+                "state": s.state,
+                "lit_since": _iso(s.lit_since),
+                "cooling_until": _iso(s.cooling_until),
+                "setting_aside": s.setting_aside,
+            }
+            for s in scheduler.fireplaces.statuses()
+        ]
+    }
+
+
+@docs(tags=["fireplace"], summary="Fireplaces, the rooms they warm, and whether each is lit")
+@response_schema(schemas.FireplacesSchema)
+@routes.get("/api/fireplaces")
+async def get_fireplaces(request: web.Request) -> web.Response:
+    return json_response(await _fireplaces_snapshot(request))
+
+
+@docs(tags=["fireplace"], summary="Add a fireplace")
+@request_schema(schemas.FireplaceWriteSchema)
+@response_schema(schemas.FireplacesSchema)
+@routes.post("/api/fireplaces")
+async def create_fireplace(request: web.Request) -> web.Response:
+    body = await _json_object(request)
+    conn = await get_conn(request)
+    try:
+        await fireplace.create(conn, body)
+    except UserError as exc:
+        return error(safe_text(exc))
+    await emit(request, "info", "api", "Fireplace added", body)
+    return json_response(await _fireplaces_snapshot(request), status=201)
+
+
+@docs(tags=["fireplace"], summary="Change a fireplace")
+@request_schema(schemas.FireplaceWriteSchema)
+@response_schema(schemas.FireplacesSchema)
+@routes.put("/api/fireplaces/{fireplace_id}")
+async def update_fireplace(request: web.Request) -> web.Response:
+    body = await _json_object(request)
+    conn = await get_conn(request)
+    try:
+        found = await fireplace.update(conn, request.match_info["fireplace_id"], body)
+    except UserError as exc:
+        return error(safe_text(exc))
+    if not found:
+        return error("Fireplace not found", status=404)
+    await emit(request, "info", "api", "Fireplace changed", body)
+    return json_response(await _fireplaces_snapshot(request))
+
+
+@docs(tags=["fireplace"], summary="Remove a fireplace")
+@response_schema(schemas.FireplacesSchema)
+@routes.delete("/api/fireplaces/{fireplace_id}")
+async def delete_fireplace(request: web.Request) -> web.Response:
+    conn = await get_conn(request)
+    if not await fireplace.delete(conn, request.match_info["fireplace_id"]):
+        return error("Fireplace not found", status=404)
+    await emit(request, "info", "api", "Fireplace removed", {})
+    return json_response(await _fireplaces_snapshot(request))
 
 
 async def _forecast_snapshot(request: web.Request) -> dict:

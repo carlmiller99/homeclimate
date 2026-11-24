@@ -19,7 +19,7 @@ One row per room, on the 5-minute marks, whether or not the equipment is running
 - the zone thermostat's temperature and what it reports the equipment is doing (heating, cooling, idle), and whether auxiliary heat is on
 - the outside temperature, when an outside sensor is set in Settings → Sensors
 - how far open the room's vents are, and the whole zone's vents, from 0 to 1. Position and tilt vents report their position; others count as fully open or closed.
-- whether the room is occupied, and whether one of its doors or windows is open
+- whether the room is occupied, whether one of its doors or windows is open, and whether a fireplace that warms it is lit or cooling down
 
 Anything HomeClimate can't know at that moment is stored as unknown rather than guessed: a room with no sensors, a vent or occupancy sensor that is offline, a room with no door sensor or one that isn't reporting. Nothing is recorded while Home Assistant is disconnected, so an outage shows as a gap.
 

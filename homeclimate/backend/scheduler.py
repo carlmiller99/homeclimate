@@ -20,7 +20,7 @@ from datetime import UTC, datetime, timedelta
 import aiosqlite
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from . import db, forecast, heat_pump, learning, openings, shades, tz, zones
+from . import db, fireplace, forecast, heat_pump, learning, openings, shades, tz, zones
 from .engine import room_manager
 from .engine.cycle_engine import SENSOR_STALE_AFTER_MIN, CycleEngine
 from .engine.vent_controller import VentController
@@ -151,6 +151,7 @@ class Scheduler:
         self._aux = heat_pump.AuxMonitor()
         self._shades = shades.ShadeController()
         self._forecast = forecast.Forecast()
+        self._fireplaces = fireplace.FireplaceMonitor()
 
     def _spawn_bg(self, coro: Coroutine) -> asyncio.Task:
         """Create a background task and keep a strong reference until it
@@ -224,6 +225,7 @@ class Scheduler:
         await self.adopt_first_build_readings()
         # Learn which door and window sensors to watch before events arrive.
         await self._evaluate_openings()
+        await self._evaluate_fireplaces()
 
         # Subscribe to ALL HA state changes
         self._ha.subscribe_all(self._on_state_change)
@@ -1034,7 +1036,7 @@ class Scheduler:
             # fired leaves vacation before the global return time.
             get_vacation_mode=functools.partial(self.is_vacation_for, tid),
             get_eco_suspended=functools.partial(self.is_eco_suspended, tid),
-            get_openings=functools.partial(self._openings.pause_for, tid),
+            get_openings=functools.partial(self._pause_for, tid),
             get_heat_pump=functools.partial(self._heat_pumps.get, tid),
         )
 
@@ -1322,6 +1324,7 @@ class Scheduler:
         await self._refresh_continuous_presence()
         await self._refresh_reported_states()
         await self._evaluate_openings()
+        await self._evaluate_fireplaces()
         await self._load_heat_pumps()
         await self._watch_backup_heat()
         tasks = [self._tick_engine(tid, eng) for tid, eng in self._engines.items()]
@@ -1331,6 +1334,65 @@ class Scheduler:
     @property
     def openings(self) -> openings.OpeningMonitor:
         return self._openings
+
+    @property
+    def fireplaces(self) -> fireplace.FireplaceMonitor:
+        return self._fireplaces
+
+    def _pause_for(self, thermostat_entity_id: str) -> tuple[bool, frozenset[str]]:
+        """What the engine must leave out of demand: door and window pauses,
+        plus rooms a lit fireplace is warming."""
+        zone, rooms = self._openings.pause_for(thermostat_entity_id)
+        return zone, rooms | frozenset(self._fireplaces.set_aside_rooms())
+
+    async def _evaluate_fireplaces(self) -> set[str]:
+        """Re-read every fireplace; log changes and return the zones affected."""
+        try:
+            changes = await self._fireplaces.evaluate(
+                self._db_conn, self._ha.get_state, datetime.now(UTC)
+            )
+        except Exception:
+            log.exception("Could not evaluate fireplaces")
+            return set()
+        if not changes:
+            return set()
+        zones_hit: set[str] = set()
+        rooms = {r.id: r for r in await db.get_all_rooms(self._db_conn)}
+        for change in changes:
+            f = change.fireplace
+            names = sorted(rooms[r].name for r in f.room_ids if r in rooms)
+            if f.control == "on":
+                zones_hit |= {rooms[r].thermostat_entity_id for r in f.room_ids if r in rooms}
+            acting = f.control == "on"
+            message = {
+                fireplace.LIT: (
+                    f"{f.name} is lit; {', '.join(names)} set aside"
+                    if acting
+                    else f"{f.name} is lit (watching only)"
+                ),
+                fireplace.COOLING: f"{f.name} is out; cooling down for {f.cooldown_min} min",
+                fireplace.OUT: (
+                    f"{f.name} has cooled down; {', '.join(names)} back to normal"
+                    if acting
+                    else f"{f.name} has cooled down"
+                ),
+                fireplace.UNKNOWN: f"{f.name}: its signal is not reporting",
+            }[change.state]
+            if self._event_logger is not None:
+                await self._event_logger.log(
+                    "warning" if change.state == fireplace.UNKNOWN else "info",
+                    "fireplace",
+                    message,
+                    {"fireplace": f.name, "state": change.state, "control": f.control},
+                )
+        return zones_hit
+
+    async def refresh_fireplaces(self) -> None:
+        """Re-evaluate fireplaces now and tick any zone whose rooms changed."""
+        for tid in await self._evaluate_fireplaces():
+            engine = self._engines.get(tid)
+            if engine is not None:
+                await self._tick_engine(tid, engine)
 
     async def _evaluate_openings(self) -> set[str]:
         """Re-evaluate door/window pauses; log changes and return the zones hit."""
@@ -1489,6 +1551,7 @@ class Scheduler:
                     vent_openness=self._vent_ctrl.openness,
                     aux_running=self.aux_heat_running,
                     contact_states=contacts,
+                    fireplace_rooms=self._fireplaces.warmed_rooms(),
                 )
                 await learning.store(conn, samples)
         except Exception:
@@ -1665,6 +1728,9 @@ class Scheduler:
         if entity_id in self._openings.entities:
             self._openings.observe(entity_id, new_state, datetime.now(UTC))
             await self.refresh_openings()
+
+        if entity_id in self._fireplaces.entities:
+            await self.refresh_fireplaces()
 
         if entity_id.startswith("binary_sensor.") and new_state.get("state") == "on":
             await self._handle_presence_event(entity_id)

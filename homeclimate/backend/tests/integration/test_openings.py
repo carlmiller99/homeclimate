@@ -68,6 +68,7 @@ async def test_settings_defaults_and_updates(client):
         "overrides": [],
         "sensors": [],
         "paused": [],
+        "fireplace_rooms": [],
     }
     resp = await client.put(
         "/api/smart-control/settings",

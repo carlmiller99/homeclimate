@@ -42,12 +42,14 @@ export interface SmartControl {
   overrides: OpeningOverride[];
   sensors: ContactSensor[];
   paused: PausedScope[];
+  /** Rooms a lit fireplace is keeping out of demand, with the fireplace's name. */
+  fireplace_rooms?: { room_id: string; fireplace: string }[];
 }
 
 /** Where a door or window is, and whether it pauses that room or its whole zone. */
 export type ContactTarget = { room_id: string; pauses: "room" | "zone" };
 
-export const PLANNED_SECTIONS = ["Fireplace Compensation"];
+export const PLANNED_SECTIONS: string[] = [];
 export const OPENINGS_NOTE =
   "Only a door or window opening starts the timer. A sensor that goes offline releases its pause.";
 

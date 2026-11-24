@@ -410,6 +410,22 @@ describe("Dashboard rooms and zones", () => {
     expect(loft).toHaveAttribute("title", "Paused: door or window open");
   });
 
+  it("marks a room a lit fireplace is keeping out of demand", async () => {
+    vi.mocked(sc.getSmartControl).mockResolvedValue({
+      ...smartControl([]),
+      fireplace_rooms: [{ room_id: "kitchen", fireplace: "Hearth" }],
+    } as sc.SmartControl);
+    render(<Dashboard />);
+    const badge = await waitFor(() =>
+      within(screen.getByTestId("dash-room-kitchen")).getByText("Fireplace")
+    );
+    expect(badge).toHaveAttribute(
+      "title",
+      "Hearth is warming this room, so it isn't calling for heating or cooling"
+    );
+    expect(within(screen.getByTestId("dash-room-bunk")).queryByText("Fireplace")).toBeNull();
+  });
+
   it("reports a hold that could not be cancelled, and presence that could not be cleared", async () => {
     vi.mocked(api.getOverrides).mockResolvedValue([makeHold({ room_id: "mudroom" })]);
     vi.mocked(api.clearOverride).mockRejectedValueOnce(new Error("Room not found"));

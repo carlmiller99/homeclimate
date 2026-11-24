@@ -2619,3 +2619,53 @@ button.sc-nav-item {
   color: var(--gray-600);
   border-top: 0;
 }
+
+/* Smart Control → Fireplace */
+.fireplace-card {
+  border-top: 1px solid var(--border);
+  padding: 1rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+.fireplace-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  width: 100%;
+  align-items: baseline;
+}
+.fireplace-state {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--gray-600);
+  white-space: nowrap;
+}
+.fireplace-state.fireplace-lit,
+.fireplace-state.fireplace-cooling {
+  color: var(--state-paused-text);
+}
+.fireplace-note {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--state-paused-text);
+}
+.fireplace-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem 2rem;
+}
+.fireplace-rooms {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.25rem;
+}
+.fireplace-rooms legend {
+  padding: 0;
+  margin-bottom: 0.35rem;
+  width: 100%;
+}
