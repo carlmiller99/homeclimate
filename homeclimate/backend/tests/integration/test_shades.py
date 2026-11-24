@@ -9,7 +9,6 @@ import pytest
 from backend import db, shades
 from backend.shades import CLOSE, OPEN, Shade, Sun, decide
 
-
 T1 = "climate.upstairs"
 SHADE = "cover.bunk_shade"
 NOON = time(12, 0)
