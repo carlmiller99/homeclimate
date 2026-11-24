@@ -20,7 +20,7 @@ from datetime import UTC, datetime, timedelta
 import aiosqlite
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from . import db, heat_pump, learning, openings, shades, tz, zones
+from . import db, forecast, heat_pump, learning, openings, shades, tz, zones
 from .engine import room_manager
 from .engine.cycle_engine import SENSOR_STALE_AFTER_MIN, CycleEngine
 from .engine.vent_controller import VentController
@@ -150,6 +150,7 @@ class Scheduler:
         self._zone_profiles: dict[str, zones.ZoneProfile] = {}
         self._aux = heat_pump.AuxMonitor()
         self._shades = shades.ShadeController()
+        self._forecast = forecast.Forecast()
 
     def _spawn_bg(self, coro: Coroutine) -> asyncio.Task:
         """Create a background task and keep a strong reference until it
@@ -249,6 +250,16 @@ class Scheduler:
             "cron",
             minute=f"*/{learning.SAMPLE_EVERY_MIN}",
             id="room_sampler",
+            max_instances=1,
+            coalesce=True,
+        )
+        # The weather forecast: fetched and archived. Read-only.
+        self._apscheduler.add_job(
+            self.refresh_forecast,
+            "interval",
+            minutes=forecast.REFRESH_EVERY_MIN,
+            id="forecast_refresh",
+            next_run_time=datetime.now(UTC),
             max_instances=1,
             coalesce=True,
         )
@@ -1416,6 +1427,24 @@ class Scheduler:
                 engine = self._engines.get(tid)
                 if engine is not None:
                     await engine.heat_pump_backoff(self._db_conn)
+
+    @property
+    def forecast(self) -> forecast.Forecast:
+        return self._forecast
+
+    async def refresh_forecast(self) -> None:
+        """Fetch the forecast; log only when it starts failing or recovers."""
+        try:
+            change = await self._forecast.refresh(self._db_conn, self._ha, now=datetime.now(UTC))
+            if change and self._event_logger is not None:
+                if change == "failed":
+                    await self._event_logger.log(
+                        "warning", "forecast", "Forecast fetch failed; keeping the last one", {}
+                    )
+                else:
+                    await self._event_logger.log("info", "forecast", "Forecast is back", {})
+        except Exception:
+            log.exception("Could not refresh the forecast")
 
     @property
     def shade_controller(self) -> shades.ShadeController:

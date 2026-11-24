@@ -18,6 +18,7 @@ import {
 } from "../smartControlApi";
 import { getZones, type ZoneProfile } from "../zonesApi";
 import Schedules from "./Schedules";
+import ForecastSection from "./ForecastSection";
 import LearningSection from "./LearningSection";
 import ShadesSection from "./ShadesSection";
 
@@ -274,7 +275,7 @@ export default function SmartControl() {
   return (
     <SectionLayout
       title="Smart Control"
-      subtitle="Tune how HomeClimate runs on its own: schedules, pauses, shades and learning."
+      subtitle="Tune how HomeClimate runs on its own: schedules, pauses, shades, learning and forecasts."
       basePath="/smart-control"
       sections={SMART_CONTROL_SECTIONS}
       current={section}
@@ -283,6 +284,8 @@ export default function SmartControl() {
         <DoorsWindows />
       ) : section === "smart-learning" ? (
         <LearningSection />
+      ) : section === "forecasts" ? (
+        <ForecastSection />
       ) : (
         <div className="embedded-page">
           <Schedules />

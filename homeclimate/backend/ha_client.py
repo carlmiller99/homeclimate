@@ -371,6 +371,22 @@ class HAClient:
         }
         return await self._send(msg)
 
+    async def get_forecasts(self, entity_id: str, kind: str = "hourly") -> list[dict]:
+        """A weather entity's forecast entries (``weather.get_forecasts``). Read-only."""
+        result = await self._send(
+            {
+                "type": "call_service",
+                "domain": "weather",
+                "service": "get_forecasts",
+                "service_data": {"type": kind},
+                "target": {"entity_id": entity_id},
+                "return_response": True,
+            }
+        )
+        found = ((result or {}).get("response") or {}).get(entity_id) or {}
+        entries = found.get("forecast")
+        return entries if isinstance(entries, list) else []
+
     async def set_thermostat_temperature(
         self,
         entity_id: str,

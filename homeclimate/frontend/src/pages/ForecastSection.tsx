@@ -1,0 +1,194 @@
+import { useEffect, useState } from "react";
+import { Frozen } from "../ci";
+import EntityPicker from "../components/EntityPicker";
+import { RuleRow } from "../components/SmartControlControls";
+import Time from "../components/Time";
+import { useUnit } from "../contexts";
+import {
+  describeCondition,
+  getForecast,
+  refreshForecast,
+  updateForecastSettings,
+  type Forecast,
+  type ForecastSettings,
+} from "../forecastApi";
+
+const STATE_TEXT: Record<Forecast["state"], string> = {
+  off: "The forecast is off.",
+  no_entity: "Choose a weather source to start fetching the forecast.",
+  none: "No forecast yet.",
+  kept: "Showing the last forecast received; the latest fetch did not succeed.",
+  fresh: "Up to date.",
+};
+
+export default function ForecastSection() {
+  const { fmtTemp } = useUnit();
+  const [data, setData] = useState<Forecast | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    getForecast()
+      .then((d) => {
+        if (!cancelled) setData(d);
+      })
+      .catch(() => {
+        if (!cancelled) setLoadFailed(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (loadFailed) return <p className="form-error">Could not load the forecast.</p>;
+  if (!data) return <p className="page-subtitle">Loading the forecast…</p>;
+
+  const run = async (call: () => Promise<Forecast>, fallback: string) => {
+    if (busy) return;
+    setErr(null);
+    setBusy(true);
+    try {
+      setData(await call());
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : fallback);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const set = (patch: Partial<ForecastSettings>) =>
+    void run(() => updateForecastSettings(patch), "Could not save the setting");
+  const s = data.settings;
+  const showing = data.state === "fresh" || data.state === "kept";
+
+  return (
+    <>
+      <section className="sc-section" id="forecasts">
+        <h2 className="sc-section-title">Forecasts</h2>
+        <p className="sc-section-lead">
+          HomeClimate fetches the hourly forecast and keeps a record of it. For now the forecast is
+          only shown here; it does not change how your home is controlled.
+        </p>
+        <RuleRow
+          id="forecast-enabled"
+          title="Use the Weather Forecast"
+          help="Fetches the hourly forecast from Home Assistant every 30 minutes."
+          enabled={s.enabled}
+          onToggle={(v) => set({ enabled: v })}
+        >
+          {null}
+        </RuleRow>
+        <div className="rule-row">
+          <span className="switch-spacer" />
+          <div className="rule-text">
+            <span className="rule-title">Weather Source</span>
+            <p className="rule-help">
+              {data.shared_with_shades
+                ? "Using the weather source set for Shades. Choose one here to use a different one."
+                : "A Home Assistant weather entity with an hourly forecast."}
+            </p>
+          </div>
+          <div className="rule-value">
+            {s.weather_entity ? (
+              <div className="picked-entity">
+                <span>{s.weather_entity}</span>
+                <button
+                  type="button"
+                  className="link-button"
+                  disabled={busy}
+                  onClick={() => set({ weather_entity: "" })}
+                >
+                  Clear
+                </button>
+              </div>
+            ) : (
+              <>
+                {data.shared_with_shades && (
+                  <span className="picked-entity">{data.weather_entity}</span>
+                )}
+                <EntityPicker
+                  domain="weather"
+                  placeholder="Search weather…"
+                  onSelect={(id) => set({ weather_entity: id })}
+                />
+              </>
+            )}
+          </div>
+        </div>
+        {err && <p className="form-error">{err}</p>}
+      </section>
+
+      <section className="sc-section" id="forecast-now">
+        <div className="sc-section-head">
+          <h2 className="sc-section-title">The Forecast</h2>
+          {data.state !== "off" && data.state !== "no_entity" && (
+            <button
+              type="button"
+              className="btn btn-secondary"
+              disabled={busy}
+              onClick={() => void run(refreshForecast, "Could not fetch the forecast")}
+            >
+              Fetch Now
+            </button>
+          )}
+        </div>
+        <p className="sc-section-lead">
+          {STATE_TEXT[data.state]}{" "}
+          <Frozen frozen={null}>
+            {showing && data.fetched_at && (
+              <>
+                Received <Time value={data.fetched_at} />.
+              </>
+            )}
+          </Frozen>
+        </p>
+        {data.problem && <p className="form-error">{data.problem}</p>}
+        {showing && (
+          <>
+            <ul className="forecast-days">
+              {data.days.map((d) => (
+                <li key={d.date} className="forecast-day">
+                  <span className="sensor-title">
+                    <Time
+                      value={d.starts_at}
+                      kind="date"
+                      options={{ weekday: "long", month: "short", day: "numeric" }}
+                    />
+                  </span>
+                  <span>High {fmtTemp(d.high)}</span>
+                  <span>Low {fmtTemp(d.low)}</span>
+                </li>
+              ))}
+            </ul>
+            <table className="forecast-hours">
+              <caption>Next {data.hours.length} hours</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Time</th>
+                  <th scope="col">Temperature</th>
+                  <th scope="col">Sky</th>
+                  <th scope="col">Cloud Cover</th>
+                  <th scope="col">Chance of Rain</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.hours.map((h) => (
+                  <tr key={h.at}>
+                    <th scope="row">
+                      <Time value={h.at} kind="time" options={{ hour: "numeric" }} />
+                    </th>
+                    <td>{fmtTemp(h.temp)}</td>
+                    <td>{describeCondition(h.condition) || "—"}</td>
+                    <td>{h.cloud_pct === null ? "—" : `${h.cloud_pct}%`}</td>
+                    <td>{h.precip_pct === null ? "—" : `${h.precip_pct}%`}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
+        )}
+      </section>
+    </>
+  );
+}

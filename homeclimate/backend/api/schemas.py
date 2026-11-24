@@ -859,6 +859,41 @@ class ShadesSchema(Schema):
     shades = fields.List(fields.Nested(ShadeSchema))
 
 
+class ForecastSettingsSchema(Schema):
+    enabled = fields.Bool()
+    weather_entity = fields.Str(metadata={"description": "A weather entity, or empty"})
+
+
+class ForecastDaySchema(Schema):
+    date = fields.Str(metadata={"description": "House-local date"})
+    starts_at = fields.Str(metadata={"description": "The first forecast hour of that date"})
+    high = fields.Float(metadata={"description": "°F, over the forecast hours of that date"})
+    low = fields.Float(metadata={"description": "°F, over the forecast hours of that date"})
+    hours = fields.Int()
+
+
+class ForecastHourSchema(Schema):
+    at = fields.Str()
+    temp = fields.Float(metadata={"description": "°F"})
+    cloud_pct = fields.Int(allow_none=True)
+    precip_pct = fields.Int(allow_none=True)
+    condition = fields.Str()
+
+
+class ForecastSchema(Schema):
+    settings = fields.Nested(ForecastSettingsSchema)
+    weather_entity = fields.Str(
+        metadata={"description": "The entity in use, set here or in Shades"}
+    )
+    shared_with_shades = fields.Bool()
+    state = fields.Str(metadata={"description": "off, no_entity, none, kept or fresh"})
+    problem = fields.Str(allow_none=True)
+    fetched_at = fields.Str(allow_none=True)
+    covers_until = fields.Str(allow_none=True)
+    days = fields.List(fields.Nested(ForecastDaySchema))
+    hours = fields.List(fields.Nested(ForecastHourSchema))
+
+
 class LearningSettingsSchema(Schema):
     sampling_enabled = fields.Bool()
     sample_retention_days = fields.Int()

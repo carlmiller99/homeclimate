@@ -257,6 +257,25 @@ CREATE TABLE IF NOT EXISTS room_readings (
     PRIMARY KEY (room_key, ts)
 ) WITHOUT ROWID;
 
+-- The weather forecast (backend/forecast.py). forecast_hours is the forecast
+-- in use: one row per hour, replaced on each fetch and kept through outages.
+-- forecast_snapshots archives what was forecast, as of each clock hour, so
+-- forecasts can be scored later. Times are Unix seconds; temp is hundredths °F.
+CREATE TABLE IF NOT EXISTS forecast_hours (
+    at INTEGER PRIMARY KEY,
+    temp INTEGER NOT NULL,
+    cloud_pct INTEGER,
+    precip_pct INTEGER,
+    condition TEXT NOT NULL DEFAULT '',
+    fetched_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS forecast_snapshots (
+    issued INTEGER NOT NULL,
+    at INTEGER NOT NULL,
+    temp INTEGER NOT NULL,
+    PRIMARY KEY (issued, at)
+) WITHOUT ROWID;
+
 -- HomeClimate heat pumps: each backup (aux) heat episode seen on a zone's
 -- equipment-running source, for Metrics.
 CREATE TABLE IF NOT EXISTS aux_episodes (

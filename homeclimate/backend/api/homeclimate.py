@@ -11,7 +11,7 @@ from datetime import date, datetime, time, timedelta
 
 from aiohttp import web
 
-from .. import db, ha_import, heat_pump, learning, openings, shades, tz, zones
+from .. import db, forecast, ha_import, heat_pump, learning, openings, shades, tz, zones
 from ..units import delta_to_f, to_f
 from ..user_errors import UserError, safe_text
 from . import schemas
@@ -414,6 +414,43 @@ async def update_learning_settings(request: web.Request) -> web.Response:
         return error(safe_text(exc))
     await emit(request, "info", "api", "Smart Learning settings updated", body)
     return json_response(await _learning_snapshot(request))
+
+
+async def _forecast_snapshot(request: web.Request) -> dict:
+    conn = await get_conn(request)
+    snap: dict = await request.app["scheduler"].forecast.snapshot(conn, now=datetime.now(tz.UTC))
+    return snap
+
+
+@docs(tags=["forecast"], summary="Forecast settings and the forecast in use")
+@response_schema(schemas.ForecastSchema)
+@routes.get("/api/forecast")
+async def get_forecast(request: web.Request) -> web.Response:
+    return json_response(await _forecast_snapshot(request))
+
+
+@docs(tags=["forecast"], summary="Update forecast settings, then fetch")
+@request_schema(schemas.ForecastSettingsSchema)
+@response_schema(schemas.ForecastSchema)
+@routes.put("/api/forecast/settings")
+async def update_forecast_settings(request: web.Request) -> web.Response:
+    body = await _json_object(request)
+    conn = await get_conn(request)
+    try:
+        await forecast.update_settings(conn, body)
+    except UserError as exc:
+        return error(safe_text(exc))
+    await emit(request, "info", "api", "Forecast settings updated", body)
+    await request.app["scheduler"].refresh_forecast()
+    return json_response(await _forecast_snapshot(request))
+
+
+@docs(tags=["forecast"], summary="Fetch the forecast now")
+@response_schema(schemas.ForecastSchema)
+@routes.post("/api/forecast/refresh")
+async def refresh_forecast(request: web.Request) -> web.Response:
+    await request.app["scheduler"].refresh_forecast()
+    return json_response(await _forecast_snapshot(request))
 
 
 @docs(tags=["shades"], summary="Add a shade to a room, or change one")
