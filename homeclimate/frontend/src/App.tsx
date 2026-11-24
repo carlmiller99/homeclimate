@@ -5,6 +5,7 @@ import Dashboard from "./pages/Dashboard";
 import Rooms from "./pages/Rooms";
 import Schedules from "./pages/Schedules";
 import Thermostats from "./pages/Thermostats";
+import Zones from "./pages/Zones";
 import Settings from "./pages/Settings";
 import Logs from "./pages/Logs";
 // Lazy-loaded so recharts (~400 KB) only ships when /metrics is opened.
@@ -533,6 +534,7 @@ export default function App() {
             <Route path="/rooms" element={<Rooms />} />
             <Route path="/schedules" element={<Schedules />} />
             <Route path="/thermostats" element={<Thermostats />} />
+            <Route path="/zones" element={<Zones />} />
             <Route
               path="/metrics"
               element={

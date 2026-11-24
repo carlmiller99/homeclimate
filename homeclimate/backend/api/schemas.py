@@ -650,3 +650,39 @@ class MetricsLiveSchema(Schema):
     current_cycle = fields.Dict(allow_none=True)
     outside_temp_entity_id = fields.Str(allow_none=True)
     current_outside_temp = fields.Float(allow_none=True)
+
+
+# --- HomeClimate: buildings and zones ---
+
+
+class BuildingSchema(Schema):
+    id = fields.Str()
+    name = fields.Str()
+    sort_order = fields.Int()
+
+
+class BuildingWriteSchema(Schema):
+    name = fields.Str()
+    sort_order = fields.Int()
+
+
+class ZoneProfileSchema(Schema):
+    thermostat_entity_id = fields.Str()
+    name = fields.Str()
+    building_id = fields.Str(allow_none=True)
+    sort_order = fields.Int()
+    system_type = fields.Str(metadata={"description": "conventional | heat_pump"})
+    compressor_stages = fields.Int()
+    backup_heat = fields.Str(metadata={"description": "electric | gas | none"})
+    equipment_running_entity = fields.Str(allow_none=True)
+    heat_kit_confirmed = fields.Bool()
+
+
+class ZoneProfileWriteSchema(Schema):
+    building_id = fields.Str(allow_none=True)
+    sort_order = fields.Int()
+    system_type = fields.Str()
+    compressor_stages = fields.Int()
+    backup_heat = fields.Str()
+    equipment_running_entity = fields.Str(allow_none=True)
+    heat_kit_confirmed = fields.Bool()

@@ -1,0 +1,241 @@
+"""Buildings and zone profiles (HomeClimate).
+
+A *zone* is one thermostat. Zones belong to an optional *building*, and carry
+an equipment profile (conventional or heat pump, compressor stages, backup
+heat, an optional "equipment running" entity). Kept out of
+``thermostat_configs`` so the existing tuning row and its MQTT/parity
+contracts are unaffected.
+"""
+
+from __future__ import annotations
+
+import uuid
+from dataclasses import dataclass
+from typing import Any
+
+import aiosqlite
+
+SYSTEM_TYPES = ("conventional", "heat_pump")
+BACKUP_HEAT = ("electric", "gas", "none")
+MAX_STAGES = 3
+MAX_NAME_LEN = 60
+
+
+@dataclass
+class Building:
+    id: str
+    name: str
+    sort_order: int = 0
+
+
+@dataclass
+class ZoneProfile:
+    thermostat_entity_id: str
+    name: str = ""
+    building_id: str | None = None
+    sort_order: int = 0
+    system_type: str = "conventional"
+    compressor_stages: int = 1
+    backup_heat: str = "electric"
+    equipment_running_entity: str | None = None
+    heat_kit_confirmed: bool = False
+
+
+class ZoneError(ValueError):
+    """A user-facing validation error with a fixed, safe message."""
+
+
+def _building(row: aiosqlite.Row) -> Building:
+    return Building(id=row["id"], name=row["name"], sort_order=int(row["sort_order"]))
+
+
+async def list_buildings(conn: aiosqlite.Connection) -> list[Building]:
+    async with conn.execute(
+        "SELECT * FROM buildings ORDER BY sort_order, name COLLATE NOCASE"
+    ) as cur:
+        return [_building(r) for r in await cur.fetchall()]
+
+
+async def get_building(conn: aiosqlite.Connection, building_id: str) -> Building | None:
+    async with conn.execute("SELECT * FROM buildings WHERE id=?", (building_id,)) as cur:
+        row = await cur.fetchone()
+    return _building(row) if row else None
+
+
+def clean_name(raw: Any) -> str:
+    if not isinstance(raw, str) or not raw.strip():
+        raise ZoneError("name is required")
+    name = " ".join(raw.split())
+    if len(name) > MAX_NAME_LEN:
+        raise ZoneError(f"name must be at most {MAX_NAME_LEN} characters")
+    return name
+
+
+async def _name_taken(conn: aiosqlite.Connection, name: str, exclude_id: str | None) -> bool:
+    async with conn.execute(
+        "SELECT id FROM buildings WHERE name=? COLLATE NOCASE AND id IS NOT ?",
+        (name, exclude_id),
+    ) as cur:
+        return await cur.fetchone() is not None
+
+
+async def create_building(conn: aiosqlite.Connection, raw_name: Any) -> Building:
+    name = clean_name(raw_name)
+    if await _name_taken(conn, name, None):
+        raise ZoneError("a building with that name already exists")
+    async with conn.execute("SELECT COALESCE(MAX(sort_order), -1) + 1 FROM buildings") as cur:
+        row = await cur.fetchone()
+    next_order = int(row[0]) if row else 0
+    building = Building(id=str(uuid.uuid4()), name=name, sort_order=next_order)
+    await conn.execute(
+        "INSERT INTO buildings(id, name, sort_order) VALUES(?,?,?)",
+        (building.id, building.name, building.sort_order),
+    )
+    await conn.commit()
+    return building
+
+
+async def update_building(
+    conn: aiosqlite.Connection, building_id: str, changes: dict[str, Any]
+) -> Building | None:
+    building = await get_building(conn, building_id)
+    if building is None:
+        return None
+    if "name" in changes:
+        name = clean_name(changes["name"])
+        if await _name_taken(conn, name, building_id):
+            raise ZoneError("a building with that name already exists")
+        building.name = name
+    if "sort_order" in changes:
+        building.sort_order = _int(changes["sort_order"], "sort_order", 0, 999)
+    await conn.execute(
+        "UPDATE buildings SET name=?, sort_order=? WHERE id=?",
+        (building.name, building.sort_order, building_id),
+    )
+    await conn.commit()
+    return building
+
+
+async def delete_building(conn: aiosqlite.Connection, building_id: str) -> str:
+    """Delete a building. Returns "deleted", "missing" or "in_use"."""
+    if await get_building(conn, building_id) is None:
+        return "missing"
+    async with conn.execute(
+        "SELECT 1 FROM zone_profiles WHERE building_id=? LIMIT 1", (building_id,)
+    ) as cur:
+        if await cur.fetchone():
+            return "in_use"
+    await conn.execute("DELETE FROM buildings WHERE id=?", (building_id,))
+    await conn.commit()
+    return "deleted"
+
+
+def _int(raw: Any, name: str, lo: int, hi: int) -> int:
+    if isinstance(raw, bool) or not isinstance(raw, int) or not lo <= raw <= hi:
+        raise ZoneError(f"{name} must be a whole number from {lo} to {hi}")
+    return raw
+
+
+def _choice(raw: Any, name: str, options: tuple[str, ...]) -> str:
+    if raw not in options:
+        raise ZoneError(f"{name} must be one of: {', '.join(options)}")
+    return str(raw)
+
+
+async def list_zone_profiles(conn: aiosqlite.Connection) -> list[ZoneProfile]:
+    """Every configured thermostat as a zone, with defaults where no profile row exists."""
+    async with conn.execute(
+        """SELECT t.thermostat_entity_id AS eid, t.name AS tname, z.*
+           FROM thermostat_configs t
+           LEFT JOIN zone_profiles z ON z.thermostat_entity_id = t.thermostat_entity_id
+           ORDER BY COALESCE(z.sort_order, 0), t.name COLLATE NOCASE, t.thermostat_entity_id"""
+    ) as cur:
+        rows = await cur.fetchall()
+    return [_profile(r) for r in rows]
+
+
+async def get_zone_profile(conn: aiosqlite.Connection, entity_id: str) -> ZoneProfile | None:
+    async with conn.execute(
+        """SELECT t.thermostat_entity_id AS eid, t.name AS tname, z.*
+           FROM thermostat_configs t
+           LEFT JOIN zone_profiles z ON z.thermostat_entity_id = t.thermostat_entity_id
+           WHERE t.thermostat_entity_id=?""",
+        (entity_id,),
+    ) as cur:
+        row = await cur.fetchone()
+    return _profile(row) if row else None
+
+
+def _profile(row: aiosqlite.Row) -> ZoneProfile:
+    has_row = row["system_type"] is not None
+    return ZoneProfile(
+        thermostat_entity_id=row["eid"],
+        name=row["tname"] or "",
+        building_id=row["building_id"] if has_row else None,
+        sort_order=int(row["sort_order"]) if has_row else 0,
+        system_type=row["system_type"] if has_row else "conventional",
+        compressor_stages=int(row["compressor_stages"]) if has_row else 1,
+        backup_heat=row["backup_heat"] if has_row else "electric",
+        equipment_running_entity=row["equipment_running_entity"] if has_row else None,
+        heat_kit_confirmed=bool(row["heat_kit_confirmed"]) if has_row else False,
+    )
+
+
+async def update_zone_profile(
+    conn: aiosqlite.Connection, entity_id: str, changes: dict[str, Any]
+) -> ZoneProfile | None:
+    """Apply a partial update. Returns None when the thermostat isn't configured."""
+    zone = await get_zone_profile(conn, entity_id)
+    if zone is None:
+        return None
+    if "building_id" in changes:
+        bid = changes["building_id"]
+        if bid is not None and (not isinstance(bid, str) or await get_building(conn, bid) is None):
+            raise ZoneError("building_id does not match a building")
+        zone.building_id = bid
+    if "sort_order" in changes:
+        zone.sort_order = _int(changes["sort_order"], "sort_order", 0, 999)
+    if "system_type" in changes:
+        zone.system_type = _choice(changes["system_type"], "system_type", SYSTEM_TYPES)
+    if "compressor_stages" in changes:
+        zone.compressor_stages = _int(
+            changes["compressor_stages"], "compressor_stages", 1, MAX_STAGES
+        )
+    if "backup_heat" in changes:
+        zone.backup_heat = _choice(changes["backup_heat"], "backup_heat", BACKUP_HEAT)
+    if "equipment_running_entity" in changes:
+        ent = changes["equipment_running_entity"] or None
+        if ent is not None and (not isinstance(ent, str) or "." not in ent):
+            raise ZoneError("equipment_running_entity must be an entity id or null")
+        zone.equipment_running_entity = ent
+    if "heat_kit_confirmed" in changes:
+        if not isinstance(changes["heat_kit_confirmed"], bool):
+            raise ZoneError("heat_kit_confirmed must be true or false")
+        zone.heat_kit_confirmed = changes["heat_kit_confirmed"]
+    await conn.execute(
+        """INSERT INTO zone_profiles(thermostat_entity_id, building_id, sort_order, system_type,
+               compressor_stages, backup_heat, equipment_running_entity, heat_kit_confirmed)
+           VALUES(?,?,?,?,?,?,?,?)
+           ON CONFLICT(thermostat_entity_id) DO UPDATE SET
+             building_id=excluded.building_id, sort_order=excluded.sort_order,
+             system_type=excluded.system_type, compressor_stages=excluded.compressor_stages,
+             backup_heat=excluded.backup_heat,
+             equipment_running_entity=excluded.equipment_running_entity,
+             heat_kit_confirmed=excluded.heat_kit_confirmed""",
+        (
+            entity_id,
+            zone.building_id,
+            zone.sort_order,
+            zone.system_type,
+            zone.compressor_stages,
+            zone.backup_heat,
+            zone.equipment_running_entity,
+            int(zone.heat_kit_confirmed),
+        ),
+    )
+    await conn.commit()
+    return zone
+
+
+def as_dict(obj: Building | ZoneProfile) -> dict[str, Any]:
+    return dict(obj.__dict__)

@@ -169,6 +169,28 @@ CREATE TABLE IF NOT EXISTS room_vents (
     UNIQUE(room_id, entity_id)
 );
 
+-- HomeClimate: buildings group zones (one zone per thermostat). A zone's
+-- building, display order and equipment profile live in zone_profiles so the
+-- thermostat_configs tuning row stays untouched. A missing profile row means
+-- the defaults below (conventional, 1 stage, electric backup, unassigned).
+CREATE TABLE IF NOT EXISTS buildings (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    sort_order INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS zone_profiles (
+    thermostat_entity_id TEXT PRIMARY KEY
+        REFERENCES thermostat_configs(thermostat_entity_id) ON DELETE CASCADE,
+    building_id TEXT REFERENCES buildings(id) ON DELETE SET NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    system_type TEXT NOT NULL DEFAULT 'conventional',
+    compressor_stages INTEGER NOT NULL DEFAULT 1,
+    backup_heat TEXT NOT NULL DEFAULT 'electric',
+    equipment_running_entity TEXT,
+    heat_kit_confirmed INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS room_presence_sensors (
     id TEXT PRIMARY KEY,
     room_id TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,

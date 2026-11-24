@@ -1,3 +1,11 @@
+import {
+  equipmentSummary,
+  getBuildings,
+  getZones,
+  groupByBuilding,
+  type Building,
+  type ZoneProfile,
+} from "../zonesApi";
 import { useEffect, useRef, useState } from "react";
 import {
   getRooms,
@@ -1507,6 +1515,24 @@ function RoomCard({
 // ---------------------------------------------------------------------------
 export default function Rooms() {
   const [rooms, setRooms] = useState<Room[]>([]);
+  const [zoneList, setZoneList] = useState<ZoneProfile[]>([]);
+  const [buildingList, setBuildingList] = useState<Building[]>([]);
+  // Zones and buildings only shape the grouping; if either fails to load the
+  // page falls back to one flat grid rather than hiding rooms.
+  const loadZones = async () => {
+    const [z, b] = await Promise.all([
+      Promise.resolve()
+        .then(getZones)
+        .then((v) => v ?? [])
+        .catch(() => [] as ZoneProfile[]),
+      Promise.resolve()
+        .then(getBuildings)
+        .then((v) => v ?? [])
+        .catch(() => [] as Building[]),
+    ]);
+    setZoneList(z);
+    setBuildingList(b);
+  };
   const [thermostats, setThermostats] = useState<ThermostatConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [configRoom, setConfigRoom] = useState<Room | null>(null);
@@ -1567,6 +1593,7 @@ export default function Rooms() {
   };
 
   const load = async () => {
+    void loadZones();
     const [list, tcs] = await Promise.all([getRooms(), getThermostats()]);
     const detailed = await Promise.all(list.map((r) => getRoom(r.id)));
     setRooms(detailed);
@@ -1655,15 +1682,14 @@ export default function Rooms() {
         <div>
           <div className="page-title">Rooms</div>
           <div className="page-subtitle">
-            {rooms.length} room{rooms.length !== 1 ? "s" : ""}
-            {rooms.length > 0 && ` · click "Configure sensors & vents" to set up a room`}
+            Rooms are grouped by building and by the thermostat that serves them.
           </div>
         </div>
         <button
           className="btn btn-primary"
           onClick={() => setSettings({ room: null, returnTo: "list" })}
         >
-          + Add room
+          Add Room
         </button>
       </div>
 
@@ -1672,14 +1698,14 @@ export default function Rooms() {
           <div className="empty-state">
             <p>No rooms yet.</p>
             <p style={{ marginTop: ".5rem" }}>
-              Click <strong>+ Add room</strong>, pick a thermostat, then configure its sensors and
+              Click <strong>Add Room</strong>, pick a thermostat, then configure its sensors and
               vents.
             </p>
           </div>
         </div>
       ) : (
-        <div className="card-grid">
-          {rooms.map((room) => (
+        (() => {
+          const card = (room: Room) => (
             <RoomCard
               key={room.id}
               room={room}
@@ -1694,8 +1720,64 @@ export default function Rooms() {
               onSetHold={() => setHoldModalFor({ room: room.id })}
               onHoldChanged={refreshHoldState}
             />
-          ))}
-        </div>
+          );
+          const zoned = new Set(zoneList.map((z) => z.thermostat_entity_id));
+          const loose = rooms.filter((r) => !zoned.has(r.thermostat_entity_id));
+          if (zoneList.length === 0) {
+            return <div className="card-grid">{rooms.map(card)}</div>;
+          }
+          return (
+            <>
+              {groupByBuilding(buildingList, zoneList, (z) => z.building_id).map((g) => (
+                <section key={g.building?.id ?? "unassigned"} className="building-group">
+                  <div className="group-header">
+                    <h2 className="group-header-title">{g.building?.name ?? "Unassigned"}</h2>
+                    <span className="group-header-rule" />
+                  </div>
+                  {g.items.length === 0 && (
+                    <div className="empty-panel">
+                      No zones in this building yet. Assign one on the Zones page.
+                    </div>
+                  )}
+                  {g.items.map((z) => {
+                    const zoneRooms = rooms.filter(
+                      (r) => r.thermostat_entity_id === z.thermostat_entity_id
+                    );
+                    return (
+                      <section
+                        key={z.thermostat_entity_id}
+                        className="zone-panel"
+                        aria-label={z.name || z.thermostat_entity_id}
+                      >
+                        <div className="zone-panel-head">
+                          <div className="zone-row-title">
+                            <div className="zone-name">{z.name || z.thermostat_entity_id}</div>
+                            <div className="zone-entity">{z.thermostat_entity_id}</div>
+                          </div>
+                          <span className="pill">{equipmentSummary(z)}</span>
+                        </div>
+                        {zoneRooms.length === 0 ? (
+                          <div className="empty-panel">No rooms in this zone yet.</div>
+                        ) : (
+                          <div className="card-grid">{zoneRooms.map(card)}</div>
+                        )}
+                      </section>
+                    );
+                  })}
+                </section>
+              ))}
+              {loose.length > 0 && (
+                <section className="building-group">
+                  <div className="group-header">
+                    <h2 className="group-header-title">Other Rooms</h2>
+                    <span className="group-header-rule" />
+                  </div>
+                  <div className="card-grid">{loose.map(card)}</div>
+                </section>
+              )}
+            </>
+          );
+        })()
       )}
 
       {holdModalFor && (

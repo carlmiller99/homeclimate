@@ -4254,3 +4254,7 @@ async def restore_db(request: web.Request) -> web.Response:
             os.unlink(tmp_path)
         log.exception("Restore failed")
         return error("Restore failed", 500)
+
+
+# HomeClimate endpoints register on the same route table.
+from . import homeclimate as _homeclimate  # noqa: E402,F401

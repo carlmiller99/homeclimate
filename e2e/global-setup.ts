@@ -202,7 +202,7 @@ async function setupViaUI(): Promise<void> {
       const addRoomBtn = page.getByRole("button", { name: /Add room/i });
       await addRoomBtn.waitFor({ state: "visible" });
       await addRoomBtn.click();
-      // "+ Add room" now swaps to a full-page settings view (not a modal), so
+      // "Add Room" now swaps to a full-page settings view (not a modal), so
       // wait for the room-name field rather than a `.modal` container.
       await page.waitForSelector("#room-name");
       await page.locator("#room-name").fill(def.name);

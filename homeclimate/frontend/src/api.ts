@@ -359,7 +359,7 @@ const BASE = _ingressMatch ? _ingressMatch[1] : "";
 // Base fetch helper
 // ---------------------------------------------------------------------------
 
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
+export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     headers: {
       "Content-Type": "application/json",

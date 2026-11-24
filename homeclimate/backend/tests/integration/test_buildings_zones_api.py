@@ -1,0 +1,170 @@
+"""Buildings and zone profiles (HomeClimate phase 4)."""
+
+from __future__ import annotations
+
+import pytest
+
+pytestmark = pytest.mark.asyncio
+
+T1 = "climate.upstairs"
+T2 = "climate.wing"
+
+
+async def _thermostat(client, entity_id: str, name: str) -> None:
+    resp = await client.post(
+        "/api/thermostats",
+        json={"thermostat_entity_id": entity_id, "name": name, "total_vents_count": 4},
+    )
+    assert resp.status in (200, 201), await resp.text()
+
+
+async def test_building_crud(client):
+    assert await (await client.get("/api/buildings")).json() == []
+
+    resp = await client.post("/api/buildings", json={"name": "  Main   House "})
+    assert resp.status == 201
+    main = await resp.json()
+    assert main["name"] == "Main House"
+    assert main["sort_order"] == 0
+
+    den = await (await client.post("/api/buildings", json={"name": "The Den"})).json()
+    assert den["sort_order"] == 1
+
+    dup = await client.post("/api/buildings", json={"name": "main house"})
+    assert dup.status == 400
+    assert "already exists" in (await dup.json())["error"]
+
+    resp = await client.put(f"/api/buildings/{den['id']}", json={"name": "Den", "sort_order": 0})
+    assert (await resp.json()) == {"id": den["id"], "name": "Den", "sort_order": 0}
+    names = [b["name"] for b in await (await client.get("/api/buildings")).json()]
+    assert names == ["Den", "Main House"]
+
+    clash = await client.put(f"/api/buildings/{den['id']}", json={"name": "MAIN HOUSE"})
+    assert clash.status == 400
+    # Renaming to its own name (any case) is fine.
+    same = await client.put(f"/api/buildings/{den['id']}", json={"name": "den"})
+    assert same.status == 200
+
+    assert (await client.put("/api/buildings/nope", json={"name": "X"})).status == 404
+    assert (await client.delete("/api/buildings/nope")).status == 404
+    assert (await client.delete(f"/api/buildings/{den['id']}")).status == 200
+    assert [b["name"] for b in await (await client.get("/api/buildings")).json()] == ["Main House"]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [{}, {"name": ""}, {"name": "   "}, {"name": 5}, {"name": "x" * 61}],
+)
+async def test_building_name_validation(client, body):
+    resp = await client.post("/api/buildings", json=body)
+    assert resp.status == 400
+
+
+@pytest.mark.parametrize("sort_order", [-1, 1000, "2", 1.5, True])
+async def test_building_sort_order_validation(client, sort_order):
+    b = await (await client.post("/api/buildings", json={"name": "A"})).json()
+    resp = await client.put(f"/api/buildings/{b['id']}", json={"sort_order": sort_order})
+    assert resp.status == 400
+
+
+async def test_non_object_and_non_json_bodies_are_rejected(client):
+    resp = await client.post("/api/buildings", json=["Main"])
+    assert resp.status == 400
+    assert (await resp.json())["error"] == "request body must be a JSON object"
+    resp = await client.post(
+        "/api/buildings", data="not json", headers={"Content-Type": "application/json"}
+    )
+    assert resp.status == 400
+    assert (await resp.json())["error"] == "request body must be JSON"
+
+
+async def test_zones_default_and_update(client):
+    await _thermostat(client, T2, "South Wing")
+    await _thermostat(client, T1, "Upstairs")
+    zones = await (await client.get("/api/zones")).json()
+    assert [z["name"] for z in zones] == ["South Wing", "Upstairs"]
+    assert zones[0] == {
+        "thermostat_entity_id": T2,
+        "name": "South Wing",
+        "building_id": None,
+        "sort_order": 0,
+        "system_type": "conventional",
+        "compressor_stages": 1,
+        "backup_heat": "electric",
+        "equipment_running_entity": None,
+        "heat_kit_confirmed": False,
+    }
+
+    main = await (await client.post("/api/buildings", json={"name": "Main House"})).json()
+    resp = await client.put(
+        f"/api/zones/{T2}",
+        json={
+            "building_id": main["id"],
+            "sort_order": 2,
+            "system_type": "heat_pump",
+            "compressor_stages": 2,
+            "backup_heat": "none",
+            "equipment_running_entity": "climate.wing_cloud",
+            "heat_kit_confirmed": True,
+        },
+    )
+    assert resp.status == 200
+    zone = await resp.json()
+    assert zone["system_type"] == "heat_pump"
+    assert zone["building_id"] == main["id"]
+
+    # Partial update keeps the rest; empty entity clears to null.
+    zone = await (
+        await client.put(f"/api/zones/{T2}", json={"equipment_running_entity": ""})
+    ).json()
+    assert zone["equipment_running_entity"] is None
+    assert zone["compressor_stages"] == 2
+
+    # Ordering follows sort_order.
+    zones = await (await client.get("/api/zones")).json()
+    assert [z["name"] for z in zones] == ["Upstairs", "South Wing"]
+
+    # A building with zones can't be deleted; unassigning frees it.
+    assert (await client.delete(f"/api/buildings/{main['id']}")).status == 409
+    await client.put(f"/api/zones/{T2}", json={"building_id": None})
+    assert (await client.delete(f"/api/buildings/{main['id']}")).status == 200
+
+    # Deleting the thermostat removes its profile.
+    await client.put(f"/api/zones/{T1}", json={"system_type": "heat_pump"})
+    assert (await client.delete(f"/api/thermostats/{T1}")).status == 200
+    zones = await (await client.get("/api/zones")).json()
+    assert [z["thermostat_entity_id"] for z in zones] == [T2]
+
+
+async def test_deleting_a_building_unassigns_nothing_it_does_not_own(client):
+    await _thermostat(client, T1, "Upstairs")
+    a = await (await client.post("/api/buildings", json={"name": "A"})).json()
+    await client.put(f"/api/zones/{T1}", json={"building_id": a["id"]})
+    zone = (await (await client.get("/api/zones")).json())[0]
+    assert zone["building_id"] == a["id"]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"building_id": "missing"},
+        {"building_id": 3},
+        {"sort_order": -1},
+        {"system_type": "geothermal"},
+        {"compressor_stages": 0},
+        {"compressor_stages": 4},
+        {"backup_heat": "wood"},
+        {"equipment_running_entity": "notanentity"},
+        {"equipment_running_entity": 7},
+        {"heat_kit_confirmed": "yes"},
+    ],
+)
+async def test_zone_validation(client, body):
+    await _thermostat(client, T1, "Upstairs")
+    resp = await client.put(f"/api/zones/{T1}", json=body)
+    assert resp.status == 400
+
+
+async def test_unknown_zone_is_404(client):
+    resp = await client.put("/api/zones/climate.nope", json={"system_type": "heat_pump"})
+    assert resp.status == 404

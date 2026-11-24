@@ -125,7 +125,7 @@ beforeEach(() => {
 describe("Rooms settings form — validation guards", () => {
   const openNewRoom = async () => {
     renderPage();
-    fireEvent.click(await screen.findByText("+ Add room"));
+    fireEvent.click(await screen.findByText("Add Room"));
     await screen.findByText("New Room", { selector: ".page-title" });
   };
 
@@ -746,9 +746,9 @@ describe("Rooms — page edge cases", () => {
     renderPage();
 
     expect(await screen.findByText("No rooms yet.")).toBeInTheDocument();
-    // Plural subtitle, and the "click Configure…" hint is suppressed at zero.
-    expect(screen.getByText("0 rooms")).toBeInTheDocument();
-    expect(screen.queryByText(/click "Configure sensors & vents"/)).not.toBeInTheDocument();
+    expect(
+      screen.getByText("Rooms are grouped by building and by the thermostat that serves them.")
+    ).toBeInTheDocument();
     // No rooms → no active-status request is issued at all.
     expect(api.getRoomActiveStatuses).not.toHaveBeenCalled();
   });

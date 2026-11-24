@@ -943,6 +943,9 @@ body {
    renders identically to an live one — the MQTT bridge card's "Turn on" is
    disabled until a broker is configured, and read as an unresponsive button
    rather than an unavailable action. */
+a.btn {
+  text-decoration: none;
+}
 .btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -1001,7 +1004,8 @@ body {
   width: 100%;
   padding: 0.5rem 0.75rem;
   border: 1px solid var(--gray-200);
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
+  font-family: inherit;
   font-size: 0.875rem;
   background: var(--surface);
   color: var(--gray-900);
@@ -1010,7 +1014,7 @@ body {
 .form-control:focus {
   outline: none;
   border-color: var(--blue);
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+  box-shadow: 0 0 0 3px var(--blue-light);
 }
 .form-control-sm {
   padding: 0.3rem 0.6rem;
@@ -1574,4 +1578,247 @@ tr:hover td {
 }
 .zone-hint-text {
   font-size: 0.8rem;
+}
+
+/* ── HomeClimate: shared layout pieces (buildings, zones, smart control) ── */
+.page-actions {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+.building-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+}
+.group-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+.group-header-title {
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--gray-900);
+}
+.group-header-rule {
+  flex: 1;
+  min-width: 2rem;
+  height: 1px;
+  background: var(--gray-200);
+}
+.group-header-input {
+  max-width: 20rem;
+}
+.group-header-error {
+  flex-basis: 100%;
+}
+.link-button {
+  background: none;
+  border: none;
+  padding: 0.35rem 0.25rem;
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--blue-text);
+  cursor: pointer;
+}
+.link-button:hover {
+  text-decoration: underline;
+}
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.82rem;
+  padding: 0.3rem 0.7rem;
+  border-radius: 999px;
+  background: var(--gray-100);
+  color: var(--gray-700);
+  white-space: nowrap;
+}
+.empty-panel {
+  border: 1.5px dashed var(--gray-400);
+  border-radius: var(--radius);
+  padding: 1.25rem;
+  color: var(--gray-600);
+}
+.zone-row {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  flex-wrap: wrap;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem 1.25rem;
+}
+.zone-row-title {
+  flex: 1;
+  min-width: 14rem;
+}
+.zone-name {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--gray-900);
+}
+.zone-entity {
+  font-size: 0.875rem;
+  color: var(--gray-600);
+  overflow-wrap: anywhere;
+}
+.zone-editor {
+  background: var(--surface);
+  border: 2px solid var(--ink);
+  border-radius: calc(var(--radius) + 4px);
+  overflow: hidden;
+}
+.zone-editor-head {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 1.1rem 1.4rem;
+  background: var(--gray-50);
+  border-bottom: 1px solid var(--border);
+}
+.zone-editor-title {
+  flex: 1;
+  min-width: 14rem;
+}
+.zone-editor-body {
+  padding: 1.4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.zone-section-title {
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+.zone-fields {
+  display: flex;
+  gap: 1.25rem 1.75rem;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+.zone-editor-actions {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.spacer {
+  flex: 1;
+}
+.field-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.875rem;
+  color: var(--gray-600);
+  min-width: 11rem;
+}
+.field-inline {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  color: var(--gray-600);
+}
+.field-label {
+  font-size: 0.875rem;
+  color: var(--gray-600);
+  margin-bottom: 0.35rem;
+}
+.field-help {
+  font-size: 0.85rem;
+  color: var(--gray-600);
+}
+.segmented {
+  display: inline-flex;
+  background: var(--gray-100);
+  border-radius: 12px;
+  padding: 4px;
+  gap: 4px;
+}
+.segmented-option {
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  min-height: 38px;
+  padding: 0.4rem 0.9rem;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--gray-600);
+  cursor: pointer;
+}
+.segmented-option[aria-checked="true"] {
+  background: var(--surface);
+  color: var(--gray-900);
+  box-shadow: var(--shadow);
+}
+.segmented-option:focus-visible {
+  outline: 3px solid var(--state-cooling);
+  outline-offset: 2px;
+}
+.notice {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  border-radius: 14px;
+  padding: 0.75rem 0.9rem;
+}
+.notice p {
+  flex: 1;
+  font-size: 0.875rem;
+}
+.notice-heat {
+  background: var(--orange-light);
+  color: var(--orange-text);
+}
+.notice-paused {
+  background: var(--state-paused-bg);
+  color: var(--state-paused-text);
+}
+.entity-chip-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+.entity-chip {
+  font-size: 0.85rem;
+  padding: 0.35rem 0.7rem;
+  border-radius: 999px;
+  background: var(--gray-100);
+  color: var(--gray-700);
+}
+.form-error {
+  color: var(--danger);
+  font-size: 0.875rem;
+}
+.add-building {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  max-width: 28rem;
+}
+.zone-panel {
+  background: var(--zone-bg);
+  border-radius: var(--radius-lg);
+  padding: 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.zone-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  flex-wrap: wrap;
+  padding: 0.25rem 0.4rem 0;
 }

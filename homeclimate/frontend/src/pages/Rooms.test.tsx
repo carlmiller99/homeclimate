@@ -148,7 +148,7 @@ describe("Rooms Page", () => {
       </SystemContext.Provider>
     );
 
-    const addBtn = await screen.findByText("+ Add room");
+    const addBtn = await screen.findByText("Add Room");
     fireEvent.click(addBtn);
 
     const createBtn = await screen.findByRole("button", { name: /Create room/i });
@@ -164,7 +164,7 @@ describe("Rooms Page", () => {
       </SystemContext.Provider>
     );
 
-    const addBtn = await screen.findByText("+ Add room");
+    const addBtn = await screen.findByText("Add Room");
     fireEvent.click(addBtn);
 
     await screen.findByText("New Room", { selector: ".page-title" });
@@ -193,7 +193,7 @@ describe("Rooms Page", () => {
         <Rooms />
       </SystemContext.Provider>
     );
-    fireEvent.click(await screen.findByText("+ Add room"));
+    fireEvent.click(await screen.findByText("Add Room"));
     await screen.findByText("New Room", { selector: ".page-title" });
     fireEvent.change(screen.getByRole("combobox", { name: /Thermostat/i }), {
       target: { value: "climate.test" },
@@ -259,7 +259,7 @@ describe("Rooms Page", () => {
       </SystemContext.Provider>
     );
 
-    const addBtn = await screen.findByText("+ Add room");
+    const addBtn = await screen.findByText("Add Room");
     fireEvent.click(addBtn);
 
     await screen.findByText("New Room", { selector: ".page-title" });
@@ -630,8 +630,8 @@ describe("Rooms Page", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Configure sensors/i }));
     fireEvent.click(await screen.findByRole("button", { name: /All rooms/i }));
 
-    // Back on the list view: the "+ Add room" button is present again
-    expect(await screen.findByText("+ Add room")).toBeInTheDocument();
+    // Back on the list view: the "Add Room" button is present again
+    expect(await screen.findByText("Add Room")).toBeInTheDocument();
   });
 
   it("closes the settings page via Cancel without saving", async () => {
@@ -1012,7 +1012,7 @@ describe("Rooms Page — Clear presence button", () => {
   // -------------------------------------------------------------------------
 
   const openNewRoom = async () => {
-    fireEvent.click(await screen.findByText("+ Add room"));
+    fireEvent.click(await screen.findByText("Add Room"));
     await screen.findByText("New Room", { selector: ".page-title" });
   };
 
@@ -1406,7 +1406,7 @@ describe("Rooms Page — Eco Mode override (#404)", () => {
       </SystemContext.Provider>
     );
 
-    fireEvent.click(await screen.findByText("+ Add room"));
+    fireEvent.click(await screen.findByText("Add Room"));
     await screen.findByText("New Room", { selector: ".page-title" });
 
     fireEvent.change(screen.getByLabelText(/Room name/i), { target: { value: "Den" } });
