@@ -378,14 +378,14 @@ class TestDevModeNoop:
 # ---------------------------------------------------------------------------
 
 
-def _make_auto_resolving_client() -> HAClient:
+def _make_auto_resolving_client(result: dict | None = None) -> HAClient:
     """Return an HAClient whose mock _ws auto-resolves any pending future."""
     client = HAClient("ws://ha.local", "tok")
 
     async def fake_send_json(msg):
         fut = client._pending.get(msg["id"])
         if fut and not fut.done():
-            fut.set_result({})
+            fut.set_result(result if result is not None else {})
 
     mock_ws = AsyncMock()
     mock_ws.send_json.side_effect = fake_send_json
@@ -820,3 +820,21 @@ class TestSetThermostatRangeDevMode:
         client = HAClient("ws://ha.local", "tok")
         client.dev_mode = True
         await client.set_thermostat_temperature_range("climate.main", 66.0, 74.0)
+
+
+class TestGetForecasts:
+    async def test_asks_for_a_response_and_unwraps_the_entitys_forecast(self):
+        client = _make_auto_resolving_client(
+            {"response": {"weather.home": {"forecast": [{"temperature": 50}]}}}
+        )
+        assert await client.get_forecasts("weather.home") == [{"temperature": 50}]
+        payload = client._ws.send_json.call_args[0][0]
+        assert payload["return_response"] is True
+        assert (payload["domain"], payload["service"]) == ("weather", "get_forecasts")
+        assert payload["service_data"] == {"type": "hourly"}
+        assert payload["target"] == {"entity_id": "weather.home"}
+
+    async def test_anything_else_is_an_empty_forecast(self):
+        for result in ({}, {"response": None}, {"response": {"weather.home": {"forecast": "x"}}}):
+            client = _make_auto_resolving_client(result)
+            assert await client.get_forecasts("weather.home", "daily") == []

@@ -11,7 +11,7 @@ from datetime import date, datetime, time, timedelta
 
 from aiohttp import web
 
-from .. import db, ha_import, heat_pump, learning, openings, shades, tz, zones
+from .. import db, fireplace, forecast, ha_import, heat_pump, learning, openings, shades, tz, zones
 from ..units import delta_to_f, to_f
 from ..user_errors import UserError, safe_text
 from . import schemas
@@ -244,6 +244,10 @@ async def _smart_control_snapshot(request: web.Request) -> dict:
             {"scope": scope, "scope_id": scope_id, "since": since.isoformat()}
             for (scope, scope_id), since in monitor.paused_items()
         ],
+        "fireplace_rooms": [
+            {"room_id": room_id, "fireplace": name}
+            for room_id, name in sorted(scheduler.fireplaces.set_aside_rooms().items())
+        ],
     }
 
 
@@ -414,6 +418,122 @@ async def update_learning_settings(request: web.Request) -> web.Response:
         return error(safe_text(exc))
     await emit(request, "info", "api", "Smart Learning settings updated", body)
     return json_response(await _learning_snapshot(request))
+
+
+async def _fireplaces_snapshot(request: web.Request, *, refresh: bool = False) -> dict:
+    scheduler = request.app["scheduler"]
+    if refresh:
+        # After a change: apply it now rather than at the next minute's tick.
+        await scheduler.refresh_fireplaces()
+    # Configuration straight from the database, so an edit elsewhere (a deleted
+    # room) shows at once; live state from the monitor's last evaluation.
+    live = {s.fireplace.id: s for s in scheduler.fireplaces.statuses()}
+    out = []
+    for f in await fireplace.list_fireplaces(await get_conn(request)):
+        status = live.get(f.id)
+        out.append(
+            {
+                "id": f.id,
+                "name": f.name,
+                "entity_id": f.entity_id,
+                "room_ids": list(f.room_ids),
+                "cooldown_min": f.cooldown_min,
+                "control": f.control,
+                "state": status.state if status else fireplace.OUT,
+                "lit_since": _iso(status.lit_since) if status else None,
+                "cooling_until": _iso(status.cooling_until) if status else None,
+                "setting_aside": bool(status and status.setting_aside),
+                "signal_lost": bool(status and status.signal_lost),
+            }
+        )
+    return {"fireplaces": out}
+
+
+@docs(tags=["fireplace"], summary="Fireplaces, the rooms they warm, and whether each is lit")
+@response_schema(schemas.FireplacesSchema)
+@routes.get("/api/fireplaces")
+async def get_fireplaces(request: web.Request) -> web.Response:
+    return json_response(await _fireplaces_snapshot(request))
+
+
+@docs(tags=["fireplace"], summary="Add a fireplace")
+@request_schema(schemas.FireplaceWriteSchema)
+@response_schema(schemas.FireplacesSchema)
+@routes.post("/api/fireplaces")
+async def create_fireplace(request: web.Request) -> web.Response:
+    body = await _json_object(request)
+    conn = await get_conn(request)
+    try:
+        await fireplace.create(conn, body)
+    except UserError as exc:
+        return error(safe_text(exc))
+    await emit(request, "info", "api", "Fireplace added", body)
+    return json_response(await _fireplaces_snapshot(request, refresh=True), status=201)
+
+
+@docs(tags=["fireplace"], summary="Change a fireplace")
+@request_schema(schemas.FireplaceWriteSchema)
+@response_schema(schemas.FireplacesSchema)
+@routes.put("/api/fireplaces/{fireplace_id}")
+async def update_fireplace(request: web.Request) -> web.Response:
+    body = await _json_object(request)
+    conn = await get_conn(request)
+    try:
+        found = await fireplace.update(conn, request.match_info["fireplace_id"], body)
+    except UserError as exc:
+        return error(safe_text(exc))
+    if not found:
+        return error("Fireplace not found", status=404)
+    await emit(request, "info", "api", "Fireplace changed", body)
+    return json_response(await _fireplaces_snapshot(request, refresh=True))
+
+
+@docs(tags=["fireplace"], summary="Remove a fireplace")
+@response_schema(schemas.FireplacesSchema)
+@routes.delete("/api/fireplaces/{fireplace_id}")
+async def delete_fireplace(request: web.Request) -> web.Response:
+    conn = await get_conn(request)
+    if not await fireplace.delete(conn, request.match_info["fireplace_id"]):
+        return error("Fireplace not found", status=404)
+    await emit(request, "info", "api", "Fireplace removed", {})
+    return json_response(await _fireplaces_snapshot(request, refresh=True))
+
+
+async def _forecast_snapshot(request: web.Request) -> dict:
+    conn = await get_conn(request)
+    snap: dict = await request.app["scheduler"].forecast.snapshot(conn, now=datetime.now(tz.UTC))
+    return snap
+
+
+@docs(tags=["forecast"], summary="Forecast settings and the forecast in use")
+@response_schema(schemas.ForecastSchema)
+@routes.get("/api/forecast")
+async def get_forecast(request: web.Request) -> web.Response:
+    return json_response(await _forecast_snapshot(request))
+
+
+@docs(tags=["forecast"], summary="Update forecast settings, then fetch")
+@request_schema(schemas.ForecastSettingsSchema)
+@response_schema(schemas.ForecastSchema)
+@routes.put("/api/forecast/settings")
+async def update_forecast_settings(request: web.Request) -> web.Response:
+    body = await _json_object(request)
+    conn = await get_conn(request)
+    try:
+        await forecast.update_settings(conn, body)
+    except UserError as exc:
+        return error(safe_text(exc))
+    await emit(request, "info", "api", "Forecast settings updated", body)
+    await request.app["scheduler"].refresh_forecast()
+    return json_response(await _forecast_snapshot(request))
+
+
+@docs(tags=["forecast"], summary="Fetch the forecast now")
+@response_schema(schemas.ForecastSchema)
+@routes.post("/api/forecast/refresh")
+async def refresh_forecast(request: web.Request) -> web.Response:
+    await request.app["scheduler"].refresh_forecast()
+    return json_response(await _forecast_snapshot(request))
 
 
 @docs(tags=["shades"], summary="Add a shade to a room, or change one")

@@ -16,6 +16,8 @@ vi.mock("../smartControlApi", async (orig) => ({
 // Both have their own suites; here they only need to show where they render.
 vi.mock("./Schedules", () => ({ default: () => <p>schedules page</p> }));
 vi.mock("./LearningSection", () => ({ default: () => <p>learning section</p> }));
+vi.mock("./ForecastSection", () => ({ default: () => <p>forecast section</p> }));
+vi.mock("./FireplaceSection", () => ({ default: () => <p>fireplace section</p> }));
 vi.mock("./ShadesSection", () => ({
   default: ({ rooms }: { rooms: { name: string }[] }) => (
     <p>shades for {rooms.map((r) => r.name).join(", ")}</p>
@@ -146,23 +148,23 @@ describe("Smart Control", () => {
     const doors = within(nav).getByRole("link", { name: "Doors & Windows" });
     expect(doors).not.toHaveAttribute("aria-current");
     expect(doors).toHaveAttribute("href", "/smart-control?section=doors-windows");
-    // Planned sections are listed but are not links.
-    for (const name of sc.PLANNED_SECTIONS) {
-      expect(within(nav).getByText(name)).toBeInTheDocument();
-      expect(within(nav).queryByRole("link", { name })).toBeNull();
-    }
-    expect(within(nav).getAllByText("Planned")).toHaveLength(sc.PLANNED_SECTIONS.length);
+    // Nothing is waiting to be built: every section is a link.
+    expect(sc.PLANNED_SECTIONS).toEqual([]);
+    expect(within(nav).queryByText("Planned")).toBeNull();
+    expect(within(nav).getAllByRole("link")).toHaveLength(5);
     expect(sc.getSmartControl).not.toHaveBeenCalled();
   });
 
-  it("falls back to Schedules for an unknown or planned section", () => {
-    const first = renderAt("/smart-control?section=nope");
+  it("falls back to Schedules for an unknown section", () => {
+    renderAt("/smart-control?section=nope");
     expect(screen.getByText("schedules page")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Schedules" })).toHaveAttribute("aria-current", "page");
-    first.unmount();
-    renderAt(`/smart-control?section=${encodeURIComponent(sc.PLANNED_SECTIONS[0])}`);
-    expect(screen.getByText("schedules page")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Schedules" })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("opens Fireplace from the side menu", () => {
+    renderAt("/smart-control?section=fireplace");
+    expect(screen.getByText("fireplace section")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Fireplace" })).toHaveAttribute("aria-current", "page");
   });
 
   it("opens Smart Learning from the side menu", () => {
@@ -173,6 +175,12 @@ describe("Smart Control", () => {
       "aria-current",
       "page"
     );
+  });
+
+  it("opens Forecasts from the side menu", () => {
+    renderAt("/smart-control?section=forecasts");
+    expect(screen.getByText("forecast section")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Forecasts" })).toHaveAttribute("aria-current", "page");
   });
 
   it("shows a loading line, then the rules, overrides and shades", async () => {

@@ -881,6 +881,8 @@ const CATEGORIES = [
   "presence",
   "openings",
   "shades",
+  "forecast",
+  "fireplace",
   "ha",
   "dev",
   "reconcile",

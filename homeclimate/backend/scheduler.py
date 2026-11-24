@@ -20,7 +20,7 @@ from datetime import UTC, datetime, timedelta
 import aiosqlite
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from . import db, heat_pump, learning, openings, shades, tz, zones
+from . import db, fireplace, forecast, heat_pump, learning, openings, shades, tz, zones
 from .engine import room_manager
 from .engine.cycle_engine import SENSOR_STALE_AFTER_MIN, CycleEngine
 from .engine.vent_controller import VentController
@@ -150,6 +150,8 @@ class Scheduler:
         self._zone_profiles: dict[str, zones.ZoneProfile] = {}
         self._aux = heat_pump.AuxMonitor()
         self._shades = shades.ShadeController()
+        self._forecast = forecast.Forecast()
+        self._fireplaces = fireplace.FireplaceMonitor()
 
     def _spawn_bg(self, coro: Coroutine) -> asyncio.Task:
         """Create a background task and keep a strong reference until it
@@ -220,8 +222,10 @@ class Scheduler:
         await self._sync_engines()
         await self._load_heat_pumps()
         await self.adopt_zone_contacts()
+        await self.adopt_first_build_readings()
         # Learn which door and window sensors to watch before events arrive.
         await self._evaluate_openings()
+        await self._evaluate_fireplaces()
 
         # Subscribe to ALL HA state changes
         self._ha.subscribe_all(self._on_state_change)
@@ -245,9 +249,20 @@ class Scheduler:
         # Smart Learning: sample every room, running or idle. Read-only.
         self._apscheduler.add_job(
             self._sample_rooms,
-            "interval",
-            minutes=learning.SAMPLE_EVERY_MIN,
+            "cron",
+            minute=f"*/{learning.SAMPLE_EVERY_MIN}",
             id="room_sampler",
+            max_instances=1,
+            coalesce=True,
+        )
+        # The weather forecast: fetched and archived. Read-only.
+        self._apscheduler.add_job(
+            self.refresh_forecast,
+            "interval",
+            minutes=forecast.REFRESH_EVERY_MIN,
+            id="forecast_refresh",
+            # Soon after start-up, once Home Assistant has had time to connect.
+            next_run_time=datetime.now(UTC) + timedelta(minutes=2),
             max_instances=1,
             coalesce=True,
         )
@@ -1022,7 +1037,8 @@ class Scheduler:
             # fired leaves vacation before the global return time.
             get_vacation_mode=functools.partial(self.is_vacation_for, tid),
             get_eco_suspended=functools.partial(self.is_eco_suspended, tid),
-            get_openings=functools.partial(self._openings.pause_for, tid),
+            get_openings=functools.partial(self._pause_for, tid),
+            get_fireplace_rooms=lambda: frozenset(self._fireplaces.set_aside_rooms()),
             get_heat_pump=functools.partial(self._heat_pumps.get, tid),
         )
 
@@ -1310,6 +1326,7 @@ class Scheduler:
         await self._refresh_continuous_presence()
         await self._refresh_reported_states()
         await self._evaluate_openings()
+        await self._evaluate_fireplaces()
         await self._load_heat_pumps()
         await self._watch_backup_heat()
         tasks = [self._tick_engine(tid, eng) for tid, eng in self._engines.items()]
@@ -1319,6 +1336,79 @@ class Scheduler:
     @property
     def openings(self) -> openings.OpeningMonitor:
         return self._openings
+
+    @property
+    def fireplaces(self) -> fireplace.FireplaceMonitor:
+        return self._fireplaces
+
+    def _pause_for(self, thermostat_entity_id: str) -> tuple[bool, frozenset[str]]:
+        """What the engine must leave out of demand: door and window pauses,
+        plus rooms a lit fireplace is warming."""
+        zone, rooms = self._openings.pause_for(thermostat_entity_id)
+        return zone, rooms | frozenset(self._fireplaces.set_aside_rooms())
+
+    async def _evaluate_fireplaces(self) -> set[str]:
+        """Re-read every fireplace; log what changed and return the zones whose
+        set-aside rooms changed."""
+        before = self._fireplaces.set_aside_rooms()
+        try:
+            notes = await self._fireplaces.evaluate(
+                self._db_conn,
+                self._ha.get_state,
+                datetime.now(UTC),
+                connected=self._ha.is_connected,
+            )
+        except Exception:
+            log.exception("Could not evaluate fireplaces")
+            return set()
+        after = self._fireplaces.set_aside_rooms()
+        if not notes and before.keys() == after.keys():
+            return set()
+        rooms = {r.id: r for r in await db.get_all_rooms(self._db_conn)}
+        for note in notes:
+            f = note.fireplace
+            names = ", ".join(sorted(rooms[r].name for r in f.room_ids if r in rooms)) or "no rooms"
+            acting = f.control == "on"
+            hold_h = fireplace.SIGNAL_LOST_HOLD.total_seconds() / 3600
+            message = {
+                fireplace.LIT: (
+                    f"{f.name} is lit; {names} set aside"
+                    if acting
+                    else f"{f.name} is lit (watching only)"
+                ),
+                fireplace.COOLING: f"{f.name} is out; cooling down for {f.cooldown_min} min",
+                fireplace.LOST: (
+                    f"{f.name}: its signal stopped reporting while lit;"
+                    f" treating it as lit for up to {hold_h:g} h"
+                ),
+                fireplace.LONG: (
+                    f"{f.name} has read as lit for {fireplace.LONG_BURN.total_seconds() / 3600:g} h;"
+                    " check that its signal was not left on"
+                ),
+                fireplace.OUT: (
+                    f"{f.name} has cooled down; {names} back to normal"
+                    if acting
+                    else f"{f.name} has cooled down"
+                ),
+                fireplace.UNKNOWN: f"{f.name}: its signal is not reporting",
+            }[note.kind]
+            if self._event_logger is not None:
+                await self._event_logger.log(
+                    "warning"
+                    if note.kind in (fireplace.UNKNOWN, fireplace.LOST, fireplace.LONG)
+                    else "info",
+                    "fireplace",
+                    message,
+                    {"fireplace": f.name, "event": note.kind, "control": f.control},
+                )
+        return {rooms[r].thermostat_entity_id for r in before.keys() ^ after.keys() if r in rooms}
+
+    async def refresh_fireplaces(self) -> None:
+        """Re-evaluate fireplaces now and tick any zone whose rooms changed."""
+        for tid in await self._evaluate_fireplaces():
+            engine = self._engines.get(tid)
+            if engine is not None:
+                await self._tick_engine(tid, engine)
 
     async def _evaluate_openings(self) -> set[str]:
         """Re-evaluate door/window pauses; log changes and return the zones hit."""
@@ -1417,6 +1507,24 @@ class Scheduler:
                     await engine.heat_pump_backoff(self._db_conn)
 
     @property
+    def forecast(self) -> forecast.Forecast:
+        return self._forecast
+
+    async def refresh_forecast(self) -> None:
+        """Fetch the forecast; log only when it starts failing or recovers."""
+        try:
+            change = await self._forecast.refresh(self._db_conn, self._ha, now=datetime.now(UTC))
+            if change and self._event_logger is not None:
+                if change == "failed":
+                    await self._event_logger.log(
+                        "warning", "forecast", "Forecast fetch failed; keeping the last one", {}
+                    )
+                else:
+                    await self._event_logger.log("info", "forecast", "Forecast is back", {})
+        except Exception:
+            log.exception("Could not refresh the forecast")
+
+    @property
     def shade_controller(self) -> shades.ShadeController:
         return self._shades
 
@@ -1429,12 +1537,14 @@ class Scheduler:
         return {"heat": "heating", "cool": "cooling"}.get(str(state))
 
     async def _sample_rooms(self) -> None:
-        """Store one Smart Learning sample per room, and drop the oldest."""
+        """Store one Smart Learning reading per room, and drop the oldest."""
+        now = datetime.now(UTC)
         try:
             conn = self._db_conn
             settings = await learning.get_settings(conn)
-            now = datetime.now(UTC)
-            if settings["sampling_enabled"] and self._vent_ctrl is not None:
+            # Disconnected, Home Assistant's cached states are old news: a gap
+            # in the record is honest, a stale reading with a fresh time is not.
+            if settings["sampling_enabled"] and self._vent_ctrl and self._ha.is_connected:
                 try:
                     stale = float(
                         await db.get_system_setting(
@@ -1443,25 +1553,31 @@ class Scheduler:
                     )
                 except ValueError:
                     stale = SENSOR_STALE_AFTER_MIN
-                open_rooms = frozenset(
-                    c.room_id
-                    for c in await openings.list_contacts(conn)
-                    if c.room_id and openings.classify(self._ha.get_state(c.entity_id)) == "open"
-                )
+                contacts: dict[str, list[str]] = {}
+                for c in await openings.list_contacts(conn):
+                    if c.room_id:
+                        contacts.setdefault(c.room_id, []).append(
+                            openings.classify(self._ha.get_state(c.entity_id))
+                        )
                 samples = await learning.collect(
                     conn,
                     self._ha,
                     now=now,
                     stale_after_min=stale,
-                    vent_is_open=self._vent_ctrl._is_open,
+                    vent_openness=self._vent_ctrl.openness,
                     aux_running=self.aux_heat_running,
-                    open_contact_rooms=open_rooms,
+                    contact_states=contacts,
+                    fireplace_rooms=self._fireplaces.warmed_rooms(),
                 )
                 await learning.store(conn, samples)
-            await learning.purge(conn, now=now, keep_days=settings["sample_retention_days"])
         except Exception:
             # Sampling must never disturb control; the next run tries again.
             log.exception("Could not sample rooms for Smart Learning")
+        try:
+            keep = (await learning.get_settings(self._db_conn))["sample_retention_days"]
+            await learning.purge(self._db_conn, now=now, keep_days=keep)
+        except Exception:
+            log.exception("Could not clear old Smart Learning readings")
 
     async def _run_shades(self) -> None:
         """Move shades for the sun, after the engines have settled their modes."""
@@ -1481,6 +1597,17 @@ class Scheduler:
                 f"{self._friendly(move.entity_id)}: {move.reason}",
                 {"shade": move.entity_id, "action": move.action},
             )
+
+    async def adopt_first_build_readings(self) -> None:
+        """Move Smart Learning readings out of the first recorder build's table."""
+        try:
+            moved = await learning.adopt_first_build(self._db_conn)
+        except Exception:
+            # Old readings are not worth a failed start: control comes first.
+            log.exception("Could not move Smart Learning readings into compact storage")
+            return
+        if moved:
+            log.info("Moved %d Smart Learning readings into compact storage", moved)
 
     async def adopt_zone_contacts(self) -> None:
         """Move door and window sensors from before they belonged to rooms."""
@@ -1622,6 +1749,9 @@ class Scheduler:
         if entity_id in self._openings.entities:
             self._openings.observe(entity_id, new_state, datetime.now(UTC))
             await self.refresh_openings()
+
+        if entity_id in self._fireplaces.entities:
+            await self.refresh_fireplaces()
 
         if entity_id.startswith("binary_sensor.") and new_state.get("state") == "on":
             await self._handle_presence_event(entity_id)

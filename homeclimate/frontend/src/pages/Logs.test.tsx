@@ -266,6 +266,8 @@ describe("Logs Page", () => {
       "presence",
       "openings",
       "shades",
+      "forecast",
+      "fireplace",
       "ha",
       "dev",
       "reconcile",

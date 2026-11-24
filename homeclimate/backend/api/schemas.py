@@ -802,11 +802,17 @@ class PausedScopeSchema(Schema):
     since = fields.Str()
 
 
+class FireplaceRoomSchema(Schema):
+    room_id = fields.Str()
+    fireplace = fields.Str(metadata={"description": "Name of the fireplace setting the room aside"})
+
+
 class SmartControlSchema(Schema):
     settings = fields.Nested(SmartControlSettingsSchema)
     overrides = fields.List(fields.Nested(SmartControlOverrideSchema))
     sensors = fields.List(fields.Nested(ContactSensorSchema))
     paused = fields.List(fields.Nested(PausedScopeSchema))
+    fireplace_rooms = fields.List(fields.Nested(FireplaceRoomSchema))
 
 
 class ShadeSettingsSchema(Schema):
@@ -859,6 +865,64 @@ class ShadesSchema(Schema):
     shades = fields.List(fields.Nested(ShadeSchema))
 
 
+class FireplaceWriteSchema(Schema):
+    name = fields.Str()
+    entity_id = fields.Str(metadata={"description": "The entity that is on while the fire is lit"})
+    room_ids = fields.List(fields.Str(), metadata={"description": "Every room the fire warms"})
+    cooldown_min = fields.Int(metadata={"description": "0 to 240"})
+    control = fields.Str(metadata={"description": "off, watch or on"})
+
+
+class FireplaceSchema(FireplaceWriteSchema):
+    id = fields.Str()
+    state = fields.Str(metadata={"description": "lit, cooling, out or unknown"})
+    lit_since = fields.Str(allow_none=True)
+    cooling_until = fields.Str(allow_none=True)
+    setting_aside = fields.Bool(metadata={"description": "Its rooms are out of demand right now"})
+    signal_lost = fields.Bool(
+        metadata={"description": "Held as cooling because its signal stopped reporting while lit"}
+    )
+
+
+class FireplacesSchema(Schema):
+    fireplaces = fields.List(fields.Nested(FireplaceSchema))
+
+
+class ForecastSettingsSchema(Schema):
+    enabled = fields.Bool()
+    weather_entity = fields.Str(metadata={"description": "A weather entity, or empty"})
+
+
+class ForecastDaySchema(Schema):
+    date = fields.Str(metadata={"description": "House-local date"})
+    starts_at = fields.Str(metadata={"description": "The first forecast hour of that date"})
+    high = fields.Float(metadata={"description": "°F, over the forecast hours of that date"})
+    low = fields.Float(metadata={"description": "°F, over the forecast hours of that date"})
+    hours = fields.Int()
+
+
+class ForecastHourSchema(Schema):
+    at = fields.Str()
+    temp = fields.Float(metadata={"description": "°F"})
+    cloud_pct = fields.Int(allow_none=True)
+    precip_pct = fields.Int(allow_none=True)
+    condition = fields.Str()
+
+
+class ForecastSchema(Schema):
+    settings = fields.Nested(ForecastSettingsSchema)
+    weather_entity = fields.Str(
+        metadata={"description": "The entity in use, set here or in Shades"}
+    )
+    shared_with_shades = fields.Bool()
+    state = fields.Str(metadata={"description": "off, no_entity, none, kept or fresh"})
+    problem = fields.Str(allow_none=True)
+    fetched_at = fields.Str(allow_none=True)
+    covers_until = fields.Str(allow_none=True)
+    days = fields.List(fields.Nested(ForecastDaySchema))
+    hours = fields.List(fields.Nested(ForecastHourSchema))
+
+
 class LearningSettingsSchema(Schema):
     sampling_enabled = fields.Bool()
     sample_retention_days = fields.Int()
@@ -879,6 +943,7 @@ class LearningSchema(Schema):
     settings = fields.Nested(LearningSettingsSchema)
     samples = fields.Int()
     collecting_since = fields.Str(allow_none=True)
+    last_sample_at = fields.Str(allow_none=True)
     sample_every_min = fields.Int()
     checked_at = fields.Str()
     rooms = fields.List(fields.Nested(LearningRoomSchema))

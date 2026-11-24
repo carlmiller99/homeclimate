@@ -197,6 +197,13 @@ class FakeHomeAssistant:
         )
         return {}
 
+    async def get_forecasts(self, entity_id: str, kind: str = "hourly") -> list[dict]:
+        """Forecast entries seeded in ``self.forecasts``; an Exception there is raised."""
+        found: Any = getattr(self, "forecasts", {}).get(entity_id, [])
+        if isinstance(found, Exception):
+            raise found
+        return found  # type: ignore[no-any-return]
+
     async def set_thermostat_temperature(
         self,
         entity_id: str,

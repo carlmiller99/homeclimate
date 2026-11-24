@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.3
+
+- Smart Control → Fireplace: add a fireplace with the entity that is on while it burns and every room it warms. On Watch Only it is tracked and logged; set to On, its rooms stop calling for heating or cooling while it is lit and through a cool-down, and the Dashboard marks them. HomeClimate never switches a fireplace. See docs/fireplace.md.
+- Smart Control → Forecasts: choose a weather source and HomeClimate fetches the hourly forecast every 30 minutes, keeps the last good one through outages, and archives it. The forecast is shown but does not yet change control. See docs/forecasts.md.
+- Smart Learning readings take about an eighth of the space (roughly 12 MB for 20 rooms over 60 days). Readings from 0.5.2 are moved over at start-up.
+- Readings now record how far open each vent is rather than open or closed, count the thermostat's own reading for rooms that include it, and store offline vents and door sensors as unknown. Nothing is recorded while Home Assistant is disconnected.
+- Shortening Keep Room Data For asks first, because it deletes readings. The section shows when the last reading was taken.
+
 ## 0.5.2
 
 - Smart Control → Smart Learning: HomeClimate records a reading of every room every 5 minutes (temperature, vents, occupancy, open doors and windows, equipment state, outside temperature). Recording changes nothing about how the home is controlled. Collect Room Data turns it off, Keep Room Data For sets how long readings are kept (60 days by default), and the section shows how much each room has collected. See docs/smart-learning.md.

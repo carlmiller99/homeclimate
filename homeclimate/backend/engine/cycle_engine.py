@@ -165,6 +165,7 @@ class CycleEngine:
         get_vacation_mode: Callable[[], bool] | None = None,
         get_eco_suspended: Callable[[], bool] | None = None,
         get_openings: Callable[[], tuple[bool, frozenset[str]]] | None = None,
+        get_fireplace_rooms: Callable[[], frozenset[str]] | None = None,
         get_heat_pump: Callable[[], HeatPumpGuards | None] | None = None,
     ) -> None:
         self.thermostat_entity_id = thermostat_entity_id
@@ -177,6 +178,7 @@ class CycleEngine:
         self._get_eco_suspended = get_eco_suspended
         # Door and window pausing (Smart Control): (zone paused, paused room ids).
         self._get_openings = get_openings
+        self._get_fireplace_rooms = get_fireplace_rooms
         # Heat pump protection: guards for this zone, or None (conventional).
         self._get_heat_pump = get_heat_pump
         # (started_at, thermostat ambient °F) of the current heat pump warm-up.
@@ -5291,6 +5293,13 @@ class CycleEngine:
         zone_rooms = await db.get_rooms_for_thermostat(conn, self.thermostat_entity_id)
         breaching_now: set[str] = set()
         sustaining_now: dict[str, str] = {}
+        # Rooms a lit fireplace is warming (Smart Control). Their heat is the
+        # fire's, on purpose: the too-warm arm below is skipped for them so the
+        # air conditioning is never started against a fire. The too-cold arm
+        # still applies.
+        fire_rooms = (
+            self._get_fireplace_rooms() if self._get_fireplace_rooms is not None else frozenset()
+        )
         for room in zone_rooms:
             if room.id in new_active_map:
                 continue  # already conditioned via override/schedule/presence
@@ -5319,6 +5328,8 @@ class CycleEngine:
             heat_bound = heat_target if sustaining == "heating" else tc.min_setpoint
 
             if effective > cool_bound:
+                if room.id in fire_rooms:
+                    continue
                 target = cool_target
                 mode_word, bound_word, bound_val = "cooling", "maximum", tc.max_setpoint
                 bound_field = "max_setpoint"
@@ -5445,6 +5456,10 @@ class CycleEngine:
             return False
 
         if current_temp_f > tc.max_setpoint:
+            if await self._fire_is_warming_this_zone(conn):
+                # The thermostat is reading a fire's heat (Smart Control →
+                # Fireplace). Cooling would only fight the fire.
+                return False
             await self._command_safety_bound(
                 thermo_state, "cool", tc.max_setpoint, current_temp_f, tc
             )
@@ -5455,6 +5470,16 @@ class CycleEngine:
             )
             return True
         return False
+
+    async def _fire_is_warming_this_zone(self, conn: aiosqlite.Connection) -> bool:
+        """Whether a lit fireplace has set aside any room of this zone."""
+        if self._get_fireplace_rooms is None:
+            return False
+        fire_rooms = self._get_fireplace_rooms()
+        if not fire_rooms:
+            return False
+        zone_rooms = await db.get_rooms_for_thermostat(conn, self.thermostat_entity_id)
+        return any(r.id in fire_rooms for r in zone_rooms)
 
     async def _command_safety_bound(
         self,

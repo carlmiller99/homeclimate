@@ -353,6 +353,26 @@ class VentController:
                     pass
         return state.get("state") == "open"
 
+    def openness(self, vent: RoomVent) -> float | None:
+        """How far open a vent is, 0.0 to 1.0, or None when Home Assistant can't say.
+
+        Position and tilt vents report their position; others are 1.0 or 0.0
+        from ``state``. An unavailable vent is unknown, not closed.
+        """
+        state = self._ha.get_state(vent.entity_id)
+        if state is None:
+            return None
+        attr = self._position_attr_for(vent.control_method)
+        if attr is not None:
+            pos = (state.get("attributes") or {}).get(attr)
+            try:
+                value = float(pos)  # type: ignore[arg-type]
+            except (TypeError, ValueError):
+                value = float("nan")
+            if 0 <= value <= 100:
+                return value / 100
+        return {"open": 1.0, "closed": 0.0}.get(str(state.get("state")))
+
     def _is_fully_open(self, vent: RoomVent) -> bool:
         """Whether a vent is at (or effectively at) its full-open position.
 

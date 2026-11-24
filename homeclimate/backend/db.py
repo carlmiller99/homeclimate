@@ -229,26 +229,72 @@ CREATE TABLE IF NOT EXISTS room_shades (
     closed_position INTEGER
 );
 
--- HomeClimate Smart Learning: one row per room every few minutes, whatever the
+-- Smart Learning: one reading per room every few minutes, whatever the
 -- system is doing, so a room's idle behaviour can be learned (backend/learning.py).
--- Temperatures are °F. Rows are kept after a room is deleted and age out.
-CREATE TABLE IF NOT EXISTS room_samples (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    ts TEXT NOT NULL,
-    room_id TEXT NOT NULL,
-    thermostat_entity_id TEXT NOT NULL,
-    room_temp REAL,
-    zone_temp REAL,
-    outside_temp REAL,
-    hvac_action TEXT NOT NULL,
-    aux_heat INTEGER NOT NULL DEFAULT 0,
-    vent_open REAL,
-    zone_vent_open REAL,
-    occupied INTEGER,
-    opening INTEGER NOT NULL DEFAULT 0
+-- Stored compactly because it is the largest table: text values (room ids,
+-- thermostat entity ids, hvac actions) are numbered once in room_reading_keys,
+-- ts is Unix seconds, temperatures are hundredths of a °F and vent openness is
+-- thousandths. NULL means unknown. Rows are kept after a room is deleted and age out.
+CREATE TABLE IF NOT EXISTS room_reading_keys (
+    key INTEGER PRIMARY KEY,
+    kind TEXT NOT NULL CHECK (kind IN ('room', 'zone', 'action')),
+    value TEXT NOT NULL,
+    UNIQUE (kind, value)
 );
-CREATE INDEX IF NOT EXISTS idx_room_samples_room_ts ON room_samples(room_id, ts);
-CREATE INDEX IF NOT EXISTS idx_room_samples_ts ON room_samples(ts);
+CREATE TABLE IF NOT EXISTS room_readings (
+    room_key INTEGER NOT NULL,
+    ts INTEGER NOT NULL,
+    zone_key INTEGER NOT NULL,
+    action_key INTEGER NOT NULL,
+    room_temp INTEGER,
+    zone_temp INTEGER,
+    outside_temp INTEGER,
+    aux_heat INTEGER NOT NULL DEFAULT 0,
+    vent_open INTEGER,
+    zone_vent_open INTEGER,
+    occupied INTEGER,
+    opening INTEGER,
+    fireplace INTEGER,
+    PRIMARY KEY (room_key, ts)
+) WITHOUT ROWID;
+
+-- Fireplaces (backend/fireplace.py): the entity that says one is lit, the
+-- rooms it warms, and what to do about it. last_lit_at is Unix seconds, so a
+-- cool-down survives a restart.
+CREATE TABLE IF NOT EXISTS fireplaces (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    entity_id TEXT NOT NULL,
+    cooldown_min INTEGER NOT NULL DEFAULT 60,
+    control TEXT NOT NULL DEFAULT 'watch' CHECK (control IN ('off', 'watch', 'on')),
+    last_lit_at INTEGER,
+    -- 0 while the last clear reading was "lit"; 1 once it has been seen out.
+    out_seen INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE IF NOT EXISTS fireplace_rooms (
+    fireplace_id TEXT NOT NULL,
+    room_id TEXT NOT NULL,
+    PRIMARY KEY (fireplace_id, room_id)
+);
+
+-- The weather forecast (backend/forecast.py). forecast_hours is the forecast
+-- in use: one row per hour, replaced on each fetch and kept through outages.
+-- forecast_snapshots archives what was forecast, as of each clock hour, so
+-- forecasts can be scored later. Times are Unix seconds; temp is hundredths °F.
+CREATE TABLE IF NOT EXISTS forecast_hours (
+    at INTEGER PRIMARY KEY,
+    temp INTEGER NOT NULL,
+    cloud_pct INTEGER,
+    precip_pct INTEGER,
+    condition TEXT NOT NULL DEFAULT '',
+    fetched_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS forecast_snapshots (
+    issued INTEGER NOT NULL,
+    at INTEGER NOT NULL,
+    temp INTEGER NOT NULL,
+    PRIMARY KEY (issued, at)
+) WITHOUT ROWID;
 
 -- HomeClimate heat pumps: each backup (aux) heat episode seen on a zone's
 -- equipment-running source, for Metrics.
@@ -1418,6 +1464,7 @@ async def upsert_room(conn: aiosqlite.Connection, room: Room) -> None:
 
 async def delete_room(conn: aiosqlite.Connection, room_id: str) -> None:
     await conn.execute("DELETE FROM rooms WHERE id=?", (room_id,))
+    await conn.execute("DELETE FROM fireplace_rooms WHERE room_id=?", (room_id,))
     await conn.commit()
 
 

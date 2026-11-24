@@ -39,7 +39,8 @@ A side menu of sections:
 - **Schedules** — per-room time blocks. See [Schedules](./schedules.md).
 - **Doors & Windows** — how long a door or window can stay open before its room or zone pauses, per-zone and per-room overrides, and **Shades**. The sensors themselves are added to rooms in My Home. See [Doors & windows](./doors-and-windows.md) and [Shades](./shades.md).
 - **Smart Learning** — records how each room heats and cools, and shows how much each room has collected. See [Smart Learning](./smart-learning.md).
-- Fireplace Compensation and Forecasts are planned.
+- **Forecasts** — the weather source, and the forecast HomeClimate has fetched. See [Forecasts](./forecasts.md).
+- **Fireplace** — which entity says a fire is lit, the rooms it warms, and what to do while it burns. Fireplaces are added here, not in My Home, because most rooms don't have one. See [Fireplace](./fireplace.md).
 
 ## Settings
 
