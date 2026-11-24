@@ -44,6 +44,10 @@ class FakeHomeAssistant:
         # reads/writes in the engine normalise against this. Default "F";
         # Celsius integration tests set it to "C" and seed °C climate states.
         self.ha_temp_unit: str = "F"
+        # Mirrors HAClient: True = live ``state_reported`` events (the default
+        # for tests); False exercises the scheduler's refresh fallback.
+        self.state_reported_supported: bool | None = True
+        self.refresh_calls = 0
 
     # ------------------------------------------------------------------
     # Test helpers
@@ -151,17 +155,25 @@ class FakeHomeAssistant:
 
     @staticmethod
     def _state_age(state: dict) -> timedelta:
-        raw = state.get("last_updated") or state.get("last_changed")
-        if not raw:
+        stamps = []
+        for key in ("last_reported", "last_updated", "last_changed"):
+            raw = state.get(key)
+            if not raw:
+                continue
+            try:
+                stamps.append(datetime.fromisoformat(raw.replace("Z", "+00:00")))
+            except (ValueError, TypeError):
+                continue
+        if not stamps:
             return timedelta.max
-        try:
-            ts = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-        except (ValueError, TypeError):
-            return timedelta.max
-        return datetime.now(UTC) - ts
+        return datetime.now(UTC) - max(stamps)
 
     async def fetch_states(self) -> list[dict]:
         return list(self._state.values())
+
+    async def refresh_states(self) -> int:
+        self.refresh_calls += 1
+        return len(self._state)
 
     async def get_temperature_unit(self) -> str:
         """Return the simulated HA system temperature unit (default 'F')."""

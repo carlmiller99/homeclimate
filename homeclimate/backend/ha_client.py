@@ -85,6 +85,11 @@ class HAClient:
         self._running = False
         # Cache of entity states: entity_id → state dict
         self._state_cache: dict[str, dict] = {}
+        # Whether HA accepted the ``state_reported`` subscription on the
+        # current connection: True = re-reports of an unchanged value refresh
+        # ``last_reported`` live; False = refused, so the scheduler refreshes
+        # the cache each minute instead; None = not connected yet.
+        self.state_reported_supported: bool | None = None
         # HA's configured system temperature unit ("F"/"C"). Climate entities
         # report and accept temperatures in this unit (unlike sensors, which
         # carry a per-entity unit_of_measurement). Resolved from /api/config on
@@ -233,16 +238,37 @@ class HAClient:
         return self._state_age(state).total_seconds()
 
     @staticmethod
-    def _state_age(state: dict) -> timedelta:
-        """Age of a cached state. Defaults to ``+inf`` on missing/bad timestamps."""
-        raw = state.get("last_updated") or state.get("last_changed")
-        if not raw:
-            return timedelta.max
+    def _parse_ts(raw: Any) -> datetime | None:
+        """Parse an HA ISO timestamp, or ``None`` when missing or malformed."""
+        if not raw or not isinstance(raw, str):
+            return None
         try:
-            ts = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-        except (ValueError, TypeError):
+            return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+
+    @classmethod
+    def _last_seen(cls, state: dict) -> datetime | None:
+        """Newest of ``last_reported`` / ``last_updated`` / ``last_changed``.
+
+        ``last_reported`` (HA 2024.3+) moves whenever the integration re-writes
+        the state, even with an unchanged value, so a steady room's sensor is
+        not mistaken for a dead one.
+        """
+        stamps = [
+            cls._parse_ts(state.get(key))
+            for key in ("last_reported", "last_updated", "last_changed")
+        ]
+        present = [ts for ts in stamps if ts is not None]
+        return max(present) if present else None
+
+    @classmethod
+    def _state_age(cls, state: dict) -> timedelta:
+        """Age of a cached state. Defaults to ``+inf`` on missing/bad timestamps."""
+        seen = cls._last_seen(state)
+        if seen is None:
             return timedelta.max
-        return datetime.now(UTC) - ts
+        return datetime.now(UTC) - seen
 
     async def fetch_states(self) -> list[dict]:
         """Fetch all entity states via REST and populate cache."""
@@ -257,6 +283,36 @@ class HAClient:
         for s in states:
             self._state_cache[s["entity_id"]] = s
         return states
+
+    async def refresh_states(self) -> int:
+        """Re-read every state over REST without moving any entity backwards.
+
+        The fallback for when HA refuses the ``state_reported`` subscription:
+        a fresh snapshot carries each entity's current ``last_reported``. An
+        entry is replaced only when the snapshot is at least as new as the
+        cached state, so a ``state_changed`` event that landed while the request
+        was in flight is never overwritten by older data. Returns the number of
+        entries updated.
+        """
+        assert self._session is not None
+        ws_url = self._ha_url.replace("ws://", "http://").replace("wss://", "https://")
+        async with self._session.get(
+            f"{ws_url}/api/states",
+            headers={"Authorization": f"Bearer {self._token}"},
+        ) as resp:
+            resp.raise_for_status()
+            states: list[dict] = await resp.json()
+        updated = 0
+        for s in states:
+            cached = self._state_cache.get(s["entity_id"])
+            if cached is not None:
+                old = self._parse_ts(cached.get("last_updated"))
+                new = self._parse_ts(s.get("last_updated"))
+                if old is not None and (new is None or new < old):
+                    continue
+            self._state_cache[s["entity_id"]] = s
+            updated += 1
+        return updated
 
     async def get_temperature_unit(self) -> str:
         """Return 'F' or 'C' based on HA's configured unit system.
@@ -539,6 +595,7 @@ class HAClient:
                 except Exception as exc:
                     log.debug("Could not resolve HA temperature unit on connect: %s", exc)
                 await self._subscribe_state_changed()
+                await self._subscribe_state_reported()
                 self._connected.set()
                 self._connected_since = time.monotonic()
                 log.info("HA WebSocket connected and subscribed")
@@ -589,6 +646,56 @@ class HAClient:
             raise RuntimeError(f"Subscribe failed: {resp}")
         self._sub_id = sub_id
 
+    async def _subscribe_state_reported(self) -> None:
+        """Ask HA for ``state_reported`` events; never fail the connection.
+
+        HA may refuse this subscription (newer releases require an event
+        filter for it). A refusal or timeout is logged once and recorded in
+        ``state_reported_supported`` so the scheduler can fall back to a
+        once-a-minute cache refresh. ``state_changed`` events can arrive while
+        we wait for the result, so they are dispatched normally.
+        """
+        assert self._ws is not None
+        self._msg_id += 1
+        sub_id = self._msg_id
+        await self._ws.send_json(
+            {"id": sub_id, "type": "subscribe_events", "event_type": "state_reported"}
+        )
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + _HANDSHAKE_TIMEOUT_S
+        accepted = False
+        try:
+            while True:
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    raise TimeoutError
+                resp = await asyncio.wait_for(self._ws.receive_json(), timeout=remaining)
+                if resp.get("type") == "result" and resp.get("id") == sub_id:
+                    accepted = bool(resp.get("success"))
+                    break
+                await self._dispatch(resp)
+        except TimeoutError:
+            accepted = False
+        if not accepted and self.state_reported_supported is not False:
+            log.info(
+                "HA declined the state_reported subscription; sensor freshness "
+                "falls back to a once-a-minute state refresh"
+            )
+        self.state_reported_supported = accepted
+
+    def _note_reported(self, event: dict) -> None:
+        """Move a cached entity's ``last_reported`` forward from an event."""
+        ed = event.get("data", {})
+        entity_id = ed.get("entity_id", "")
+        cached = self._state_cache.get(entity_id)
+        if cached is None:
+            return
+        new_state = ed.get("new_state") or {}
+        stamp = new_state.get("last_reported") or event.get("time_fired")
+        if self._parse_ts(stamp) is None:
+            return
+        self._state_cache[entity_id] = {**cached, "last_reported": stamp}
+
     async def _read_loop(self) -> None:
         assert self._ws is not None
         async for msg in self._ws:
@@ -610,7 +717,9 @@ class HAClient:
                     fut.set_exception(RuntimeError(str(data.get("error"))))
         elif msg_type == "event":
             event = data.get("event", {})
-            if event.get("event_type") == "state_changed":
+            if event.get("event_type") == "state_reported":
+                self._note_reported(event)
+            elif event.get("event_type") == "state_changed":
                 ed = event.get("data", {})
                 entity_id = ed.get("entity_id", "")
                 new_state = ed.get("new_state") or {}

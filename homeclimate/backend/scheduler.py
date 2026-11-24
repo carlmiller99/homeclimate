@@ -1284,8 +1284,25 @@ class Scheduler:
         await self._check_unit_change()
         await self._sync_engines()
         await self._refresh_continuous_presence()
+        await self._refresh_reported_states()
         tasks = [self._tick_engine(tid, eng) for tid, eng in self._engines.items()]
         await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def _refresh_reported_states(self) -> None:
+        """Fallback freshness refresh when HA refused ``state_reported``.
+
+        Without that subscription, a sensor that re-reports an unchanged value
+        never reaches the cache, so the staleness guard would drop a working
+        sensor. A once-a-minute snapshot carries every entity's current
+        ``last_reported`` instead. Skipped while disconnected or when the
+        subscription is live.
+        """
+        if self._ha.state_reported_supported is not False or not self._ha.is_connected:
+            return
+        try:
+            await self._ha.refresh_states()
+        except Exception:
+            log.warning("Could not refresh HA states for sensor freshness", exc_info=True)
 
     async def _refresh_continuous_presence(self) -> None:
         """Refresh presence holdovers for rooms whose presence sensor currently
