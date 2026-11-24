@@ -197,7 +197,10 @@ CREATE TABLE IF NOT EXISTS zone_profiles (
     hp_min_runtime_min INTEGER NOT NULL DEFAULT 15,
     hp_min_open_heat_pct INTEGER NOT NULL DEFAULT 50,
     hp_switchover_gap_min INTEGER NOT NULL DEFAULT 60,
-    hp_compressor_lockout_f REAL
+    hp_compressor_lockout_f REAL,
+    -- 'avoid': keep setpoint gaps small so the thermostat rarely calls aux;
+    -- 'allow': set heat like a conventional system and let aux help recover.
+    hp_aux_policy TEXT NOT NULL DEFAULT 'avoid'
 );
 
 -- HomeClimate Smart Control: door and window sensors. Each sensor pauses
@@ -221,6 +224,18 @@ CREATE TABLE IF NOT EXISTS room_shades (
     open_position INTEGER,
     closed_position INTEGER
 );
+
+-- HomeClimate heat pumps: each backup (aux) heat episode seen on a zone's
+-- equipment-running source, for Metrics.
+CREATE TABLE IF NOT EXISTS aux_episodes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    thermostat_entity_id TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    ended_at TEXT NOT NULL,
+    minutes REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_aux_episodes_thermo_start
+    ON aux_episodes(thermostat_entity_id, started_at);
 
 -- Per-zone and per-room overrides of Smart Control settings. A missing row
 -- means the zone or room uses the house-wide value in system_settings.

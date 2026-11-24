@@ -22,6 +22,7 @@ from typing import Any
 import aiosqlite
 
 from .. import db, eco
+from .. import heat_pump as hp_rules
 from ..event_logger import EventLogger
 from ..ha_client import HAClient
 from ..heat_pump import HeatPumpGuards
@@ -40,6 +41,7 @@ from .room_manager import (
     OverflowCandidate,
     _effective_deadband,
     _find_matching_schedule,
+    _next_schedule_start,
     _seconds_since_schedule_end,
     expire_holdovers,
     get_active_rooms,
@@ -181,6 +183,10 @@ class CycleEngine:
         self._hp_ramp_start: tuple[datetime, float] | None = None
         # Last switchover-gap episode logged, so the wait is announced once.
         self._hp_gap_logged_until: datetime | None = None
+        # Strips Expected: outdoors is below the compressor lockout.
+        self._hp_strips = False
+        # Early warm-ups already announced, keyed by (room id, block label).
+        self._hp_warmups_logged: set[tuple[str, str]] = set()
 
         self._state = CycleState.IDLE
         self._cycle_log: CycleLog | None = None
@@ -707,6 +713,9 @@ class CycleEngine:
         # schedule/presence/override sources stay paused (#626) — a safety
         # breach below is the only thing that may create demand.
         new_active = [] if in_vacation else await get_active_rooms(conn, self.thermostat_entity_id)
+        await self._heat_pump_strips_expected(conn)
+        if not in_vacation:
+            new_active = await self._heat_pump_warmups(conn, new_active)
         # Door and window pausing (Smart Control): an open door or window
         # removes demand exactly like an unscheduled room — for the whole zone
         # or for one room. Safety rooms below still breach through, so a paused
@@ -1048,7 +1057,10 @@ class CycleEngine:
         if self._cycle_log and self._state == CycleState.RUNNING:
             tc = await self._load_tc(conn)
             elapsed = datetime.now(UTC) - self._cycle_log.started_at
-            if elapsed > timedelta(hours=tc.cycle_timeout_hours):
+            timeout_hours = tc.cycle_timeout_hours
+            if self._heat_pump() is not None and self._cycle_mode == "heating":
+                timeout_hours *= hp_rules.TIMEOUT_FACTOR  # defrost allowance
+            if elapsed > timedelta(hours=timeout_hours):
                 log.warning(
                     "Cycle %s timed out after %.1fh — terminating",
                     self._cycle_log.id,
@@ -5695,7 +5707,95 @@ class CycleEngine:
             changes["min_open_vents_fraction"] = max(
                 tc.min_open_vents_fraction, hp.min_open_heat_fraction
             )
+            if self._hp_strips:
+                changes["deadband"] = tc.deadband + hp_rules.STRIPS_EXTRA_DEADBAND_F
         return dataclasses.replace(tc, **changes)
+
+    @property
+    def strips_expected(self) -> bool:
+        return self._hp_strips
+
+    async def _heat_pump_strips_expected(self, conn: aiosqlite.Connection) -> bool:
+        """Refresh "Strips Expected": outdoors is below the compressor lockout."""
+        hp = self._heat_pump()
+        strips = False
+        if hp is not None and hp.compressor_lockout_f is not None:
+            outside = await self._read_outside_temp(conn)
+            strips = outside is not None and outside < hp.compressor_lockout_f
+        if strips != self._hp_strips and self._logger:
+            await self._logger.log(
+                "info",
+                "engine",
+                (
+                    f"Heat pump {self.thermostat_entity_id}: strips expected, outdoors is "
+                    "below the compressor lockout"
+                    if strips
+                    else f"Heat pump {self.thermostat_entity_id}: compressor available again"
+                ),
+                {"thermostat": self.thermostat_entity_id, "strips_expected": strips},
+            )
+        self._hp_strips = strips
+        return strips
+
+    async def _heat_pump_warmups(
+        self, conn: aiosqlite.Connection, active: list[ActiveRoom], now: datetime | None = None
+    ) -> list[ActiveRoom]:
+        """Start a heat pump zone's scheduled warm-ups early.
+
+        A room whose next schedule block raises its target is treated as
+        active, at that target, once the block is close enough that heating at
+        the recovery rate gets it there on time (up to three hours ahead). Only
+        while the thermostat is in heat mode and the compressor can run.
+        """
+        hp = self._heat_pump()
+        state = (self._ha.get_state(self.thermostat_entity_id) or {}).get("state")
+        if hp is None or not hp.avoid_aux or self._hp_strips or state != "heat":
+            return active
+        now = now or datetime.now(UTC)
+        have = {ar.room.id for ar in active}
+        by_room: dict[str, list] = {}
+        for sched in await db.get_all_schedules(conn):
+            by_room.setdefault(sched.room_id, []).append(sched)
+        out = list(active)
+        for room in await db.get_rooms_for_thermostat(conn, self.thermostat_entity_id):
+            if room.id in have:
+                continue
+            upcoming = _next_schedule_start(by_room.get(room.id, []), now)
+            temp = self._get_avg_temp(room)
+            if upcoming is None or temp is None:
+                continue
+            secs, target, label = upcoming
+            if target <= temp:
+                continue
+            lead_hours = min((target - temp) / hp.recovery_f_per_hr, hp_rules.WARMUP_MAX_LEAD_HOURS)
+            if secs > lead_hours * 3600:
+                continue
+            out.append(ActiveRoom(room=room, target_temp=target, source="schedule"))
+            key = (room.id, label)
+            if self._logger and key not in self._hp_warmups_logged:
+                self._hp_warmups_logged.add(key)
+                await self._logger.log(
+                    "info",
+                    "engine",
+                    f"Warming {room.name} early for {label} ({target:g}°F) so the heat pump "
+                    "can arrive without auxiliary heat",
+                    {"thermostat": self.thermostat_entity_id, "room": room.id, "target": target},
+                )
+        return out
+
+    async def heat_pump_backoff(self, conn: aiosqlite.Connection) -> None:
+        """Re-send a heating setpoint at once after backup heat starts."""
+        if (
+            self._heat_pump() is None
+            or self._state != CycleState.RUNNING
+            or self._cycle_mode != "heating"
+            or not self._active_rooms
+        ):
+            return
+        tc = await self._load_tc(conn)
+        await self._set_thermostat_setpoint(
+            tc, "heating", conn=conn, setpoint_reason="auxiliary heat back-off"
+        )
 
     def _thermo_ambient_f(self) -> float | None:
         state = self._ha.get_state(self.thermostat_entity_id) or {}
@@ -5706,7 +5806,7 @@ class CycleEngine:
     def _heat_pump_cap(self, ambient: float, now: datetime | None = None) -> float | None:
         """Highest heating setpoint a heat pump zone may command right now."""
         hp = self._heat_pump()
-        if hp is None:
+        if hp is None or not hp.avoid_aux:
             return None
         cap = ambient + hp.max_step_f
         if self._hp_ramp_start is not None:
@@ -5755,8 +5855,10 @@ class CycleEngine:
 
     async def _heat_pump_ramp(self, conn: aiosqlite.Connection) -> None:
         """Raise a heat pump's capped heating setpoint as the room warms."""
+        hp = self._heat_pump()
         if (
-            self._heat_pump() is None
+            hp is None
+            or not hp.avoid_aux
             or self._state != CycleState.RUNNING
             or self._cycle_mode != "heating"
             or self._last_setpoint_sent is None

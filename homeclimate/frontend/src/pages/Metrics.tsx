@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { getAuxSummary, getZones, type AuxSummary } from "../zonesApi";
 import {
   downloadMetricsCsv,
   getMetricsEcoImpact,
@@ -59,6 +60,36 @@ function SummaryTile({ label, value, hint }: { label: string; value: string; hin
           {hint}
         </div>
       )}
+    </div>
+  );
+}
+
+/** Auxiliary heat minutes for a heat pump zone (or any zone with an equipment source). */
+export function BackupHeatTile({ entityId, range }: { entityId: string; range: MetricsRange }) {
+  const [value, setValue] = useState<{ key: string; aux: AuxSummary } | null>(null);
+  const key = `${entityId}|${range.start ?? ""}|${range.end ?? ""}`;
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([getZones(), getAuxSummary(entityId, range)])
+      .then(([zones, aux]) => {
+        const zone = zones.find((z) => z.thermostat_entity_id === entityId);
+        const relevant =
+          !!zone && (zone.system_type === "heat_pump" || !!zone.equipment_running_entity);
+        if (!cancelled && relevant) setValue({ key, aux });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [entityId, range, key]);
+  if (!value || value.key !== key) return null;
+  return (
+    <div className="summary-row" style={{ display: "flex", gap: ".75rem", marginTop: ".75rem" }}>
+      <SummaryTile
+        label="Auxiliary heat"
+        value={`${value.aux.minutes} min`}
+        hint={`${value.aux.episodes} ${value.aux.episodes === 1 ? "episode" : "episodes"}`}
+      />
     </div>
   );
 }
@@ -453,6 +484,7 @@ export default function Metrics() {
           charts are therefore real pixels in the goldens now — a rendering
           regression here fails the visual suite. (Issues #182 → #442) */}
       <SummarySection summary={summary} loading={loading} />
+      {selected !== HOME && <BackupHeatTile entityId={selected} range={range} />}
 
       <EmptyStateBanners
         summary={summary}

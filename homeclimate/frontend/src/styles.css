@@ -2356,3 +2356,13 @@ button.sc-nav-item {
   align-items: center;
   padding-top: 0.6rem;
 }
+.aux-policy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem 0 1rem;
+}
+.aux-policy .field-help {
+  margin: 0;
+  max-width: 44rem;
+}

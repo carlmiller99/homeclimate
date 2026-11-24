@@ -684,11 +684,15 @@ class ZoneProfileSchema(Schema):
     hp_recovery_f_per_hr = fields.Float(
         metadata={"description": "Heat pump: max warm-up rate (delta per hour, °F stored)"}
     )
+    hp_aux_policy = fields.Str(metadata={"description": "avoid | allow (auxiliary heat)"})
     hp_min_runtime_min = fields.Int()
     hp_min_open_heat_pct = fields.Int()
     hp_switchover_gap_min = fields.Int()
     aux_heat_running = fields.Bool(
-        metadata={"description": "Backup heat is running now (zone list only)"}
+        metadata={"description": "Auxiliary heat is running now (zone list only)"}
+    )
+    strips_expected = fields.Bool(
+        metadata={"description": "Outdoors is below the compressor lockout (zone list only)"}
     )
     hp_compressor_lockout_f = fields.Float(
         allow_none=True, metadata={"description": "Planning only (absolute, °F stored)"}
@@ -713,6 +717,7 @@ class ZoneProfileWriteSchema(Schema):
             "description": "Heat pump: max warm-up rate (delta per hour, in the display unit)"
         }
     )
+    hp_aux_policy = fields.Str(metadata={"description": "avoid | allow (auxiliary heat)"})
     hp_min_runtime_min = fields.Int()
     hp_min_open_heat_pct = fields.Int()
     hp_switchover_gap_min = fields.Int()
@@ -851,3 +856,8 @@ class ShadesSchema(Schema):
     settings = fields.Nested(ShadeSettingsSchema)
     sun = fields.Nested(SunSchema)
     shades = fields.List(fields.Nested(ShadeSchema))
+
+
+class AuxSummarySchema(Schema):
+    episodes = fields.Int(metadata={"description": "Auxiliary heat episodes that started in range"})
+    minutes = fields.Float(metadata={"description": "Total auxiliary heat minutes"})

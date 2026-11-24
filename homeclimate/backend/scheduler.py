@@ -1351,8 +1351,9 @@ class Scheduler:
         """Refresh heat pump guards in place (engines hold the dict's ``get``)."""
         profiles = await zones.list_zone_profiles(self._db_conn)
         self._zone_profiles = {z.thermostat_entity_id: z for z in profiles}
+        now = datetime.now(UTC)
         fresh = {
-            z.thermostat_entity_id: g
+            z.thermostat_entity_id: self._aux.apply_backoff(z.thermostat_entity_id, g, now)
             for z in profiles
             if (g := heat_pump.HeatPumpGuards.from_profile(z)) is not None
         }
@@ -1362,20 +1363,35 @@ class Scheduler:
     def aux_heat_running(self, thermostat_entity_id: str) -> bool:
         return self._aux.running_since(thermostat_entity_id) is not None
 
+    def strips_expected(self, thermostat_entity_id: str) -> bool:
+        engine = self._engines.get(thermostat_entity_id)
+        return engine is not None and engine.strips_expected
+
     async def _watch_backup_heat(self) -> None:
         """Log each backup (aux) heat episode seen on an equipment source."""
         now = datetime.now(UTC)
+        backed_off: list[str] = []
         for tid, zone in self._zone_profiles.items():
             source = zone.equipment_running_entity
             running = heat_pump.aux_running(source, self._ha.get_state(source) if source else None)
             episode = self._aux.update(tid, running, now)
-            if episode is None or self._event_logger is None:
+            if episode is None:
+                continue
+            if not episode.started:
+                await heat_pump.record_episode(self._db_conn, episode, now)
+            elif zone.is_heat_pump and zone.hp_aux_policy == "avoid":
+                # Hold the setpoint closer for an hour so the compressor can
+                # catch up without the strips (the back-off).
+                self._aux.start_backoff(tid, now)
+                backed_off.append(tid)
+            if self._event_logger is None:
                 continue
             name = zone.name or tid
             message = (
-                f"Backup heat started on {name}"
+                f"Auxiliary heat started on {name}"
+                + (", holding the setpoint closer for an hour" if tid in backed_off else "")
                 if episode.started
-                else f"Backup heat stopped on {name} after {episode.minutes:g} min"
+                else f"Auxiliary heat stopped on {name} after {episode.minutes:g} min"
             )
             await self._event_logger.log(
                 "warning" if episode.started else "info",
@@ -1383,6 +1399,12 @@ class Scheduler:
                 message,
                 {"thermostat": tid, "source": source, "minutes": episode.minutes},
             )
+        if backed_off:
+            await self._load_heat_pumps()
+            for tid in backed_off:
+                engine = self._engines.get(tid)
+                if engine is not None:
+                    await engine.heat_pump_backoff(self._db_conn)
 
     @property
     def shade_controller(self) -> shades.ShadeController:

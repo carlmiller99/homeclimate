@@ -19,6 +19,7 @@ from .user_errors import UserError, fixed
 
 SYSTEM_TYPES = ("conventional", "heat_pump")
 BACKUP_HEAT = ("electric", "gas", "none")
+AUX_POLICIES = ("avoid", "allow")
 MAX_STAGES = 3
 MAX_NAME_LEN = 60
 
@@ -48,6 +49,7 @@ class ZoneProfile:
     hp_min_open_heat_pct: int = 50
     hp_switchover_gap_min: int = 60
     hp_compressor_lockout_f: float | None = None
+    hp_aux_policy: str = "avoid"
 
     @property
     def is_heat_pump(self) -> bool:
@@ -90,7 +92,11 @@ _INT_MESSAGES = {
     name: fixed(f"{name} must be a whole number from {lo} to {hi}")
     for name, (lo, hi) in _INT_LIMITS.items()
 }
-_CHOICES = {"system_type": SYSTEM_TYPES, "backup_heat": BACKUP_HEAT}
+_CHOICES = {
+    "system_type": SYSTEM_TYPES,
+    "backup_heat": BACKUP_HEAT,
+    "hp_aux_policy": AUX_POLICIES,
+}
 _CHOICE_MESSAGES = {
     name: fixed(f"{name} must be one of: {', '.join(options)}")
     for name, options in _CHOICES.items()
@@ -246,6 +252,7 @@ def _profile(row: aiosqlite.Row) -> ZoneProfile:
                 "hp_min_open_heat_pct": int(row["hp_min_open_heat_pct"]),
                 "hp_switchover_gap_min": int(row["hp_switchover_gap_min"]),
                 "hp_compressor_lockout_f": row["hp_compressor_lockout_f"],
+                "hp_aux_policy": row["hp_aux_policy"],
             }
             if has_row
             else {}
@@ -288,6 +295,8 @@ async def update_zone_profile(
     for name in ("hp_max_step_f", "hp_recovery_f_per_hr"):
         if name in changes:
             setattr(zone, name, _float(changes[name], name))
+    if "hp_aux_policy" in changes:
+        zone.hp_aux_policy = _choice(changes["hp_aux_policy"], "hp_aux_policy")
     if "hp_compressor_lockout_f" in changes:
         raw = changes["hp_compressor_lockout_f"]
         zone.hp_compressor_lockout_f = (
@@ -297,8 +306,9 @@ async def update_zone_profile(
         """INSERT INTO zone_profiles(thermostat_entity_id, building_id, sort_order, system_type,
                compressor_stages, backup_heat, equipment_running_entity, heat_kit_confirmed,
                hp_max_step_f, hp_recovery_f_per_hr, hp_min_runtime_min,
-               hp_min_open_heat_pct, hp_switchover_gap_min, hp_compressor_lockout_f)
-           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+               hp_min_open_heat_pct, hp_switchover_gap_min, hp_compressor_lockout_f,
+               hp_aux_policy)
+           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
            ON CONFLICT(thermostat_entity_id) DO UPDATE SET
              building_id=excluded.building_id, sort_order=excluded.sort_order,
              system_type=excluded.system_type, compressor_stages=excluded.compressor_stages,
@@ -310,7 +320,8 @@ async def update_zone_profile(
              hp_min_runtime_min=excluded.hp_min_runtime_min,
              hp_min_open_heat_pct=excluded.hp_min_open_heat_pct,
              hp_switchover_gap_min=excluded.hp_switchover_gap_min,
-             hp_compressor_lockout_f=excluded.hp_compressor_lockout_f""",
+             hp_compressor_lockout_f=excluded.hp_compressor_lockout_f,
+             hp_aux_policy=excluded.hp_aux_policy""",
         (
             entity_id,
             zone.building_id,
@@ -326,6 +337,7 @@ async def update_zone_profile(
             zone.hp_min_open_heat_pct,
             zone.hp_switchover_gap_min,
             zone.hp_compressor_lockout_f,
+            zone.hp_aux_policy,
         ),
     )
     await conn.commit()

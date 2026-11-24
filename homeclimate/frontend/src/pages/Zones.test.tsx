@@ -4,7 +4,7 @@ import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as zonesApi from "../zonesApi";
 import { UnitContext, buildUnitContext } from "../contexts";
-import Zones, { HEAT_KIT_WARNING } from "./Zones";
+import Zones, { AUX_HEAT_EXPLAINER, HEAT_KIT_WARNING } from "./Zones";
 
 vi.mock("../zonesApi", async (orig) => {
   const actual = await orig<typeof import("../zonesApi")>();
@@ -188,7 +188,9 @@ describe("Zones page", () => {
     fireEvent.change(within(editor).getByLabelText("Compressor Stages"), {
       target: { value: "2" },
     });
-    fireEvent.change(within(editor).getByLabelText("Backup Heat"), { target: { value: "none" } });
+    fireEvent.change(within(editor).getByLabelText("Auxiliary Heat"), {
+      target: { value: "none" },
+    });
     fireEvent.change(within(editor).getByLabelText("Building"), { target: { value: "b2" } });
     fireEvent.click(within(editor).getByRole("button", { name: "pick Not set" }));
     expect(within(editor).getByText("climate.wing_cloud")).toBeInTheDocument();
@@ -207,7 +209,7 @@ describe("Zones page", () => {
         ...HP_DEFAULTS,
       })
     );
-    expect(await screen.findByText("Heat Pump, 2 Stage, No Backup Heat")).toBeInTheDocument();
+    expect(await screen.findByText("Heat Pump, 2 Stage, No Auxiliary Heat")).toBeInTheDocument();
   });
 
   it("edits heat pump protection in display units and shows backup heat", async () => {
@@ -219,6 +221,7 @@ describe("Zones page", () => {
       hp_recovery_f_per_hr: 3.6,
       hp_compressor_lockout_f: 23,
       aux_heat_running: true,
+      strips_expected: true,
     });
     vi.mocked(zonesApi.getZones).mockResolvedValue([hp]);
     vi.mocked(zonesApi.updateZone).mockResolvedValueOnce(hp);
@@ -230,7 +233,11 @@ describe("Zones page", () => {
       </MemoryRouter>
     );
     await screen.findByText("South Wing");
-    expect(screen.getByRole("status")).toHaveTextContent("Backup Heat Running");
+    expect(screen.getByRole("status")).toHaveTextContent("Auxiliary Heat Running");
+    expect(screen.getByText("Strips Expected")).toHaveAttribute(
+      "title",
+      expect.stringContaining("below the compressor lockout")
+    );
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
     const editor = screen.getByRole("region", { name: "Edit South Wing" });
     expect(within(editor).getByText("Heat Pump Protection")).toBeInTheDocument();
@@ -241,6 +248,19 @@ describe("Zones page", () => {
     expect(within(editor).getAllByText("°C")).toHaveLength(2);
     expect(within(editor).getByText("%")).toBeInTheDocument();
 
+    expect(within(editor).getByText(AUX_HEAT_EXPLAINER)).toBeInTheDocument();
+    expect(within(editor).getByText(/raises the heat in small steps/)).toBeInTheDocument();
+    fireEvent.click(within(editor).getByRole("radio", { name: "Allow When Needed" }));
+    expect(within(editor).getByText(/like a conventional system/)).toBeInTheDocument();
+    expect(within(editor).getByLabelText("Max Setpoint Step")).toBeDisabled();
+    expect(within(editor).getByLabelText("Max Recovery Rate")).toBeDisabled();
+    expect(within(editor).getByLabelText("Minimum Run Time")).toBeEnabled();
+    fireEvent.click(within(editor).getByRole("radio", { name: "Avoid" }));
+    expect(within(editor).getByLabelText("Max Setpoint Step")).toBeEnabled();
+    fireEvent.click(within(editor).getByRole("radio", { name: "Allow When Needed" }));
+    fireEvent.click(within(editor).getByRole("radio", { name: "Avoid" }));
+    fireEvent.click(within(editor).getByRole("radio", { name: "Allow When Needed" }));
+    fireEvent.click(within(editor).getByRole("radio", { name: "Avoid" }));
     fireEvent.change(within(editor).getByLabelText("Max Setpoint Step"), {
       target: { value: "1.5" },
     });
@@ -259,6 +279,7 @@ describe("Zones page", () => {
           hp_recovery_f_per_hr: 2,
           hp_min_runtime_min: 20,
           hp_compressor_lockout_f: null,
+          hp_aux_policy: "avoid",
         })
       )
     );

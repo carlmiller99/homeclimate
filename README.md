@@ -98,7 +98,7 @@ HomeClimate drives real HVAC equipment, so it includes protections that exist pu
 - **Airflow floor / dead-head protection** — keeps a configurable fraction (default one third) of the thermostat's total registers open at all times, accounting for passive (non-smart) vents that are always open. Tickable opt-out for systems with a bypass damper.
 - **Equipment-protection limits** — setpoint clamps, a force-reopen valve for closed vents, and a cycle timeout for stuck equipment.
 
-- **Heat pump protection**: for zones marked as heat pumps, a capped and rate-limited heating setpoint so the thermostat has no reason to bring on backup heat, longer minimum runs, more open vents when heating, and a wait between heating and cooling. Backup heat episodes are logged when an equipment-running source is set. See [`docs/heat-pumps.md`](./docs/heat-pumps.md).
+- **Heat pump protection**: for zones marked as heat pumps, a capped and rate-limited heating setpoint so the thermostat has no reason to bring on auxiliary heat, early warm-ups, longer minimum runs, more open vents when heating, a wait between heating and cooling, and a Strips Expected mode below the compressor lockout. Auxiliary heat can be set to Avoid or Allow When Needed, and its episodes are logged and shown in Metrics when an equipment-running source is set. See [`docs/heat-pumps.md`](./docs/heat-pumps.md).
 
 See [`docs/safety.md`](./docs/safety.md) for how each protection works and how to configure it.
 

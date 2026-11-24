@@ -26,13 +26,17 @@ export interface ZoneProfile {
   hp_min_open_heat_pct: number;
   hp_switchover_gap_min: number;
   hp_compressor_lockout_f: number | null;
+  /** Auxiliary heat: "avoid" keeps setpoint gaps small; "allow" sets heat normally. */
+  hp_aux_policy: "avoid" | "allow";
   /** True while the equipment-running source reports backup (aux) heat. */
   aux_heat_running?: boolean;
+  /** True while outdoors is below the heat pump's compressor lockout. */
+  strips_expected?: boolean;
 }
 
 /** Writes carry temperatures in the DISPLAY unit; the backend converts (#231). */
 export type ZoneProfileUpdate = Partial<
-  Omit<ZoneProfile, "thermostat_entity_id" | "name" | "aux_heat_running">
+  Omit<ZoneProfile, "thermostat_entity_id" | "name" | "aux_heat_running" | "strips_expected">
 >;
 
 export const getBuildings = () => api<Building[]>("/api/buildings");
@@ -62,7 +66,7 @@ export const BACKUP_HEAT_LABELS: Record<BackupHeat, string> = {
 export function equipmentSummary(z: ZoneProfile): string {
   const parts = [SYSTEM_TYPE_LABELS[z.system_type]];
   if (z.compressor_stages > 1) parts.push(`${z.compressor_stages} Stage`);
-  parts.push(z.backup_heat === "none" ? "No Backup Heat" : BACKUP_HEAT_LABELS[z.backup_heat]);
+  parts.push(z.backup_heat === "none" ? "No Auxiliary Heat" : BACKUP_HEAT_LABELS[z.backup_heat]);
   return parts.join(", ");
 }
 
@@ -152,3 +156,18 @@ export interface ImportResult {
 export const getImportPreview = () => api<ImportPreview>("/api/ha/import-preview");
 export const runImport = (body: ImportRequest) =>
   api<ImportResult>("/api/ha/import", { method: "POST", body: JSON.stringify(body) });
+
+export interface AuxSummary {
+  episodes: number;
+  minutes: number;
+}
+
+export const getAuxSummary = (entityId: string, range: { start?: string; end?: string } = {}) => {
+  const q = new URLSearchParams();
+  if (range.start) q.set("start", range.start);
+  if (range.end) q.set("end", range.end);
+  const qs = q.toString();
+  return api<AuxSummary>(
+    `/api/metrics/thermostats/${encodeURIComponent(entityId)}/aux${qs ? `?${qs}` : ""}`
+  );
+};

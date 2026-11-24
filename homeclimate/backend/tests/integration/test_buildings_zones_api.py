@@ -99,7 +99,9 @@ async def test_zones_default_and_update(client):
         "hp_min_open_heat_pct": 50,
         "hp_switchover_gap_min": 60,
         "hp_compressor_lockout_f": None,
+        "hp_aux_policy": "avoid",
         "aux_heat_running": False,
+        "strips_expected": False,
     }
 
     main = await (await client.post("/api/buildings", json={"name": "Main House"})).json()
@@ -172,6 +174,7 @@ async def test_deleting_a_building_unassigns_nothing_it_does_not_own(client):
         {"hp_switchover_gap_min": -1},
         {"hp_compressor_lockout_f": 90},
         {"hp_compressor_lockout_f": True},
+        {"hp_aux_policy": "sometimes"},
     ],
 )
 async def test_zone_validation(client, body):
@@ -189,6 +192,7 @@ async def test_heat_pump_guards_convert_at_the_write_boundary(client):
         "hp_min_open_heat_pct": 60,
         "hp_switchover_gap_min": 90,
         "hp_compressor_lockout_f": 5,
+        "hp_aux_policy": "allow",
     }
     scheduler = client.app["scheduler"]
     scheduler._active_unit = "C"
@@ -202,6 +206,7 @@ async def test_heat_pump_guards_convert_at_the_write_boundary(client):
     assert zone["hp_compressor_lockout_f"] == 41.0
     assert (zone["hp_min_runtime_min"], zone["hp_min_open_heat_pct"]) == (20, 60)
     assert zone["hp_switchover_gap_min"] == 90
+    assert zone["hp_aux_policy"] == "allow"
 
     zone = await (
         await client.put(

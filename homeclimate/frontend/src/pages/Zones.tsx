@@ -32,18 +32,22 @@ const HP_GUARDS: {
   help: string;
   unit: "temp" | "rate" | "min" | "%";
   nullable?: boolean;
+  /** Only applies while auxiliary heat is avoided. */
+  avoidOnly?: boolean;
 }[] = [
   {
     key: "hp_max_step_f",
     label: "Max Setpoint Step",
     help: "How far above the thermostat's reading the setpoint is ever set when heating.",
     unit: "temp",
+    avoidOnly: true,
   },
   {
     key: "hp_recovery_f_per_hr",
     label: "Max Recovery Rate",
     help: "A warm-up's setpoint climbs no faster than this.",
     unit: "rate",
+    avoidOnly: true,
   },
   {
     key: "hp_min_runtime_min",
@@ -72,8 +76,28 @@ const HP_GUARDS: {
   },
 ];
 
+type AuxPolicy = "avoid" | "allow";
+
+const AUX_POLICY_LABELS: Record<AuxPolicy, string> = {
+  avoid: "Avoid",
+  allow: "Allow When Needed",
+};
+
+export const AUX_HEAT_EXPLAINER =
+  "Auxiliary heat (also called aux, backup or emergency heat) is the electric heater strips or gas furnace in the air handler. The thermostat turns it on when the heat pump can't keep up: on very cold days, or when the setpoint jumps several degrees. It heats quickly, but electric strips cost about two to three times as much to run as the heat pump.";
+
+const AUX_POLICY_HELP: Record<AuxPolicy, string> = {
+  avoid:
+    "HomeClimate raises the heat in small steps, starts warm-ups early, and eases off for an hour if auxiliary heat comes on anyway. Rooms warm more slowly.",
+  allow:
+    "HomeClimate sets the heat like a conventional system. Rooms warm faster, and the thermostat may bring on auxiliary heat to get there. The settings below still apply, except the setpoint step and recovery rate.",
+};
+
+const STRIPS_EXPECTED_HELP =
+  "Outdoors is below the compressor lockout, so auxiliary heat will do the work. Warm-ups don't start early and the deadband is 1 °F wider.";
+
 export const HEAT_KIT_WARNING =
-  "Backup heat is set to electric strips. Confirm a heater kit is installed in the air handler, or set Backup Heat to None.";
+  "Auxiliary heat is set to electric strips. Confirm a heater kit is installed in the air handler, or set Auxiliary Heat to None.";
 
 function ZoneEditor({
   zone,
@@ -102,6 +126,7 @@ function ZoneEditor({
     hp_switchover_gap_min: zone.hp_switchover_gap_min,
     hp_compressor_lockout_f:
       zone.hp_compressor_lockout_f === null ? null : toDisplay(zone.hp_compressor_lockout_f),
+    hp_aux_policy: zone.hp_aux_policy,
   });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -193,7 +218,7 @@ function ZoneEditor({
             </select>
           </label>
           <label className="field-stack">
-            Backup Heat
+            Auxiliary Heat
             <select
               className="form-control"
               value={form.backup_heat}
@@ -252,8 +277,33 @@ function ZoneEditor({
           <>
             <h3 className="zone-section-title">Heat Pump Protection</h3>
             <p className="field-help">
-              Keeps the heat pump doing the work so backup heat stays off.
+              Keeps the heat pump doing the work so auxiliary heat stays off.
             </p>
+            <div className="aux-policy">
+              <span className="field-label" id={`aux-${zone.thermostat_entity_id}`}>
+                When to Use Auxiliary Heat
+              </span>
+              <p className="field-help">{AUX_HEAT_EXPLAINER}</p>
+              <div
+                role="radiogroup"
+                aria-labelledby={`aux-${zone.thermostat_entity_id}`}
+                className="segmented"
+              >
+                {(Object.keys(AUX_POLICY_LABELS) as AuxPolicy[]).map((k) => (
+                  <button
+                    key={k}
+                    type="button"
+                    role="radio"
+                    aria-checked={form.hp_aux_policy === k}
+                    className="segmented-option"
+                    onClick={() => setForm((f) => ({ ...f, hp_aux_policy: k }))}
+                  >
+                    {AUX_POLICY_LABELS[k]}
+                  </button>
+                ))}
+              </div>
+              <p className="field-help">{AUX_POLICY_HELP[form.hp_aux_policy]}</p>
+            </div>
             <div className="guard-list">
               {HP_GUARDS.map((g) => {
                 const value = form[g.key];
@@ -267,6 +317,7 @@ function ZoneEditor({
                     </div>
                     <input
                       id={`${g.key}-${zone.thermostat_entity_id}`}
+                      disabled={g.avoidOnly && form.hp_aux_policy === "allow"}
                       className="form-control guard-input"
                       type="number"
                       step={g.unit === "temp" || g.unit === "rate" ? 0.1 : 1}
@@ -505,9 +556,14 @@ export default function Zones() {
                   <div className="zone-entity">{z.thermostat_entity_id}</div>
                 </div>
                 <span className="pill">{equipmentSummary(z)}</span>
+                {z.strips_expected && (
+                  <span className="pill pill-heat" title={STRIPS_EXPECTED_HELP}>
+                    Strips Expected
+                  </span>
+                )}
                 {z.aux_heat_running && (
                   <span className="pill pill-heat" role="status">
-                    Backup Heat Running
+                    Auxiliary Heat Running
                   </span>
                 )}
                 <button

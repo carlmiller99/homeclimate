@@ -33,6 +33,10 @@ def test_guards_only_for_heat_pumps():
         ZoneProfile(THERMO_ID, system_type="heat_pump", hp_min_open_heat_pct=40)
     )
     assert guards == HeatPumpGuards(1.0, 2.0, 15, 0.4, 60)
+    allow = HeatPumpGuards.from_profile(
+        ZoneProfile(THERMO_ID, system_type="heat_pump", hp_aux_policy="allow")
+    )
+    assert allow is not None and allow.avoid_aux is False
 
 
 @pytest.mark.parametrize(
@@ -263,4 +267,188 @@ async def test_fresh_heating_cycle_starts_the_ramp():
     await engine._start_or_update_cycle(conn, active, "heating")
     assert engine._hp_ramp_start is not None
     assert engine._hp_ramp_start[1] == 66.0
+    await conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Strips Expected, early warm-ups, back-off, defrost allowance
+# ---------------------------------------------------------------------------
+
+LOCKOUT = HeatPumpGuards(1.0, 2.0, 15, 0.5, 60, compressor_lockout_f=20.0)
+
+
+async def test_strips_expected_follows_the_outdoor_temperature():
+    conn = await _conn()
+    engine, _ = _hp_engine(66.0, guards=LOCKOUT)
+    logger = AsyncMock()
+    engine._logger = logger
+    engine._read_outside_temp = AsyncMock(return_value=15.0)
+    assert await engine._heat_pump_strips_expected(conn) is True
+    assert engine.strips_expected
+    tc = await engine._load_tc(conn, "heating")
+    assert tc.deadband == (await db.get_thermostat_config(conn, THERMO_ID)).deadband + 1.0
+    assert (await engine._load_tc(conn, "cooling")).deadband == tc.deadband - 1.0
+    engine._read_outside_temp = AsyncMock(return_value=25.0)
+    assert await engine._heat_pump_strips_expected(conn) is False
+    assert logger.log.await_count == 2
+    engine._read_outside_temp = AsyncMock(return_value=None)
+    assert await engine._heat_pump_strips_expected(conn) is False
+    # No lockout configured, or not a heat pump: never.
+    engine._get_heat_pump = lambda: GUARDS
+    assert await engine._heat_pump_strips_expected(conn) is False
+    engine._logger = None
+    engine._get_heat_pump = lambda: LOCKOUT
+    engine._read_outside_temp = AsyncMock(return_value=0.0)
+    assert await engine._heat_pump_strips_expected(conn) is True
+    await conn.close()
+
+
+async def _scheduled_room(conn, start_hour: int, target: float):
+    from datetime import time
+
+    from backend.models import Schedule
+
+    room = Room.create(name="Bunk Room", thermostat_entity_id=THERMO_ID)
+    await db.upsert_room(conn, room)
+    await db.upsert_schedule(
+        conn,
+        Schedule.create(
+            room_id=room.id,
+            days_of_week=list(range(7)),
+            start_time=time(start_hour, 0),
+            end_time=time(start_hour, 59),
+            target_temp=target,
+        ),
+    )
+    return room
+
+
+async def test_warmups_start_early_only_when_needed(monkeypatch):
+    from backend import tz
+
+    monkeypatch.setattr(tz, "get_timezone", lambda: UTC)
+    conn = await _conn()
+    room = await _scheduled_room(conn, 7, 70.0)
+    engine, ha = _hp_engine(64.0)
+    ha.get_state.return_value["state"] = "heat"
+    logger = AsyncMock()
+    engine._logger = logger
+    engine._get_avg_temp = lambda _room, **_k: 66.0
+    # 4 °F at 2 °F/hr = 2 h of lead. 05:30 is 1.5 h before 07:00: start.
+    now = datetime(2026, 1, 5, 5, 30, tzinfo=UTC)
+    active = await engine._heat_pump_warmups(conn, [], now=now)
+    assert [(ar.room.id, ar.target_temp, ar.source) for ar in active] == [
+        (room.id, 70.0, "schedule")
+    ]
+    await engine._heat_pump_warmups(conn, [], now=now)
+    assert logger.log.await_count == 1  # announced once per block
+    # 04:30 is 2.5 h before: too early.
+    assert await engine._heat_pump_warmups(conn, [], now=now - timedelta(hours=1)) == []
+    # Already active, warm enough, or no reading: nothing added.
+    assert await engine._heat_pump_warmups(conn, active, now=now) == active
+    engine._get_avg_temp = lambda _room, **_k: 71.0
+    assert await engine._heat_pump_warmups(conn, [], now=now) == []
+    engine._get_avg_temp = lambda _room, **_k: None
+    assert await engine._heat_pump_warmups(conn, [], now=now) == []
+    # Not in heat mode, strips expected, or not a heat pump: never.
+    engine._get_avg_temp = lambda _room, **_k: 66.0
+    engine._hp_strips = True
+    assert await engine._heat_pump_warmups(conn, [], now=now) == []
+    engine._hp_strips = False
+    ha.get_state.return_value["state"] = "cool"
+    assert await engine._heat_pump_warmups(conn, [], now=now) == []
+    ha.get_state.return_value["state"] = "heat"
+    engine._logger = None
+    engine._hp_warmups_logged.clear()
+    assert len(await engine._heat_pump_warmups(conn, [], now=now)) == 1
+    engine._get_heat_pump = lambda: None
+    assert await engine._heat_pump_warmups(conn, [], now=now) == []
+    await conn.close()
+
+
+async def test_warmup_lead_is_capped_and_rooms_without_schedules_are_skipped(monkeypatch):
+    from backend import tz
+
+    monkeypatch.setattr(tz, "get_timezone", lambda: UTC)
+    conn = await _conn()
+    await _scheduled_room(conn, 7, 75.0)
+    await db.upsert_room(conn, Room.create(name="Craft Room", thermostat_entity_id=THERMO_ID))
+    engine, ha = _hp_engine(60.0)
+    ha.get_state.return_value["state"] = "heat"
+    engine._get_avg_temp = lambda _room, **_k: 60.0
+    # 15 °F would need 7.5 h; capped at 3 h, so 03:30 is too early, 04:30 is not.
+    assert (
+        await engine._heat_pump_warmups(conn, [], now=datetime(2026, 1, 5, 3, 30, tzinfo=UTC)) == []
+    )
+    assert (
+        len(await engine._heat_pump_warmups(conn, [], now=datetime(2026, 1, 5, 4, 30, tzinfo=UTC)))
+        == 1
+    )
+    await conn.close()
+
+
+async def test_backoff_resends_the_setpoint_only_while_heating():
+    conn = await _conn()
+    engine, _ = _hp_engine(66.0)
+    engine._set_thermostat_setpoint = AsyncMock()
+    await engine.heat_pump_backoff(conn)
+    engine._set_thermostat_setpoint.assert_not_awaited()
+    _active(engine, 70.0)
+    engine._state = CycleState.RUNNING
+    engine._cycle_mode = "heating"
+    await engine.heat_pump_backoff(conn)
+    assert engine._set_thermostat_setpoint.await_args.kwargs["setpoint_reason"] == (
+        "auxiliary heat back-off"
+    )
+    await conn.close()
+
+
+def test_backoff_guards():
+    mon = AuxMonitor()
+    assert mon.apply_backoff("climate.a", GUARDS, T0) is GUARDS
+    mon.start_backoff("climate.a", T0)
+    assert mon.apply_backoff("climate.a", GUARDS, T0 + timedelta(minutes=30)).max_step_f == 0.5
+    assert mon.apply_backoff("climate.a", GUARDS, T0 + timedelta(minutes=61)) is GUARDS
+
+
+async def test_heat_pump_heating_cycles_get_a_longer_timeout():
+    from .test_cycle_engine import _setup_engine_with_running_cycle
+
+    engine, conn, cycle = await _setup_engine_with_running_cycle()
+    tc = await db.get_thermostat_config(conn, THERMO_ID)
+    # Started 1.2x the timeout ago: a conventional zone would time out.
+    cycle.started_at = datetime.now(UTC) - timedelta(hours=tc.cycle_timeout_hours * 1.2)
+    engine._cycle_log = cycle
+    engine._get_heat_pump = lambda: GUARDS
+    engine._cycle_mode = "heating"
+    engine._terminate_cycle = AsyncMock()
+    await engine._do_tick(conn)
+    timeouts = [
+        c for c in engine._terminate_cycle.await_args_list if c.kwargs.get("reason") == "timeout"
+    ]
+    assert timeouts == []
+    await conn.close()
+
+
+ALLOW = HeatPumpGuards(1.0, 2.0, 15, 0.5, 60, avoid_aux=False)
+
+
+async def test_allowing_aux_turns_off_the_setpoint_guards():
+    conn = await _conn()
+    engine, ha = _hp_engine(68.2, guards=ALLOW)
+    _active(engine, 72.0)
+    tc = await engine._load_tc(conn, "heating")
+    # Floors still apply; the cap does not.
+    assert tc.min_cycle_runtime_min == 15
+    assert engine._heat_pump_cap(68.2) is None
+    await engine._set_thermostat_setpoint(tc, "heating", conn=conn)
+    assert ha.set_thermostat_temperature.await_args.args[1] == 74.0
+    ha.get_state.return_value["state"] = "heat"
+    assert await engine._heat_pump_warmups(conn, []) == []
+    engine._state = CycleState.RUNNING
+    engine._cycle_mode = "heating"
+    engine._last_setpoint_sent = 69.0
+    engine._set_thermostat_setpoint = AsyncMock()
+    await engine._heat_pump_ramp(conn)
+    engine._set_thermostat_setpoint.assert_not_awaited()
     await conn.close()

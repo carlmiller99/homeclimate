@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
 
 pytestmark = pytest.mark.asyncio
@@ -43,8 +45,13 @@ async def test_guards_follow_zone_edits_and_backup_heat_is_logged(client, fake_h
 
     events = await (await client.get("/api/logs/events?category=engine")).json()
     messages = [e["message"] for e in (events["events"] if isinstance(events, dict) else events)]
-    assert "Backup heat started on Upstairs" in messages
-    assert any(m.startswith("Backup heat stopped on Upstairs after ") for m in messages)
+    assert "Auxiliary heat started on Upstairs, holding the setpoint closer for an hour" in messages
+    assert any(m.startswith("Auxiliary heat stopped on Upstairs after ") for m in messages)
+    # The back-off holds the step to 0.5 °F, and the episode is in Metrics.
+    assert scheduler._heat_pumps[T1].max_step_f == 0.5
+    aux = await (await client.get(f"/api/metrics/thermostats/{T1}/aux?days=2")).json()
+    assert aux["episodes"] == 1
+    assert aux["minutes"] >= 0
 
     # Without a logger, episodes are still tracked.
     scheduler._event_logger = None
@@ -54,3 +61,25 @@ async def test_guards_follow_zone_edits_and_backup_heat_is_logged(client, fake_h
 
     await client.put(f"/api/zones/{T1}", json={"system_type": "conventional"})
     assert scheduler._heat_pumps == {}
+    assert scheduler.strips_expected(T1) is False
+    assert scheduler.strips_expected("climate.none") is False
+
+    # With aux allowed, a heat pump zone does not back off either.
+    await client.put(
+        f"/api/zones/{T1}", json={"system_type": "heat_pump", "hp_aux_policy": "allow"}
+    )
+    fake_ha.seed_state(CLOUD, "heat", {"equipment_running": "heatPump,fan"})
+    await scheduler._watch_backup_heat()
+    scheduler._aux._backoff_until.clear()
+    fake_ha.seed_state(CLOUD, "heat", {"equipment_running": "auxHeat1"})
+    await scheduler._watch_backup_heat()
+    assert not scheduler._aux.backoff_active(T1, datetime.now(UTC))
+    await client.put(f"/api/zones/{T1}", json={"system_type": "conventional"})
+
+    # A conventional zone's backup heat is logged but never backs off.
+    fake_ha.seed_state(CLOUD, "heat", {"equipment_running": "heatPump,fan"})
+    await scheduler._watch_backup_heat()
+    scheduler._aux._backoff_until.clear()
+    fake_ha.seed_state(CLOUD, "heat", {"equipment_running": "auxHeat1"})
+    await scheduler._watch_backup_heat()
+    assert not scheduler._aux.backoff_active(T1, datetime.now(UTC))

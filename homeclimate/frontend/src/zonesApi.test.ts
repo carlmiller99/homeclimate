@@ -73,7 +73,7 @@ describe("equipmentSummary", () => {
         compressor_stages: 2,
         backup_heat: "none",
       })
-    ).toBe("Heat Pump, 2 Stage, No Backup Heat");
+    ).toBe("Heat Pump, 2 Stage, No Auxiliary Heat");
   });
 });
 

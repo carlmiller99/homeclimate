@@ -7,16 +7,26 @@ and CSRF middleware, MCP tools and the API-spec enforcement test for free.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import date, datetime, time, timedelta
 
 from aiohttp import web
 
-from .. import db, ha_import, openings, shades, zones
+from .. import db, ha_import, heat_pump, openings, shades, tz, zones
 from ..units import delta_to_f, to_f
 from ..user_errors import UserError, safe_text
 from . import schemas
-from .openapi import docs, request_schema, response_schema
-from .routes import TEMPERATURE_FIELDS, emit, error, get_conn, json_response, refresh, routes
+from .openapi import docs, query_params, request_schema, response_schema
+from .routes import (
+    _DATE_RANGE_QUERY_PARAMS,
+    TEMPERATURE_FIELDS,
+    _parse_date_range,
+    emit,
+    error,
+    get_conn,
+    json_response,
+    refresh,
+    routes,
+)
 
 log = logging.getLogger(__name__)
 
@@ -99,6 +109,7 @@ async def list_zones(request: web.Request) -> web.Response:
             {
                 **zones.as_dict(z),
                 "aux_heat_running": scheduler.aux_heat_running(z.thermostat_entity_id),
+                "strips_expected": scheduler.strips_expected(z.thermostat_entity_id),
             }
             for z in await zones.list_zone_profiles(conn)
         ]
@@ -397,3 +408,23 @@ async def delete_shade(request: web.Request) -> web.Response:
         return error("Shade not found", status=404)
     await emit(request, "info", "api", f"Shade removed: {entity_id}", {})
     return json_response(await _shades_snapshot(request))
+
+
+# ---------------------------------------------------------------------------
+# Metrics: backup heat
+# ---------------------------------------------------------------------------
+
+
+@docs(tags=["metrics"], summary="Backup (aux) heat minutes and episodes for a zone")
+@query_params(_DATE_RANGE_QUERY_PARAMS)
+@response_schema(schemas.AuxSummarySchema)
+@routes.get("/api/metrics/thermostats/{entity_id:[^/]+}/aux")
+async def metrics_aux(request: web.Request) -> web.Response:
+    conn = await get_conn(request)
+    start, end = await _parse_date_range(request)
+    zone = tz.get_timezone()
+    start_at = datetime.combine(date.fromisoformat(start), time.min, zone)
+    end_at = datetime.combine(date.fromisoformat(end) + timedelta(days=1), time.min, zone)
+    return json_response(
+        await heat_pump.aux_summary(conn, request.match_info["entity_id"], start_at, end_at)
+    )
