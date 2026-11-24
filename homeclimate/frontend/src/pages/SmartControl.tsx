@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { getRooms, type Room } from "../api";
 import EntityPicker from "../components/EntityPicker";
+import { MinutesInput, RuleRow, Switch } from "../components/SmartControlControls";
 import {
   contactStateLabel,
   deleteContactSensor,
@@ -19,6 +20,7 @@ import {
   type OverrideScope,
   type SmartControl as SmartControlData,
 } from "../smartControlApi";
+import ShadesSection from "./ShadesSection";
 import { getBuildings, getZones, type Building, type ZoneProfile } from "../zonesApi";
 
 const REFRESH_MS = 30_000;
@@ -27,116 +29,6 @@ type Minutes = "zone_pause_min" | "room_pause_min" | "resume_min";
 
 function errorText(e: unknown, fallback: string): string {
   return e instanceof Error ? e.message : fallback;
-}
-
-/** A whole-minute input that saves on blur or Enter. */
-function MinutesInput({
-  value,
-  min,
-  max,
-  label,
-  disabled,
-  onCommit,
-}: {
-  value: number;
-  min: number;
-  max: number;
-  label: string;
-  disabled?: boolean;
-  onCommit: (n: number) => void;
-}) {
-  const [draft, setDraft] = useState(String(value));
-  const [shown, setShown] = useState(value);
-  if (shown !== value) {
-    // A save or refetch changed the stored value: show it (adjust during render).
-    setShown(value);
-    setDraft(String(value));
-  }
-  const commit = () => {
-    const n = Number(draft);
-    if (draft.trim() === "" || !Number.isInteger(n) || n < min || n > max) {
-      setDraft(String(value));
-      return;
-    }
-    if (n !== value) onCommit(n);
-  };
-  return (
-    <span className="minutes-field">
-      <input
-        className="form-control minutes-input"
-        type="number"
-        inputMode="numeric"
-        min={min}
-        max={max}
-        value={draft}
-        aria-label={label}
-        disabled={disabled}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") commit();
-        }}
-      />
-      <span className="minutes-unit">min</span>
-    </span>
-  );
-}
-
-function Switch({
-  id,
-  checked,
-  label,
-  onChange,
-}: {
-  id: string;
-  checked: boolean;
-  label?: string;
-  onChange: (v: boolean) => void;
-}) {
-  return (
-    <input
-      id={id}
-      className="switch"
-      type="checkbox"
-      role="switch"
-      checked={checked}
-      aria-label={label}
-      onChange={(e) => onChange(e.target.checked)}
-    />
-  );
-}
-
-function RuleRow({
-  id,
-  title,
-  help,
-  enabled,
-  onToggle,
-  children,
-}: {
-  id: string;
-  title: string;
-  help: string;
-  enabled?: boolean;
-  onToggle?: (v: boolean) => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="rule-row">
-      {onToggle ? (
-        <Switch id={id} checked={!!enabled} onChange={onToggle} />
-      ) : (
-        <span className="switch-spacer" />
-      )}
-      <div className="rule-text">
-        <label htmlFor={onToggle ? id : `${id}-min`} className="rule-title">
-          {title}
-        </label>
-        <p className="rule-help">{help}</p>
-      </div>
-      <div className={`rule-value${onToggle && !enabled ? " is-off" : ""}`}>{children}</div>
-    </div>
-  );
 }
 
 /** Override editor for one zone and the rooms it serves. */
@@ -401,6 +293,7 @@ export default function SmartControl() {
   const [adding, setAdding] = useState(false);
   const [overriding, setOverriding] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const [section, setSection] = useState<"doors" | "shades">("doors");
 
   const refresh = useCallback(async () => {
     const d = await getSmartControl();
@@ -485,13 +378,30 @@ export default function SmartControl() {
 
       <div className="sc-layout">
         <nav className="sc-nav" aria-label="Smart Control sections">
-          <a href="#doors-windows" className="sc-nav-item" aria-current="true">
+          <button
+            type="button"
+            className="sc-nav-item"
+            aria-current={section === "doors" ? "true" : undefined}
+            onClick={() => setSection("doors")}
+          >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path d="M4 21V4h11v17" />
               <path d="M15 6l5 2v13" />
             </svg>
             Doors &amp; Windows
-          </a>
+          </button>
+          <button
+            type="button"
+            className="sc-nav-item sc-nav-shades"
+            aria-current={section === "shades" ? "true" : undefined}
+            onClick={() => setSection("shades")}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <rect x="4" y="3" width="16" height="18" rx="1" />
+              <path d="M4 8h16M4 12h16" />
+            </svg>
+            Shades
+          </button>
           {PLANNED_SECTIONS.map((name) => (
             <div key={name} className="sc-nav-item is-planned">
               <span>{name}</span>
@@ -501,129 +411,141 @@ export default function SmartControl() {
         </nav>
 
         <div className="sc-main">
-          <section className="sc-section" id="doors-windows">
-            <h2 className="sc-section-title">Doors &amp; Windows</h2>
-            <p className="sc-section-lead">Stop conditioning air that is going straight outside.</p>
-            <RuleRow
-              id="zone-pause"
-              title="Pause Zone When a Door or Window Is Open For"
-              help="The thermostat stops until every zone door and window is closed."
-              enabled={s.zone_pause_enabled}
-              onToggle={(v) => saveSetting({ zone_pause_enabled: v })}
-            >
-              <MinutesInput
-                value={s.zone_pause_min}
-                min={1}
-                max={60}
-                label="Zone pause delay in minutes"
-                disabled={!s.zone_pause_enabled}
-                onCommit={(n) => saveSetting({ zone_pause_min: n })}
-              />
-            </RuleRow>
-            <RuleRow
-              id="room-pause"
-              title="Pause Room When a Door or Window Is Open For"
-              help="The room stops calling and its vents close until it is shut again."
-              enabled={s.room_pause_enabled}
-              onToggle={(v) => saveSetting({ room_pause_enabled: v })}
-            >
-              <MinutesInput
-                value={s.room_pause_min}
-                min={1}
-                max={60}
-                label="Room pause delay in minutes"
-                disabled={!s.room_pause_enabled}
-                onCommit={(n) => saveSetting({ room_pause_min: n })}
-              />
-            </RuleRow>
-            <RuleRow
-              id="resume"
-              title="Resume After Everything Is Closed For"
-              help="Stops a door that opens and shuts again from restarting the system."
-            >
-              <MinutesInput
-                value={s.resume_min}
-                min={0}
-                max={30}
-                label="Resume delay in minutes"
-                onCommit={(n) => saveSetting({ resume_min: n })}
-              />
-            </RuleRow>
-            <p className="sc-note">{OPENINGS_NOTE}</p>
-            {err && <p className="form-error">{err}</p>}
-          </section>
+          {section === "shades" ? (
+            <ShadesSection rooms={rooms} />
+          ) : (
+            <>
+              <section className="sc-section" id="doors-windows">
+                <h2 className="sc-section-title">Doors &amp; Windows</h2>
+                <p className="sc-section-lead">
+                  Stop conditioning air that is going straight outside.
+                </p>
+                <RuleRow
+                  id="zone-pause"
+                  title="Pause Zone When a Door or Window Is Open For"
+                  help="The thermostat stops until every zone door and window is closed."
+                  enabled={s.zone_pause_enabled}
+                  onToggle={(v) => saveSetting({ zone_pause_enabled: v })}
+                >
+                  <MinutesInput
+                    value={s.zone_pause_min}
+                    min={1}
+                    max={60}
+                    label="Zone pause delay in minutes"
+                    disabled={!s.zone_pause_enabled}
+                    onCommit={(n) => saveSetting({ zone_pause_min: n })}
+                  />
+                </RuleRow>
+                <RuleRow
+                  id="room-pause"
+                  title="Pause Room When a Door or Window Is Open For"
+                  help="The room stops calling and its vents close until it is shut again."
+                  enabled={s.room_pause_enabled}
+                  onToggle={(v) => saveSetting({ room_pause_enabled: v })}
+                >
+                  <MinutesInput
+                    value={s.room_pause_min}
+                    min={1}
+                    max={60}
+                    label="Room pause delay in minutes"
+                    disabled={!s.room_pause_enabled}
+                    onCommit={(n) => saveSetting({ room_pause_min: n })}
+                  />
+                </RuleRow>
+                <RuleRow
+                  id="resume"
+                  title="Resume After Everything Is Closed For"
+                  help="Stops a door that opens and shuts again from restarting the system."
+                >
+                  <MinutesInput
+                    value={s.resume_min}
+                    min={0}
+                    max={30}
+                    label="Resume delay in minutes"
+                    onCommit={(n) => saveSetting({ resume_min: n })}
+                  />
+                </RuleRow>
+                <p className="sc-note">{OPENINGS_NOTE}</p>
+                {err && <p className="form-error">{err}</p>}
+              </section>
 
-          <section className="sc-section">
-            <div className="sc-section-head">
-              <h2 className="sc-section-title">Sensors</h2>
-              {!adding && (
-                <button type="button" className="btn btn-secondary" onClick={() => setAdding(true)}>
-                  Add Door or Window
-                </button>
-              )}
-            </div>
-            <p className="sc-section-lead">Attach a sensor to a whole zone, or to one room.</p>
-            {sensorErr && <p className="form-error">{sensorErr}</p>}
-            {adding && (
-              <AddSensor
-                zones={zones}
-                rooms={rooms}
-                onCancel={() => setAdding(false)}
-                onSaved={(d) => {
-                  saved(d);
-                  setAdding(false);
-                }}
-              />
-            )}
-            {sensorZones.length === 0 && !adding && (
-              <p className="empty-panel">
-                No doors or windows yet. Add one here, or bring them in with Set Up from Home
-                Assistant.
-              </p>
-            )}
-            {sensorZones.map((z) => {
-              const zoneRooms = rooms.filter(
-                (r) => r.thermostat_entity_id === z.thermostat_entity_id
-              );
-              const building = z.building_id ? buildingName.get(z.building_id) : undefined;
-              const open = overriding === z.thermostat_entity_id;
-              return (
-                <div className="sensor-zone" key={z.thermostat_entity_id}>
-                  <div className="sensor-zone-head">
-                    <span className="sensor-zone-name">{z.name || z.thermostat_entity_id}</span>
-                    <span className="sensor-zone-meta">
-                      {building ? `${building}, ` : ""}
-                      {z.thermostat_entity_id}
-                    </span>
+              <section className="sc-section">
+                <div className="sc-section-head">
+                  <h2 className="sc-section-title">Sensors</h2>
+                  {!adding && (
                     <button
                       type="button"
-                      className="link-button"
-                      aria-expanded={open}
-                      onClick={() => setOverriding(open ? null : z.thermostat_entity_id)}
+                      className="btn btn-secondary"
+                      onClick={() => setAdding(true)}
                     >
-                      {zoneOverrideLabel(data, z)}
+                      Add Door or Window
                     </button>
-                  </div>
-                  {open && (
-                    <OverrideEditor data={data} zone={z} rooms={zoneRooms} onSaved={saved} />
                   )}
-                  {data.sensors
-                    .filter((c) => zoneOf(c) === z.thermostat_entity_id)
-                    .map((c) => (
-                      <SensorRow
-                        key={c.entity_id}
-                        sensor={c}
-                        zoneId={z.thermostat_entity_id}
-                        rooms={zoneRooms}
-                        now={now}
-                        onSaved={saved}
-                        onError={setSensorErr}
-                      />
-                    ))}
                 </div>
-              );
-            })}
-          </section>
+                <p className="sc-section-lead">Attach a sensor to a whole zone, or to one room.</p>
+                {sensorErr && <p className="form-error">{sensorErr}</p>}
+                {adding && (
+                  <AddSensor
+                    zones={zones}
+                    rooms={rooms}
+                    onCancel={() => setAdding(false)}
+                    onSaved={(d) => {
+                      saved(d);
+                      setAdding(false);
+                    }}
+                  />
+                )}
+                {sensorZones.length === 0 && !adding && (
+                  <p className="empty-panel">
+                    No doors or windows yet. Add one here, or bring them in with Set Up from Home
+                    Assistant.
+                  </p>
+                )}
+                {sensorZones.map((z) => {
+                  const zoneRooms = rooms.filter(
+                    (r) => r.thermostat_entity_id === z.thermostat_entity_id
+                  );
+                  const building = z.building_id ? buildingName.get(z.building_id) : undefined;
+                  const open = overriding === z.thermostat_entity_id;
+                  return (
+                    <div className="sensor-zone" key={z.thermostat_entity_id}>
+                      <div className="sensor-zone-head">
+                        <span className="sensor-zone-name">{z.name || z.thermostat_entity_id}</span>
+                        <span className="sensor-zone-meta">
+                          {building ? `${building}, ` : ""}
+                          {z.thermostat_entity_id}
+                        </span>
+                        <button
+                          type="button"
+                          className="link-button"
+                          aria-expanded={open}
+                          onClick={() => setOverriding(open ? null : z.thermostat_entity_id)}
+                        >
+                          {zoneOverrideLabel(data, z)}
+                        </button>
+                      </div>
+                      {open && (
+                        <OverrideEditor data={data} zone={z} rooms={zoneRooms} onSaved={saved} />
+                      )}
+                      {data.sensors
+                        .filter((c) => zoneOf(c) === z.thermostat_entity_id)
+                        .map((c) => (
+                          <SensorRow
+                            key={c.entity_id}
+                            sensor={c}
+                            zoneId={z.thermostat_entity_id}
+                            rooms={zoneRooms}
+                            now={now}
+                            onSaved={saved}
+                            onError={setSensorErr}
+                          />
+                        ))}
+                    </div>
+                  );
+                })}
+              </section>
+            </>
+          )}
         </div>
       </div>
     </div>

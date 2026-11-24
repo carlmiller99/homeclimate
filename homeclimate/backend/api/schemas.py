@@ -801,3 +801,53 @@ class SmartControlSchema(Schema):
     overrides = fields.List(fields.Nested(SmartControlOverrideSchema))
     sensors = fields.List(fields.Nested(ContactSensorSchema))
     paused = fields.List(fields.Nested(PausedScopeSchema))
+
+
+class ShadeSettingsSchema(Schema):
+    auto_enabled = fields.Bool()
+    skip_occupied = fields.Bool()
+    daylight_only = fields.Bool()
+    close_night_heat = fields.Bool()
+    respect_manual = fields.Bool()
+    manual_hold_min = fields.Int()
+    min_move_min = fields.Int()
+    quiet_hours = fields.Bool()
+    quiet_start = fields.Str(metadata={"description": "HH:MM, house-local"})
+    quiet_end = fields.Str(metadata={"description": "HH:MM, house-local"})
+    weather_entity = fields.Str(metadata={"description": "weather.* entity for cloud cover"})
+
+
+class ShadeSchema(Schema):
+    entity_id = fields.Str()
+    name = fields.Str()
+    room_id = fields.Str()
+    facing = fields.Str(metadata={"description": "N | NE | E | SE | S | SW | W | NW"})
+    never_control = fields.Bool()
+    quiet_hours = fields.Bool()
+    open_position = fields.Int(allow_none=True)
+    closed_position = fields.Int(allow_none=True)
+    state = fields.Str(metadata={"description": "open | closed | moving | unknown"})
+    reason = fields.Str()
+    last_moved_at = fields.Str(allow_none=True)
+    hold_until = fields.Str(allow_none=True)
+
+
+class ShadeWriteSchema(Schema):
+    room_id = fields.Str()
+    facing = fields.Str()
+    never_control = fields.Bool()
+    quiet_hours = fields.Bool()
+    open_position = fields.Int(allow_none=True)
+    closed_position = fields.Int(allow_none=True)
+
+
+class SunSchema(Schema):
+    elevation = fields.Float(allow_none=True)
+    azimuth = fields.Float(allow_none=True)
+    cloud_pct = fields.Float(allow_none=True)
+
+
+class ShadesSchema(Schema):
+    settings = fields.Nested(ShadeSettingsSchema)
+    sun = fields.Nested(SunSchema)
+    shades = fields.List(fields.Nested(ShadeSchema))

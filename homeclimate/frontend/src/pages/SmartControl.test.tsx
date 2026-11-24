@@ -136,6 +136,19 @@ describe("Smart Control", () => {
     expect(screen.getAllByText("Uses Defaults")).toHaveLength(2);
   });
 
+  it("switches between Doors & Windows and Shades", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
+    await ready();
+    const doors = screen.getByRole("button", { name: "Doors & Windows" });
+    expect(doors).toHaveAttribute("aria-current", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Shades" }));
+    expect(await screen.findByText("Could not load shades.")).toBeInTheDocument();
+    expect(screen.queryByText(sc.OPENINGS_NOTE)).toBeNull();
+    fireEvent.click(doors);
+    expect(screen.getByText(sc.OPENINGS_NOTE)).toBeInTheDocument();
+    vi.unstubAllGlobals();
+  });
+
   it("reports a failed load", async () => {
     vi.mocked(sc.getSmartControl).mockRejectedValueOnce(new Error("down"));
     render(<SmartControl />);

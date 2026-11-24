@@ -210,6 +210,18 @@ CREATE TABLE IF NOT EXISTS contact_sensors (
     CHECK ((thermostat_entity_id IS NULL) <> (room_id IS NULL))
 );
 
+-- HomeClimate Smart Control: shades (covers that are not vents). Each shade
+-- belongs to one room and records which way its window faces.
+CREATE TABLE IF NOT EXISTS room_shades (
+    entity_id TEXT PRIMARY KEY,
+    room_id TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+    facing TEXT NOT NULL,
+    never_control INTEGER NOT NULL DEFAULT 0,
+    quiet_hours INTEGER NOT NULL DEFAULT 0,
+    open_position INTEGER,
+    closed_position INTEGER
+);
+
 -- Per-zone and per-room overrides of Smart Control settings. A missing row
 -- means the zone or room uses the house-wide value in system_settings.
 CREATE TABLE IF NOT EXISTS smart_control_overrides (

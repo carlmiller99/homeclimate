@@ -880,6 +880,7 @@ const CATEGORIES = [
   "engine",
   "presence",
   "openings",
+  "shades",
   "ha",
   "dev",
   "reconcile",

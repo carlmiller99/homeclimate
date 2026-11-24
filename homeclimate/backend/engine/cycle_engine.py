@@ -429,6 +429,11 @@ class CycleEngine:
         return self._state
 
     @property
+    def cycle_mode(self) -> str | None:
+        """ "heating" / "cooling" while a cycle runs, else None."""
+        return self._cycle_mode if self._state != CycleState.IDLE else None
+
+    @property
     def current_cycle_id(self) -> str | None:
         return self._cycle_log.id if self._cycle_log else None
 

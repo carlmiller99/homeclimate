@@ -11,7 +11,7 @@ from datetime import datetime
 
 from aiohttp import web
 
-from .. import db, ha_import, openings, zones
+from .. import db, ha_import, openings, shades, zones
 from ..units import delta_to_f, to_f
 from ..user_errors import UserError, safe_text
 from . import schemas
@@ -313,3 +313,87 @@ async def delete_contact_sensor(request: web.Request) -> web.Response:
     await request.app["scheduler"].refresh_openings()
     await emit(request, "info", "api", f"Door or window sensor removed: {entity_id}", {})
     return json_response(await _smart_control_snapshot(request))
+
+
+# ---------------------------------------------------------------------------
+# Smart Control: shades
+# ---------------------------------------------------------------------------
+
+
+async def _shades_snapshot(request: web.Request) -> dict:
+    conn = await get_conn(request)
+    ha = request.app["ha"]
+    settings = await shades.get_settings(conn)
+    sun = shades.Sun.read(
+        ha.get_state("sun.sun"),
+        ha.get_state(settings["weather_entity"]) if settings["weather_entity"] else None,
+    )
+    statuses = request.app["scheduler"].shade_controller.status
+    out = []
+    for s in await shades.list_shades(conn):
+        state = ha.get_state(s.entity_id)
+        now_open = shades.is_open(state, s)
+        status = statuses.get(s.entity_id)
+        out.append(
+            {
+                **s.__dict__,
+                "name": ((state or {}).get("attributes") or {}).get("friendly_name") or s.entity_id,
+                "state": "unknown"
+                if state is None
+                else ("moving" if now_open is None else ("open" if now_open else "closed")),
+                "reason": status.reason if status else "",
+                "last_moved_at": _iso(status.last_moved_at) if status else None,
+                "hold_until": _iso(status.hold_until) if status else None,
+            }
+        )
+    return {"settings": settings, "sun": sun.__dict__, "shades": out}
+
+
+@docs(tags=["shades"], summary="Shade settings, the sun, and each shade with what it is doing")
+@response_schema(schemas.ShadesSchema)
+@routes.get("/api/shades")
+async def get_shades(request: web.Request) -> web.Response:
+    return json_response(await _shades_snapshot(request))
+
+
+@docs(tags=["shades"], summary="Update shade automation settings")
+@request_schema(schemas.ShadeSettingsSchema)
+@response_schema(schemas.ShadesSchema)
+@routes.put("/api/shades/settings")
+async def update_shade_settings(request: web.Request) -> web.Response:
+    body = await _json_object(request)
+    conn = await get_conn(request)
+    try:
+        await shades.update_settings(conn, body)
+    except UserError as exc:
+        return error(safe_text(exc))
+    await emit(request, "info", "api", "Shade settings updated", body)
+    return json_response(await _shades_snapshot(request))
+
+
+@docs(tags=["shades"], summary="Add a shade to a room, or change one")
+@request_schema(schemas.ShadeWriteSchema)
+@response_schema(schemas.ShadesSchema)
+@routes.put("/api/shades/{entity_id:[^/]+}")
+async def save_shade(request: web.Request) -> web.Response:
+    body = await _json_object(request)
+    conn = await get_conn(request)
+    entity_id = request.match_info["entity_id"]
+    try:
+        await shades.save_shade(conn, entity_id, body)
+    except UserError as exc:
+        return error(safe_text(exc))
+    await emit(request, "info", "api", f"Shade saved: {entity_id}", body)
+    return json_response(await _shades_snapshot(request))
+
+
+@docs(tags=["shades"], summary="Remove a shade")
+@response_schema(schemas.ShadesSchema)
+@routes.delete("/api/shades/{entity_id:[^/]+}")
+async def delete_shade(request: web.Request) -> web.Response:
+    conn = await get_conn(request)
+    entity_id = request.match_info["entity_id"]
+    if not await shades.delete_shade(conn, entity_id):
+        return error("Shade not found", status=404)
+    await emit(request, "info", "api", f"Shade removed: {entity_id}", {})
+    return json_response(await _shades_snapshot(request))

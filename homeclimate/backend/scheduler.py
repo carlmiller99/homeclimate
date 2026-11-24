@@ -20,7 +20,7 @@ from datetime import UTC, datetime, timedelta
 import aiosqlite
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from . import db, heat_pump, openings, tz, zones
+from . import db, heat_pump, openings, shades, tz, zones
 from .engine import room_manager
 from .engine.cycle_engine import CycleEngine
 from .engine.vent_controller import VentController
@@ -149,6 +149,7 @@ class Scheduler:
         self._heat_pumps: dict[str, heat_pump.HeatPumpGuards] = {}
         self._zone_profiles: dict[str, zones.ZoneProfile] = {}
         self._aux = heat_pump.AuxMonitor()
+        self._shades = shades.ShadeController()
 
     def _spawn_bg(self, coro: Coroutine) -> asyncio.Task:
         """Create a background task and keep a strong reference until it
@@ -1303,6 +1304,7 @@ class Scheduler:
         await self._watch_backup_heat()
         tasks = [self._tick_engine(tid, eng) for tid, eng in self._engines.items()]
         await asyncio.gather(*tasks, return_exceptions=True)
+        await self._run_shades()
 
     @property
     def openings(self) -> openings.OpeningMonitor:
@@ -1380,6 +1382,37 @@ class Scheduler:
                 "engine",
                 message,
                 {"thermostat": tid, "source": source, "minutes": episode.minutes},
+            )
+
+    @property
+    def shade_controller(self) -> shades.ShadeController:
+        return self._shades
+
+    def zone_mode(self, thermostat_entity_id: str) -> str | None:
+        """The direction a zone is working in: its running cycle, else its mode."""
+        engine = self._engines.get(thermostat_entity_id)
+        if engine is not None and engine.cycle_mode is not None:
+            return engine.cycle_mode
+        state = (self._ha.get_state(thermostat_entity_id) or {}).get("state")
+        return {"heat": "heating", "cool": "cooling"}.get(str(state))
+
+    async def _run_shades(self) -> None:
+        """Move shades for the sun, after the engines have settled their modes."""
+        try:
+            moves = await self._shades.run(
+                self._db_conn, self._ha, self.zone_mode, datetime.now(UTC), tz.now_local().time()
+            )
+        except Exception:
+            log.exception("Could not run shade automation")
+            return
+        if self._event_logger is None:
+            return
+        for move in moves:
+            await self._event_logger.log(
+                "info",
+                "shades",
+                f"{self._friendly(move.entity_id)}: {move.reason}",
+                {"shade": move.entity_id, "action": move.action},
             )
 
     async def refresh_openings(self) -> None:

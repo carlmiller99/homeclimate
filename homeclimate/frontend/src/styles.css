@@ -2187,6 +2187,7 @@ tr:hover td {
   color: var(--state-paused-text);
 }
 .sensor-scope {
+  white-space: nowrap;
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -2286,4 +2287,72 @@ tr:hover td {
 .pill-heat {
   background: var(--state-heating-bg);
   color: var(--state-heating-text);
+}
+
+/* ── Shades ── */
+button.sc-nav-item {
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.sc-nav-shades svg {
+  stroke: var(--state-heating);
+}
+.shade-row {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.shade-row:first-child {
+  border-top: 0;
+}
+.shade-dial {
+  flex: none;
+}
+.shade-dial-face {
+  fill: var(--gray-50);
+  stroke: var(--border);
+}
+.shade-dial-sun {
+  fill: #e8a13a;
+}
+.shade-dial-window {
+  stroke: var(--ink);
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+.shade-name {
+  flex: 1;
+  min-width: 12rem;
+}
+.shade-why {
+  font-size: 0.875rem;
+  color: var(--gray-600);
+}
+.shade-state {
+  font-size: 0.875rem;
+  font-weight: 600;
+  min-width: 4.5rem;
+}
+.shade-more {
+  flex-basis: 100%;
+}
+.shade-more summary {
+  cursor: pointer;
+  font-size: 0.875rem;
+  color: var(--blue-text);
+  font-weight: 600;
+}
+.shade-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: center;
+  padding-top: 0.6rem;
 }
