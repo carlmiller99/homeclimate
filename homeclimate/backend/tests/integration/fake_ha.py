@@ -48,6 +48,13 @@ class FakeHomeAssistant:
         # for tests); False exercises the scheduler's refresh fallback.
         self.state_reported_supported: bool | None = True
         self.refresh_calls = 0
+        # Registry payloads served to the HA import preview.
+        self.registries: dict[str, list[dict]] = {
+            "areas": [],
+            "floors": [],
+            "devices": [],
+            "entities": [],
+        }
 
     # ------------------------------------------------------------------
     # Test helpers
@@ -170,6 +177,9 @@ class FakeHomeAssistant:
 
     async def fetch_states(self) -> list[dict]:
         return list(self._state.values())
+
+    async def get_registries(self) -> dict[str, list[dict]]:
+        return {k: list(v) for k, v in self.registries.items()}
 
     async def refresh_states(self) -> int:
         self.refresh_calls += 1

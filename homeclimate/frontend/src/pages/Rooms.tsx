@@ -1,3 +1,4 @@
+import { Link } from "react-router";
 import {
   equipmentSummary,
   getBuildings,
@@ -1685,12 +1686,17 @@ export default function Rooms() {
             Rooms are grouped by building and by the thermostat that serves them.
           </div>
         </div>
-        <button
-          className="btn btn-primary"
-          onClick={() => setSettings({ room: null, returnTo: "list" })}
-        >
-          Add Room
-        </button>
+        <div className="page-actions">
+          <Link className="btn btn-secondary" to="/import">
+            Set Up from Home Assistant
+          </Link>
+          <button
+            className="btn btn-primary"
+            onClick={() => setSettings({ room: null, returnTo: "list" })}
+          >
+            Add Room
+          </button>
+        </div>
       </div>
 
       {rooms.length === 0 ? (

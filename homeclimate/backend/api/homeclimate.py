@@ -10,7 +10,7 @@ import logging
 
 from aiohttp import web
 
-from .. import zones
+from .. import db, ha_import, zones
 from . import schemas
 from .openapi import docs, request_schema, response_schema
 from .routes import emit, error, get_conn, json_response, refresh, routes
@@ -109,3 +109,61 @@ async def update_zone(request: web.Request) -> web.Response:
         return error("Zone not found", status=404)
     await refresh(request)
     return json_response(zones.as_dict(zone))
+
+
+# ---------------------------------------------------------------------------
+# Set Up from Home Assistant
+# ---------------------------------------------------------------------------
+
+HA_UNAVAILABLE = "Home Assistant's registries could not be read"
+
+
+@docs(tags=["import"], summary="Preview zones and rooms that can be imported from Home Assistant")
+@response_schema(schemas.ImportPreviewSchema)
+@routes.get("/api/ha/import-preview")
+async def import_preview(request: web.Request) -> web.Response:
+    ha = request.app["ha"]
+    try:
+        registries = await ha.get_registries()
+    except Exception:
+        log.exception("Failed to read HA registries for the import preview")
+        return error(HA_UNAVAILABLE, status=503)
+    conn = await get_conn(request)
+    rooms = await db.get_all_rooms(conn)
+    existing: set[str] = set()
+    for room in rooms:
+        existing |= {s.entity_id for s in await db.get_room_sensors(conn, room.id)}
+        existing |= {p.entity_id for p in await db.get_room_presence_sensors(conn, room.id)}
+        existing |= {v.entity_id for v in await db.get_room_vents(conn, room.id)}
+    preview = ha_import.build_preview(
+        registries,
+        ha.all_states(),
+        rooms,
+        await db.get_all_thermostat_configs(conn),
+        existing,
+        await ha_import.load_skipped_areas(conn),
+    )
+    return json_response(preview)
+
+
+@docs(tags=["import"], summary="Create zones and rooms from a reviewed import (additive only)")
+@request_schema(schemas.ImportRequestSchema)
+@response_schema(schemas.ImportResultSchema)
+@routes.post("/api/ha/import")
+async def run_import(request: web.Request) -> web.Response:
+    body = await _json_object(request)
+    climates = {
+        s["entity_id"]
+        for s in request.app["ha"].all_states()
+        if s.get("entity_id", "").startswith("climate.")
+    }
+    conn = await get_conn(request)
+    try:
+        result = await ha_import.apply_import(conn, body, climates)
+    except (ha_import.ImportError_, zones.ZoneError) as exc:
+        return error(str(exc))
+    await refresh(request)
+    await emit(
+        request, "info", "api", "Imported zones and rooms from Home Assistant", result.as_dict()
+    )
+    return json_response(result.as_dict())

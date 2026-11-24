@@ -686,3 +686,24 @@ class ZoneProfileWriteSchema(Schema):
     backup_heat = fields.Str()
     equipment_running_entity = fields.Str(allow_none=True)
     heat_kit_confirmed = fields.Bool()
+
+
+class ImportPreviewSchema(Schema):
+    zones = fields.List(fields.Dict())
+    rooms = fields.List(fields.Dict())
+    labels = fields.Dict(keys=fields.Str(), values=fields.Str())
+    room_names = fields.List(fields.Str())
+
+
+class ImportRequestSchema(Schema):
+    zones = fields.List(fields.Dict())
+    rooms = fields.List(fields.Dict())
+    skipped_areas = fields.List(fields.Str())
+
+
+class ImportResultSchema(Schema):
+    zones_added = fields.Int()
+    buildings_added = fields.Int()
+    rooms_added = fields.Int()
+    rooms_updated = fields.Int()
+    entities_added = fields.Int()

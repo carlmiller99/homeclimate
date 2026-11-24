@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"; // trigger CI
 import { ecoThermostatDefaults, ecoRoomDefaults, makeHold } from "../testFixtures";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 import Rooms from "./Rooms";
 import * as api from "../api";
 import { SystemContext, UnitContext, buildUnitContext } from "../contexts";
@@ -132,7 +133,9 @@ describe("Rooms Page", () => {
   it("renders the rooms list", async () => {
     render(
       <SystemContext.Provider value={mockSystem}>
-        <Rooms />
+        <MemoryRouter>
+          <Rooms />
+        </MemoryRouter>
       </SystemContext.Provider>
     );
 
@@ -144,7 +147,9 @@ describe("Rooms Page", () => {
   it("shows validation error for empty room name", async () => {
     render(
       <SystemContext.Provider value={mockSystem}>
-        <Rooms />
+        <MemoryRouter>
+          <Rooms />
+        </MemoryRouter>
       </SystemContext.Provider>
     );
 
@@ -160,7 +165,9 @@ describe("Rooms Page", () => {
   it("shows validation error for negative holdover", async () => {
     render(
       <SystemContext.Provider value={mockSystem}>
-        <Rooms />
+        <MemoryRouter>
+          <Rooms />
+        </MemoryRouter>
       </SystemContext.Provider>
     );
 
@@ -190,7 +197,9 @@ describe("Rooms Page", () => {
   const openNewRoomForm = async () => {
     render(
       <SystemContext.Provider value={mockSystem}>
-        <Rooms />
+        <MemoryRouter>
+          <Rooms />
+        </MemoryRouter>
       </SystemContext.Provider>
     );
     fireEvent.click(await screen.findByText("Add Room"));
@@ -255,7 +264,9 @@ describe("Rooms Page", () => {
 
     render(
       <SystemContext.Provider value={mockSystem}>
-        <Rooms />
+        <MemoryRouter>
+          <Rooms />
+        </MemoryRouter>
       </SystemContext.Provider>
     );
 
@@ -288,7 +299,9 @@ describe("Rooms Page", () => {
 
     render(
       <SystemContext.Provider value={mockSystem}>
-        <Rooms />
+        <MemoryRouter>
+          <Rooms />
+        </MemoryRouter>
       </SystemContext.Provider>
     );
 
@@ -316,7 +329,9 @@ describe("Rooms Page", () => {
 
     render(
       <SystemContext.Provider value={mockSystem}>
-        <Rooms />
+        <MemoryRouter>
+          <Rooms />
+        </MemoryRouter>
       </SystemContext.Provider>
     );
 
@@ -335,7 +350,9 @@ describe("Rooms Page", () => {
   it("does not delete a room when the confirmation dialog is cancelled", async () => {
     render(
       <SystemContext.Provider value={mockSystem}>
-        <Rooms />
+        <MemoryRouter>
+          <Rooms />
+        </MemoryRouter>
       </SystemContext.Provider>
     );
 
@@ -352,7 +369,9 @@ describe("Rooms Page", () => {
   it("navigates to configure view and manages entities", async () => {
     render(
       <SystemContext.Provider value={mockSystem}>
-        <Rooms />
+        <MemoryRouter>
+          <Rooms />
+        </MemoryRouter>
       </SystemContext.Provider>
     );
 
@@ -416,7 +435,9 @@ describe("Rooms Page", () => {
   it("does not remove sensor, vent, or presence sensor when confirmation is cancelled", async () => {
     render(
       <SystemContext.Provider value={mockSystem}>
-        <Rooms />
+        <MemoryRouter>
+          <Rooms />
+        </MemoryRouter>
       </SystemContext.Provider>
     );
 
@@ -454,7 +475,9 @@ describe("Rooms Page", () => {
     });
     render(
       <SystemContext.Provider value={mockSystem}>
-        <Rooms />
+        <MemoryRouter>
+          <Rooms />
+        </MemoryRouter>
       </SystemContext.Provider>
     );
 
@@ -477,7 +500,9 @@ describe("Rooms Page", () => {
     vi.mocked(api.updateVentControlMethod).mockRejectedValue(new Error("nope"));
     render(
       <SystemContext.Provider value={mockSystem}>
-        <Rooms />
+        <MemoryRouter>
+          <Rooms />
+        </MemoryRouter>
       </SystemContext.Provider>
     );
 
@@ -497,7 +522,9 @@ describe("Rooms Page", () => {
     vi.mocked(api.testVent).mockResolvedValue({ ok: true });
     render(
       <SystemContext.Provider value={mockSystem}>
-        <Rooms />
+        <MemoryRouter>
+          <Rooms />
+        </MemoryRouter>
       </SystemContext.Provider>
     );
 
@@ -516,7 +543,9 @@ describe("Rooms Page", () => {
     });
     render(
       <SystemContext.Provider value={mockSystem}>
-        <Rooms />
+        <MemoryRouter>
+          <Rooms />
+        </MemoryRouter>
       </SystemContext.Provider>
     );
 
@@ -535,7 +564,9 @@ describe("Rooms Page", () => {
     vi.mocked(api.updateRoom).mockResolvedValue(mockRooms[0]);
     render(
       <SystemContext.Provider value={mockSystem}>
-        <Rooms />
+        <MemoryRouter>
+          <Rooms />
+        </MemoryRouter>
       </SystemContext.Provider>
     );
 
@@ -569,7 +600,9 @@ describe("Rooms Page", () => {
     vi.mocked(api.updateRoom).mockResolvedValue(mockRooms[0]);
     render(
       <SystemContext.Provider value={mockSystem}>
-        <Rooms />
+        <MemoryRouter>
+          <Rooms />
+        </MemoryRouter>
       </SystemContext.Provider>
     );
 
@@ -597,7 +630,9 @@ describe("Rooms Page", () => {
     vi.mocked(api.updateRoom).mockResolvedValue(roomWithOverride);
     render(
       <SystemContext.Provider value={mockSystem}>
-        <Rooms />
+        <MemoryRouter>
+          <Rooms />
+        </MemoryRouter>
       </SystemContext.Provider>
     );
 
@@ -623,7 +658,9 @@ describe("Rooms Page", () => {
   it("returns to the room list with the back button", async () => {
     render(
       <SystemContext.Provider value={mockSystem}>
-        <Rooms />
+        <MemoryRouter>
+          <Rooms />
+        </MemoryRouter>
       </SystemContext.Provider>
     );
 
@@ -637,7 +674,9 @@ describe("Rooms Page", () => {
   it("closes the settings page via Cancel without saving", async () => {
     render(
       <SystemContext.Provider value={mockSystem}>
-        <Rooms />
+        <MemoryRouter>
+          <Rooms />
+        </MemoryRouter>
       </SystemContext.Provider>
     );
 
@@ -656,7 +695,9 @@ describe("Rooms Page — Celsius mode", () => {
     render(
       <UnitContext.Provider value={buildUnitContext("C")}>
         <SystemContext.Provider value={mockSystem}>
-          <Rooms />
+          <MemoryRouter>
+            <Rooms />
+          </MemoryRouter>
         </SystemContext.Provider>
       </UnitContext.Provider>
     );
@@ -909,7 +950,9 @@ describe("Rooms Page — Clear presence button", () => {
 
     render(
       <SystemContext.Provider value={mockSystem}>
-        <Rooms />
+        <MemoryRouter>
+          <Rooms />
+        </MemoryRouter>
       </SystemContext.Provider>
     );
 
@@ -921,7 +964,9 @@ describe("Rooms Page — Clear presence button", () => {
 
     render(
       <SystemContext.Provider value={mockSystem}>
-        <Rooms />
+        <MemoryRouter>
+          <Rooms />
+        </MemoryRouter>
       </SystemContext.Provider>
     );
 
@@ -939,7 +984,9 @@ describe("Rooms Page — Clear presence button", () => {
 
     render(
       <SystemContext.Provider value={mockSystem}>
-        <Rooms />
+        <MemoryRouter>
+          <Rooms />
+        </MemoryRouter>
       </SystemContext.Provider>
     );
 
@@ -954,7 +1001,9 @@ describe("Rooms Page — Clear presence button", () => {
 
     render(
       <SystemContext.Provider value={mockSystem}>
-        <Rooms />
+        <MemoryRouter>
+          <Rooms />
+        </MemoryRouter>
       </SystemContext.Provider>
     );
 
@@ -968,7 +1017,9 @@ describe("Rooms Page — Clear presence button", () => {
 
     render(
       <SystemContext.Provider value={mockSystem}>
-        <Rooms />
+        <MemoryRouter>
+          <Rooms />
+        </MemoryRouter>
       </SystemContext.Provider>
     );
 
@@ -998,7 +1049,9 @@ describe("Rooms Page — Clear presence button", () => {
     });
     render(
       <SystemContext.Provider value={mockSystem}>
-        <Rooms />
+        <MemoryRouter>
+          <Rooms />
+        </MemoryRouter>
       </SystemContext.Provider>
     );
     const badge = await screen.findByTestId("stale-badge-room-1");
@@ -1023,7 +1076,9 @@ describe("Rooms Page — Clear presence button", () => {
     });
     render(
       <SystemContext.Provider value={mockSystem}>
-        <Rooms />
+        <MemoryRouter>
+          <Rooms />
+        </MemoryRouter>
       </SystemContext.Provider>
     );
     await openNewRoom();
@@ -1046,7 +1101,9 @@ describe("Rooms Page — Clear presence button", () => {
     });
     render(
       <SystemContext.Provider value={mockSystem}>
-        <Rooms />
+        <MemoryRouter>
+          <Rooms />
+        </MemoryRouter>
       </SystemContext.Provider>
     );
     await openNewRoom();
@@ -1063,7 +1120,9 @@ describe("Rooms Page — Clear presence button", () => {
     });
     render(
       <SystemContext.Provider value={mockSystem}>
-        <Rooms />
+        <MemoryRouter>
+          <Rooms />
+        </MemoryRouter>
       </SystemContext.Provider>
     );
     await openNewRoom();
@@ -1129,7 +1188,9 @@ describe("Rooms Page — temporary holds (#576)", () => {
   it("shows via Override with the Eco tag and the hold controls", async () => {
     render(
       <SystemContext.Provider value={mockSystem}>
-        <Rooms />
+        <MemoryRouter>
+          <Rooms />
+        </MemoryRouter>
       </SystemContext.Provider>
     );
 
@@ -1149,7 +1210,9 @@ describe("Rooms Page — temporary holds (#576)", () => {
 
     render(
       <SystemContext.Provider value={mockSystem}>
-        <Rooms />
+        <MemoryRouter>
+          <Rooms />
+        </MemoryRouter>
       </SystemContext.Provider>
     );
 
@@ -1162,7 +1225,9 @@ describe("Rooms Page — temporary holds (#576)", () => {
 
     render(
       <SystemContext.Provider value={mockSystem}>
-        <Rooms />
+        <MemoryRouter>
+          <Rooms />
+        </MemoryRouter>
       </SystemContext.Provider>
     );
 
@@ -1184,7 +1249,9 @@ describe("Rooms Page — temporary holds (#576)", () => {
 
     render(
       <SystemContext.Provider value={mockSystem}>
-        <Rooms />
+        <MemoryRouter>
+          <Rooms />
+        </MemoryRouter>
       </SystemContext.Provider>
     );
 
@@ -1204,7 +1271,9 @@ describe("Rooms Page — temporary holds (#576)", () => {
   it("opens the modal in replace mode from Manage hold", async () => {
     render(
       <SystemContext.Provider value={mockSystem}>
-        <Rooms />
+        <MemoryRouter>
+          <Rooms />
+        </MemoryRouter>
       </SystemContext.Provider>
     );
 
@@ -1266,7 +1335,9 @@ describe("Rooms Page — Eco Mode override (#404)", () => {
 
     render(
       <SystemContext.Provider value={mockSystem}>
-        <Rooms />
+        <MemoryRouter>
+          <Rooms />
+        </MemoryRouter>
       </SystemContext.Provider>
     );
 
@@ -1324,7 +1395,9 @@ describe("Rooms Page — Eco Mode override (#404)", () => {
 
     render(
       <SystemContext.Provider value={mockSystem}>
-        <Rooms />
+        <MemoryRouter>
+          <Rooms />
+        </MemoryRouter>
       </SystemContext.Provider>
     );
 
@@ -1354,7 +1427,9 @@ describe("Rooms Page — Eco Mode override (#404)", () => {
 
     render(
       <SystemContext.Provider value={mockSystem}>
-        <Rooms />
+        <MemoryRouter>
+          <Rooms />
+        </MemoryRouter>
       </SystemContext.Provider>
     );
 
@@ -1380,7 +1455,9 @@ describe("Rooms Page — Eco Mode override (#404)", () => {
 
     render(
       <SystemContext.Provider value={mockSystem}>
-        <Rooms />
+        <MemoryRouter>
+          <Rooms />
+        </MemoryRouter>
       </SystemContext.Provider>
     );
 
@@ -1402,7 +1479,9 @@ describe("Rooms Page — Eco Mode override (#404)", () => {
     });
     render(
       <SystemContext.Provider value={mockSystem}>
-        <Rooms />
+        <MemoryRouter>
+          <Rooms />
+        </MemoryRouter>
       </SystemContext.Provider>
     );
 
@@ -1450,7 +1529,9 @@ describe("Rooms Page — Eco Mode override (#404)", () => {
 
     render(
       <SystemContext.Provider value={mockSystem}>
-        <Rooms />
+        <MemoryRouter>
+          <Rooms />
+        </MemoryRouter>
       </SystemContext.Provider>
     );
 

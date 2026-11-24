@@ -4,7 +4,9 @@ import {
   deleteBuilding,
   equipmentSummary,
   getBuildings,
+  getImportPreview,
   getZones,
+  runImport,
   groupByBuilding,
   updateBuilding,
   updateZone,
@@ -26,6 +28,9 @@ describe("zonesApi requests", () => {
     await deleteBuilding("b1");
     await getZones();
     await updateZone("climate.a", { system_type: "heat_pump" });
+    await getImportPreview();
+    const body = { zones: [], rooms: [], skipped_areas: [] };
+    await runImport(body);
     const calls = fetchMock.mock.calls.map(([url, init]) => [
       url,
       init?.method ?? "GET",
@@ -38,6 +43,8 @@ describe("zonesApi requests", () => {
       ["/api/buildings/b1", "DELETE", undefined],
       ["/api/zones", "GET", undefined],
       ["/api/zones/climate.a", "PUT", JSON.stringify({ system_type: "heat_pump" })],
+      ["/api/ha/import-preview", "GET", undefined],
+      ["/api/ha/import", "POST", JSON.stringify(body)],
     ]);
   });
 });

@@ -295,3 +295,45 @@ async def test_scheduler_refreshes_when_subscription_refused(caplog):
     with caplog.at_level(logging.WARNING, logger="backend.scheduler"):
         await sched._refresh_reported_states()
     assert any("Could not refresh HA states" in r.message for r in caplog.records)
+
+
+class TestGetRegistries:
+    async def test_collects_all_four_and_degrades_optional_ones(self):
+        client = HAClient("ws://ha.local", "tok")
+        answers = {
+            "config/area_registry/list": [{"area_id": "a"}],
+            "config/floor_registry/list": None,
+            "config/device_registry/list": RuntimeError("unknown command"),
+            "config/entity_registry/list": [{"entity_id": "sensor.x"}],
+        }
+
+        async def fake_send(payload):
+            value = answers[payload["type"]]
+            if isinstance(value, Exception):
+                raise value
+            return value
+
+        client._send = fake_send
+        result = await client.get_registries()
+        assert result == {
+            "areas": [{"area_id": "a"}],
+            "floors": [],
+            "devices": [],
+            "entities": [{"entity_id": "sensor.x"}],
+        }
+
+    async def test_area_failure_propagates(self):
+        client = HAClient("ws://ha.local", "tok")
+        client._send = AsyncMock(side_effect=RuntimeError("HA not connected"))
+        with pytest.raises(RuntimeError):
+            await client.get_registries()
+
+    async def test_empty_area_reply_is_an_empty_list(self):
+        client = HAClient("ws://ha.local", "tok")
+        client._send = AsyncMock(return_value=None)
+        assert await client.get_registries() == {
+            "areas": [],
+            "floors": [],
+            "devices": [],
+            "entities": [],
+        }

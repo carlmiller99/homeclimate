@@ -549,6 +549,27 @@ class HAClient:
         log.info("Toggling vent %s", entity_id)
         await self.call_service("cover", "toggle", {"entity_id": entity_id})
 
+    async def get_registries(self) -> dict[str, list[dict]]:
+        """Areas, floors, devices and entities from HA's registries.
+
+        Used by the "Set Up from Home Assistant" import. Areas are required
+        (an error propagates); floors, devices and entities degrade to empty
+        lists so an older or restricted HA still yields an area-only preview.
+        """
+        areas = await self._send({"type": "config/area_registry/list"})
+        result: dict[str, list[dict]] = {"areas": list(areas or [])}
+        for key, command in (
+            ("floors", "config/floor_registry/list"),
+            ("devices", "config/device_registry/list"),
+            ("entities", "config/entity_registry/list"),
+        ):
+            try:
+                result[key] = list(await self._send({"type": command}) or [])
+            except Exception:
+                log.warning("HA %s registry unavailable for import", key, exc_info=True)
+                result[key] = []
+        return result
+
     async def get_entities_by_domain(self, domain: str) -> list[dict]:
         """Return all cached states for a given domain."""
         await self._connected.wait()

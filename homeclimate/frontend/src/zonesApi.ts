@@ -80,3 +80,62 @@ export function groupByBuilding<T>(
   if (unassigned.length > 0) groups.push({ building: null, items: unassigned });
   return groups;
 }
+
+export interface ImportZoneRow {
+  entity_id: string;
+  friendly_name: string;
+  area_id: string | null;
+  area_name: string | null;
+  floor_name: string | null;
+  suggested_name: string;
+  configured: boolean;
+}
+
+export interface FoundEntities {
+  temperature: string[];
+  presence: string[];
+  contacts: string[];
+  shades: string[];
+  vents: string[];
+}
+
+export interface ImportRoomRow {
+  area_id: string;
+  area_name: string;
+  found: FoundEntities;
+  new_entities: string[];
+  existing_room_id: string | null;
+  suggested_zone: string | null;
+  skipped: boolean;
+}
+
+export interface ImportPreview {
+  zones: ImportZoneRow[];
+  rooms: ImportRoomRow[];
+  labels: Record<string, string>;
+  room_names: string[];
+}
+
+export interface ImportRequest {
+  zones: { entity_id: string; name: string; building_id?: string; new_building_name?: string }[];
+  rooms: {
+    name: string;
+    zone: string;
+    sensors: string[];
+    presence: string[];
+    vents: string[];
+  }[];
+  skipped_areas: string[];
+}
+
+export interface ImportResult {
+  zones_added: number;
+  buildings_added: number;
+  rooms_added: number;
+  rooms_updated: number;
+  entities_added: number;
+}
+
+export const getImportPreview = () => api<ImportPreview>("/api/ha/import-preview");
+export const runImport = (body: ImportRequest) =>
+  api<ImportResult>("/api/ha/import", { method: "POST", body: JSON.stringify(body) });

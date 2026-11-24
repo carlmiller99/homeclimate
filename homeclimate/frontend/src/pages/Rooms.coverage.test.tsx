@@ -9,6 +9,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, within, act } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 import Rooms from "./Rooms";
 import * as api from "../api";
 import { SystemContext, UnitContext, buildUnitContext } from "../contexts";
@@ -97,7 +98,9 @@ function renderPage(system: typeof mockSystem = mockSystem, unit: "F" | "C" = "F
   return render(
     <UnitContext.Provider value={buildUnitContext(unit)}>
       <SystemContext.Provider value={system}>
-        <Rooms />
+        <MemoryRouter>
+          <Rooms />
+        </MemoryRouter>
       </SystemContext.Provider>
     </UnitContext.Provider>
   );

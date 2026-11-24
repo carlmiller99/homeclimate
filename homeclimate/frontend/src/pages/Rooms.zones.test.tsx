@@ -1,6 +1,7 @@
 /** Rooms page grouping by building and zone (HomeClimate). */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, within } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 import Rooms from "./Rooms";
 import * as api from "../api";
 import * as zonesApi from "../zonesApi";
@@ -94,7 +95,9 @@ function renderPage(system: typeof mockSystem = mockSystem, unit: "F" | "C" = "F
   return render(
     <UnitContext.Provider value={buildUnitContext(unit)}>
       <SystemContext.Provider value={system}>
-        <Rooms />
+        <MemoryRouter>
+          <Rooms />
+        </MemoryRouter>
       </SystemContext.Provider>
     </UnitContext.Provider>
   );

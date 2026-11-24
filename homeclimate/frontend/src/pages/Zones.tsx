@@ -320,6 +320,9 @@ export default function Zones() {
           <p className="page-subtitle">One zone per thermostat, grouped by building.</p>
         </div>
         <div className="page-actions">
+          <Link className="btn btn-secondary" to="/import">
+            Set Up from Home Assistant
+          </Link>
           <Link className="btn btn-secondary" to="/thermostats">
             Add Thermostat
           </Link>
