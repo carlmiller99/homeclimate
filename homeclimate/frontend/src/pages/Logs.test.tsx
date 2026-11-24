@@ -264,6 +264,7 @@ describe("Logs Page", () => {
       "auth",
       "engine",
       "presence",
+      "openings",
       "ha",
       "dev",
       "reconcile",

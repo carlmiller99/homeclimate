@@ -161,6 +161,7 @@ describe("Set Up from Home Assistant", () => {
             sensors: ["sensor.bunk_t"],
             presence: ["binary_sensor.bunk_occ"],
             vents: [],
+            contacts: [],
           },
           {
             name: "Bunk Bath",
@@ -168,6 +169,7 @@ describe("Set Up from Home Assistant", () => {
             sensors: ["sensor.bath_t"],
             presence: [],
             vents: [],
+            contacts: ["binary_sensor.bath_window"],
           },
         ],
         skipped_areas: ["drive"],

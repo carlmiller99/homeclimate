@@ -14,7 +14,7 @@ import {
 const NEW_BUILDING = "__new__";
 
 /** Entity kinds the importer can attach today, in chip order. */
-const IMPORTABLE = ["temperature", "presence", "vents"] as const;
+const IMPORTABLE = ["temperature", "presence", "vents", "contacts"] as const;
 const KIND_LABEL: Record<string, string> = {
   temperature: "Temperature",
   presence: "Presence",
@@ -23,7 +23,6 @@ const KIND_LABEL: Record<string, string> = {
   shades: "Shade",
 };
 const LATER: Record<string, string> = {
-  contacts: "Doors and windows are attached in Smart Control.",
   shades: "Shades are attached in Smart Control.",
 };
 
@@ -186,6 +185,7 @@ export default function ImportFromHA() {
           sensors: keep(found.temperature),
           presence: keep(found.presence),
           vents: keep(found.vents),
+          contacts: keep(found.contacts),
         };
       });
     const skippedAreas = Object.entries(roomChoices)
@@ -291,7 +291,7 @@ export default function ImportFromHA() {
                 );
               })
             )}
-            {(["contacts", "shades"] as const).flatMap((kind) =>
+            {(["shades"] as const).flatMap((kind) =>
               found[kind].map((eid) => (
                 <span key={eid} className={`chip chip-${kind} chip-later`} title={LATER[kind]}>
                   {label(eid)}

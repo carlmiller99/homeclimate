@@ -1965,3 +1965,289 @@ tr:hover td {
 .import-foot .field-help {
   flex: 1;
 }
+
+/* ── Smart Control ── */
+.sc-layout {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  align-items: flex-start;
+}
+.sc-nav {
+  flex: 1 1 220px;
+  max-width: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.sc-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.75rem 0.9rem;
+  border-radius: 12px;
+  color: var(--gray-600);
+  font-weight: 600;
+  text-decoration: none;
+}
+.sc-nav-item[aria-current="true"] {
+  background: var(--surface);
+  color: var(--text);
+}
+.sc-nav-item svg {
+  stroke: var(--state-paused);
+  stroke-width: 2;
+  stroke-linecap: round;
+  flex: none;
+}
+.sc-nav-item.is-planned {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+}
+.sc-nav-note {
+  font-size: 0.82rem;
+  font-weight: 400;
+}
+.sc-main {
+  flex: 999 1 560px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+.sc-section {
+  background: var(--surface);
+  border-radius: 20px;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.sc-section-head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+.sc-section-title {
+  margin: 0;
+  font-size: 1.375rem;
+  font-weight: 700;
+  flex: 1;
+}
+.sc-section-lead {
+  margin: 0;
+  color: var(--gray-600);
+  max-width: 40rem;
+}
+.rule-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 0;
+  border-top: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.rule-text {
+  flex: 1;
+  min-width: 16rem;
+}
+.rule-title {
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.rule-help {
+  margin: 0.15rem 0 0;
+  font-size: 0.875rem;
+  color: var(--gray-600);
+}
+.rule-value.is-off {
+  opacity: 0.45;
+}
+.sc-note {
+  margin: 0;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.875rem;
+  color: var(--gray-600);
+}
+.switch {
+  appearance: none;
+  width: 48px;
+  height: 28px;
+  border-radius: 999px;
+  background: var(--gray-400);
+  position: relative;
+  cursor: pointer;
+  flex: none;
+  margin: 0;
+  transition: background 0.15s;
+}
+.switch::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #fff;
+  transition: left 0.15s;
+}
+.switch:checked {
+  background: var(--ink);
+}
+.switch:checked::after {
+  left: 23px;
+}
+.switch:focus-visible {
+  outline: 3px solid #6fa7d6;
+  outline-offset: 2px;
+}
+.switch-spacer {
+  width: 48px;
+  flex: none;
+}
+.minutes-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.minutes-input {
+  width: 4.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.minutes-unit {
+  color: var(--gray-600);
+}
+.sensor-zone {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  overflow: hidden;
+}
+.sensor-zone-head {
+  padding: 0.75rem 1rem;
+  background: var(--gray-50);
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+.sensor-zone-name {
+  font-weight: 700;
+}
+.sensor-zone-meta {
+  color: var(--gray-600);
+  font-size: 0.875rem;
+  flex: 1;
+}
+.sensor-row {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.sensor-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--gray-400);
+  flex: none;
+}
+.sensor-row.state-open .sensor-dot,
+.sensor-row.state-pausing .sensor-dot {
+  background: var(--state-paused);
+}
+.sensor-row.state-offline .sensor-dot {
+  background: transparent;
+  border: 2px solid var(--gray-400);
+}
+.sensor-name {
+  flex: 1;
+  min-width: 12rem;
+}
+.sensor-title {
+  font-weight: 600;
+}
+.sensor-state {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--gray-600);
+  min-width: 9.5rem;
+}
+.sensor-row.state-pausing .sensor-state,
+.sensor-row.state-open .sensor-state {
+  color: var(--state-paused-text);
+}
+.sensor-scope {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  color: var(--gray-600);
+}
+.override-editor {
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.override-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+.override-name {
+  min-width: 10rem;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  font-weight: 600;
+}
+.override-status {
+  font-size: 0.8rem;
+  font-weight: 400;
+  color: var(--gray-600);
+}
+.override-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+}
+.override-resume {
+  font-size: 0.875rem;
+}
+.add-sensor {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.add-sensor-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 0.75rem;
+}
+.add-sensor-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+.picked-entity {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 40px;
+}

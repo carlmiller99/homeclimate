@@ -14,9 +14,10 @@ from typing import Any
 
 import aiosqlite
 
-from . import db, zones
+from . import db, openings, zones
 from .models import Room, RoomPresenceSensor, RoomSensor, RoomVent, ThermostatConfig
 from .mqtt.naming import sanitize
+from .user_errors import UserError, fixed
 
 SKIPPED_AREAS_KEY = "ha_import_skipped_areas"
 
@@ -27,8 +28,21 @@ SHADE_CLASSES = ("shade", "blind", "curtain", "awning", "shutter")
 VENT_CLASSES = ("damper",)
 
 
-class ImportError_(ValueError):  # noqa: N801 — avoid shadowing the builtin
+class ImportError_(UserError):  # noqa: N801 — avoid shadowing the builtin
     """A user-facing import validation error with a fixed, safe message."""
+
+
+_LIST_MESSAGES = {
+    name: fixed(f"{name} must be a list of entity ids") for name in ("sensors", "presence", "vents", "contacts")
+}
+BUILDING_UNKNOWN = fixed("building_id does not match a building")
+NOT_LISTS = fixed("zones and rooms must be lists")
+ZONE_NOT_OBJECT = fixed("each zone must be an object")
+ZONE_NOT_THERMOSTAT = fixed("a zone's entity_id is not a Home Assistant thermostat")
+ROOM_NOT_OBJECT = fixed("each room must be an object")
+ROOM_NAME_INVALID = fixed("a room name must contain a letter or number")
+ROOM_NEEDS_ZONE = fixed("each room needs a zone that exists")
+SKIPPED_INVALID = fixed("skipped_areas must be a list of area ids")
 
 
 @dataclass
@@ -160,7 +174,7 @@ def build_preview(
                 "found": found.as_dict(),
                 "new_entities": [
                     e
-                    for e in found.temperature + found.presence + found.vents
+                    for e in found.temperature + found.presence + found.vents + found.contacts
                     if e not in existing_entities
                 ],
                 "existing_room_id": existing.id if existing else None,
@@ -183,7 +197,7 @@ def _str_list(raw: Any, name: str) -> list[str]:
     if raw is None:
         return []
     if not isinstance(raw, list) or not all(isinstance(x, str) and "." in x for x in raw):
-        raise ImportError_(f"{name} must be a list of entity ids")
+        raise ImportError_(_LIST_MESSAGES[name])
     return list(dict.fromkeys(raw))
 
 
@@ -205,7 +219,7 @@ async def _building_for(
     if row.get("building_id"):
         bid = row["building_id"]
         if not isinstance(bid, str) or await zones.get_building(conn, bid) is None:
-            raise ImportError_("building_id does not match a building")
+            raise ImportError_(BUILDING_UNKNOWN)
         return bid
     new_name = row.get("new_building_name")
     if not new_name:
@@ -232,17 +246,17 @@ async def apply_import(
     room_rows = body.get("rooms") or []
     skipped = body.get("skipped_areas")
     if not isinstance(zone_rows, list) or not isinstance(room_rows, list):
-        raise ImportError_("zones and rooms must be lists")
+        raise ImportError_(NOT_LISTS)
     result = ImportResult()
     building_cache: dict[str, str] = {}
 
     configured = {t.thermostat_entity_id for t in await db.get_all_thermostat_configs(conn)}
     for row in zone_rows:
         if not isinstance(row, dict):
-            raise ImportError_("each zone must be an object")
+            raise ImportError_(ZONE_NOT_OBJECT)
         eid = row.get("entity_id")
         if eid not in known_climates:
-            raise ImportError_("a zone's entity_id is not a Home Assistant thermostat")
+            raise ImportError_(ZONE_NOT_THERMOSTAT)
         name = zones.clean_name(row.get("name") or eid)
         if eid not in configured:
             await db.upsert_thermostat_config(
@@ -256,19 +270,23 @@ async def apply_import(
 
     rooms = await db.get_all_rooms(conn)
     by_key = {sanitize(r.name): r for r in rooms}
+    attached_contacts = {c.entity_id for c in await openings.list_contacts(conn)}
     for row in room_rows:
         if not isinstance(row, dict):
-            raise ImportError_("each room must be an object")
+            raise ImportError_(ROOM_NOT_OBJECT)
         name = zones.clean_name(row.get("name"))
         key = sanitize(name)
         if not key:
-            raise ImportError_("a room name must contain a letter or number")
+            raise ImportError_(ROOM_NAME_INVALID)
         zone = row.get("zone")
         if zone not in configured:
-            raise ImportError_("each room needs a zone that exists")
+            raise ImportError_(ROOM_NEEDS_ZONE)
         sensors = _str_list(row.get("sensors"), "sensors")
         presence = _str_list(row.get("presence"), "presence")
         vents = _str_list(row.get("vents"), "vents")
+        contacts = _str_list(row.get("contacts"), "contacts")
+        if not all(c.startswith("binary_sensor.") for c in contacts):
+            raise ImportError_(_LIST_MESSAGES["contacts"])
         room = by_key.get(key)
         if room is None:
             room = Room.create(name=name, thermostat_entity_id=zone)
@@ -293,10 +311,17 @@ async def apply_import(
             if eid not in have:
                 await db.add_room_vent(conn, RoomVent.create(room.id, eid))
                 result.entities_added += 1
+        # Doors and windows pause just this room. A sensor already attached
+        # somewhere (to a zone or another room) is left where it is.
+        for eid in contacts:
+            if eid not in attached_contacts:
+                await openings.save_contact(conn, eid, None, room.id)
+                attached_contacts.add(eid)
+                result.entities_added += 1
 
     if skipped is not None:
         if not isinstance(skipped, list) or not all(isinstance(a, str) for a in skipped):
-            raise ImportError_("skipped_areas must be a list of area ids")
+            raise ImportError_(SKIPPED_INVALID)
         await db.set_system_setting(conn, SKIPPED_AREAS_KEY, json.dumps(sorted(set(skipped))))
     return result
 

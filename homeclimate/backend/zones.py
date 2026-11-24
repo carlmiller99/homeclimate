@@ -15,6 +15,8 @@ from typing import Any
 
 import aiosqlite
 
+from .user_errors import UserError, fixed
+
 SYSTEM_TYPES = ("conventional", "heat_pump")
 BACKUP_HEAT = ("electric", "gas", "none")
 MAX_STAGES = 3
@@ -41,8 +43,26 @@ class ZoneProfile:
     heat_kit_confirmed: bool = False
 
 
-class ZoneError(ValueError):
+class ZoneError(UserError):
     """A user-facing validation error with a fixed, safe message."""
+
+
+NAME_REQUIRED = fixed("name is required")
+NAME_TOO_LONG = fixed(f"name must be at most {MAX_NAME_LEN} characters")
+BUILDING_EXISTS = fixed("a building with that name already exists")
+BUILDING_UNKNOWN = fixed("building_id does not match a building")
+ENTITY_INVALID = fixed("equipment_running_entity must be an entity id or null")
+HEAT_KIT_INVALID = fixed("heat_kit_confirmed must be true or false")
+_INT_LIMITS = {"sort_order": (0, 999), "compressor_stages": (1, MAX_STAGES)}
+_INT_MESSAGES = {
+    name: fixed(f"{name} must be a whole number from {lo} to {hi}")
+    for name, (lo, hi) in _INT_LIMITS.items()
+}
+_CHOICES = {"system_type": SYSTEM_TYPES, "backup_heat": BACKUP_HEAT}
+_CHOICE_MESSAGES = {
+    name: fixed(f"{name} must be one of: {', '.join(options)}")
+    for name, options in _CHOICES.items()
+}
 
 
 def _building(row: aiosqlite.Row) -> Building:
@@ -64,10 +84,10 @@ async def get_building(conn: aiosqlite.Connection, building_id: str) -> Building
 
 def clean_name(raw: Any) -> str:
     if not isinstance(raw, str) or not raw.strip():
-        raise ZoneError("name is required")
+        raise ZoneError(NAME_REQUIRED)
     name = " ".join(raw.split())
     if len(name) > MAX_NAME_LEN:
-        raise ZoneError(f"name must be at most {MAX_NAME_LEN} characters")
+        raise ZoneError(NAME_TOO_LONG)
     return name
 
 
@@ -82,7 +102,7 @@ async def _name_taken(conn: aiosqlite.Connection, name: str, exclude_id: str | N
 async def create_building(conn: aiosqlite.Connection, raw_name: Any) -> Building:
     name = clean_name(raw_name)
     if await _name_taken(conn, name, None):
-        raise ZoneError("a building with that name already exists")
+        raise ZoneError(BUILDING_EXISTS)
     async with conn.execute("SELECT COALESCE(MAX(sort_order), -1) + 1 FROM buildings") as cur:
         row = await cur.fetchone()
     next_order = int(row[0]) if row else 0
@@ -104,10 +124,10 @@ async def update_building(
     if "name" in changes:
         name = clean_name(changes["name"])
         if await _name_taken(conn, name, building_id):
-            raise ZoneError("a building with that name already exists")
+            raise ZoneError(BUILDING_EXISTS)
         building.name = name
     if "sort_order" in changes:
-        building.sort_order = _int(changes["sort_order"], "sort_order", 0, 999)
+        building.sort_order = _int(changes["sort_order"], "sort_order")
     await conn.execute(
         "UPDATE buildings SET name=?, sort_order=? WHERE id=?",
         (building.name, building.sort_order, building_id),
@@ -130,15 +150,16 @@ async def delete_building(conn: aiosqlite.Connection, building_id: str) -> str:
     return "deleted"
 
 
-def _int(raw: Any, name: str, lo: int, hi: int) -> int:
+def _int(raw: Any, name: str) -> int:
+    lo, hi = _INT_LIMITS[name]
     if isinstance(raw, bool) or not isinstance(raw, int) or not lo <= raw <= hi:
-        raise ZoneError(f"{name} must be a whole number from {lo} to {hi}")
+        raise ZoneError(_INT_MESSAGES[name])
     return raw
 
 
-def _choice(raw: Any, name: str, options: tuple[str, ...]) -> str:
-    if raw not in options:
-        raise ZoneError(f"{name} must be one of: {', '.join(options)}")
+def _choice(raw: Any, name: str) -> str:
+    if raw not in _CHOICES[name]:
+        raise ZoneError(_CHOICE_MESSAGES[name])
     return str(raw)
 
 
@@ -191,26 +212,24 @@ async def update_zone_profile(
     if "building_id" in changes:
         bid = changes["building_id"]
         if bid is not None and (not isinstance(bid, str) or await get_building(conn, bid) is None):
-            raise ZoneError("building_id does not match a building")
+            raise ZoneError(BUILDING_UNKNOWN)
         zone.building_id = bid
     if "sort_order" in changes:
-        zone.sort_order = _int(changes["sort_order"], "sort_order", 0, 999)
+        zone.sort_order = _int(changes["sort_order"], "sort_order")
     if "system_type" in changes:
-        zone.system_type = _choice(changes["system_type"], "system_type", SYSTEM_TYPES)
+        zone.system_type = _choice(changes["system_type"], "system_type")
     if "compressor_stages" in changes:
-        zone.compressor_stages = _int(
-            changes["compressor_stages"], "compressor_stages", 1, MAX_STAGES
-        )
+        zone.compressor_stages = _int(changes["compressor_stages"], "compressor_stages")
     if "backup_heat" in changes:
-        zone.backup_heat = _choice(changes["backup_heat"], "backup_heat", BACKUP_HEAT)
+        zone.backup_heat = _choice(changes["backup_heat"], "backup_heat")
     if "equipment_running_entity" in changes:
         ent = changes["equipment_running_entity"] or None
         if ent is not None and (not isinstance(ent, str) or "." not in ent):
-            raise ZoneError("equipment_running_entity must be an entity id or null")
+            raise ZoneError(ENTITY_INVALID)
         zone.equipment_running_entity = ent
     if "heat_kit_confirmed" in changes:
         if not isinstance(changes["heat_kit_confirmed"], bool):
-            raise ZoneError("heat_kit_confirmed must be true or false")
+            raise ZoneError(HEAT_KIT_INVALID)
         zone.heat_kit_confirmed = changes["heat_kit_confirmed"]
     await conn.execute(
         """INSERT INTO zone_profiles(thermostat_entity_id, building_id, sort_order, system_type,

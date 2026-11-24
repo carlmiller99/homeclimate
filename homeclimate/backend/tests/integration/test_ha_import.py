@@ -135,7 +135,12 @@ async def test_import_is_additive_and_remembers_skips(client, fake_ha):
                 "presence": ["binary_sensor.bunk_occupancy"],
                 "vents": ["cover.bunk_vent"],
             },
-            {"name": "Mudroom", "zone": "climate.mud", "sensors": ["sensor.mud_temp"]},
+            {
+                "name": "Mudroom",
+                "zone": "climate.mud",
+                "sensors": ["sensor.mud_temp"],
+                "contacts": ["binary_sensor.mud_door"],
+            },
         ],
         "skipped_areas": ["drive", "drive"],
     }
@@ -146,8 +151,12 @@ async def test_import_is_additive_and_remembers_skips(client, fake_ha):
         "buildings_added": 1,
         "rooms_added": 2,
         "rooms_updated": 0,
-        "entities_added": 4,
+        "entities_added": 5,
     }
+    contacts = (await (await client.get("/api/smart-control")).json())["sensors"]
+    assert [(c["entity_id"], c["room_id"] is not None) for c in contacts] == [
+        ("binary_sensor.mud_door", True)
+    ]
     zones = await (await client.get("/api/zones")).json()
     buildings = await (await client.get("/api/buildings")).json()
     assert [b["name"] for b in buildings] == ["Main House"]
@@ -171,6 +180,7 @@ async def test_import_is_additive_and_remembers_skips(client, fake_ha):
     assert rooms["bunk"]["existing_room_id"] is not None
     assert rooms["bunk"]["suggested_zone"] == "climate.landing"
     assert rooms["bunk"]["new_entities"] == []
+    assert rooms["mud"]["new_entities"] == []
     assert rooms["drive"]["skipped"] is True
     zones_preview = {z["entity_id"]: z for z in preview["zones"]}
     assert zones_preview["climate.landing"]["configured"] is True
@@ -204,6 +214,7 @@ async def test_import_reuses_an_existing_building_by_name(client, fake_ha):
         {"rooms": [{"name": "Den", "zone": "climate.nope"}]},
         {"rooms": [{"name": "Den", "zone": "climate.mud", "sensors": "sensor.x"}]},
         {"rooms": [{"name": "Den", "zone": "climate.mud", "sensors": ["nope"]}]},
+        {"rooms": [{"name": "Den", "zone": "climate.mud", "contacts": ["sensor.door"]}]},
         {"skipped_areas": "drive"},
         {"skipped_areas": [1]},
     ],

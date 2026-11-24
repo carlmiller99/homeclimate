@@ -20,7 +20,7 @@ from datetime import UTC, datetime, timedelta
 import aiosqlite
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from . import db, tz
+from . import db, openings, tz
 from .engine import room_manager
 from .engine.cycle_engine import CycleEngine
 from .engine.vent_controller import VentController
@@ -142,6 +142,8 @@ class Scheduler:
         # only holds weak references, so without this a task can be
         # garbage-collected mid-await and silently never finish (Issue #304).
         self._bg_tasks: set[asyncio.Task] = set()
+        # Door and window pausing (Smart Control). Timers live in memory.
+        self._openings = openings.OpeningMonitor()
 
     def _spawn_bg(self, coro: Coroutine) -> asyncio.Task:
         """Create a background task and keep a strong reference until it
@@ -210,6 +212,8 @@ class Scheduler:
         self._vent_ctrl = VentController(self._ha, event_logger=self._event_logger)
 
         await self._sync_engines()
+        # Learn which door and window sensors to watch before events arrive.
+        await self._evaluate_openings()
 
         # Subscribe to ALL HA state changes
         self._ha.subscribe_all(self._on_state_change)
@@ -1000,6 +1004,7 @@ class Scheduler:
             # fired leaves vacation before the global return time.
             get_vacation_mode=functools.partial(self.is_vacation_for, tid),
             get_eco_suspended=functools.partial(self.is_eco_suspended, tid),
+            get_openings=functools.partial(self._openings.pause_for, tid),
         )
 
     async def _sync_engines_locked(self) -> None:
@@ -1285,8 +1290,61 @@ class Scheduler:
         await self._sync_engines()
         await self._refresh_continuous_presence()
         await self._refresh_reported_states()
+        await self._evaluate_openings()
         tasks = [self._tick_engine(tid, eng) for tid, eng in self._engines.items()]
         await asyncio.gather(*tasks, return_exceptions=True)
+
+    @property
+    def openings(self) -> openings.OpeningMonitor:
+        return self._openings
+
+    async def _evaluate_openings(self) -> set[str]:
+        """Re-evaluate door/window pauses; log changes and return the zones hit."""
+        try:
+            transitions = await self._openings.evaluate(
+                self._db_conn, self._ha.get_state, datetime.now(UTC)
+            )
+        except Exception:
+            log.exception("Could not evaluate door and window pauses")
+            return set()
+        touched: set[str] = set()
+        rooms = {r.id: r for r in await db.get_all_rooms(self._db_conn)}
+        for t in transitions:
+            if t.scope == "zone":
+                touched.add(t.scope_id)
+            elif t.scope_id in rooms:
+                touched.add(rooms[t.scope_id].thermostat_entity_id)
+            if self._event_logger is None:
+                continue
+            what = "Zone" if t.scope == "zone" else "Room"
+            if t.paused:
+                names = ", ".join(self._friendly(e) for e in t.sensors)
+                message = f"{what} {t.name} paused: {names} open"
+            else:
+                message = f"{what} {t.name} resumed: doors and windows closed"
+            await self._event_logger.log(
+                "info",
+                "openings",
+                message,
+                {
+                    "scope": t.scope,
+                    "scope_id": t.scope_id,
+                    "paused": t.paused,
+                    "sensors": t.sensors,
+                },
+            )
+        return touched
+
+    async def refresh_openings(self) -> None:
+        """Re-evaluate pauses after a settings or sensor change and act at once."""
+        for tid in await self._evaluate_openings():
+            engine = self._engines.get(tid)
+            if engine is not None:
+                await self._tick_engine(tid, engine)
+
+    def _friendly(self, entity_id: str) -> str:
+        state = self._ha.get_state(entity_id) or {}
+        return str((state.get("attributes") or {}).get("friendly_name") or entity_id)
 
     async def _refresh_reported_states(self) -> None:
         """Fallback freshness refresh when HA refused ``state_reported``.
@@ -1403,6 +1461,10 @@ class Scheduler:
     # ------------------------------------------------------------------
 
     async def _on_state_change(self, entity_id: str, new_state: dict) -> None:
+        if entity_id in self._openings.entities:
+            self._openings.observe(entity_id, new_state, datetime.now(UTC))
+            await self.refresh_openings()
+
         if entity_id.startswith("binary_sensor.") and new_state.get("state") == "on":
             await self._handle_presence_event(entity_id)
 

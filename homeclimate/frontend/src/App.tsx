@@ -7,6 +7,7 @@ import Schedules from "./pages/Schedules";
 import Thermostats from "./pages/Thermostats";
 import Zones from "./pages/Zones";
 import ImportFromHA from "./pages/ImportFromHA";
+import SmartControl from "./pages/SmartControl";
 import Settings from "./pages/Settings";
 import Logs from "./pages/Logs";
 // Lazy-loaded so recharts (~400 KB) only ships when /metrics is opened.
@@ -537,6 +538,7 @@ export default function App() {
             <Route path="/thermostats" element={<Thermostats />} />
             <Route path="/zones" element={<Zones />} />
             <Route path="/import" element={<ImportFromHA />} />
+            <Route path="/smart-control" element={<SmartControl />} />
             <Route
               path="/metrics"
               element={

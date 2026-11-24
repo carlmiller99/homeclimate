@@ -707,3 +707,64 @@ class ImportResultSchema(Schema):
     rooms_added = fields.Int()
     rooms_updated = fields.Int()
     entities_added = fields.Int()
+
+
+class SmartControlSettingsSchema(Schema):
+    zone_pause_enabled = fields.Bool()
+    zone_pause_min = fields.Int(
+        metadata={"description": "Minutes open before a zone pauses (1-60)"}
+    )
+    room_pause_enabled = fields.Bool()
+    room_pause_min = fields.Int(
+        metadata={"description": "Minutes open before a room pauses (1-60)"}
+    )
+    resume_min = fields.Int(
+        metadata={"description": "Minutes everything must stay closed before resuming (0-30)"}
+    )
+
+
+class SmartControlOverrideSchema(Schema):
+    scope = fields.Str(metadata={"description": "zone | room"})
+    scope_id = fields.Str(metadata={"description": "Thermostat entity id or room id"})
+    key = fields.Str()
+    value = fields.Raw()
+
+
+class SmartControlOverrideWriteSchema(Schema):
+    zone_pause_enabled = fields.Bool(allow_none=True)
+    zone_pause_min = fields.Int(allow_none=True)
+    room_pause_enabled = fields.Bool(allow_none=True)
+    room_pause_min = fields.Int(allow_none=True)
+    resume_min = fields.Int(
+        allow_none=True, metadata={"description": "null clears the override for this key"}
+    )
+
+
+class ContactSensorSchema(Schema):
+    entity_id = fields.Str()
+    name = fields.Str()
+    thermostat_entity_id = fields.Str(allow_none=True)
+    room_id = fields.Str(allow_none=True)
+    state = fields.Str(metadata={"description": "open | closed | offline"})
+    open_since = fields.Str(allow_none=True)
+    pausing = fields.Bool()
+
+
+class ContactSensorWriteSchema(Schema):
+    thermostat_entity_id = fields.Str(
+        allow_none=True, metadata={"description": "Pause this whole zone"}
+    )
+    room_id = fields.Str(allow_none=True, metadata={"description": "Pause only this room"})
+
+
+class PausedScopeSchema(Schema):
+    scope = fields.Str()
+    scope_id = fields.Str()
+    since = fields.Str()
+
+
+class SmartControlSchema(Schema):
+    settings = fields.Nested(SmartControlSettingsSchema)
+    overrides = fields.List(fields.Nested(SmartControlOverrideSchema))
+    sensors = fields.List(fields.Nested(ContactSensorSchema))
+    paused = fields.List(fields.Nested(PausedScopeSchema))

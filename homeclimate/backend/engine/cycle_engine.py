@@ -160,6 +160,7 @@ class CycleEngine:
         get_enabled: Callable[[], bool] | None = None,
         get_vacation_mode: Callable[[], bool] | None = None,
         get_eco_suspended: Callable[[], bool] | None = None,
+        get_openings: Callable[[], tuple[bool, frozenset[str]]] | None = None,
     ) -> None:
         self.thermostat_entity_id = thermostat_entity_id
         self._ha = ha
@@ -169,6 +170,8 @@ class CycleEngine:
         self._get_enabled = get_enabled
         self._get_vacation_mode = get_vacation_mode
         self._get_eco_suspended = get_eco_suspended
+        # Door and window pausing (Smart Control): (zone paused, paused room ids).
+        self._get_openings = get_openings
 
         self._state = CycleState.IDLE
         self._cycle_log: CycleLog | None = None
@@ -690,6 +693,17 @@ class CycleEngine:
         # schedule/presence/override sources stay paused (#626) — a safety
         # breach below is the only thing that may create demand.
         new_active = [] if in_vacation else await get_active_rooms(conn, self.thermostat_entity_id)
+        # Door and window pausing (Smart Control): an open door or window
+        # removes demand exactly like an unscheduled room — for the whole zone
+        # or for one room. Safety rooms below still breach through, so a paused
+        # zone or room is never left to freeze or bake.
+        zone_paused, paused_rooms = (
+            self._get_openings() if self._get_openings is not None else (False, frozenset())
+        )
+        if zone_paused:
+            new_active = []
+        elif paused_rooms:
+            new_active = [ar for ar in new_active if ar.room.id not in paused_rooms]
         new_active_map = {ar.room.id: ar for ar in new_active}
 
         # Per-room safety protection (Issue #367): pull in any zone room whose
@@ -731,7 +745,9 @@ class CycleEngine:
                 await self._apply_vacation_hold(conn, thermo_state)
                 return
             if self._state != CycleState.IDLE:
-                await self._abort_cycle(conn, reason="no active rooms")
+                await self._abort_cycle(
+                    conn, reason="door or window open" if zone_paused else "no active rooms"
+                )
             # IDLE reconciliation: ensure all zone vents are open even when no
             # rooms are scheduled. Only runs when system is enabled.
             if self._get_enabled is None or self._get_enabled():

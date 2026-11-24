@@ -191,6 +191,26 @@ CREATE TABLE IF NOT EXISTS zone_profiles (
     heat_kit_confirmed INTEGER NOT NULL DEFAULT 0
 );
 
+-- HomeClimate Smart Control: door and window sensors. Each sensor pauses
+-- either a whole zone (thermostat_entity_id set) or one room (room_id set).
+CREATE TABLE IF NOT EXISTS contact_sensors (
+    entity_id TEXT PRIMARY KEY,
+    thermostat_entity_id TEXT
+        REFERENCES thermostat_configs(thermostat_entity_id) ON DELETE CASCADE,
+    room_id TEXT REFERENCES rooms(id) ON DELETE CASCADE,
+    CHECK ((thermostat_entity_id IS NULL) <> (room_id IS NULL))
+);
+
+-- Per-zone and per-room overrides of Smart Control settings. A missing row
+-- means the zone or room uses the house-wide value in system_settings.
+CREATE TABLE IF NOT EXISTS smart_control_overrides (
+    scope TEXT NOT NULL CHECK (scope IN ('zone', 'room')),
+    scope_id TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    PRIMARY KEY (scope, scope_id, key)
+);
+
 CREATE TABLE IF NOT EXISTS room_presence_sensors (
     id TEXT PRIMARY KEY,
     room_id TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,

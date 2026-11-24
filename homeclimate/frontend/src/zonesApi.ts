@@ -124,6 +124,7 @@ export interface ImportRequest {
     sensors: string[];
     presence: string[];
     vents: string[];
+    contacts: string[];
   }[];
   skipped_areas: string[];
 }
