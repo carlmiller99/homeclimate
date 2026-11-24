@@ -20,9 +20,9 @@ from datetime import UTC, datetime, timedelta
 import aiosqlite
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from . import db, heat_pump, openings, shades, tz, zones
+from . import db, heat_pump, learning, openings, shades, tz, zones
 from .engine import room_manager
-from .engine.cycle_engine import CycleEngine
+from .engine.cycle_engine import SENSOR_STALE_AFTER_MIN, CycleEngine
 from .engine.vent_controller import VentController
 from .event_logger import EventLogger
 from .ha_client import HAClient
@@ -239,6 +239,15 @@ class Scheduler:
             "interval",
             hours=24,
             id="log_purge",
+            max_instances=1,
+            coalesce=True,
+        )
+        # Smart Learning: sample every room, running or idle. Read-only.
+        self._apscheduler.add_job(
+            self._sample_rooms,
+            "interval",
+            minutes=learning.SAMPLE_EVERY_MIN,
+            id="room_sampler",
             max_instances=1,
             coalesce=True,
         )
@@ -1418,6 +1427,41 @@ class Scheduler:
             return engine.cycle_mode
         state = (self._ha.get_state(thermostat_entity_id) or {}).get("state")
         return {"heat": "heating", "cool": "cooling"}.get(str(state))
+
+    async def _sample_rooms(self) -> None:
+        """Store one Smart Learning sample per room, and drop the oldest."""
+        try:
+            conn = self._db_conn
+            settings = await learning.get_settings(conn)
+            now = datetime.now(UTC)
+            if settings["sampling_enabled"] and self._vent_ctrl is not None:
+                try:
+                    stale = float(
+                        await db.get_system_setting(
+                            conn, "sensor_stale_after_min", str(SENSOR_STALE_AFTER_MIN)
+                        )
+                    )
+                except ValueError:
+                    stale = SENSOR_STALE_AFTER_MIN
+                open_rooms = frozenset(
+                    c.room_id
+                    for c in await openings.list_contacts(conn)
+                    if c.room_id and openings.classify(self._ha.get_state(c.entity_id)) == "open"
+                )
+                samples = await learning.collect(
+                    conn,
+                    self._ha,
+                    now=now,
+                    stale_after_min=stale,
+                    vent_is_open=self._vent_ctrl._is_open,
+                    aux_running=self.aux_heat_running,
+                    open_contact_rooms=open_rooms,
+                )
+                await learning.store(conn, samples)
+            await learning.purge(conn, now=now, keep_days=settings["sample_retention_days"])
+        except Exception:
+            # Sampling must never disturb control; the next run tries again.
+            log.exception("Could not sample rooms for Smart Learning")
 
     async def _run_shades(self) -> None:
         """Move shades for the sun, after the engines have settled their modes."""

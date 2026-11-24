@@ -2548,3 +2548,31 @@ button.sc-nav-item {
   background: var(--state-paused-bg);
   color: var(--state-paused-text);
 }
+
+/* Smart Control → Smart Learning */
+.learning-rooms {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.learning-room {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 16px;
+  align-items: baseline;
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--border);
+}
+.learning-room:first-child {
+  border-top: 0;
+}
+.learning-collected {
+  color: var(--gray-600);
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+}
+.learning-note {
+  grid-column: 1 / -1;
+  color: var(--state-paused-text);
+  font-size: 0.875rem;
+}
