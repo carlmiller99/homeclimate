@@ -83,3 +83,28 @@ async def test_guards_follow_zone_edits_and_backup_heat_is_logged(client, fake_h
     fake_ha.seed_state(CLOUD, "heat", {"equipment_running": "auxHeat1"})
     await scheduler._watch_backup_heat()
     assert not scheduler._aux.backoff_active(T1, datetime.now(UTC))
+
+
+async def test_backoff_and_openings_skip_zones_without_an_engine(client, fake_ha):
+    from datetime import UTC, datetime
+
+    scheduler = client.app["scheduler"]
+    await client.post(
+        "/api/thermostats",
+        json={"thermostat_entity_id": T1, "name": "Upstairs", "total_vents_count": 4},
+    )
+    await client.put(
+        f"/api/zones/{T1}", json={"system_type": "heat_pump", "equipment_running_entity": CLOUD}
+    )
+    assert scheduler.get_engine(T1) is None  # no rooms, so no engine
+    fake_ha.seed_state(CLOUD, "heat", {"equipment_running": "heatPump"})
+    await scheduler._watch_backup_heat()
+    fake_ha.seed_state(CLOUD, "heat", {"equipment_running": "auxHeat1"})
+    await scheduler._watch_backup_heat()
+    assert scheduler._aux.backoff_active(T1, datetime.now(UTC))
+
+    async def touched():
+        return {T1}
+
+    scheduler._evaluate_openings = touched
+    await scheduler.refresh_openings()

@@ -507,6 +507,7 @@ async def test_rename_retires_the_old_name_alias(client, bridge, fake_ha) -> Non
 @pytest.mark.asyncio
 async def test_deleting_a_room_retires_its_whole_subtree(client, bridge, fake_ha) -> None:
     room_id = await _make_room(client)
+    await _make_room(client, name="Den")  # a zone keeps its last room
     await bridge.sync()
     assert any(f"/room/{room_id}/" in t for t in bridge.transport.live_retained())
 
@@ -921,6 +922,7 @@ async def test_a_real_deletion_is_still_retired_after_recovery(client, bridge, f
     """The partial-snapshot gate must not wedge: once reads succeed again, a
     genuine deletion retires exactly as before."""
     room_id = await _make_room(client)
+    await _make_room(client, name="Den")  # a zone keeps its last room
     await bridge.sync()
 
     real = client_dispatch(client)

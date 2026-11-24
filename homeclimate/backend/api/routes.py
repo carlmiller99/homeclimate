@@ -22,6 +22,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 
 import aiohttp
+import aiosqlite
 from aiohttp import web
 
 from .. import auth, db, demo_seed, oidc, schedule_rules, scopes, session, tz
@@ -34,6 +35,7 @@ from ..models import (
     RoomSensor,
     RoomVent,
     Schedule,
+    ThermostatConfig,
 )
 from ..mqtt.naming import sanitize as _sanitize_name
 from ..scheduler import VACATION_START_LOCKED, VacationConflict
@@ -902,6 +904,48 @@ async def mcp_tokens_update(request: web.Request) -> web.Response:
 # ---------------------------------------------------------------------------
 
 
+# My Home structure (HomeClimate): every room belongs to a zone, every zone
+# keeps at least one room, and a zone's rooms are only deleted with it on request.
+ROOM_NEEDS_ZONE = "Choose a zone for the room."
+ZONE_NEEDS_A_ROOM = (
+    "A zone needs at least one room. Add another room first, or delete the zone instead."
+)
+ZONE_HAS_ROOMS = (
+    "This zone still has rooms. Delete it with its rooms (with_rooms=true), "
+    "or move the rooms to another zone first."
+)
+
+
+async def _zone_registered(conn: aiosqlite.Connection, thermostat_entity_id: Any) -> bool:
+    if not isinstance(thermostat_entity_id, str):
+        return False
+    async with conn.execute(
+        "SELECT 1 FROM thermostat_configs WHERE thermostat_entity_id=?", (thermostat_entity_id,)
+    ) as cur:
+        return await cur.fetchone() is not None
+
+
+async def _ensure_zone(request: web.Request, conn: aiosqlite.Connection, entity_id: str) -> None:
+    """Register ``entity_id`` as a zone with default settings if it is not one yet."""
+    if await _zone_registered(conn, entity_id):
+        return
+    await db.upsert_thermostat_config(conn, ThermostatConfig(thermostat_entity_id=entity_id))
+    await emit(
+        request,
+        "info",
+        "api",
+        f"Zone registered for a new room: {entity_id}",
+        {"entity_id": entity_id},
+    )
+
+
+async def _is_last_room(conn: aiosqlite.Connection, room: Room) -> bool:
+    """True when ``room`` is the only room of a registered zone."""
+    if not await _zone_registered(conn, room.thermostat_entity_id):
+        return False
+    return len(await db.get_rooms_for_thermostat(conn, room.thermostat_entity_id)) == 1
+
+
 @docs(tags=["rooms"], summary="List all rooms")
 @response_schema(schemas.RoomSchema(many=True))
 @routes.get("/api/rooms")
@@ -950,6 +994,12 @@ async def create_room(request: web.Request) -> web.Response:
             return err
 
     conn = await get_conn(request)
+    # My Home structure: every room belongs to a zone (a registered thermostat).
+    # API and MCP callers that name an unregistered thermostat get its zone
+    # registered with default settings, so the rule holds without breaking them.
+    if not isinstance(body["thermostat_entity_id"], str):
+        return error(ROOM_NEEDS_ZONE)
+    await _ensure_zone(request, conn, body["thermostat_entity_id"])
     # Room names must stay unique once sanitised for MQTT topics (Issue #519).
     rejected = await _room_name_rejected(conn, body["name"])
     if rejected is not None:
@@ -989,6 +1039,7 @@ async def create_room(request: web.Request) -> web.Response:
         **ambient_updates,
         **eco_updates,
     )
+    await _ensure_zone(request, conn, room.thermostat_entity_id)
     await db.upsert_room(conn, room)
     await refresh(request)
     await emit(request, "info", "api", f"Room created: {room.name}", {"room_id": room.id})
@@ -1069,6 +1120,12 @@ async def update_room(request: web.Request) -> web.Response:
     # Ambient suppression (Issue #248): validate against the *effective* thermostat
     # (a request can switch thermostat_entity_id in the same PUT).
     effective_thermostat = body.get("thermostat_entity_id", room.thermostat_entity_id)
+    if effective_thermostat != room.thermostat_entity_id:
+        # My Home structure: the new zone must exist, and a zone keeps its last room.
+        if not isinstance(effective_thermostat, str):
+            return error(ROOM_NEEDS_ZONE)
+        if await _is_last_room(conn, room):
+            return error(ZONE_NEEDS_A_ROOM, status=409)
     tc = await db.get_thermostat_config(conn, effective_thermostat)
     ambient_enabled = bool(
         body.get("ambient_suppression_enabled", room.ambient_suppression_enabled)
@@ -1125,6 +1182,8 @@ async def delete_room(request: web.Request) -> web.Response:
     room = await db.get_room(conn, request.match_info["room_id"])
     if not room:
         return error("Room not found", 404)
+    if await _is_last_room(conn, room):
+        return error(ZONE_NEEDS_A_ROOM, status=409)
     await db.delete_room(conn, room.id)
     await refresh(request)
     await emit(request, "info", "api", f"Room deleted: {room.name}", {"room_id": room.id})
@@ -2043,7 +2102,19 @@ async def upsert_thermostat(request: web.Request) -> web.Response:
     return json_response(tc.__dict__)
 
 
-@docs(tags=["thermostats"], summary="Delete a thermostat configuration")
+@docs(tags=["thermostats"], summary="Delete a zone (thermostat configuration)")
+@query_params(
+    [
+        {
+            "name": "with_rooms",
+            "schema": {"type": "boolean"},
+            "description": (
+                "true deletes the zone's rooms with it. Without it, a zone that still "
+                "has rooms is refused (409): every room belongs to a zone."
+            ),
+        }
+    ]
+)
 @response_schema(schemas.DeletedSchema)
 # {entity_id:[^/]+}, NOT .*: aiohttp matches routes in registration order and
 # a slash-matching pattern here shadows every later suffixed DELETE
@@ -2053,6 +2124,12 @@ async def upsert_thermostat(request: web.Request) -> web.Response:
 async def delete_thermostat(request: web.Request) -> web.Response:
     entity_id = request.match_info["entity_id"]
     conn = await get_conn(request)
+    # My Home structure: a zone's rooms go with it, and only when asked.
+    rooms = await db.get_rooms_for_thermostat(conn, entity_id)
+    if rooms and request.rel_url.query.get("with_rooms") != "true":
+        return error(ZONE_HAS_ROOMS, status=409)
+    for room in rooms:
+        await db.delete_room(conn, room.id)
     await db.delete_thermostat_config(conn, entity_id)
     await refresh(request)
     await emit(
