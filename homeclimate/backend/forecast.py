@@ -11,6 +11,7 @@ This module only reads. Nothing here changes how the home is controlled.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 from dataclasses import dataclass
@@ -126,7 +127,7 @@ def parse_hourly(raw: Any, unit: str) -> list[Hour]:
             continue
         if temp is None or at.tzinfo is None:
             continue
-        at = at.astimezone(UTC).replace(minute=0, second=0, microsecond=0)
+        at = at.astimezone(UTC).replace(second=0, microsecond=0)
         hours[at] = Hour(
             at=at,
             temp=to_f(temp, scale),
@@ -137,42 +138,55 @@ def parse_hourly(raw: Any, unit: str) -> list[Hour]:
     return [hours[at] for at in sorted(hours)]
 
 
-async def save(conn: aiosqlite.Connection, hours: list[Hour], *, now: datetime) -> None:
-    """Replace the stored forecast from its first hour on, and archive a snapshot."""
+SOURCE_SETTING = SETTING_PREFIX + "source"
+
+
+async def save(
+    conn: aiosqlite.Connection, hours: list[Hour], *, now: datetime, source: str = ""
+) -> None:
+    """Store a fetched forecast over the hours it covers, and archive a snapshot.
+
+    Hours it does not cover are left alone, so a short reply cannot wipe a
+    longer forecast. A forecast from a different weather entity replaces
+    everything: one source's hours are never shown as another's.
+    """
     fetched = int(now.timestamp())
+    rows = [
+        (
+            int(h.at.timestamp()),
+            round(h.temp * TEMP_SCALE),
+            h.cloud_pct,
+            h.precip_pct,
+            h.condition,
+            fetched,
+        )
+        for h in hours
+    ]
+    issued = fetched - fetched % 3600
+    archive = [
+        (issued, at, temp) for at, temp, *_rest in rows if 0 <= at - issued < SNAPSHOT_HOURS * 3600
+    ]
+    if await db.get_system_setting(conn, SOURCE_SETTING, "") != source:
+        await conn.execute("DELETE FROM forecast_hours")
     await conn.execute(
-        "DELETE FROM forecast_hours WHERE at >= ? OR at < ?",
-        (int(hours[0].at.timestamp()), int((now - PAST_KEEP).timestamp())),
+        "DELETE FROM forecast_hours WHERE (at BETWEEN ? AND ?) OR at < ?",
+        (rows[0][0], rows[-1][0], int((now - PAST_KEEP).timestamp())),
     )
     await conn.executemany(
-        "INSERT INTO forecast_hours(at, temp, cloud_pct, precip_pct, condition, fetched_at)"
-        " VALUES(?,?,?,?,?,?)",
-        [
-            (
-                int(h.at.timestamp()),
-                round(h.temp * TEMP_SCALE),
-                h.cloud_pct,
-                h.precip_pct,
-                h.condition,
-                fetched,
-            )
-            for h in hours
-        ],
+        "INSERT OR REPLACE INTO forecast_hours(at, temp, cloud_pct, precip_pct, condition,"
+        " fetched_at) VALUES(?,?,?,?,?,?)",
+        rows,
     )
     # One archived snapshot per clock hour: what was forecast, as of when.
-    issued = fetched - fetched % 3600
     await conn.executemany(
-        "INSERT OR IGNORE INTO forecast_snapshots(issued, at, temp) VALUES(?,?,?)",
-        [
-            (issued, int(h.at.timestamp()), round(h.temp * TEMP_SCALE))
-            for h in hours
-            if 0 <= (h.at.timestamp() - issued) < SNAPSHOT_HOURS * 3600
-        ],
+        "INSERT OR IGNORE INTO forecast_snapshots(issued, at, temp) VALUES(?,?,?)", archive
     )
     await conn.execute(
         "DELETE FROM forecast_snapshots WHERE issued < ?",
         (int((now - timedelta(days=SNAPSHOT_KEEP_DAYS)).timestamp()),),
     )
+    # set_system_setting commits, taking the statements above with it.
+    await db.set_system_setting(conn, SOURCE_SETTING, source)
     await conn.commit()
 
 
@@ -203,6 +217,7 @@ class Forecast:
     def __init__(self) -> None:
         self.failed = False
         self.last_attempt: datetime | None = None
+        self._lock = asyncio.Lock()
 
     async def refresh(self, conn: aiosqlite.Connection, ha: Any, *, now: datetime) -> str | None:
         """Fetch and store the forecast.
@@ -210,10 +225,17 @@ class Forecast:
         Returns "fetched" or "failed" when that differs from the attempt
         before, so the caller can log changes without logging every run.
         """
+        async with self._lock:
+            return await self._refresh(conn, ha, now)
+
+    async def _refresh(self, conn: aiosqlite.Connection, ha: Any, now: datetime) -> str | None:
         settings = await get_settings(conn)
         entity = await weather_entity(conn)
         if not settings["enabled"] or not entity:
             self.failed = False
+            return None
+        if not ha.is_connected:
+            # Not the weather source's fault; the next run will ask.
             return None
         self.last_attempt = now
         try:
@@ -222,7 +244,7 @@ class Forecast:
             hours = parse_hourly(raw, str(unit or f"°{ha.ha_temp_unit}"))
             if not hours:
                 raise ValueError("no usable hours")
-            await save(conn, hours, now=now)
+            await save(conn, hours, now=now, source=entity)
         except Exception:
             log.warning("Could not fetch the forecast from %s", entity, exc_info=True)
             changed = not self.failed
@@ -247,6 +269,11 @@ class Forecast:
             state = "kept"
         else:
             state = "fresh"
+        if state not in ("off", "no_entity") and (
+            await db.get_system_setting(conn, SOURCE_SETTING, "") != entity
+        ):
+            # What is stored came from a different weather entity: not this one's forecast.
+            hours, state = [], "none"
         if state in ("off", "no_entity"):
             hours = []
         days: dict[str, list[Hour]] = {}

@@ -14,6 +14,8 @@ export interface Fireplace {
   lit_since: string | null;
   cooling_until: string | null;
   setting_aside: boolean;
+  /** Held as cooling because its signal stopped reporting while lit. */
+  signal_lost: boolean;
 }
 
 export type FireplaceWrite = Partial<

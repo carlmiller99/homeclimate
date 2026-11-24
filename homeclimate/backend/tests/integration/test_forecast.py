@@ -78,7 +78,7 @@ async def test_celsius_weather_entities_are_stored_in_fahrenheit(client, fake_ha
     fake_ha.seed_state(W, "sunny", {"temperature_unit": "°C"})
     fake_ha.forecasts[W] = _entries(_this_hour(), [0, 10, 100])
     snap = await (await client.post("/api/forecast/refresh")).json()
-    assert [h["temp"] for h in snap["hours"]] == [32.0, 50.0, 212.0]
+    assert [h["temp"] for h in snap["hours"]][:3] == [32.0, 50.0, 212.0]
     assert snap["hours"][0]["cloud_pct"] is None and snap["hours"][0]["condition"] == ""
     # With no unit on the entity, Home Assistant's own unit is assumed.
     fake_ha.seed_state(W, "sunny", {})
@@ -102,7 +102,8 @@ async def test_a_failed_fetch_keeps_the_last_forecast_and_logs_once(client, fake
     fake_ha.forecasts[W] = _entries(_this_hour(), [61, 62])
     snap = await (await client.post("/api/forecast/refresh")).json()
     assert (snap["state"], snap["problem"]) == ("fresh", None)
-    assert [h["temp"] for h in snap["hours"]] == [61.0, 62.0]  # the old tail is replaced
+    # A short reply replaces the hours it covers and leaves the rest alone.
+    assert [h["temp"] for h in snap["hours"]][:3] == [61.0, 62.0, 52.0]
 
     events = await (await client.get("/api/logs/events?category=forecast")).json()
     messages = [e["message"] for e in events]
@@ -196,3 +197,35 @@ async def test_a_refresh_failure_never_escapes_the_job(client, monkeypatch, capl
     assert "Could not refresh the forecast" in caplog.text
     job = scheduler._apscheduler.get_job("forecast_refresh")
     assert job.trigger.interval == timedelta(minutes=30)
+
+
+async def test_nothing_is_counted_against_the_source_while_disconnected(client, fake_ha, on):
+    fake_ha.forecasts[W] = RuntimeError("must not be asked")
+    fake_ha._connected.clear()
+    try:
+        snap = await (await client.post("/api/forecast/refresh")).json()
+    finally:
+        fake_ha._connected.set()
+    assert (snap["state"], snap["problem"]) == ("fresh", None)
+    job = client.app["scheduler"]._apscheduler.get_job("forecast_refresh")
+    assert job.next_run_time > datetime.now(UTC) + timedelta(seconds=30)
+
+
+async def test_a_new_weather_source_never_shows_the_old_ones_hours(client, fake_ha, on):
+    other = "weather.other"
+    fake_ha.seed_state(other, "cloudy", {"temperature_unit": "°F"})
+    fake_ha.forecasts[other] = RuntimeError("down")
+    snap = await (await client.put("/api/forecast/settings", json={"weather_entity": other})).json()
+    # Its first fetch failed: the old source's hours are not passed off as its own…
+    assert (snap["state"], snap["hours"], snap["problem"]) == ("none", [], forecast.FETCH_FAILED)
+    fake_ha.forecasts[other] = _entries(_this_hour(), [80, 81])
+    snap = await (await client.post("/api/forecast/refresh")).json()
+    # …and are all replaced when it answers, short reply or not.
+    assert [h["temp"] for h in snap["hours"]] == [80.0, 81.0]
+
+
+async def test_half_hour_zones_keep_their_minutes():
+    hours = forecast.parse_hourly(
+        [{"datetime": "2026-01-06T00:00:00+05:30", "temperature": 70}], "°F"
+    )
+    assert hours[0].at == datetime(2026, 1, 5, 18, 30, tzinfo=UTC)

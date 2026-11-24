@@ -879,6 +879,9 @@ class FireplaceSchema(FireplaceWriteSchema):
     lit_since = fields.Str(allow_none=True)
     cooling_until = fields.Str(allow_none=True)
     setting_aside = fields.Bool(metadata={"description": "Its rooms are out of demand right now"})
+    signal_lost = fields.Bool(
+        metadata={"description": "Held as cooling because its signal stopped reporting while lit"}
+    )
 
 
 class FireplacesSchema(Schema):

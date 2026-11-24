@@ -88,6 +88,7 @@ async def test_when_on_its_rooms_are_set_aside_through_the_cool_down(client, fak
     conn = await scheduler.get_db()
     monitor = scheduler.fireplaces
     assert scheduler._pause_for(T1) == (False, frozenset())
+    assert f["signal_lost"] is False
 
     await fake_ha.set_entity_state(RELAY, "on")
     aside = frozenset({house["great"], house["loft"]})
@@ -124,19 +125,116 @@ async def test_changes_are_logged_once_each(client, fake_ha, house):
     ]
 
 
-async def test_a_signal_that_stops_reporting(client, fake_ha, house):
-    await _add(client, house, control="on", cooldown_min=45)
+async def test_a_signal_lost_while_lit_keeps_the_rooms_set_aside_for_hours(client, fake_ha, house):
+    await _add(client, house, control="on", cooldown_min=0)
+    scheduler = client.app["scheduler"]
+    conn = await scheduler.get_db()
+    monitor = scheduler.fireplaces
+    # Never lit, not reporting: unknown, and nothing is set aside.
     await fake_ha.set_entity_state(RELAY, "unavailable")
     f = await _one(client)
-    assert (f["state"], f["setting_aside"]) == ("unknown", False)
-    # Lit, then the relay drops off: treated as cooling, not as out.
+    assert (f["state"], f["setting_aside"], f["signal_lost"]) == ("unknown", False, False)
+
+    # Lit, then the relay drops off the network. Nobody saw the fire go out, so
+    # even with no cool-down its rooms stay set aside.
     await fake_ha.set_entity_state(RELAY, "on")
     await fake_ha.set_entity_state(RELAY, "unavailable")
     f = await _one(client)
-    assert (f["state"], f["setting_aside"]) == ("cooling", True)
+    assert (f["state"], f["setting_aside"], f["signal_lost"]) == ("cooling", True, True)
+    now = datetime.now(UTC)
+    await monitor.evaluate(conn, fake_ha.get_state, now + timedelta(hours=2, minutes=59))
+    assert monitor.statuses()[0].setting_aside
+    await monitor.evaluate(conn, fake_ha.get_state, now + timedelta(hours=3, minutes=1))
+    assert monitor.statuses()[0].state == "unknown"
+
+    # Seen out for certain: the ordinary (here zero) cool-down applies again.
+    await fake_ha.set_entity_state(RELAY, "on")
+    await fake_ha.set_entity_state(RELAY, "off")
+    f = await _one(client)
+    assert (f["state"], f["signal_lost"]) == ("out", False)
     messages = await _events(client)
     assert "Great Room Fireplace: its signal is not reporting" in messages
-    assert "Great Room Fireplace is out; cooling down for 45 min" in messages
+    assert (
+        "Great Room Fireplace: its signal stopped reporting while lit;"
+        " treating it as lit for up to 3 h"
+    ) in messages
+
+
+async def test_nothing_is_concluded_while_home_assistant_is_disconnected(client, fake_ha, house):
+    await _add(client, house, control="on", cooldown_min=60)
+    scheduler = client.app["scheduler"]
+    scheduler._fireplaces = fireplace.FireplaceMonitor()  # as after a restart
+    del fake_ha._state[RELAY]  # states not loaded yet
+    fake_ha._connected.clear()
+    try:
+        await scheduler._evaluate_fireplaces()
+        await scheduler._evaluate_fireplaces()
+    finally:
+        fake_ha._connected.set()
+    assert (await _one(client))["state"] == "out"
+    assert await _events(client) == []  # no "not reporting", no false "cooled down"
+
+    # A cool-down from before the restart still runs while disconnected.
+    fake_ha.seed_state(RELAY, "off", {})
+    await fake_ha.set_entity_state(RELAY, "on")
+    await fake_ha.set_entity_state(RELAY, "off")
+    scheduler._fireplaces = fireplace.FireplaceMonitor()
+    fake_ha._connected.clear()
+    try:
+        await scheduler._evaluate_fireplaces()
+    finally:
+        fake_ha._connected.set()
+    assert scheduler._pause_for(T1)[1] == frozenset({house["great"], house["loft"]})
+    assert scheduler.fireplaces.statuses()[0].signal_lost is False
+
+
+async def test_a_burner_cycling_on_and_off_is_logged_as_one_fire(client, fake_ha, house):
+    await _add(client, house, control="on", cooldown_min=30)
+    for state in ("on", "off", "on", "off", "on", "off"):
+        await fake_ha.set_entity_state(RELAY, state)
+    assert await _events(client) == [
+        "Great Room Fireplace is lit; Great Room, Loft set aside",
+        "Great Room Fireplace is out; cooling down for 30 min",
+    ]
+
+
+async def test_a_signal_left_on_is_called_out_once(client, fake_ha, house):
+    await _add(client, house)
+    scheduler = client.app["scheduler"]
+    conn = await scheduler.get_db()
+    monitor = scheduler.fireplaces
+    await fake_ha.set_entity_state(RELAY, "on")
+    later = datetime.now(UTC) + timedelta(hours=12, minutes=1)
+    notes = await monitor.evaluate(conn, fake_ha.get_state, later)
+    assert [n.kind for n in notes] == [fireplace.LONG]
+    assert await monitor.evaluate(conn, fake_ha.get_state, later + timedelta(minutes=1)) == []
+    # Through the scheduler it becomes a warning in the log.
+    scheduler._fireplaces = fireplace.FireplaceMonitor()
+    scheduler.fireplaces._lit_since[(await _one(client))["id"]] = datetime.now(UTC) - timedelta(
+        hours=13
+    )
+    await scheduler._evaluate_fireplaces()
+    assert (
+        "Great Room Fireplace has read as lit for 12 h; check that its signal was not left on"
+        in await _events(client)
+    )
+
+
+async def test_changing_the_rule_while_lit_applies_at_once(client, fake_ha, house):
+    f = await _add(client, house)  # watch only
+    await fake_ha.set_entity_state(RELAY, "on")
+    scheduler = client.app["scheduler"]
+    assert scheduler._pause_for(T1)[1] == frozenset()
+    resp = await client.put(f"/api/fireplaces/{f['id']}", json={"control": "on"})
+    assert (await resp.json())["fireplaces"][0]["setting_aside"] is True
+    assert scheduler._pause_for(T1)[1] == frozenset({house["great"], house["loft"]})
+    # Sending the same entity again (as a whole-object client does) keeps the cool-down.
+    await fake_ha.set_entity_state(RELAY, "off")
+    resp = await client.put(f"/api/fireplaces/{f['id']}", json={"entity_id": RELAY})
+    assert (await resp.json())["fireplaces"][0]["state"] == "cooling"
+    # A fireplace added while nothing has evaluated it yet reads as out.
+    scheduler._fireplaces = fireplace.FireplaceMonitor()
+    assert (await _one(client))["state"] == "out"
 
 
 async def test_the_cool_down_survives_a_restart(client, fake_ha, house):

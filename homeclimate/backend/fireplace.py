@@ -16,6 +16,7 @@ Each fireplace has a control level:
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -33,6 +34,12 @@ COOLDOWN_MIN, COOLDOWN_MAX, COOLDOWN_DEFAULT = 0, 240, 60
 NAME_MAX = 60
 
 LIT, COOLING, OUT, UNKNOWN = "lit", "cooling", "out", "unknown"
+# Its signal went quiet while the fire was lit: nobody has seen it go out, so
+# its rooms stay set aside at least this long.
+SIGNAL_LOST_HOLD = timedelta(hours=3)
+# A fire "lit" this long is more likely a signal left on; say so once.
+LONG_BURN = timedelta(hours=12)
+LOST, LONG = "signal_lost", "long_burn"
 
 
 class FireplaceError(UserError):
@@ -56,8 +63,8 @@ NAME_AND_ENTITY_NEEDED = fixed("A fireplace needs a name, an entity and at least
 def is_lit(state: dict | None) -> bool | None:
     """Whether an entity says the fire is lit; None when it can't say.
 
-    A thermostat-style entity is lit while it reports it is heating, not merely
-    while it is switched to heat.
+    An entity that reports what it is doing (``hvac_action``) is lit while that
+    is "heating"; any other is lit while its state is "on" or "heat".
     """
     value = (state or {}).get("state")
     if value in (None, "unavailable", "unknown"):
@@ -77,6 +84,7 @@ class Fireplace:
     control: str
     room_ids: tuple[str, ...]
     last_lit_at: datetime | None
+    out_seen: bool = True
 
 
 async def list_fireplaces(conn: aiosqlite.Connection) -> list[Fireplace]:
@@ -100,6 +108,7 @@ async def list_fireplaces(conn: aiosqlite.Connection) -> list[Fireplace]:
                     if r["last_lit_at"] is None
                     else datetime.fromtimestamp(r["last_lit_at"], UTC)
                 ),
+                out_seen=bool(r["out_seen"]),
             )
             for r in await cur.fetchall()
         ]
@@ -184,9 +193,12 @@ async def create(conn: aiosqlite.Connection, body: dict[str, Any]) -> str:
 
 async def update(conn: aiosqlite.Connection, fireplace_id: str, body: dict[str, Any]) -> bool:
     """Change a fireplace; False when there is no such fireplace."""
-    async with conn.execute("SELECT 1 FROM fireplaces WHERE id = ?", (fireplace_id,)) as cur:
-        if await cur.fetchone() is None:
-            return False
+    async with conn.execute(
+        "SELECT entity_id FROM fireplaces WHERE id = ?", (fireplace_id,)
+    ) as cur:
+        current = await cur.fetchone()
+    if current is None:
+        return False
     parsed = await _parse(conn, body, fireplace_id=fireplace_id)
     rooms = parsed.pop("room_ids", None)
     for column, value in parsed.items():
@@ -194,9 +206,11 @@ async def update(conn: aiosqlite.Connection, fireplace_id: str, body: dict[str, 
         await conn.execute(
             f"UPDATE fireplaces SET {column} = ? WHERE id = ?", (value, fireplace_id)
         )
-    if "entity_id" in parsed:
+    if parsed.get("entity_id", current["entity_id"]) != current["entity_id"]:
         # A different signal has no history: forget when the old one was last lit.
-        await conn.execute("UPDATE fireplaces SET last_lit_at = NULL WHERE id = ?", (fireplace_id,))
+        await conn.execute(
+            "UPDATE fireplaces SET last_lit_at = NULL, out_seen = 1 WHERE id = ?", (fireplace_id,)
+        )
     if rooms is not None:
         await _set_rooms(conn, fireplace_id, rooms)
     await conn.commit()
@@ -218,6 +232,8 @@ class Status:
     state: str
     lit_since: datetime | None
     cooling_until: datetime | None
+    # Cooling only because the signal went quiet while lit, not because it went out.
+    signal_lost: bool = False
 
     @property
     def warm(self) -> bool:
@@ -230,8 +246,10 @@ class Status:
 
 @dataclass(frozen=True)
 class Transition:
+    """Something worth logging: a new state, a lost signal, or a very long burn."""
+
     fireplace: Fireplace
-    state: str
+    kind: str
 
 
 class FireplaceMonitor:
@@ -241,6 +259,9 @@ class FireplaceMonitor:
         self._status: dict[str, Status] = {}
         self._lit_since: dict[str, datetime] = {}
         self._entities: frozenset[str] = frozenset()
+        # Fireplaces between "lit" and "cooled down", with what was already logged.
+        self._episode: dict[str, set[str]] = {}
+        self._lock = asyncio.Lock()
 
     @property
     def entities(self) -> frozenset[str]:
@@ -268,42 +289,94 @@ class FireplaceMonitor:
         return out
 
     async def evaluate(
-        self, conn: aiosqlite.Connection, get_state: Any, now: datetime
+        self, conn: aiosqlite.Connection, get_state: Any, now: datetime, *, connected: bool = True
     ) -> list[Transition]:
-        """Re-read every fireplace; returns the ones whose state changed."""
+        """Re-read every fireplace; returns what is worth logging.
+
+        While Home Assistant is disconnected its states say nothing, so nothing
+        is concluded from them: a fireplace keeps the state it had, and a
+        cool-down already under way (including one from before a restart) runs on.
+        """
+        async with self._lock:
+            return await self._evaluate(conn, get_state, now, connected)
+
+    async def _evaluate(
+        self, conn: aiosqlite.Connection, get_state: Any, now: datetime, connected: bool
+    ) -> list[Transition]:
         fireplaces = await list_fireplaces(conn)
         self._entities = frozenset(f.entity_id for f in fireplaces)
-        changes: list[Transition] = []
+        notes: list[Transition] = []
         seen: dict[str, Status] = {}
         for f in fireplaces:
-            lit = is_lit(get_state(f.entity_id))
-            last = f.last_lit_at
+            before = self._status.get(f.id)
+            lit = is_lit(get_state(f.entity_id)) if connected else None
+            last, out_seen = f.last_lit_at, f.out_seen
             if lit:
                 self._lit_since.setdefault(f.id, now)
-                last = now
+                last, out_seen = now, False
                 await conn.execute(
-                    "UPDATE fireplaces SET last_lit_at = ? WHERE id = ?",
+                    "UPDATE fireplaces SET last_lit_at = ?, out_seen = 0 WHERE id = ?",
                     (int(now.timestamp()), f.id),
                 )
             else:
                 self._lit_since.pop(f.id, None)
-            until = None if last is None else last + timedelta(minutes=f.cooldown_min)
+                if lit is False and not out_seen:
+                    out_seen = True
+                    await conn.execute("UPDATE fireplaces SET out_seen = 1 WHERE id = ?", (f.id,))
+            # Nobody saw it go out: hold its rooms longer than a normal cool-down.
+            lost = lit is None and not out_seen
+            hold = timedelta(minutes=f.cooldown_min)
+            until = None if last is None else last + (max(hold, SIGNAL_LOST_HOLD) if lost else hold)
             if lit:
                 state = LIT
             elif until is not None and now < until:
-                # Out, or the signal went quiet, while the room is still warm.
                 state = COOLING
+            elif not connected:
+                # No information: keep what it was, and never call it "not reporting".
+                state = before.state if before and before.state in (OUT, UNKNOWN) else OUT
             else:
                 state = UNKNOWN if lit is None else OUT
             status = Status(
-                f, state, self._lit_since.get(f.id), until if state == COOLING else None
+                f,
+                state,
+                self._lit_since.get(f.id),
+                until if state == COOLING else None,
+                signal_lost=lost and state == COOLING,
             )
             seen[f.id] = status
-            before = self._status.get(f.id)
-            if (before.state if before else OUT) != state and f.control != "off":
-                changes.append(Transition(f, state))
+            if f.control != "off":
+                notes.extend(self._notes(before, status, now))
         await conn.commit()
         for gone in set(self._lit_since) - set(seen):
             del self._lit_since[gone]
+        for gone in set(self._episode) - set(seen):
+            del self._episode[gone]
         self._status = seen
-        return changes
+        return notes
+
+    def _notes(self, before: Status | None, status: Status, now: datetime) -> list[Transition]:
+        """What to log for one fireplace: each thing once per fire, not once per flicker."""
+        f, state = status.fireplace, status.state
+        was = before.state if before else OUT
+        out: list[Transition] = []
+        if state in (LIT, COOLING):
+            logged = self._episode.setdefault(f.id, set())
+            kind = LOST if status.signal_lost else state
+            # A burner cycling on and off is one fire: say "lit" and "out" once each.
+            if kind not in logged:
+                logged.add(kind)
+                out.append(Transition(f, kind))
+            if (
+                state == LIT
+                and status.lit_since is not None
+                and now - status.lit_since >= LONG_BURN
+                and LONG not in logged
+            ):
+                logged.add(LONG)
+                out.append(Transition(f, LONG))
+        else:
+            if self._episode.pop(f.id, None) is not None:
+                out.append(Transition(f, OUT))
+            if state == UNKNOWN and was != UNKNOWN:
+                out.append(Transition(f, UNKNOWN))
+        return out

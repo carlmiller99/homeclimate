@@ -313,15 +313,15 @@ async def adopt_first_build(conn: aiosqlite.Connection) -> int:
                 ts=slot(datetime.fromisoformat(r["ts"])),
                 room_id=r["room_id"],
                 thermostat_entity_id=r["thermostat_entity_id"],
-                room_temp=r["room_temp"],
-                zone_temp=r["zone_temp"],
-                outside_temp=r["outside_temp"],
+                room_temp=_mean([r["room_temp"]], 2),
+                zone_temp=_mean([r["zone_temp"]], 2),
+                outside_temp=_mean([r["outside_temp"]], 2),
                 hvac_action=r["hvac_action"],
                 aux_heat=bool(r["aux_heat"]),
                 # That build counted an offline vent as closed and an offline
                 # door as shut, so those two are kept only where they say "open".
-                vent_open=r["vent_open"] or None,
-                zone_vent_open=r["zone_vent_open"] or None,
+                vent_open=_mean([r["vent_open"] or None], 3),
+                zone_vent_open=_mean([r["zone_vent_open"] or None], 3),
                 occupied=None if r["occupied"] is None else bool(r["occupied"]),
                 opening=True if r["opening"] else None,
             )

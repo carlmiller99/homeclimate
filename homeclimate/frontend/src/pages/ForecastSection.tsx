@@ -17,7 +17,7 @@ const STATE_TEXT: Record<Forecast["state"], string> = {
   off: "The forecast is off.",
   no_entity: "Choose a weather source to start fetching the forecast.",
   none: "No forecast yet.",
-  kept: "Showing the last forecast received; the latest fetch did not succeed.",
+  kept: "Showing the last forecast received.",
   fresh: "Up to date.",
 };
 

@@ -527,3 +527,32 @@ async def test_purge_keeps_a_reading_exactly_at_the_cutoff(client, house):
     )
     assert await learning.purge(conn, now=NOW, keep_days=30) == 1
     assert [s.ts for s in await learning.load(conn)] == [NOW - timedelta(days=30)]
+
+
+async def test_a_bad_reading_in_the_first_builds_table_cannot_stop_start_up(
+    client, monkeypatch, caplog
+):
+    conn = await client.app["scheduler"].get_db()
+    await conn.executescript(
+        """CREATE TABLE room_samples (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL,
+               room_id TEXT NOT NULL, thermostat_entity_id TEXT NOT NULL, room_temp REAL,
+               zone_temp REAL, outside_temp REAL, hvac_action TEXT NOT NULL,
+               aux_heat INTEGER NOT NULL DEFAULT 0, vent_open REAL, zone_vent_open REAL,
+               occupied INTEGER, opening INTEGER NOT NULL DEFAULT 0);"""
+    )
+    await conn.execute(
+        "INSERT INTO room_samples(ts, room_id, thermostat_entity_id, room_temp, hvac_action)"
+        " VALUES('2026-01-05T12:02:00+00:00', 'r-old', ?, ?, 'idle')",
+        (T1, float("inf")),
+    )
+    await conn.commit()
+    await client.app["scheduler"].adopt_first_build_readings()
+    (moved,) = await learning.load(conn, room_id="r-old")
+    assert moved.room_temp is None  # the impossible value is dropped, the reading kept
+
+    async def boom(_conn):
+        raise RuntimeError("table is corrupt")
+
+    monkeypatch.setattr(learning, "adopt_first_build", boom)
+    await client.app["scheduler"].adopt_first_build_readings()
+    assert "Could not move Smart Learning readings into compact storage" in caplog.text

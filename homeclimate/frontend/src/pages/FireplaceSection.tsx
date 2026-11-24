@@ -23,7 +23,7 @@ import {
 const CONTROL_HELP: Record<FireplaceControl, string> = {
   off: "This fireplace is ignored.",
   watch: "HomeClimate notes when it is lit, and changes nothing.",
-  on: "While it is lit or cooling down, the rooms it warms stop calling for heating or cooling.",
+  on: "While it is lit or cooling down, the rooms it warms stop calling for heating or cooling, and are never cooled for being too warm.",
 };
 
 function RoomChecks({
@@ -31,12 +31,15 @@ function RoomChecks({
   picked,
   legend,
   disabled,
+  keepOne,
   onChange,
 }: {
   rooms: Room[];
   picked: string[];
   legend: string;
   disabled?: boolean;
+  /** A saved fireplace always warms a room, so its only ticked room can't be unticked. */
+  keepOne?: boolean;
   onChange: (ids: string[]) => void;
 }) {
   return (
@@ -47,7 +50,12 @@ function RoomChecks({
           <input
             type="checkbox"
             checked={picked.includes(r.id)}
-            disabled={disabled}
+            disabled={disabled || (keepOne && picked.length === 1 && picked[0] === r.id)}
+            title={
+              keepOne && picked.length === 1 && picked[0] === r.id
+                ? "A fireplace warms at least one room"
+                : undefined
+            }
             onChange={(e) =>
               onChange(e.target.checked ? [...picked, r.id] : picked.filter((id) => id !== r.id))
             }
@@ -72,6 +80,8 @@ function FireplaceCard({
   onSave: (id: string, data: FireplaceWrite) => void;
   onRemove: (f: Fireplace) => void;
 }) {
+  const [name, setName] = useState(f.name);
+  const ignored = f.control === "off";
   return (
     <div className="fireplace-card" role="group" aria-label={f.name}>
       <div className="fireplace-head">
@@ -79,10 +89,10 @@ function FireplaceCard({
           <div className="sensor-title">{f.name}</div>
           <div className="shade-why">{f.entity_id}</div>
         </div>
-        <span className={`fireplace-state fireplace-${f.state}`} role="status">
-          {STATE_LABELS[f.state]}
+        <span className={`fireplace-state fireplace-${ignored ? "out" : f.state}`} role="status">
+          {ignored ? "Ignored" : f.signal_lost ? "Signal Lost While Lit" : STATE_LABELS[f.state]}
           <Frozen frozen={null}>
-            {f.state === "lit" && f.lit_since && (
+            {!ignored && f.state === "lit" && f.lit_since && (
               <>
                 {" since "}
                 <Time
@@ -92,9 +102,9 @@ function FireplaceCard({
                 />
               </>
             )}
-            {f.state === "cooling" && f.cooling_until && (
+            {!ignored && f.state === "cooling" && f.cooling_until && (
               <>
-                {" until "}
+                {f.signal_lost ? ", held until " : " until "}
                 <Time
                   value={f.cooling_until}
                   kind="time"
@@ -110,7 +120,12 @@ function FireplaceCard({
           The rooms it warms are not calling for heating or cooling right now.
         </p>
       )}
-      {f.state === "unknown" && (
+      {!ignored && f.signal_lost && (
+        <p className="fireplace-note">
+          {`${f.entity_id} stopped reporting while the fire was lit, so HomeClimate is treating it as still lit.`}
+        </p>
+      )}
+      {!ignored && f.state === "unknown" && (
         <p className="fireplace-note">
           {`${f.entity_id} is not reporting, so HomeClimate can't tell whether the fire is lit.`}
         </p>
@@ -152,11 +167,42 @@ function FireplaceCard({
         picked={f.room_ids}
         legend="Rooms It Warms"
         disabled={busy}
-        onChange={(ids) => {
-          // A fireplace always warms at least one room.
-          if (ids.length > 0) onSave(f.id, { room_ids: ids });
-        }}
+        keepOne
+        onChange={(ids) => onSave(f.id, { room_ids: ids })}
       />
+      <details className="shade-more">
+        <summary>Name and Signal</summary>
+        <div className="fireplace-fields">
+          <label className="field-stack">
+            Name
+            <input
+              className="form-control"
+              value={name}
+              maxLength={60}
+              disabled={busy}
+              onChange={(e) => setName(e.target.value)}
+              onBlur={() => {
+                const next = name.trim();
+                if (next && next !== f.name) onSave(f.id, { name: next });
+                else setName(f.name);
+              }}
+            />
+          </label>
+          <div className="field-stack">
+            <span className="field-label">On While the Fire Is Lit</span>
+            <div className="picked-entity">
+              <span>{f.entity_id}</span>
+            </div>
+            <EntityPicker
+              domain={SIGNAL_DOMAINS}
+              placeholder="Change to…"
+              onSelect={(id) => {
+                if (id !== f.entity_id) onSave(f.id, { entity_id: id });
+              }}
+            />
+          </div>
+        </div>
+      </details>
       <button
         type="button"
         className="link-button"
@@ -244,6 +290,8 @@ export default function FireplaceSection() {
   const [busy, setBusy] = useState(false);
   const [adding, setAdding] = useState(false);
   const [removing, setRemoving] = useState<Fireplace | null>(null);
+  // Bumped when a save is refused, so each card goes back to showing what is stored.
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -273,6 +321,7 @@ export default function FireplaceSection() {
       return true;
     } catch (e) {
       setErr(e instanceof Error ? e.message : fallback);
+      setAttempt((n) => n + 1);
       return false;
     } finally {
       setBusy(false);
@@ -310,7 +359,7 @@ export default function FireplaceSection() {
       )}
       {data.fireplaces.map((f) => (
         <FireplaceCard
-          key={f.id}
+          key={`${f.id}:${f.name}:${attempt}`}
           fireplace={f}
           rooms={rooms}
           busy={busy}

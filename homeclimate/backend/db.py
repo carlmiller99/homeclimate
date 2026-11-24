@@ -267,7 +267,9 @@ CREATE TABLE IF NOT EXISTS fireplaces (
     entity_id TEXT NOT NULL,
     cooldown_min INTEGER NOT NULL DEFAULT 60,
     control TEXT NOT NULL DEFAULT 'watch' CHECK (control IN ('off', 'watch', 'on')),
-    last_lit_at INTEGER
+    last_lit_at INTEGER,
+    -- 0 while the last clear reading was "lit"; 1 once it has been seen out.
+    out_seen INTEGER NOT NULL DEFAULT 1
 );
 CREATE TABLE IF NOT EXISTS fireplace_rooms (
     fireplace_id TEXT NOT NULL,

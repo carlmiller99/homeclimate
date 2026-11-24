@@ -13,14 +13,14 @@ Find it under **Smart Control → Forecasts**.
 
 ## What you see
 
-- A status line: up to date, showing the last forecast received (when the latest fetch failed or the forecast is more than 90 minutes old), or no forecast yet.
+- A status line: up to date, showing the last forecast received (when the latest fetch failed, with the reason shown, or the forecast is more than 90 minutes old), or no forecast yet.
 - The high and low for each date the forecast covers, in the house's time zone. "Today" covers only the hours still to come.
 - The next 24 hours: temperature, sky, cloud cover and chance of rain. A dash means the weather source did not say.
 - **Fetch Now** asks for a fresh forecast straight away.
 
 ## Outages
 
-If a fetch fails, the last good forecast keeps being used for the hours it still covers, and it survives a restart. The Logs page (category `forecast`) records when fetching starts failing and when it recovers, not every attempt.
+If a fetch fails, the last good forecast keeps being used for the hours it still covers, and it survives a restart. A reply that covers fewer hours than the last one replaces only the hours it covers. Changing the weather source discards the old source's forecast once the new one answers, and never shows one source's hours as another's. The Logs page (category `forecast`) records when fetching starts failing and when it recovers, not every attempt.
 
 ## Storage
 

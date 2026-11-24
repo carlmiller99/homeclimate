@@ -149,7 +149,7 @@ describe("Forecasts section", () => {
       data({ state: "kept", problem: "Home Assistant did not return an hourly forecast." })
     );
     const first = show();
-    expect(await screen.findByText(/Showing the last forecast received/)).toBeInTheDocument();
+    expect(await screen.findByText(/Showing the last forecast received\./)).toBeInTheDocument();
     expect(
       screen.getByText("Home Assistant did not return an hourly forecast.")
     ).toBeInTheDocument();

@@ -420,26 +420,33 @@ async def update_learning_settings(request: web.Request) -> web.Response:
     return json_response(await _learning_snapshot(request))
 
 
-async def _fireplaces_snapshot(request: web.Request) -> dict:
+async def _fireplaces_snapshot(request: web.Request, *, refresh: bool = False) -> dict:
     scheduler = request.app["scheduler"]
-    await scheduler.refresh_fireplaces()
-    return {
-        "fireplaces": [
+    if refresh:
+        # After a change: apply it now rather than at the next minute's tick.
+        await scheduler.refresh_fireplaces()
+    # Configuration straight from the database, so an edit elsewhere (a deleted
+    # room) shows at once; live state from the monitor's last evaluation.
+    live = {s.fireplace.id: s for s in scheduler.fireplaces.statuses()}
+    out = []
+    for f in await fireplace.list_fireplaces(await get_conn(request)):
+        status = live.get(f.id)
+        out.append(
             {
-                "id": s.fireplace.id,
-                "name": s.fireplace.name,
-                "entity_id": s.fireplace.entity_id,
-                "room_ids": list(s.fireplace.room_ids),
-                "cooldown_min": s.fireplace.cooldown_min,
-                "control": s.fireplace.control,
-                "state": s.state,
-                "lit_since": _iso(s.lit_since),
-                "cooling_until": _iso(s.cooling_until),
-                "setting_aside": s.setting_aside,
+                "id": f.id,
+                "name": f.name,
+                "entity_id": f.entity_id,
+                "room_ids": list(f.room_ids),
+                "cooldown_min": f.cooldown_min,
+                "control": f.control,
+                "state": status.state if status else fireplace.OUT,
+                "lit_since": _iso(status.lit_since) if status else None,
+                "cooling_until": _iso(status.cooling_until) if status else None,
+                "setting_aside": bool(status and status.setting_aside),
+                "signal_lost": bool(status and status.signal_lost),
             }
-            for s in scheduler.fireplaces.statuses()
-        ]
-    }
+        )
+    return {"fireplaces": out}
 
 
 @docs(tags=["fireplace"], summary="Fireplaces, the rooms they warm, and whether each is lit")
@@ -461,7 +468,7 @@ async def create_fireplace(request: web.Request) -> web.Response:
     except UserError as exc:
         return error(safe_text(exc))
     await emit(request, "info", "api", "Fireplace added", body)
-    return json_response(await _fireplaces_snapshot(request), status=201)
+    return json_response(await _fireplaces_snapshot(request, refresh=True), status=201)
 
 
 @docs(tags=["fireplace"], summary="Change a fireplace")
@@ -478,7 +485,7 @@ async def update_fireplace(request: web.Request) -> web.Response:
     if not found:
         return error("Fireplace not found", status=404)
     await emit(request, "info", "api", "Fireplace changed", body)
-    return json_response(await _fireplaces_snapshot(request))
+    return json_response(await _fireplaces_snapshot(request, refresh=True))
 
 
 @docs(tags=["fireplace"], summary="Remove a fireplace")
@@ -489,7 +496,7 @@ async def delete_fireplace(request: web.Request) -> web.Response:
     if not await fireplace.delete(conn, request.match_info["fireplace_id"]):
         return error("Fireplace not found", status=404)
     await emit(request, "info", "api", "Fireplace removed", {})
-    return json_response(await _fireplaces_snapshot(request))
+    return json_response(await _fireplaces_snapshot(request, refresh=True))
 
 
 async def _forecast_snapshot(request: web.Request) -> dict:

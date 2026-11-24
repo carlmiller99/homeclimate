@@ -17,11 +17,21 @@ vi.mock("../api", async (orig) => ({
   getRooms: vi.fn(),
 }));
 vi.mock("../components/EntityPicker", () => ({
-  default: ({ onSelect }: { onSelect: (id: string) => void }) => (
-    <button type="button" onClick={() => onSelect("switch.relay")}>
-      pick signal
-    </button>
-  ),
+  default: ({ onSelect, placeholder }: { onSelect: (id: string) => void; placeholder: string }) =>
+    placeholder === "Change to…" ? (
+      <>
+        <button type="button" onClick={() => onSelect("switch.relay")}>
+          pick same
+        </button>
+        <button type="button" onClick={() => onSelect("binary_sensor.flame")}>
+          pick other
+        </button>
+      </>
+    ) : (
+      <button type="button" onClick={() => onSelect("switch.relay")}>
+        pick signal
+      </button>
+    ),
 }));
 
 const ROOMS = [
@@ -40,6 +50,7 @@ const HEARTH: fp.Fireplace = {
   lit_since: null,
   cooling_until: null,
   setting_aside: false,
+  signal_lost: false,
 };
 
 const list = (...f: fp.Fireplace[]): fp.Fireplaces => ({ fireplaces: f });
@@ -98,7 +109,19 @@ describe("Fireplace section", () => {
           cooling_until: "2026-01-06T00:15:00+00:00",
         },
         { ...HEARTH, id: "f3", name: "Porch", state: "unknown" },
-        { ...HEARTH, id: "f4", name: "Odd", state: "lit" }
+        { ...HEARTH, id: "f4", name: "Odd", state: "lit" },
+        {
+          ...HEARTH,
+          id: "f5",
+          name: "Stove",
+          control: "on",
+          state: "cooling",
+          cooling_until: "2026-01-06T02:00:00+00:00",
+          setting_aside: true,
+          signal_lost: true,
+        },
+        { ...HEARTH, id: "f6", name: "Unused", control: "off", state: "unknown" },
+        { ...HEARTH, id: "f7", name: "Bare", state: "cooling" }
       )
     );
     show();
@@ -115,6 +138,22 @@ describe("Fireplace section", () => {
         "switch.relay is not reporting, so HomeClimate can't tell whether the fire is lit."
       )
     ).toBeInTheDocument();
+    const lost = screen.getByRole("group", { name: "Stove" });
+    expect(within(lost).getByRole("status")).toHaveTextContent(
+      "Signal Lost While Lit, held until 9:00 PM"
+    );
+    expect(
+      within(lost).getByText(
+        "switch.relay stopped reporting while the fire was lit, so HomeClimate is treating it as still lit."
+      )
+    ).toBeInTheDocument();
+    // A fireplace that is off is not described as lit or broken.
+    const unused = screen.getByRole("group", { name: "Unused" });
+    expect(within(unused).getByRole("status")).toHaveTextContent(/^Ignored$/);
+    expect(within(unused).queryByText(/not reporting/)).toBeNull();
+    expect(
+      within(screen.getByRole("group", { name: "Bare" })).getByRole("status")
+    ).toHaveTextContent(/^Cooling Down$/);
     // Lit with no start time on record still reads Lit.
     expect(
       within(screen.getByRole("group", { name: "Odd" })).getByRole("status")
@@ -147,11 +186,48 @@ describe("Fireplace section", () => {
     await waitFor(() =>
       expect(fp.saveFireplace).toHaveBeenLastCalledWith("f1", { room_ids: ["r2"] })
     );
-    // The last room can't be unticked: a fireplace warms at least one room.
-    await waitFor(() => expect(within(card).getByLabelText("Loft")).not.toBeDisabled());
-    const calls = vi.mocked(fp.saveFireplace).mock.calls.length;
-    fireEvent.click(within(card).getByLabelText("Loft"));
-    expect(fp.saveFireplace).toHaveBeenCalledTimes(calls);
+    // The only ticked room is locked: a fireplace warms at least one room.
+    await waitFor(() => expect(within(card).getByLabelText("Great Room")).not.toBeChecked());
+    expect(within(card).getByLabelText("Loft")).toBeDisabled();
+    expect(within(card).getByLabelText("Loft")).toHaveAttribute(
+      "title",
+      "A fireplace warms at least one room"
+    );
+    expect(within(card).getByLabelText("Great Room")).not.toBeDisabled();
+  });
+
+  it("renames a fireplace and changes its signal", async () => {
+    show();
+    const card = await screen.findByRole("group", { name: "Hearth" });
+    const name = within(card).getByLabelText("Name");
+    // Blank or unchanged puts the stored name back and saves nothing.
+    fireEvent.change(name, { target: { value: "   " } });
+    fireEvent.blur(name);
+    expect(name).toHaveValue("Hearth");
+    fireEvent.blur(name);
+    fireEvent.click(within(card).getByRole("button", { name: "pick same" }));
+    expect(fp.saveFireplace).not.toHaveBeenCalled();
+
+    fireEvent.click(within(card).getByRole("button", { name: "pick other" }));
+    await waitFor(() =>
+      expect(fp.saveFireplace).toHaveBeenCalledWith("f1", { entity_id: "binary_sensor.flame" })
+    );
+    await waitFor(() => expect(within(card).getByLabelText("Name")).not.toBeDisabled());
+    fireEvent.change(within(card).getByLabelText("Name"), { target: { value: " Stove " } });
+    fireEvent.blur(within(card).getByLabelText("Name"));
+    await waitFor(() => expect(fp.saveFireplace).toHaveBeenLastCalledWith("f1", { name: "Stove" }));
+    expect(await screen.findByRole("group", { name: "Stove" })).toBeInTheDocument();
+  });
+
+  it("puts back what is stored when a save is refused", async () => {
+    vi.mocked(fp.saveFireplace).mockRejectedValueOnce(new Error("Not allowed"));
+    show();
+    const card = await screen.findByRole("group", { name: "Hearth" });
+    const minutes = within(card).getByLabelText("Cool-down for Hearth in minutes");
+    fireEvent.change(minutes, { target: { value: "90" } });
+    fireEvent.blur(minutes);
+    expect(await screen.findByText("Not allowed")).toBeInTheDocument();
+    expect(screen.getByLabelText("Cool-down for Hearth in minutes")).toHaveValue(60);
   });
 
   it("adds a fireplace once it has a name, a signal and a room", async () => {
@@ -223,8 +299,9 @@ describe("Fireplace section", () => {
     fireEvent.change(select, { target: { value: "on" } });
     await waitFor(() => expect(select).toBeDisabled());
     fireEvent.click(screen.getByRole("button", { name: "Add Fireplace" }));
-    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Two" } });
-    fireEvent.click(screen.getByRole("button", { name: "pick signal" }));
+    const adding = screen.getByRole("group", { name: "Add Fireplace" });
+    fireEvent.change(within(adding).getByLabelText("Name"), { target: { value: "Two" } });
+    fireEvent.click(within(adding).getByRole("button", { name: "pick signal" }));
     fireEvent.click(
       within(screen.getByRole("group", { name: "Add Fireplace" })).getByLabelText("Loft")
     );

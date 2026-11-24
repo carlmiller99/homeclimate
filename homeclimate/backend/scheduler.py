@@ -261,7 +261,8 @@ class Scheduler:
             "interval",
             minutes=forecast.REFRESH_EVERY_MIN,
             id="forecast_refresh",
-            next_run_time=datetime.now(UTC),
+            # Soon after start-up, once Home Assistant has had time to connect.
+            next_run_time=datetime.now(UTC) + timedelta(minutes=2),
             max_instances=1,
             coalesce=True,
         )
@@ -1037,6 +1038,7 @@ class Scheduler:
             get_vacation_mode=functools.partial(self.is_vacation_for, tid),
             get_eco_suspended=functools.partial(self.is_eco_suspended, tid),
             get_openings=functools.partial(self._pause_for, tid),
+            get_fireplace_rooms=lambda: frozenset(self._fireplaces.set_aside_rooms()),
             get_heat_pump=functools.partial(self._heat_pumps.get, tid),
         )
 
@@ -1346,46 +1348,60 @@ class Scheduler:
         return zone, rooms | frozenset(self._fireplaces.set_aside_rooms())
 
     async def _evaluate_fireplaces(self) -> set[str]:
-        """Re-read every fireplace; log changes and return the zones affected."""
+        """Re-read every fireplace; log what changed and return the zones whose
+        set-aside rooms changed."""
+        before = self._fireplaces.set_aside_rooms()
         try:
-            changes = await self._fireplaces.evaluate(
-                self._db_conn, self._ha.get_state, datetime.now(UTC)
+            notes = await self._fireplaces.evaluate(
+                self._db_conn,
+                self._ha.get_state,
+                datetime.now(UTC),
+                connected=self._ha.is_connected,
             )
         except Exception:
             log.exception("Could not evaluate fireplaces")
             return set()
-        if not changes:
+        after = self._fireplaces.set_aside_rooms()
+        if not notes and before.keys() == after.keys():
             return set()
-        zones_hit: set[str] = set()
         rooms = {r.id: r for r in await db.get_all_rooms(self._db_conn)}
-        for change in changes:
-            f = change.fireplace
-            names = sorted(rooms[r].name for r in f.room_ids if r in rooms)
-            if f.control == "on":
-                zones_hit |= {rooms[r].thermostat_entity_id for r in f.room_ids if r in rooms}
+        for note in notes:
+            f = note.fireplace
+            names = ", ".join(sorted(rooms[r].name for r in f.room_ids if r in rooms))
             acting = f.control == "on"
+            hold_h = fireplace.SIGNAL_LOST_HOLD.total_seconds() / 3600
             message = {
                 fireplace.LIT: (
-                    f"{f.name} is lit; {', '.join(names)} set aside"
+                    f"{f.name} is lit; {names} set aside"
                     if acting
                     else f"{f.name} is lit (watching only)"
                 ),
                 fireplace.COOLING: f"{f.name} is out; cooling down for {f.cooldown_min} min",
+                fireplace.LOST: (
+                    f"{f.name}: its signal stopped reporting while lit;"
+                    f" treating it as lit for up to {hold_h:g} h"
+                ),
+                fireplace.LONG: (
+                    f"{f.name} has read as lit for {fireplace.LONG_BURN.total_seconds() / 3600:g} h;"
+                    " check that its signal was not left on"
+                ),
                 fireplace.OUT: (
-                    f"{f.name} has cooled down; {', '.join(names)} back to normal"
+                    f"{f.name} has cooled down; {names} back to normal"
                     if acting
                     else f"{f.name} has cooled down"
                 ),
                 fireplace.UNKNOWN: f"{f.name}: its signal is not reporting",
-            }[change.state]
+            }[note.kind]
             if self._event_logger is not None:
                 await self._event_logger.log(
-                    "warning" if change.state == fireplace.UNKNOWN else "info",
+                    "warning"
+                    if note.kind in (fireplace.UNKNOWN, fireplace.LOST, fireplace.LONG)
+                    else "info",
                     "fireplace",
                     message,
-                    {"fireplace": f.name, "state": change.state, "control": f.control},
+                    {"fireplace": f.name, "event": note.kind, "control": f.control},
                 )
-        return zones_hit
+        return {rooms[r].thermostat_entity_id for r in before.keys() ^ after.keys() if r in rooms}
 
     async def refresh_fireplaces(self) -> None:
         """Re-evaluate fireplaces now and tick any zone whose rooms changed."""
@@ -1584,7 +1600,12 @@ class Scheduler:
 
     async def adopt_first_build_readings(self) -> None:
         """Move Smart Learning readings out of the first recorder build's table."""
-        moved = await learning.adopt_first_build(self._db_conn)
+        try:
+            moved = await learning.adopt_first_build(self._db_conn)
+        except Exception:
+            # Old readings are not worth a failed start: control comes first.
+            log.exception("Could not move Smart Learning readings into compact storage")
+            return
         if moved:
             log.info("Moved %d Smart Learning readings into compact storage", moved)
 
