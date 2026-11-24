@@ -19,9 +19,21 @@ export interface ZoneProfile {
   backup_heat: BackupHeat;
   equipment_running_entity: string | null;
   heat_kit_confirmed: boolean;
+  /** Heat pump protection. Temperatures arrive in °F (step and rate are deltas). */
+  hp_max_step_f: number;
+  hp_recovery_f_per_hr: number;
+  hp_min_runtime_min: number;
+  hp_min_open_heat_pct: number;
+  hp_switchover_gap_min: number;
+  hp_compressor_lockout_f: number | null;
+  /** True while the equipment-running source reports backup (aux) heat. */
+  aux_heat_running?: boolean;
 }
 
-export type ZoneProfileUpdate = Partial<Omit<ZoneProfile, "thermostat_entity_id" | "name">>;
+/** Writes carry temperatures in the DISPLAY unit; the backend converts (#231). */
+export type ZoneProfileUpdate = Partial<
+  Omit<ZoneProfile, "thermostat_entity_id" | "name" | "aux_heat_running">
+>;
 
 export const getBuildings = () => api<Building[]>("/api/buildings");
 export const createBuilding = (name: string) =>

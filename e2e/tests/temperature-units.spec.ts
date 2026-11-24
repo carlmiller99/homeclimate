@@ -547,4 +547,63 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
       }
     }
   });
+
+  test("zone heat pump protection persists exactly as entered", async ({
+    page,
+  }) => {
+    // @covers: hp_max_step_f, hp_recovery_f_per_hr, hp_compressor_lockout_f
+    // Step and recovery rate are deltas (1°C ≡ 1.8°F, 2°C ≡ 3.6°F); the
+    // compressor lockout is absolute (-5°C ≡ 23°F). All round-trip cleanly
+    // through the backend's 2dp °F storage.
+    const STEP = isCelsius ? "1" : "1.8";
+    const RATE = isCelsius ? "2" : "3.6";
+    const LOCKOUT = isCelsius ? "-5" : "23";
+    const editor = () =>
+      page.getByRole("region", { name: /Edit Downstairs Thermostat/ });
+    const open = async () => {
+      await page.goto("/zones");
+      await page.waitForLoadState("networkidle");
+      await page
+        .locator(".zone-row")
+        .filter({ hasText: TC_ID })
+        .getByRole("button", { name: "Edit" })
+        .click();
+      await editor().waitFor({ state: "visible", timeout: 10_000 });
+      return editor();
+    };
+    try {
+      let zone = await open();
+      await zone.getByRole("radio", { name: "Heat Pump" }).click();
+      await zone.getByLabel("Max Setpoint Step").fill(STEP);
+      await zone.getByLabel("Max Recovery Rate").fill(RATE);
+      await zone.getByLabel("Compressor Lockout Below").fill(LOCKOUT);
+      const saved = page.waitForResponse(
+        (r) =>
+          r.url().includes(`/api/zones/${TC_ID}`) &&
+          r.request().method() === "PUT",
+      );
+      await zone.getByRole("button", { name: "Save Zone" }).click();
+      expect((await saved).ok()).toBeTruthy();
+
+      zone = await open();
+      for (const [label, value] of [
+        ["Max Setpoint Step", STEP],
+        ["Max Recovery Rate", RATE],
+        ["Compressor Lockout Below", LOCKOUT],
+      ] as const) {
+        const after = await zone.getByLabel(label).inputValue();
+        expect(parseFloat(after)).toBeCloseTo(parseFloat(value), 1);
+      }
+    } finally {
+      // Leave the zone conventional for the specs that screenshot it.
+      await page.request.put(`/api/zones/${TC_ID}`, {
+        data: {
+          system_type: "conventional",
+          hp_max_step_f: isCelsius ? 0.5556 : 1,
+          hp_recovery_f_per_hr: isCelsius ? 1.1111 : 2,
+          hp_compressor_lockout_f: null,
+        },
+      });
+    }
+  });
 });

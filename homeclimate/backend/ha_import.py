@@ -33,7 +33,8 @@ class ImportError_(UserError):  # noqa: N801 — avoid shadowing the builtin
 
 
 _LIST_MESSAGES = {
-    name: fixed(f"{name} must be a list of entity ids") for name in ("sensors", "presence", "vents", "contacts")
+    name: fixed(f"{name} must be a list of entity ids")
+    for name in ("sensors", "presence", "vents", "contacts")
 }
 BUILDING_UNKNOWN = fixed("building_id does not match a building")
 NOT_LISTS = fixed("zones and rooms must be lists")

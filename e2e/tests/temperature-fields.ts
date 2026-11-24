@@ -228,4 +228,24 @@ export const TEMPERATURE_FIELDS: TempField[] = [
       "POST /api/rooms/{id}/override (hold modal, #576)",
     ],
   },
+
+  // ── Zone heat pump protection — PUT /api/zones/{id} (Zones page)
+  {
+    field: "hp_max_step_f",
+    kind: "delta",
+    ui: true,
+    endpoints: ["PUT /api/zones/{id}"],
+  },
+  {
+    field: "hp_recovery_f_per_hr",
+    kind: "delta",
+    ui: true,
+    endpoints: ["PUT /api/zones/{id}"],
+  },
+  {
+    field: "hp_compressor_lockout_f",
+    kind: "absolute_nullable",
+    ui: true,
+    endpoints: ["PUT /api/zones/{id}"],
+  },
 ];

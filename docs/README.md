@@ -9,6 +9,7 @@ High-level guide to what HomeClimate does and how the pieces fit together. For i
 - [Overflow conditioning](./overflow-conditioning.md) — where surplus air goes during the minimum-runtime hold
 - [Vent control methods](./vent-control.md) — the four ways HomeClimate can drive a `cover.*` entity
 - [Thermostat settings](./thermostat-settings.md) — setpoint bounds, deadband and the room/schedule overrides that inherit from it, overshoot, timeouts, safety limits
+- [Heat pumps](./heat-pumps.md) — heat pump protection guards and backup heat logging
 - [Safety features](./safety.md) — short-cycle protection, outdoor-temperature cooling lockout, equipment-protection limits
 - [Schedules](./schedules.md) — time blocks, overnight ranges, priority rules, per-block deadband override
 - [Presence & motion](./presence.md) — motion-triggered activation and holdover

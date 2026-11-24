@@ -1,7 +1,9 @@
+import { HP_DEFAULTS } from "../zoneFixtures";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as zonesApi from "../zonesApi";
+import { UnitContext, buildUnitContext } from "../contexts";
 import Zones, { HEAT_KIT_WARNING } from "./Zones";
 
 vi.mock("../zonesApi", async (orig) => {
@@ -39,6 +41,7 @@ function zone(over: Partial<zonesApi.ZoneProfile>): zonesApi.ZoneProfile {
     backup_heat: "electric",
     equipment_running_entity: null,
     heat_kit_confirmed: false,
+    ...HP_DEFAULTS,
     ...over,
   };
 }
@@ -201,9 +204,64 @@ describe("Zones page", () => {
         backup_heat: "none",
         equipment_running_entity: "climate.wing_cloud",
         heat_kit_confirmed: true,
+        ...HP_DEFAULTS,
       })
     );
     expect(await screen.findByText("Heat Pump, 2 Stage, No Backup Heat")).toBeInTheDocument();
+  });
+
+  it("edits heat pump protection in display units and shows backup heat", async () => {
+    const hp = zone({
+      thermostat_entity_id: "climate.wing",
+      name: "South Wing",
+      system_type: "heat_pump",
+      hp_max_step_f: 1.8,
+      hp_recovery_f_per_hr: 3.6,
+      hp_compressor_lockout_f: 23,
+      aux_heat_running: true,
+    });
+    vi.mocked(zonesApi.getZones).mockResolvedValue([hp]);
+    vi.mocked(zonesApi.updateZone).mockResolvedValueOnce(hp);
+    render(
+      <MemoryRouter>
+        <UnitContext.Provider value={buildUnitContext("C")}>
+          <Zones />
+        </UnitContext.Provider>
+      </MemoryRouter>
+    );
+    await screen.findByText("South Wing");
+    expect(screen.getByRole("status")).toHaveTextContent("Backup Heat Running");
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    const editor = screen.getByRole("region", { name: "Edit South Wing" });
+    expect(within(editor).getByText("Heat Pump Protection")).toBeInTheDocument();
+    expect(within(editor).getByLabelText("Max Setpoint Step")).toHaveValue(1);
+    expect(within(editor).getByLabelText("Max Recovery Rate")).toHaveValue(2);
+    expect(within(editor).getByLabelText("Compressor Lockout Below")).toHaveValue(-5);
+    expect(within(editor).getByText("°C/hr")).toBeInTheDocument();
+    expect(within(editor).getAllByText("°C")).toHaveLength(2);
+    expect(within(editor).getByText("%")).toBeInTheDocument();
+
+    fireEvent.change(within(editor).getByLabelText("Max Setpoint Step"), {
+      target: { value: "1.5" },
+    });
+    fireEvent.change(within(editor).getByLabelText("Minimum Run Time"), {
+      target: { value: "20" },
+    });
+    fireEvent.change(within(editor).getByLabelText("Compressor Lockout Below"), {
+      target: { value: "" },
+    });
+    fireEvent.click(within(editor).getByRole("button", { name: "Save Zone" }));
+    await waitFor(() =>
+      expect(zonesApi.updateZone).toHaveBeenCalledWith(
+        "climate.wing",
+        expect.objectContaining({
+          hp_max_step_f: 1.5,
+          hp_recovery_f_per_hr: 2,
+          hp_min_runtime_min: 20,
+          hp_compressor_lockout_f: null,
+        })
+      )
+    );
   });
 
   it("switches back to conventional, unassigns, cancels and reports save errors", async () => {

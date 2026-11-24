@@ -38,6 +38,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 MANIFEST_TS = REPO_ROOT / "e2e" / "tests" / "temperature-fields.ts"
 SPEC_TS = REPO_ROOT / "e2e" / "tests" / "temperature-units.spec.ts"
 ROUTES_PY = REPO_ROOT / "homeclimate" / "backend" / "api" / "routes.py"
+HOMECLIMATE_ROUTES_PY = ROUTES_PY.with_name("homeclimate.py")
 
 # Matches one object literal entry inside the TEMPERATURE_FIELDS array.
 # Tolerant of any property order and arbitrary `endpoints` arrays.
@@ -172,7 +173,10 @@ def test_every_registered_field_appears_in_routes_source():
         "Could not locate the TEMPERATURE_FIELDS literal in routes.py — this "
         "test's regex has drifted from the declaration."
     )
-    handlers = (src[: block.start()] + src[block.end() :]).replace('"', "'")
+    # Handlers live in routes.py and in the HomeClimate routes module it imports.
+    handlers = (
+        src[: block.start()] + src[block.end() :] + HOMECLIMATE_ROUTES_PY.read_text()
+    ).replace('"', "'")
     missing = [f for f in BACKEND_FIELDS if f not in handlers]
     # `f not in handlers` is over-broad — a field name could appear in an
     # unrelated comment — but that's the conservative direction (we want to

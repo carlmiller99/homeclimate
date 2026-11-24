@@ -11,6 +11,7 @@ State machine:
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import json
 import logging
 from collections.abc import Callable, Coroutine
@@ -23,6 +24,7 @@ import aiosqlite
 from .. import db, eco
 from ..event_logger import EventLogger
 from ..ha_client import HAClient
+from ..heat_pump import HeatPumpGuards
 from ..models import (
     CycleLog,
     Room,
@@ -161,6 +163,7 @@ class CycleEngine:
         get_vacation_mode: Callable[[], bool] | None = None,
         get_eco_suspended: Callable[[], bool] | None = None,
         get_openings: Callable[[], tuple[bool, frozenset[str]]] | None = None,
+        get_heat_pump: Callable[[], HeatPumpGuards | None] | None = None,
     ) -> None:
         self.thermostat_entity_id = thermostat_entity_id
         self._ha = ha
@@ -172,6 +175,12 @@ class CycleEngine:
         self._get_eco_suspended = get_eco_suspended
         # Door and window pausing (Smart Control): (zone paused, paused room ids).
         self._get_openings = get_openings
+        # Heat pump protection: guards for this zone, or None (conventional).
+        self._get_heat_pump = get_heat_pump
+        # (started_at, thermostat ambient °F) of the current heat pump warm-up.
+        self._hp_ramp_start: tuple[datetime, float] | None = None
+        # Last switchover-gap episode logged, so the wait is announced once.
+        self._hp_gap_logged_until: datetime | None = None
 
         self._state = CycleState.IDLE
         self._cycle_log: CycleLog | None = None
@@ -585,7 +594,7 @@ class CycleEngine:
                     {"thermostat": self.thermostat_entity_id},
                 )
             if self._state != CycleState.IDLE:
-                tc = await db.get_thermostat_config(conn, self.thermostat_entity_id)
+                tc = await self._load_tc(conn)
                 if (
                     tc.unavailable_abort_after_min > 0
                     and outage_min >= tc.unavailable_abort_after_min
@@ -646,7 +655,7 @@ class CycleEngine:
             # fresh rather than inherit the last trip's latched one.
             self._vacation_fallback_park_mode = None
         else:
-            tc_vac = await db.get_thermostat_config(conn, self.thermostat_entity_id)
+            tc_vac = await self._load_tc(conn)
             if not self._vacation_safety_enabled(tc_vac):
                 self._vacation_cycle = False
                 if self._state != CycleState.IDLE:
@@ -771,7 +780,7 @@ class CycleEngine:
             return
 
         # Fetch thermostat config (needed for mode inference and room filtering).
-        tc = await db.get_thermostat_config(conn, self.thermostat_entity_id)
+        tc = await self._load_tc(conn)
 
         # Outside temperature for ambient presence-suppression / pre-cool
         # (Issue #248). Read once per tick; None when no sensor is configured or
@@ -805,8 +814,15 @@ class CycleEngine:
             # a cooling cycle when it is too cold outside — running an AC
             # compressor at low outdoor ambient risks liquid slugging and
             # evaporator coil icing. Opt-in: needs both a configured threshold
-            # and a readable outdoor-temperature sensor. (Heat pumps are not
-            # supported, so there is no heating lockout.)
+            # and a readable outdoor-temperature sensor. A heat pump's own
+            # compressor lockout lives in the thermostat; HomeClimate stores it
+            # for planning only.
+            if await self._heat_pump_switchover_wait(conn, inferred):
+                await self._reset_setpoint_to_ambient(thermo_state, tc)
+                await self._maybe_reconcile(conn, in_vacation=in_vacation)
+                await self._maybe_broadcast()
+                return
+
             if inferred == "cooling":
                 lockout_state, outside_temp = await self._cooling_lockout_state(conn, tc)
                 if lockout_state == "sensor_unavailable":
@@ -1020,10 +1036,12 @@ class CycleEngine:
             # vent change self-heals.
             if in_vacation and self._state == CycleState.RUNNING:
                 await self._apply_vacation_vent_policy(conn, tc, monitor_mode)
+            # Heat pump warm-up: lift the capped setpoint as the room warms.
+            await self._heat_pump_ramp(conn)
 
         # Check cycle timeout
         if self._cycle_log and self._state == CycleState.RUNNING:
-            tc = await db.get_thermostat_config(conn, self.thermostat_entity_id)
+            tc = await self._load_tc(conn)
             elapsed = datetime.now(UTC) - self._cycle_log.started_at
             if elapsed > timedelta(hours=tc.cycle_timeout_hours):
                 log.warning(
@@ -1205,7 +1223,7 @@ class CycleEngine:
         hvac_mode: str,
         outside_temp_f: float | None = None,
     ) -> None:
-        tc = await db.get_thermostat_config(conn, self.thermostat_entity_id)
+        tc = await self._load_tc(conn, hvac_mode)
 
         # Eco Mode (Issue #404): relax each active room's target here, at the
         # cycle boundary, before it becomes a setpoint or a RoomCycleState. When
@@ -1259,6 +1277,15 @@ class CycleEngine:
             # Lock in the cycle direction — used by _monitor_rooms for the entire
             # cycle lifetime to avoid mid-cycle mode misdetection (issue #26).
             self._cycle_mode = hvac_mode
+            # Heat pump warm-up ramp starts from the thermostat's reading now.
+            start_ambient = self._thermo_ambient_f()
+            self._hp_ramp_start = (
+                (datetime.now(UTC), start_ambient)
+                if hvac_mode == "heating"
+                and self._heat_pump() is not None
+                and start_ambient is not None
+                else None
+            )
 
             # Close any open cycle logs left over from a previous server run or
             # from an exception that occurred after a prior insert but before the
@@ -1810,7 +1837,7 @@ class CycleEngine:
         return vents
 
     async def _monitor_rooms(self, conn: aiosqlite.Connection, hvac_mode: str) -> None:
-        tc = await db.get_thermostat_config(conn, self.thermostat_entity_id)
+        tc = await self._load_tc(conn)
         all_zone_vents = await self._get_all_zone_vents(conn)
 
         # Safety: check max vent closed duration
@@ -2326,7 +2353,7 @@ class CycleEngine:
             )
             if ambient_f is not None:
                 try:
-                    tc = await db.get_thermostat_config(conn, self.thermostat_entity_id)
+                    tc = await self._load_tc(conn)
                     parked = self._parked_setpoint(
                         ambient_f,
                         self._cycle_ha_mode or self._cycle_mode,
@@ -2511,7 +2538,7 @@ class CycleEngine:
             )
             if ambient_f is not None:
                 try:
-                    tc = await db.get_thermostat_config(conn, self.thermostat_entity_id)
+                    tc = await self._load_tc(conn)
                     parked = self._parked_setpoint(
                         ambient_f,
                         self._cycle_ha_mode or self._cycle_mode,
@@ -3399,6 +3426,24 @@ class CycleEngine:
                 except (ValueError, TypeError):
                     pass
 
+        # Heat pump protection: never set the heat more than the max step above
+        # the thermostat's reading (nor faster than the recovery rate), so the
+        # thermostat has no reason to bring on backup heat.
+        hp_capped = False
+        hp_ambient: float | None = None
+        if hvac_mode == "heating":
+            hp_ambient = self._thermo_ambient_f()
+            hp_cap = self._heat_pump_cap(hp_ambient) if hp_ambient is not None else None
+            if hp_cap is not None and setpoint > hp_cap:
+                log.info(
+                    "Heat pump cap for %s: %.1f→%.1f",
+                    self.thermostat_entity_id,
+                    setpoint,
+                    hp_cap,
+                )
+                setpoint = hp_cap
+                hp_capped = True
+
         # Clamp to configured safety bounds. Ambient-overshoot above can push the
         # setpoint past min_setpoint (aggressive cooling) or max_setpoint
         # (aggressive heating) — correct it back into the user's envelope so the
@@ -3443,6 +3488,11 @@ class CycleEngine:
         whole = (
             eco.floor_whole_f(setpoint) if hvac_mode == "cooling" else eco.ceil_whole_f(setpoint)
         )
+        if hp_capped and hp_ambient is not None:
+            # A capped heat pump setpoint rounds DOWN so the step stays a limit,
+            # but never below half a degree over the thermostat's reading, so the
+            # heat pump still has a reason to run.
+            whole = max(eco.floor_whole_f(setpoint), eco.ceil_whole_f(hp_ambient + 0.5))
         setpoint = min(max(whole, tc.min_setpoint), tc.max_setpoint)
 
         try:
@@ -3498,7 +3548,7 @@ class CycleEngine:
         False so direct calls in tests (which predate these parameters) keep
         their original behavior.
         """
-        tc = await db.get_thermostat_config(conn, self.thermostat_entity_id)
+        tc = await self._load_tc(conn)
         if tc.reconciliation_interval_min <= 0:
             return
         now = datetime.now(UTC)
@@ -4241,7 +4291,7 @@ class CycleEngine:
                         # direction, reopen the zone's vents, and arm the
                         # off-time lockout for the run that just ended.
                         try:
-                            tc = await db.get_thermostat_config(conn, self.thermostat_entity_id)
+                            tc = await self._load_tc(conn)
                             ha_mode = "cool" if to_restore.mode == "cooling" else "heat"
                             parked = self._parked_setpoint(
                                 ambient_now, to_restore.mode, tc.overshoot_delta
@@ -4290,7 +4340,7 @@ class CycleEngine:
         # a reboot idle vents would stay open and dilute airflow until the
         # cycle naturally ends. Close them now so the restored cycle behaves
         # identically to the pre-restart one.
-        tc = await db.get_thermostat_config(conn, self.thermostat_entity_id)
+        tc = await self._load_tc(conn)
         await self._close_idle_room_vents(conn, tc)
 
         room_names = [ar.room.name for ar in self._active_rooms.values()]
@@ -4545,7 +4595,7 @@ class CycleEngine:
             )
             return
 
-        tc = await db.get_thermostat_config(conn, self.thermostat_entity_id)
+        tc = await self._load_tc(conn)
 
         if tc.vacation_hvac_mode == "range":
             # Set thermostat to heat_cool/auto with low=min_setpoint, high=max_setpoint.
@@ -5223,7 +5273,7 @@ class CycleEngine:
         are left untouched; rooms with no usable sensor reading are skipped (a
         sensorless zone is covered by the thermostat-ambient backstop instead).
         """
-        tc = await db.get_thermostat_config(conn, self.thermostat_entity_id)
+        tc = await self._load_tc(conn)
         zone_rooms = await db.get_rooms_for_thermostat(conn, self.thermostat_entity_id)
         breaching_now: set[str] = set()
         sustaining_now: dict[str, str] = {}
@@ -5344,7 +5394,7 @@ class CycleEngine:
         if thermo_state is None or thermo_state.get("state") == "unavailable":
             return False
 
-        tc = await db.get_thermostat_config(conn, self.thermostat_entity_id)
+        tc = await self._load_tc(conn)
         # Routed through the plausibility guard (Issue #636) rather than
         # `_climate_temp_to_f` directly, so a reconnect glitch (e.g. the
         # classic 0°C/32°F null value) cannot masquerade as a real breach —
@@ -5615,6 +5665,115 @@ class CycleEngine:
         assert off_since is not None
         elapsed_min = (now - off_since).total_seconds() / 60
         return tc.min_cycle_offtime_min - elapsed_min
+
+    def _heat_pump(self) -> HeatPumpGuards | None:
+        return self._get_heat_pump() if self._get_heat_pump is not None else None
+
+    async def _load_tc(
+        self, conn: aiosqlite.Connection, mode: str | None = None
+    ) -> ThermostatConfig:
+        """This thermostat's config with heat pump floors applied.
+
+        A heat pump zone runs at least ``min_runtime_min`` per cycle, and when
+        heating keeps at least ``min_open_heat_fraction`` of its vents open.
+        Both are floors: a stricter thermostat setting still wins. The stored
+        row is never changed.
+        """
+        tc = await db.get_thermostat_config(conn, self.thermostat_entity_id)
+        hp = self._heat_pump()
+        if hp is None:
+            return tc
+        changes: dict[str, Any] = {
+            "min_cycle_runtime_min": max(tc.min_cycle_runtime_min, hp.min_runtime_min)
+        }
+        if (mode or self._cycle_mode) == "heating":
+            changes["min_open_vents_fraction"] = max(
+                tc.min_open_vents_fraction, hp.min_open_heat_fraction
+            )
+        return dataclasses.replace(tc, **changes)
+
+    def _thermo_ambient_f(self) -> float | None:
+        state = self._ha.get_state(self.thermostat_entity_id) or {}
+        return _climate_temp_to_f(
+            (state.get("attributes") or {}).get("current_temperature"), self._ha.ha_temp_unit
+        )
+
+    def _heat_pump_cap(self, ambient: float, now: datetime | None = None) -> float | None:
+        """Highest heating setpoint a heat pump zone may command right now."""
+        hp = self._heat_pump()
+        if hp is None:
+            return None
+        cap = ambient + hp.max_step_f
+        if self._hp_ramp_start is not None:
+            started, start_ambient = self._hp_ramp_start
+            hours = ((now or datetime.now(UTC)) - started).total_seconds() / 3600
+            cap = min(cap, start_ambient + hp.max_step_f + hp.recovery_f_per_hr * hours)
+        return cap
+
+    async def _heat_pump_switchover_wait(
+        self, conn: aiosqlite.Connection, inferred: str, now: datetime | None = None
+    ) -> bool:
+        """True while a heat pump must wait before reversing direction."""
+        hp = self._heat_pump()
+        if hp is None or hp.switchover_gap_min <= 0:
+            return False
+        async with conn.execute(
+            "SELECT mode, ended_at FROM cycle_logs WHERE thermostat_entity_id=? "
+            "AND ended_at IS NOT NULL ORDER BY ended_at DESC LIMIT 1",
+            (self.thermostat_entity_id,),
+        ) as cur:
+            row = await cur.fetchone()
+        if row is None or row["mode"] == inferred:
+            return False
+        ended = datetime.fromisoformat(row["ended_at"])
+        if ended.tzinfo is None:
+            ended = ended.replace(tzinfo=UTC)
+        until = ended + timedelta(minutes=hp.switchover_gap_min)
+        if (now or datetime.now(UTC)) >= until:
+            return False
+        if self._logger and self._hp_gap_logged_until != until:
+            self._hp_gap_logged_until = until
+            await self._logger.log(
+                "info",
+                "engine",
+                f"Heat pump {self.thermostat_entity_id} waits before switching to "
+                f"{inferred}: the last {row['mode']} cycle ended less than "
+                f"{hp.switchover_gap_min} min ago",
+                {
+                    "thermostat": self.thermostat_entity_id,
+                    "mode": inferred,
+                    "previous_mode": row["mode"],
+                    "resume_after": until.isoformat(),
+                },
+            )
+        return True
+
+    async def _heat_pump_ramp(self, conn: aiosqlite.Connection) -> None:
+        """Raise a heat pump's capped heating setpoint as the room warms."""
+        if (
+            self._heat_pump() is None
+            or self._state != CycleState.RUNNING
+            or self._cycle_mode != "heating"
+            or self._last_setpoint_sent is None
+            or not self._active_rooms
+        ):
+            return
+        tc = await self._load_tc(conn)
+        goal = min(
+            max(ar.target_temp for ar in self._active_rooms.values()) + tc.overshoot_delta,
+            tc.max_setpoint,
+        )
+        if self._last_setpoint_sent >= goal:
+            return
+        ambient = self._thermo_ambient_f()
+        if ambient is None:
+            return
+        cap = self._heat_pump_cap(ambient)
+        assert cap is not None
+        if eco.floor_whole_f(min(cap, goal)) > self._last_setpoint_sent:
+            await self._set_thermostat_setpoint(
+                tc, "heating", conn=conn, setpoint_reason="heat pump ramp"
+            )
 
     def _cycle_runtime_satisfied(self, tc: ThermostatConfig, now: datetime | None = None) -> bool:
         """Return True if the current cycle has run at least ``min_cycle_runtime_min``.

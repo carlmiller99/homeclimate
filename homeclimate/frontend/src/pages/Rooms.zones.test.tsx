@@ -1,3 +1,4 @@
+import { HP_DEFAULTS } from "../zoneFixtures";
 /** Rooms page grouping by building and zone (HomeClimate). */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, within } from "@testing-library/react";
@@ -128,6 +129,7 @@ const zone = (over: Partial<zonesApi.ZoneProfile>): zonesApi.ZoneProfile => ({
   backup_heat: "electric",
   equipment_running_entity: null,
   heat_kit_confirmed: false,
+  ...HP_DEFAULTS,
   ...over,
 });
 

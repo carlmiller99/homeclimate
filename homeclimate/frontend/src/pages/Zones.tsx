@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router";
 import EntityPicker from "../components/EntityPicker";
+import { useUnit } from "../contexts";
 import {
   BACKUP_HEAT_LABELS,
   createBuilding,
@@ -17,6 +18,60 @@ import {
   type ZoneProfile,
 } from "../zonesApi";
 
+type GuardKey =
+  | "hp_max_step_f"
+  | "hp_recovery_f_per_hr"
+  | "hp_min_runtime_min"
+  | "hp_min_open_heat_pct"
+  | "hp_switchover_gap_min"
+  | "hp_compressor_lockout_f";
+
+const HP_GUARDS: {
+  key: GuardKey;
+  label: string;
+  help: string;
+  unit: "temp" | "rate" | "min" | "%";
+  nullable?: boolean;
+}[] = [
+  {
+    key: "hp_max_step_f",
+    label: "Max Setpoint Step",
+    help: "How far above the thermostat's reading the setpoint is ever set when heating.",
+    unit: "temp",
+  },
+  {
+    key: "hp_recovery_f_per_hr",
+    label: "Max Recovery Rate",
+    help: "A warm-up's setpoint climbs no faster than this.",
+    unit: "rate",
+  },
+  {
+    key: "hp_min_runtime_min",
+    label: "Minimum Run Time",
+    help: "Longer cycles are more efficient for a heat pump.",
+    unit: "min",
+  },
+  {
+    key: "hp_min_open_heat_pct",
+    label: "Minimum Open Vents When Heating",
+    help: "Heat pumps need more airflow when heating.",
+    unit: "%",
+  },
+  {
+    key: "hp_switchover_gap_min",
+    label: "Minimum Time Between Heat and Cool",
+    help: "Protects the reversing valve in swing weather.",
+    unit: "min",
+  },
+  {
+    key: "hp_compressor_lockout_f",
+    label: "Compressor Lockout Below",
+    help: "Copy the ecobee setting here. Used for planning only.",
+    unit: "temp",
+    nullable: true,
+  },
+];
+
 export const HEAT_KIT_WARNING =
   "Backup heat is set to electric strips. Confirm a heater kit is installed in the air handler, or set Backup Heat to None.";
 
@@ -31,6 +86,8 @@ function ZoneEditor({
   onSaved: (z: ZoneProfile) => void;
   onCancel: () => void;
 }) {
+  const { toDisplay, toDisplayDelta, unitLabel } = useUnit();
+  // Form state holds DISPLAY units; the backend converts on write (#231).
   const [form, setForm] = useState({
     building_id: zone.building_id,
     system_type: zone.system_type,
@@ -38,6 +95,13 @@ function ZoneEditor({
     backup_heat: zone.backup_heat,
     equipment_running_entity: zone.equipment_running_entity,
     heat_kit_confirmed: zone.heat_kit_confirmed,
+    hp_max_step_f: toDisplayDelta(zone.hp_max_step_f),
+    hp_recovery_f_per_hr: toDisplayDelta(zone.hp_recovery_f_per_hr),
+    hp_min_runtime_min: zone.hp_min_runtime_min,
+    hp_min_open_heat_pct: zone.hp_min_open_heat_pct,
+    hp_switchover_gap_min: zone.hp_switchover_gap_min,
+    hp_compressor_lockout_f:
+      zone.hp_compressor_lockout_f === null ? null : toDisplay(zone.hp_compressor_lockout_f),
   });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -182,6 +246,45 @@ function ZoneEditor({
               Confirmed
             </button>
           </div>
+        )}
+
+        {hp && (
+          <>
+            <h3 className="zone-section-title">Heat Pump Protection</h3>
+            <p className="field-help">
+              Keeps the heat pump doing the work so backup heat stays off.
+            </p>
+            <div className="guard-list">
+              {HP_GUARDS.map((g) => {
+                const value = form[g.key];
+                const unit =
+                  g.unit === "temp" ? unitLabel : g.unit === "rate" ? `${unitLabel}/hr` : g.unit;
+                return (
+                  <div className="guard-row" key={g.key}>
+                    <div className="guard-text">
+                      <label htmlFor={`${g.key}-${zone.thermostat_entity_id}`}>{g.label}</label>
+                      <p className="field-help">{g.help}</p>
+                    </div>
+                    <input
+                      id={`${g.key}-${zone.thermostat_entity_id}`}
+                      className="form-control guard-input"
+                      type="number"
+                      step={g.unit === "temp" || g.unit === "rate" ? 0.1 : 1}
+                      value={value ?? ""}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        setForm((f) => ({
+                          ...f,
+                          [g.key]: raw === "" && g.nullable ? null : parseFloat(raw),
+                        }));
+                      }}
+                    />
+                    <span className="guard-unit">{unit}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </>
         )}
 
         {err && <p className="form-error">{err}</p>}
@@ -402,6 +505,11 @@ export default function Zones() {
                   <div className="zone-entity">{z.thermostat_entity_id}</div>
                 </div>
                 <span className="pill">{equipmentSummary(z)}</span>
+                {z.aux_heat_running && (
+                  <span className="pill pill-heat" role="status">
+                    Backup Heat Running
+                  </span>
+                )}
                 <button
                   type="button"
                   className="btn btn-secondary"

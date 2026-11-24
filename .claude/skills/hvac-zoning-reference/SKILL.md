@@ -61,9 +61,9 @@ the compressor for *both* directions — heating is the refrigeration cycle run
 in reverse — so every safety assumption here would need a heating-side twin
 (reversing-valve behavior, defrost cycles, low-ambient heating lockouts,
 auxiliary/emergency heat staging). HomeClimate assumes furnace-heat + AC-cool; that
-is why `cooling_lockout_below_f` has no heating equivalent
-(`models.py` comment: "heat pumps are not supported, so there is no
-corresponding heating lockout").
+is why `cooling_lockout_below_f` has no heating equivalent. Heat pump zones
+(0.5.0+) add guards in `heat_pump.py`; the thermostat keeps backup heat and
+defrost.
 
 ---
 

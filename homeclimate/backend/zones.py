@@ -41,6 +41,17 @@ class ZoneProfile:
     backup_heat: str = "electric"
     equipment_running_entity: str | None = None
     heat_kit_confirmed: bool = False
+    # Heat pump protection (°F; step and rate are deltas).
+    hp_max_step_f: float = 1.0
+    hp_recovery_f_per_hr: float = 2.0
+    hp_min_runtime_min: int = 15
+    hp_min_open_heat_pct: int = 50
+    hp_switchover_gap_min: int = 60
+    hp_compressor_lockout_f: float | None = None
+
+    @property
+    def is_heat_pump(self) -> bool:
+        return self.system_type == "heat_pump"
 
 
 class ZoneError(UserError):
@@ -53,7 +64,28 @@ BUILDING_EXISTS = fixed("a building with that name already exists")
 BUILDING_UNKNOWN = fixed("building_id does not match a building")
 ENTITY_INVALID = fixed("equipment_running_entity must be an entity id or null")
 HEAT_KIT_INVALID = fixed("heat_kit_confirmed must be true or false")
-_INT_LIMITS = {"sort_order": (0, 999), "compressor_stages": (1, MAX_STAGES)}
+_INT_LIMITS = {
+    "sort_order": (0, 999),
+    "compressor_stages": (1, MAX_STAGES),
+    "hp_min_runtime_min": (0, 60),
+    "hp_min_open_heat_pct": (0, 100),
+    "hp_switchover_gap_min": (0, 240),
+}
+# °F bounds for the heat pump temperature guards (already converted to °F).
+_FLOAT_LIMITS = {
+    "hp_max_step_f": (0.5, 5.0),
+    "hp_recovery_f_per_hr": (0.5, 10.0),
+    "hp_compressor_lockout_f": (-40.0, 70.0),
+}
+_FLOAT_MESSAGES = {
+    "hp_max_step_f": fixed("Max Setpoint Step must be between 0.5 and 5 °F (0.3 and 2.8 °C)"),
+    "hp_recovery_f_per_hr": fixed(
+        "Max Recovery Rate must be between 0.5 and 10 °F (0.3 and 5.6 °C) per hour"
+    ),
+    "hp_compressor_lockout_f": fixed(
+        "Compressor Lockout Below must be between -40 and 70 °F (-40 and 21 °C), or empty"
+    ),
+}
 _INT_MESSAGES = {
     name: fixed(f"{name} must be a whole number from {lo} to {hi}")
     for name, (lo, hi) in _INT_LIMITS.items()
@@ -157,6 +189,13 @@ def _int(raw: Any, name: str) -> int:
     return raw
 
 
+def _float(raw: Any, name: str) -> float:
+    lo, hi = _FLOAT_LIMITS[name]
+    if isinstance(raw, bool) or not isinstance(raw, int | float) or not lo <= raw <= hi:
+        raise ZoneError(_FLOAT_MESSAGES[name])
+    return round(float(raw), 2)
+
+
 def _choice(raw: Any, name: str) -> str:
     if raw not in _CHOICES[name]:
         raise ZoneError(_CHOICE_MESSAGES[name])
@@ -199,6 +238,18 @@ def _profile(row: aiosqlite.Row) -> ZoneProfile:
         backup_heat=row["backup_heat"] if has_row else "electric",
         equipment_running_entity=row["equipment_running_entity"] if has_row else None,
         heat_kit_confirmed=bool(row["heat_kit_confirmed"]) if has_row else False,
+        **(
+            {
+                "hp_max_step_f": float(row["hp_max_step_f"]),
+                "hp_recovery_f_per_hr": float(row["hp_recovery_f_per_hr"]),
+                "hp_min_runtime_min": int(row["hp_min_runtime_min"]),
+                "hp_min_open_heat_pct": int(row["hp_min_open_heat_pct"]),
+                "hp_switchover_gap_min": int(row["hp_switchover_gap_min"]),
+                "hp_compressor_lockout_f": row["hp_compressor_lockout_f"],
+            }
+            if has_row
+            else {}
+        ),
     )
 
 
@@ -231,16 +282,35 @@ async def update_zone_profile(
         if not isinstance(changes["heat_kit_confirmed"], bool):
             raise ZoneError(HEAT_KIT_INVALID)
         zone.heat_kit_confirmed = changes["heat_kit_confirmed"]
+    for name in ("hp_min_runtime_min", "hp_min_open_heat_pct", "hp_switchover_gap_min"):
+        if name in changes:
+            setattr(zone, name, _int(changes[name], name))
+    for name in ("hp_max_step_f", "hp_recovery_f_per_hr"):
+        if name in changes:
+            setattr(zone, name, _float(changes[name], name))
+    if "hp_compressor_lockout_f" in changes:
+        raw = changes["hp_compressor_lockout_f"]
+        zone.hp_compressor_lockout_f = (
+            None if raw is None else _float(raw, "hp_compressor_lockout_f")
+        )
     await conn.execute(
         """INSERT INTO zone_profiles(thermostat_entity_id, building_id, sort_order, system_type,
-               compressor_stages, backup_heat, equipment_running_entity, heat_kit_confirmed)
-           VALUES(?,?,?,?,?,?,?,?)
+               compressor_stages, backup_heat, equipment_running_entity, heat_kit_confirmed,
+               hp_max_step_f, hp_recovery_f_per_hr, hp_min_runtime_min,
+               hp_min_open_heat_pct, hp_switchover_gap_min, hp_compressor_lockout_f)
+           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
            ON CONFLICT(thermostat_entity_id) DO UPDATE SET
              building_id=excluded.building_id, sort_order=excluded.sort_order,
              system_type=excluded.system_type, compressor_stages=excluded.compressor_stages,
              backup_heat=excluded.backup_heat,
              equipment_running_entity=excluded.equipment_running_entity,
-             heat_kit_confirmed=excluded.heat_kit_confirmed""",
+             heat_kit_confirmed=excluded.heat_kit_confirmed,
+             hp_max_step_f=excluded.hp_max_step_f,
+             hp_recovery_f_per_hr=excluded.hp_recovery_f_per_hr,
+             hp_min_runtime_min=excluded.hp_min_runtime_min,
+             hp_min_open_heat_pct=excluded.hp_min_open_heat_pct,
+             hp_switchover_gap_min=excluded.hp_switchover_gap_min,
+             hp_compressor_lockout_f=excluded.hp_compressor_lockout_f""",
         (
             entity_id,
             zone.building_id,
@@ -250,6 +320,12 @@ async def update_zone_profile(
             zone.backup_heat,
             zone.equipment_running_entity,
             int(zone.heat_kit_confirmed),
+            zone.hp_max_step_f,
+            zone.hp_recovery_f_per_hr,
+            zone.hp_min_runtime_min,
+            zone.hp_min_open_heat_pct,
+            zone.hp_switchover_gap_min,
+            zone.hp_compressor_lockout_f,
         ),
     )
     await conn.commit()

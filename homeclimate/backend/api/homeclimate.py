@@ -12,10 +12,11 @@ from datetime import datetime
 from aiohttp import web
 
 from .. import db, ha_import, openings, zones
+from ..units import delta_to_f, to_f
 from ..user_errors import UserError, safe_text
 from . import schemas
 from .openapi import docs, request_schema, response_schema
-from .routes import emit, error, get_conn, json_response, refresh, routes
+from .routes import TEMPERATURE_FIELDS, emit, error, get_conn, json_response, refresh, routes
 
 log = logging.getLogger(__name__)
 
@@ -92,7 +93,16 @@ async def delete_building(request: web.Request) -> web.Response:
 @routes.get("/api/zones")
 async def list_zones(request: web.Request) -> web.Response:
     conn = await get_conn(request)
-    return json_response([zones.as_dict(z) for z in await zones.list_zone_profiles(conn)])
+    scheduler = request.app["scheduler"]
+    return json_response(
+        [
+            {
+                **zones.as_dict(z),
+                "aux_heat_running": scheduler.aux_heat_running(z.thermostat_entity_id),
+            }
+            for z in await zones.list_zone_profiles(conn)
+        ]
+    )
 
 
 @docs(tags=["zones"], summary="Update a zone's building, order or equipment profile")
@@ -102,6 +112,15 @@ async def list_zones(request: web.Request) -> web.Response:
 async def update_zone(request: web.Request) -> web.Response:
     body = await _json_object(request)
     entity_id = request.match_info["entity_id"]
+    # The write boundary converts display-unit temperatures to °F (#231).
+    unit = request.app["scheduler"].get_temperature_unit()
+    for name in ("hp_max_step_f", "hp_recovery_f_per_hr", "hp_compressor_lockout_f"):
+        value = body.get(name)
+        if isinstance(value, int | float) and not isinstance(value, bool):
+            kind = TEMPERATURE_FIELDS[name]
+            body[name] = (
+                to_f(value, unit) if kind.startswith("absolute") else delta_to_f(value, unit)
+            )
     conn = await get_conn(request)
     try:
         zone = await zones.update_zone_profile(conn, entity_id, body)

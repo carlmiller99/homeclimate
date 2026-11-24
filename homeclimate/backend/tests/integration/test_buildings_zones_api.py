@@ -93,6 +93,13 @@ async def test_zones_default_and_update(client):
         "backup_heat": "electric",
         "equipment_running_entity": None,
         "heat_kit_confirmed": False,
+        "hp_max_step_f": 1.0,
+        "hp_recovery_f_per_hr": 2.0,
+        "hp_min_runtime_min": 15,
+        "hp_min_open_heat_pct": 50,
+        "hp_switchover_gap_min": 60,
+        "hp_compressor_lockout_f": None,
+        "aux_heat_running": False,
     }
 
     main = await (await client.post("/api/buildings", json={"name": "Main House"})).json()
@@ -157,12 +164,52 @@ async def test_deleting_a_building_unassigns_nothing_it_does_not_own(client):
         {"equipment_running_entity": "notanentity"},
         {"equipment_running_entity": 7},
         {"heat_kit_confirmed": "yes"},
+        {"hp_max_step_f": 0.2},
+        {"hp_max_step_f": "1"},
+        {"hp_recovery_f_per_hr": 11},
+        {"hp_min_runtime_min": 61},
+        {"hp_min_open_heat_pct": 101},
+        {"hp_switchover_gap_min": -1},
+        {"hp_compressor_lockout_f": 90},
+        {"hp_compressor_lockout_f": True},
     ],
 )
 async def test_zone_validation(client, body):
     await _thermostat(client, T1, "Upstairs")
     resp = await client.put(f"/api/zones/{T1}", json=body)
     assert resp.status == 400
+
+
+async def test_heat_pump_guards_convert_at_the_write_boundary(client):
+    await _thermostat(client, T1, "Upstairs")
+    body = {
+        "hp_max_step_f": 1,
+        "hp_recovery_f_per_hr": 2,
+        "hp_min_runtime_min": 20,
+        "hp_min_open_heat_pct": 60,
+        "hp_switchover_gap_min": 90,
+        "hp_compressor_lockout_f": 5,
+    }
+    scheduler = client.app["scheduler"]
+    scheduler._active_unit = "C"
+    try:
+        zone = await (await client.put(f"/api/zones/{T1}", json=body)).json()
+    finally:
+        scheduler._active_unit = "F"
+    # 1 °C step = 1.8 °F, 2 °C/hr = 3.6 °F/hr, 5 °C = 41 °F; minutes and % untouched.
+    assert zone["hp_max_step_f"] == 1.8
+    assert zone["hp_recovery_f_per_hr"] == 3.6
+    assert zone["hp_compressor_lockout_f"] == 41.0
+    assert (zone["hp_min_runtime_min"], zone["hp_min_open_heat_pct"]) == (20, 60)
+    assert zone["hp_switchover_gap_min"] == 90
+
+    zone = await (
+        await client.put(
+            f"/api/zones/{T1}", json={"hp_compressor_lockout_f": None, "hp_max_step_f": 2.5}
+        )
+    ).json()
+    assert zone["hp_compressor_lockout_f"] is None
+    assert zone["hp_max_step_f"] == 2.5
 
 
 async def test_unknown_zone_is_404(client):

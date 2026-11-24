@@ -2,7 +2,7 @@
 
 HomeClimate drives real HVAC equipment, so several settings exist purely to protect that equipment from being damaged by software decisions. This page collects them and is updated as new protections are added. Each is configured per-thermostat on the **Thermostats** page unless noted.
 
-> **Heat pumps are not supported.** HomeClimate assumes a conventional system — a furnace or air handler for heat and an AC compressor for cooling. The cooling lockout below has no heating equivalent for that reason.
+> **Heat pumps:** the protections on this page assume a conventional system (a furnace or air handler for heat and an AC compressor for cooling). A zone marked as a heat pump on the **Zones** page adds its own guards on top; see [Heat pumps](./heat-pumps.md). HomeClimate never commands backup heat or defrost; those stay with the thermostat.
 
 ## Short-cycle protection
 

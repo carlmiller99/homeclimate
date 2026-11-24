@@ -271,13 +271,11 @@ safety flag is a failed result.
 
 ## Frontier item 4 — Heat pumps as a shadow-mode research problem (long-horizon candidate)
 
-Heat pumps are explicitly unsupported (README.md:112, `docs/safety.md` top
-blockquote, and the "Heat pumps are not supported, so there is no heating
-lockout" comment inside the cooling-lockout block at `cycle_engine.py:~452`)
-because reversing-valve and defrost semantics invalidate guards designed for
-furnace+AC (the cooling lockout has no heating analog — see
-homeclimate-architecture-contract's known-weak-points table). **Nothing in this
-item weakens that fence.** Any code change here must clear the
+Since 0.5.0 heat pumps get guards only (`docs/heat-pumps.md`, `heat_pump.py`):
+a capped, rate-limited heating setpoint, runtime and airflow floors, a
+switchover wait, and observed (never commanded) backup heat. Reversing-valve
+and defrost semantics still stay with the thermostat. **Nothing in this item
+weakens that fence.** Any code change here must clear the
 homeclimate-change-control safety ratchet, and the docs' non-support line stays
 until support is real (homeclimate-docs-and-writing owns that claim discipline).
 

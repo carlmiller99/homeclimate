@@ -275,8 +275,8 @@ class ThermostatConfig:
     # refuses to start a cooling cycle while the configured outdoor-temperature
     # sensor reads below this value (°F). Running a standard AC compressor in
     # cold outdoor conditions risks liquid slugging and evaporator icing.
-    # None = disabled. NOTE: heat pumps are not supported, so there is no
-    # corresponding heating lockout.
+    # None = disabled. There is no heating lockout: a heat pump's compressor
+    # lockout lives in the thermostat (see zone_profiles.hp_compressor_lockout_f).
     cooling_lockout_below_f: float | None = None
     # Overflow conditioning during minimum-runtime hold (Issue #237). When True
     # and a cycle is held open past its goal to satisfy min_cycle_runtime_min,

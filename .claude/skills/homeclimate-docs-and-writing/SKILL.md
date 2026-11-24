@@ -41,9 +41,10 @@ When NOT to use this skill:
   assistants...") is a deliberate honesty stance. Never remove or soften it. Note the
   asymmetry with §3: the *repo README* discloses AI involvement; *commits/PRs/issues*
   never attribute individual changes to AI. Disclosure is global, not per-change.
-- **Heat-pump non-support stays prominent.** It appears in the Safety section as a
-  bold blockquote ("**Heat pumps are not supported.**"). Any rewrite of README or
-  `docs/safety.md` must keep this above the fold of the safety content. HomeClimate's
+- **Heat-pump scope stays prominent.** `docs/safety.md` opens with a bold
+  "**Heat pumps:**" blockquote saying which guards are conventional-only and that
+  backup heat and defrost stay with the thermostat (`docs/heat-pumps.md`). Keep it
+  above the fold of the safety content. HomeClimate's
   cooling lockout and overshoot logic assume a conventional furnace + AC compressor;
   advertising heat-pump compatibility would be an equipment-damaging oversell.
 - **The "Tested" stats block** (README §Tested) is the highest-risk external claim.
@@ -158,7 +159,7 @@ If you touch RELEASE.md, fix that table against the actual workflows in
   equipment-failure mode") before any *how* → scope callout → sections.
 - **Callouts**: blockquote with a bold lead, e.g.
   `> **Scope:** This logic runs **only** during ...` (overflow-conditioning.md) or
-  `> **Heat pumps are not supported.** ...` (safety.md). Use for scope limits,
+  `> **Heat pumps:** ...` (safety.md). Use for scope limits,
   safety warnings, and upgrade caveats.
 - **Settings tables**: `| Setting | Default | What it does |` with bold setting
   names, explicit defaults including "0 (disabled)", and recommended values inline

@@ -676,6 +676,23 @@ class ZoneProfileSchema(Schema):
     backup_heat = fields.Str(metadata={"description": "electric | gas | none"})
     equipment_running_entity = fields.Str(allow_none=True)
     heat_kit_confirmed = fields.Bool()
+    hp_max_step_f = fields.Float(
+        metadata={
+            "description": "Heat pump: max setpoint above room temperature (delta, °F stored)"
+        }
+    )
+    hp_recovery_f_per_hr = fields.Float(
+        metadata={"description": "Heat pump: max warm-up rate (delta per hour, °F stored)"}
+    )
+    hp_min_runtime_min = fields.Int()
+    hp_min_open_heat_pct = fields.Int()
+    hp_switchover_gap_min = fields.Int()
+    aux_heat_running = fields.Bool(
+        metadata={"description": "Backup heat is running now (zone list only)"}
+    )
+    hp_compressor_lockout_f = fields.Float(
+        allow_none=True, metadata={"description": "Planning only (absolute, °F stored)"}
+    )
 
 
 class ZoneProfileWriteSchema(Schema):
@@ -686,6 +703,22 @@ class ZoneProfileWriteSchema(Schema):
     backup_heat = fields.Str()
     equipment_running_entity = fields.Str(allow_none=True)
     heat_kit_confirmed = fields.Bool()
+    hp_max_step_f = fields.Float(
+        metadata={
+            "description": "Heat pump: max setpoint above room temperature (delta, in the display unit)"
+        }
+    )
+    hp_recovery_f_per_hr = fields.Float(
+        metadata={
+            "description": "Heat pump: max warm-up rate (delta per hour, in the display unit)"
+        }
+    )
+    hp_min_runtime_min = fields.Int()
+    hp_min_open_heat_pct = fields.Int()
+    hp_switchover_gap_min = fields.Int()
+    hp_compressor_lockout_f = fields.Float(
+        allow_none=True, metadata={"description": "Planning only (absolute, in the display unit)"}
+    )
 
 
 class ImportPreviewSchema(Schema):

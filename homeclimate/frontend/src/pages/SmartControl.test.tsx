@@ -1,3 +1,4 @@
+import { HP_DEFAULTS } from "../zoneFixtures";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as api from "../api";
@@ -36,6 +37,7 @@ const zone = (id: string, name: string, building_id: string | null = null) => ({
   backup_heat: "electric" as const,
   equipment_running_entity: null,
   heat_kit_confirmed: false,
+  ...HP_DEFAULTS,
 });
 
 const room = (id: string, name: string, thermostat_entity_id: string) =>

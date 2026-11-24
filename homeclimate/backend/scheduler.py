@@ -20,7 +20,7 @@ from datetime import UTC, datetime, timedelta
 import aiosqlite
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from . import db, openings, tz
+from . import db, heat_pump, openings, tz, zones
 from .engine import room_manager
 from .engine.cycle_engine import CycleEngine
 from .engine.vent_controller import VentController
@@ -144,6 +144,11 @@ class Scheduler:
         self._bg_tasks: set[asyncio.Task] = set()
         # Door and window pausing (Smart Control). Timers live in memory.
         self._openings = openings.OpeningMonitor()
+        # Heat pump protection: guards per heat pump zone, refreshed each tick
+        # and after a zone edit; backup-heat episodes from equipment sources.
+        self._heat_pumps: dict[str, heat_pump.HeatPumpGuards] = {}
+        self._zone_profiles: dict[str, zones.ZoneProfile] = {}
+        self._aux = heat_pump.AuxMonitor()
 
     def _spawn_bg(self, coro: Coroutine) -> asyncio.Task:
         """Create a background task and keep a strong reference until it
@@ -212,6 +217,7 @@ class Scheduler:
         self._vent_ctrl = VentController(self._ha, event_logger=self._event_logger)
 
         await self._sync_engines()
+        await self._load_heat_pumps()
         # Learn which door and window sensors to watch before events arrive.
         await self._evaluate_openings()
 
@@ -974,6 +980,7 @@ class Scheduler:
     # ------------------------------------------------------------------
 
     async def refresh_engines(self) -> None:
+        await self._load_heat_pumps()
         await self._sync_engines()
 
     async def _sync_engines(self) -> None:
@@ -1005,6 +1012,7 @@ class Scheduler:
             get_vacation_mode=functools.partial(self.is_vacation_for, tid),
             get_eco_suspended=functools.partial(self.is_eco_suspended, tid),
             get_openings=functools.partial(self._openings.pause_for, tid),
+            get_heat_pump=functools.partial(self._heat_pumps.get, tid),
         )
 
     async def _sync_engines_locked(self) -> None:
@@ -1291,6 +1299,8 @@ class Scheduler:
         await self._refresh_continuous_presence()
         await self._refresh_reported_states()
         await self._evaluate_openings()
+        await self._load_heat_pumps()
+        await self._watch_backup_heat()
         tasks = [self._tick_engine(tid, eng) for tid, eng in self._engines.items()]
         await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -1334,6 +1344,43 @@ class Scheduler:
                 },
             )
         return touched
+
+    async def _load_heat_pumps(self) -> None:
+        """Refresh heat pump guards in place (engines hold the dict's ``get``)."""
+        profiles = await zones.list_zone_profiles(self._db_conn)
+        self._zone_profiles = {z.thermostat_entity_id: z for z in profiles}
+        fresh = {
+            z.thermostat_entity_id: g
+            for z in profiles
+            if (g := heat_pump.HeatPumpGuards.from_profile(z)) is not None
+        }
+        self._heat_pumps.clear()
+        self._heat_pumps.update(fresh)
+
+    def aux_heat_running(self, thermostat_entity_id: str) -> bool:
+        return self._aux.running_since(thermostat_entity_id) is not None
+
+    async def _watch_backup_heat(self) -> None:
+        """Log each backup (aux) heat episode seen on an equipment source."""
+        now = datetime.now(UTC)
+        for tid, zone in self._zone_profiles.items():
+            source = zone.equipment_running_entity
+            running = heat_pump.aux_running(source, self._ha.get_state(source) if source else None)
+            episode = self._aux.update(tid, running, now)
+            if episode is None or self._event_logger is None:
+                continue
+            name = zone.name or tid
+            message = (
+                f"Backup heat started on {name}"
+                if episode.started
+                else f"Backup heat stopped on {name} after {episode.minutes:g} min"
+            )
+            await self._event_logger.log(
+                "warning" if episode.started else "info",
+                "engine",
+                message,
+                {"thermostat": tid, "source": source, "minutes": episode.minutes},
+            )
 
     async def refresh_openings(self) -> None:
         """Re-evaluate pauses after a settings or sensor change and act at once."""

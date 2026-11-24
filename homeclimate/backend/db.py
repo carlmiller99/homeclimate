@@ -188,7 +188,16 @@ CREATE TABLE IF NOT EXISTS zone_profiles (
     compressor_stages INTEGER NOT NULL DEFAULT 1,
     backup_heat TEXT NOT NULL DEFAULT 'electric',
     equipment_running_entity TEXT,
-    heat_kit_confirmed INTEGER NOT NULL DEFAULT 0
+    heat_kit_confirmed INTEGER NOT NULL DEFAULT 0,
+    -- Heat pump protection (used only when system_type = 'heat_pump').
+    -- Stored in °F like every temperature: step and recovery rate are deltas,
+    -- the lockout an absolute temperature.
+    hp_max_step_f REAL NOT NULL DEFAULT 1.0,
+    hp_recovery_f_per_hr REAL NOT NULL DEFAULT 2.0,
+    hp_min_runtime_min INTEGER NOT NULL DEFAULT 15,
+    hp_min_open_heat_pct INTEGER NOT NULL DEFAULT 50,
+    hp_switchover_gap_min INTEGER NOT NULL DEFAULT 60,
+    hp_compressor_lockout_f REAL
 );
 
 -- HomeClimate Smart Control: door and window sensors. Each sensor pauses

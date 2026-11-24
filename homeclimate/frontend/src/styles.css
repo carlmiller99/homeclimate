@@ -2251,3 +2251,39 @@ tr:hover td {
   gap: 0.75rem;
   min-height: 40px;
 }
+
+/* ── Heat pump protection ── */
+.guard-list {
+  display: flex;
+  flex-direction: column;
+}
+.guard-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.7rem 0;
+  border-top: 1px solid var(--border);
+}
+.guard-text {
+  flex: 1;
+}
+.guard-text label {
+  font-weight: 600;
+}
+.guard-text .field-help {
+  margin: 0.1rem 0 0;
+}
+.guard-input {
+  width: 5.5rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.guard-unit {
+  width: 3.25rem;
+  font-size: 0.875rem;
+  color: var(--gray-600);
+}
+.pill-heat {
+  background: var(--state-heating-bg);
+  color: var(--state-heating-text);
+}
