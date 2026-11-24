@@ -859,6 +859,31 @@ class ShadesSchema(Schema):
     shades = fields.List(fields.Nested(ShadeSchema))
 
 
+class LearningSettingsSchema(Schema):
+    sampling_enabled = fields.Bool()
+    sample_retention_days = fields.Int()
+
+
+class LearningRoomSchema(Schema):
+    room_id = fields.Str()
+    name = fields.Str()
+    thermostat_entity_id = fields.Str()
+    samples = fields.Int()
+    days = fields.Float()
+    with_temperature_pct = fields.Int()
+    first_sample_at = fields.Str(allow_none=True)
+    last_sample_at = fields.Str(allow_none=True)
+
+
+class LearningSchema(Schema):
+    settings = fields.Nested(LearningSettingsSchema)
+    samples = fields.Int()
+    collecting_since = fields.Str(allow_none=True)
+    sample_every_min = fields.Int()
+    checked_at = fields.Str()
+    rooms = fields.List(fields.Nested(LearningRoomSchema))
+
+
 class AuxSummarySchema(Schema):
     episodes = fields.Int(metadata={"description": "Auxiliary heat episodes that started in range"})
     minutes = fields.Float(metadata={"description": "Total auxiliary heat minutes"})

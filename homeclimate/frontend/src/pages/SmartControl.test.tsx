@@ -15,6 +15,7 @@ vi.mock("../smartControlApi", async (orig) => ({
 }));
 // Both have their own suites; here they only need to show where they render.
 vi.mock("./Schedules", () => ({ default: () => <p>schedules page</p> }));
+vi.mock("./LearningSection", () => ({ default: () => <p>learning section</p> }));
 vi.mock("./ShadesSection", () => ({
   default: ({ rooms }: { rooms: { name: string }[] }) => (
     <p>shades for {rooms.map((r) => r.name).join(", ")}</p>
@@ -162,6 +163,16 @@ describe("Smart Control", () => {
     renderAt(`/smart-control?section=${encodeURIComponent(sc.PLANNED_SECTIONS[0])}`);
     expect(screen.getByText("schedules page")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Schedules" })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("opens Smart Learning from the side menu", () => {
+    renderAt("/smart-control?section=smart-learning");
+    expect(screen.getByText("learning section")).toBeInTheDocument();
+    expect(screen.queryByText("schedules page")).toBeNull();
+    expect(screen.getByRole("link", { name: "Smart Learning" })).toHaveAttribute(
+      "aria-current",
+      "page"
+    );
   });
 
   it("shows a loading line, then the rules, overrides and shades", async () => {

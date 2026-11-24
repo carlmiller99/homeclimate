@@ -47,7 +47,7 @@ export interface SmartControl {
 /** Where a door or window is, and whether it pauses that room or its whole zone. */
 export type ContactTarget = { room_id: string; pauses: "room" | "zone" };
 
-export const PLANNED_SECTIONS = ["Fireplace Compensation", "Smart Learning", "Forecasts"];
+export const PLANNED_SECTIONS = ["Fireplace Compensation", "Forecasts"];
 export const OPENINGS_NOTE =
   "Only a door or window opening starts the timer. A sensor that goes offline releases its pause.";
 

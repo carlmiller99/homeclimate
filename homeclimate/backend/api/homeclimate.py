@@ -11,7 +11,7 @@ from datetime import date, datetime, time, timedelta
 
 from aiohttp import web
 
-from .. import db, ha_import, heat_pump, openings, shades, tz, zones
+from .. import db, ha_import, heat_pump, learning, openings, shades, tz, zones
 from ..units import delta_to_f, to_f
 from ..user_errors import UserError, safe_text
 from . import schemas
@@ -384,6 +384,36 @@ async def update_shade_settings(request: web.Request) -> web.Response:
         return error(safe_text(exc))
     await emit(request, "info", "api", "Shade settings updated", body)
     return json_response(await _shades_snapshot(request))
+
+
+async def _learning_snapshot(request: web.Request) -> dict:
+    conn = await get_conn(request)
+    return {
+        "settings": await learning.get_settings(conn),
+        **await learning.status(conn, now=datetime.now(tz.UTC)),
+    }
+
+
+@docs(tags=["learning"], summary="Smart Learning settings and how much each room has collected")
+@response_schema(schemas.LearningSchema)
+@routes.get("/api/learning")
+async def get_learning(request: web.Request) -> web.Response:
+    return json_response(await _learning_snapshot(request))
+
+
+@docs(tags=["learning"], summary="Update Smart Learning settings")
+@request_schema(schemas.LearningSettingsSchema)
+@response_schema(schemas.LearningSchema)
+@routes.put("/api/learning/settings")
+async def update_learning_settings(request: web.Request) -> web.Response:
+    body = await _json_object(request)
+    conn = await get_conn(request)
+    try:
+        await learning.update_settings(conn, body)
+    except UserError as exc:
+        return error(safe_text(exc))
+    await emit(request, "info", "api", "Smart Learning settings updated", body)
+    return json_response(await _learning_snapshot(request))
 
 
 @docs(tags=["shades"], summary="Add a shade to a room, or change one")

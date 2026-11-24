@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.2
+
+- Smart Control → Smart Learning: HomeClimate records a reading of every room every 5 minutes (temperature, vents, occupancy, open doors and windows, equipment state, outside temperature). Recording changes nothing about how the home is controlled. Collect Room Data turns it off, Keep Room Data For sets how long readings are kept (60 days by default), and the section shows how much each room has collected. See docs/smart-learning.md.
+
 ## 0.5.0
 
 - First HomeClimate release.
