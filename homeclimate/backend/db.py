@@ -210,6 +210,10 @@ CREATE TABLE IF NOT EXISTS contact_sensors (
     thermostat_entity_id TEXT
         REFERENCES thermostat_configs(thermostat_entity_id) ON DELETE CASCADE,
     room_id TEXT REFERENCES rooms(id) ON DELETE CASCADE,
+    -- 'room': pauses just room_id; 'zone': pauses room_id's whole zone.
+    -- (Rows written before 0.5.0's room-only model have thermostat_entity_id
+    -- set instead of room_id and always pause that zone.)
+    pauses TEXT NOT NULL DEFAULT 'room',
     CHECK ((thermostat_entity_id IS NULL) <> (room_id IS NULL))
 );
 
@@ -1226,6 +1230,14 @@ MIGRATIONS: tuple[Migration, ...] = (
             "INTEGER NOT NULL DEFAULT 60",
             "ALTER TABLE thermostat_configs ADD COLUMN welcome_home_hours "
             "REAL NOT NULL DEFAULT 1.0",
+        ),
+    ),
+    Migration(
+        23,
+        "Add pauses to contact_sensors and hp_aux_policy to zone_profiles (HomeClimate)",
+        (
+            "ALTER TABLE contact_sensors ADD COLUMN pauses TEXT NOT NULL DEFAULT 'room'",
+            "ALTER TABLE zone_profiles ADD COLUMN hp_aux_policy TEXT NOT NULL DEFAULT 'avoid'",
         ),
     ),
 )

@@ -6,6 +6,17 @@ import { SystemContext, DevModeContext, UnitContext, buildUnitContext } from "..
 import { ecoThermostatDefaults, ecoRoomDefaults, makeHold } from "../testFixtures";
 
 vi.mock("../api");
+vi.mock("../smartControlApi", async (orig) => ({
+  ...(await orig<typeof import("../smartControlApi")>()),
+  getSmartControl: vi
+    .fn()
+    .mockResolvedValue({ settings: {}, overrides: [], sensors: [], paused: [] }),
+}));
+vi.mock("../zonesApi", async (orig) => ({
+  ...(await orig<typeof import("../zonesApi")>()),
+  getZones: vi.fn().mockResolvedValue([]),
+  getBuildings: vi.fn().mockResolvedValue([]),
+}));
 
 const mockSystem = { enabled: true, toggle: vi.fn().mockResolvedValue(undefined) };
 const mockDevMode = { devMode: false, toggleDevMode: vi.fn().mockResolvedValue(undefined) };
@@ -74,6 +85,11 @@ describe("Dashboard — uncovered branches", () => {
     vi.mocked(api.getSensorStaleness).mockResolvedValue({ stale_after_min: 30 });
     vi.mocked(api.getThermostatHealth).mockResolvedValue({ thermostats: [] });
     vi.mocked(api.connectWS).mockReturnValue(() => {});
+    // Room sensor lists and readings for the per-room temperatures.
+    vi.mocked(api.getRoom).mockImplementation(
+      async (id) => ({ id, sensors: [] }) as unknown as api.Room
+    );
+    vi.mocked(api.getEntityStates).mockResolvedValue({});
     vi.mocked(api.getVacationMode).mockResolvedValue({ enabled: false, return_at: null });
     vi.mocked(api.getOverrides).mockResolvedValue([]);
     vi.mocked(api.getStatus).mockResolvedValue([]);
@@ -130,10 +146,10 @@ describe("Dashboard — uncovered branches", () => {
     renderDashboard();
     await screen.findByText("Upstairs");
 
-    const den = screen.getByText("Den").closest(".stat-row") as HTMLElement;
+    const den = screen.getByText("Den").closest(".dash-room") as HTMLElement;
     expect(within(den).getByText("1/4 open")).toBeInTheDocument();
 
-    const study = screen.getByText("Study").closest(".stat-row") as HTMLElement;
+    const study = screen.getByText("Study").closest(".dash-room") as HTMLElement;
     expect(within(study).getByText("2/2 open")).toBeInTheDocument();
   });
 
@@ -189,10 +205,10 @@ describe("Dashboard — uncovered branches", () => {
     expect(screen.getByText("1/2 rooms at target")).toBeInTheDocument();
 
     // The room with no reading renders the em-dash placeholder.
-    const denRow = screen.getByText("Den").closest(".stat-row") as HTMLElement;
+    const denRow = screen.getByText("Den").closest(".dash-room") as HTMLElement;
     expect(within(denRow).getByText("—")).toBeInTheDocument();
     // …and the one that has a reading still renders a formatted temperature.
-    const studyRow = screen.getByText("Study").closest(".stat-row") as HTMLElement;
+    const studyRow = screen.getByText("Study").closest(".dash-room") as HTMLElement;
     expect(within(studyRow).getByText("68.0°F")).toBeInTheDocument();
   });
 
@@ -233,7 +249,7 @@ describe("Dashboard — uncovered branches", () => {
 
   // ── Zone card with no readings and no active rooms ────────────────────────
 
-  it("renders dashes and no active-rooms section for a zone with no readings", async () => {
+  it("renders dashes, and still lists idle rooms, for a zone with no readings", async () => {
     vi.mocked(api.getStatus).mockResolvedValue([
       {
         thermostat_entity_id: "climate.a",
@@ -265,15 +281,17 @@ describe("Dashboard — uncovered branches", () => {
     expect(within(card).getByText("idle").className).toBe("badge badge-gray");
     expect(container.querySelector(".progress-fill")).toBeNull();
 
-    // 0 of the zone's 2 configured rooms are active → no "Active rooms" list.
+    // 0 of the zone's 2 rooms are active, but both are still listed, each
+    // with a Hold control and a dash until a sensor reports.
     const activeCount = screen.getByText("Active rooms").parentElement as HTMLElement;
     expect(activeCount).toHaveTextContent("0 / 2");
-    expect(screen.queryByText("Den")).not.toBeInTheDocument();
-    expect(screen.queryByText("Study")).not.toBeInTheDocument();
-    // Only the stat-row label survives — the "Active rooms" section heading is
-    // not emitted at all for an empty list.
-    expect(screen.getAllByText("Active rooms")).toHaveLength(1);
-    expect(within(card).queryByText("Active rooms", { selector: ".text-sm" })).toBeNull();
+    for (const id of ["r1", "r2"]) {
+      const row = within(card).getByTestId(`dash-room-${id}`);
+      expect(within(row).getByText("—")).toBeInTheDocument();
+      expect(within(row).getByRole("button", { name: /^Hold for / })).toBeInTheDocument();
+      expect(within(row).queryByRole("button", { name: /^Clear Presence/ })).toBeNull();
+      expect(within(row).queryByText(/requesting/)).toBeNull();
+    }
   });
 
   // ── Vacation mode payload guard (line 379) ────────────────────────────────

@@ -48,8 +48,7 @@ export default function StaleSensorsBanner() {
           ⚠ {total} sensor{total === 1 ? "" : "s"} not reporting
         </strong>
         <span className="text-sm text-muted">
-          (threshold: {Math.round(health.stale_after_min)} min — configurable on the Thermostats
-          page)
+          (threshold: {Math.round(health.stale_after_min)} min — configurable in Settings, Sensors)
         </span>
       </div>
       <div className="text-sm" style={{ marginTop: ".5rem", color: "var(--gray-700)" }}>

@@ -15,7 +15,7 @@ Use **Off** while you're transitioning from another HVAC control system, or any 
 
 **Dev Mode** intercepts every HA service call that HomeClimate would make — `climate.set_temperature`, `climate.set_hvac_mode`, `cover.open_cover`, `cover.close_cover`, `cover.set_cover_position`, `cover.set_cover_tilt_position`, `cover.toggle` — and logs them to the event log instead of sending them to Home Assistant.
 
-- **On** — the engine runs normally, picks rooms, computes vent moves, but nothing reaches HA. Check the **Logs** page to see what *would* have been sent.
+- **On** — the engine runs normally, picks rooms, computes vent moves, but nothing reaches HA. Check **Settings → Logs** to see what *would* have been sent.
 - **Off** — service calls go through as usual.
 
 Flipping Dev Mode in *either* direction — not just System Off — force-aborts any in-flight cycle first (vents restored, setpoint parked), even while System stays On. This guarantees a clean slate: without it, a cycle that started before the toggle would keep running under the old interception state until it finished on its own. Expect a real HVAC cycle in progress to be interrupted and immediately re-evaluated (and possibly restarted) the moment you flip Dev Mode, the same as flipping System On/Off (`scheduler.py`'s `_reset_and_reevaluate`, invoked by both `set_system_enabled` and `set_dev_mode`).

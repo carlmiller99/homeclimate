@@ -853,7 +853,7 @@ class CycleEngine:
                             f"Cooling lockout is configured for {self.thermostat_entity_id} "
                             "but the outdoor-temperature sensor is unset or unreadable — "
                             "allowing the cooling cycle (fail-open). Set the outdoor sensor "
-                            "on the Thermostats page for the lockout to take effect.",
+                            "in Settings, Sensors for the lockout to take effect.",
                             {"thermostat": self.thermostat_entity_id},
                         )
                 elif lockout_state == "locked_out":
@@ -1057,10 +1057,7 @@ class CycleEngine:
         if self._cycle_log and self._state == CycleState.RUNNING:
             tc = await self._load_tc(conn)
             elapsed = datetime.now(UTC) - self._cycle_log.started_at
-            timeout_hours = tc.cycle_timeout_hours
-            if self._heat_pump() is not None and self._cycle_mode == "heating":
-                timeout_hours *= hp_rules.TIMEOUT_FACTOR  # defrost allowance
-            if elapsed > timedelta(hours=timeout_hours):
+            if elapsed > timedelta(hours=self._cycle_timeout_hours(tc)):
                 log.warning(
                     "Cycle %s timed out after %.1fh — terminating",
                     self._cycle_log.id,
@@ -5710,6 +5707,12 @@ class CycleEngine:
             if self._hp_strips:
                 changes["deadband"] = tc.deadband + hp_rules.STRIPS_EXTRA_DEADBAND_F
         return dataclasses.replace(tc, **changes)
+
+    def _cycle_timeout_hours(self, tc: ThermostatConfig) -> float:
+        """The cycle timeout, with the heat pump defrost allowance when heating."""
+        if self._heat_pump() is not None and self._cycle_mode == "heating":
+            return tc.cycle_timeout_hours * hp_rules.TIMEOUT_FACTOR
+        return float(tc.cycle_timeout_hours)
 
     @property
     def strips_expected(self) -> bool:

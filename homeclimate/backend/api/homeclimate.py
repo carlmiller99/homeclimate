@@ -217,21 +217,23 @@ async def _smart_control_snapshot(request: web.Request) -> dict:
     monitor: openings.OpeningMonitor = scheduler.openings
     ha = request.app["ha"]
     sensors = []
+    room_zone = {r.id: r.thermostat_entity_id for r in await db.get_all_rooms(conn)}
     for c in await openings.list_contacts(conn):
         state = ha.get_state(c.entity_id)
         attrs = (state or {}).get("attributes") or {}
-        scope = ("room", c.room_id) if c.room_id else ("zone", str(c.thermostat_entity_id))
+        zone_id = c.thermostat_entity_id or room_zone.get(str(c.room_id))
+        scope = ("zone", str(zone_id)) if c.pauses == "zone" else ("room", str(c.room_id))
         kind = openings.classify(state)
         sensors.append(
             {
                 "entity_id": c.entity_id,
                 "name": attrs.get("friendly_name") or c.entity_id,
-                "thermostat_entity_id": c.thermostat_entity_id,
+                "thermostat_entity_id": zone_id,
                 "room_id": c.room_id,
+                "pauses": c.pauses,
                 "state": kind,
                 "open_since": _iso(monitor.open_since(c.entity_id)) if kind == "open" else None,
-                "pausing": kind == "open"
-                and monitor.paused_since(scope[0], str(scope[1])) is not None,
+                "pausing": kind == "open" and monitor.paused_since(*scope) is not None,
             }
         )
     return {
@@ -294,7 +296,9 @@ async def update_smart_control_override(request: web.Request) -> web.Response:
     return json_response(await _smart_control_snapshot(request))
 
 
-@docs(tags=["smart-control"], summary="Attach a door or window sensor to a zone or a room")
+@docs(
+    tags=["smart-control"], summary="Put a door or window sensor in a room, and say what it pauses"
+)
 @request_schema(schemas.ContactSensorWriteSchema)
 @response_schema(schemas.SmartControlSchema)
 @routes.put("/api/smart-control/contacts/{entity_id:[^/]+}")
@@ -304,7 +308,7 @@ async def save_contact_sensor(request: web.Request) -> web.Response:
     entity_id = request.match_info["entity_id"]
     try:
         await openings.save_contact(
-            conn, entity_id, body.get("thermostat_entity_id"), body.get("room_id")
+            conn, entity_id, body.get("room_id"), body.get("pauses", "room")
         )
     except UserError as exc:
         return error(safe_text(exc))

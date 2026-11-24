@@ -1,7 +1,15 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import EntityPicker from "../components/EntityPicker";
+import {
+  createRoom,
+  createThermostat,
+  deleteThermostat,
+  getThermostats,
+  type ThermostatConfig,
+} from "../api";
 import { useUnit } from "../contexts";
+import { ThermostatCard } from "./Thermostats";
 import {
   BACKUP_HEAT_LABELS,
   createBuilding,
@@ -129,6 +137,7 @@ function ZoneEditor({
     hp_aux_policy: zone.hp_aux_policy,
   });
   const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const hp = form.system_type === "heat_pump";
   const needsKitCheck = hp && form.backup_heat === "electric" && !form.heat_kit_confirmed;
@@ -136,8 +145,10 @@ function ZoneEditor({
   const save = async () => {
     setSaving(true);
     setErr(null);
+    setSaved(false);
     try {
       onSaved(await updateZone(zone.thermostat_entity_id, form));
+      setSaved(true);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Could not save this zone");
     } finally {
@@ -340,12 +351,16 @@ function ZoneEditor({
 
         {err && <p className="form-error">{err}</p>}
         <div className="zone-editor-actions">
-          <Link className="btn btn-secondary" to="/thermostats">
-            Thermostat Settings
-          </Link>
+          {saved && (
+            <span className="field-help" role="status">
+              Zone saved.
+            </span>
+          )}
           <span className="spacer" />
+          {/* Saving keeps the zone open: the thermostat settings below save
+              separately, and closing here would drop edits made to them. */}
           <button type="button" className="btn btn-secondary" onClick={onCancel}>
-            Cancel
+            Close
           </button>
           <button type="button" className="btn btn-primary" onClick={save} disabled={saving}>
             Save Zone
@@ -429,19 +444,201 @@ function BuildingHeader({
   );
 }
 
-export default function Zones() {
+const BUILDING_NOT_SET =
+  "The zone was added, but could not be put in its building. Edit the zone to try again.";
+
+const VENT_COUNT_HELP =
+  "Count every register this thermostat serves, smart vents and ordinary ones. " +
+  "HomeClimate uses it to keep enough vents open to protect the equipment.";
+
+/** Register a thermostat as a zone together with its first room. */
+function AddZone({
+  buildings,
+  taken,
+  onAdded,
+  onCancel,
+}: {
+  buildings: Building[];
+  /** Thermostats that are already zones. */
+  taken: string[];
+  /** Called once the zone exists; ``warning`` when a later step failed. */
+  onAdded: (warning?: string) => void;
+  onCancel: () => void;
+}) {
+  const [thermostat, setThermostat] = useState("");
+  const [name, setName] = useState("");
+  const [buildingId, setBuildingId] = useState("");
+  const [roomName, setRoomName] = useState("");
+  const [vents, setVents] = useState("");
+  const [err, setErr] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  // The backend requires a whole number of registers, at least one (#213).
+  const ventCount = /^\d+$/.test(vents.trim()) ? parseInt(vents, 10) : 0;
+  // Registering a thermostat again would overwrite that zone's settings.
+  const isTaken = taken.includes(thermostat);
+
+  const add = async () => {
+    setErr(null);
+    setSaving(true);
+    try {
+      await createThermostat({
+        thermostat_entity_id: thermostat,
+        name: name.trim(),
+        total_vents_count: ventCount,
+      });
+      try {
+        await createRoom({ name: roomName.trim(), thermostat_entity_id: thermostat });
+      } catch (e) {
+        // A zone must have a room: undo the zone if its first room failed.
+        await deleteThermostat(thermostat).catch(() => {});
+        throw e;
+      }
+      if (buildingId) {
+        try {
+          await updateZone(thermostat, { building_id: buildingId });
+        } catch {
+          // The zone and its room exist; only the building is missing.
+          onAdded(BUILDING_NOT_SET);
+          return;
+        }
+      }
+      onAdded();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Could not add the zone");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="card add-building" role="group" aria-label="Add Zone">
+      <p className="field-help">
+        A zone is one thermostat and the rooms it serves. Every zone needs at least one room.
+      </p>
+      <div className="add-sensor-fields">
+        <div className="field-stack">
+          <span className="field-label">Thermostat</span>
+          {thermostat ? (
+            <div className="picked-entity">
+              <span>{thermostat}</span>
+              <button type="button" className="link-button" onClick={() => setThermostat("")}>
+                Change
+              </button>
+            </div>
+          ) : (
+            <EntityPicker
+              domain="climate"
+              placeholder="Search thermostats…"
+              onSelect={setThermostat}
+            />
+          )}
+        </div>
+        <label className="field-stack">
+          Zone Name
+          <input
+            className="form-control"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Upstairs"
+          />
+        </label>
+        <label className="field-stack">
+          Building
+          <select
+            className="form-control"
+            value={buildingId}
+            onChange={(e) => setBuildingId(e.target.value)}
+          >
+            <option value="">Unassigned</option>
+            {buildings.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field-stack">
+          First Room
+          <input
+            className="form-control"
+            value={roomName}
+            onChange={(e) => setRoomName(e.target.value)}
+            placeholder="Living Room"
+          />
+        </label>
+        <label className="field-stack">
+          Total Vent Count
+          <input
+            className="form-control"
+            type="number"
+            min="1"
+            step="1"
+            value={vents}
+            onChange={(e) => setVents(e.target.value)}
+            placeholder="12"
+          />
+        </label>
+      </div>
+      <p className="field-help">{VENT_COUNT_HELP}</p>
+      {isTaken && (
+        <p className="form-error">
+          That thermostat is already a zone. Use Add Room to add a room to it.
+        </p>
+      )}
+      {err && <p className="form-error">{err}</p>}
+      <div className="zone-editor-actions">
+        <button type="button" className="btn btn-secondary" onClick={onCancel}>
+          Cancel
+        </button>
+        <button
+          type="button"
+          className="btn btn-primary"
+          disabled={
+            isTaken || !thermostat || !name.trim() || !roomName.trim() || ventCount < 1 || saving
+          }
+          onClick={add}
+        >
+          Add Zone
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The structure half of My Home: buildings, zones (with equipment and
+ * thermostat settings), and — through ``renderRooms`` — each zone's rooms.
+ */
+export default function Zones({
+  title = "My Home",
+  subtitle = "Buildings, zones and rooms, and the devices in each room.",
+  extraActions,
+  renderRooms,
+  reloadKey = 0,
+  onChanged,
+}: {
+  title?: string;
+  subtitle?: string;
+  extraActions?: ReactNode;
+  renderRooms?: (thermostatEntityId: string) => ReactNode;
+  reloadKey?: number;
+  onChanged?: () => void;
+}) {
   const [zones, setZones] = useState<ZoneProfile[] | null>(null);
   const [buildings, setBuildings] = useState<Building[]>([]);
+  const [configs, setConfigs] = useState<ThermostatConfig[]>([]);
   const [editing, setEditing] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [addingZone, setAddingZone] = useState(false);
   const [newName, setNewName] = useState("");
   const [err, setErr] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const [z, b] = await Promise.all([getZones(), getBuildings()]);
+      const [z, b, c] = await Promise.all([getZones(), getBuildings(), getThermostats()]);
       setZones(z);
       setBuildings(b);
+      setConfigs(c);
     } catch {
       setErr("Could not load zones");
       setZones([]);
@@ -450,7 +647,12 @@ export default function Zones() {
 
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, reloadKey]);
+
+  const changed = async () => {
+    await load();
+    onChanged?.();
+  };
 
   const addBuilding = async () => {
     setErr(null);
@@ -464,25 +666,27 @@ export default function Zones() {
     }
   };
 
-  const groups = groupByBuilding(buildings, zones ?? [], (z) => z.building_id);
+  const zoneList = zones ?? [];
+  const groups = groupByBuilding(buildings, zoneList, (z) => z.building_id);
 
   return (
     <div className="zones-page">
       <div className="page-header">
         <div>
-          <h1 className="page-title">Zones</h1>
-          <p className="page-subtitle">One zone per thermostat, grouped by building.</p>
+          <h1 className="page-title">{title}</h1>
+          <p className="page-subtitle">{subtitle}</p>
         </div>
         <div className="page-actions">
           <Link className="btn btn-secondary" to="/import">
             Set Up from Home Assistant
           </Link>
-          <Link className="btn btn-secondary" to="/thermostats">
-            Add Thermostat
-          </Link>
           <button type="button" className="btn btn-secondary" onClick={() => setAdding(true)}>
             Add Building
           </button>
+          <button type="button" className="btn btn-secondary" onClick={() => setAddingZone(true)}>
+            Add Zone
+          </button>
+          {extraActions}
         </div>
       </div>
 
@@ -508,10 +712,25 @@ export default function Zones() {
         </div>
       )}
 
+      {addingZone && (
+        <AddZone
+          buildings={buildings}
+          taken={zoneList.map((z) => z.thermostat_entity_id)}
+          onCancel={() => setAddingZone(false)}
+          onAdded={(warning) => {
+            setAddingZone(false);
+            void changed().then(() => setErr(warning ?? null));
+          }}
+        />
+      )}
+
       {err && <p className="form-error">{err}</p>}
 
       {zones !== null && zones.length === 0 && buildings.length === 0 && (
-        <div className="empty-panel">No zones yet. Add a thermostat to create the first zone.</div>
+        <div className="empty-panel">
+          No zones yet. Add a zone with its thermostat and first room, or set up from Home
+          Assistant.
+        </div>
       )}
 
       {groups.map((g) => (
@@ -533,49 +752,88 @@ export default function Zones() {
               No zones in this building yet. Edit a zone to move it here.
             </div>
           )}
-          {g.items.map((z) =>
-            editing === z.thermostat_entity_id ? (
-              <ZoneEditor
+          {g.items.map((z) => {
+            const config = configs.find((c) => c.thermostat_entity_id === z.thermostat_entity_id);
+            return (
+              <section
                 key={z.thermostat_entity_id}
-                zone={z}
-                buildings={buildings}
-                onCancel={() => setEditing(null)}
-                onSaved={(saved) => {
-                  setEditing(null);
-                  setZones((all) =>
-                    (all ?? []).map((x) =>
-                      x.thermostat_entity_id === saved.thermostat_entity_id ? saved : x
-                    )
-                  );
-                }}
-              />
-            ) : (
-              <div key={z.thermostat_entity_id} className="zone-row">
-                <div className="zone-row-title">
-                  <div className="zone-name">{z.name || z.thermostat_entity_id}</div>
-                  <div className="zone-entity">{z.thermostat_entity_id}</div>
-                </div>
-                <span className="pill">{equipmentSummary(z)}</span>
-                {z.strips_expected && (
-                  <span className="pill pill-heat" title={STRIPS_EXPECTED_HELP}>
-                    Strips Expected
-                  </span>
+                className="zone-panel"
+                aria-label={z.name || z.thermostat_entity_id}
+              >
+                {editing === z.thermostat_entity_id ? (
+                  <>
+                    <ZoneEditor
+                      zone={z}
+                      buildings={buildings}
+                      onCancel={() => setEditing(null)}
+                      onSaved={(saved) => {
+                        setZones(
+                          zoneList.map((x) =>
+                            x.thermostat_entity_id === saved.thermostat_entity_id ? saved : x
+                          )
+                        );
+                      }}
+                    />
+                    {config && (
+                      <div className="zone-thermostat-settings">
+                        <h3 className="zone-section-title">Thermostat Settings</h3>
+                        <ThermostatCard
+                          config={config}
+                          onDeleted={() => {
+                            setEditing(null);
+                            void changed();
+                          }}
+                          onSaved={(updated) => {
+                            setConfigs((cs) =>
+                              cs.map((x) =>
+                                x.thermostat_entity_id === updated.thermostat_entity_id
+                                  ? updated
+                                  : x
+                              )
+                            );
+                            // The zone's name is the thermostat's friendly name.
+                            setZones(
+                              zoneList.map((x) =>
+                                x.thermostat_entity_id === updated.thermostat_entity_id
+                                  ? { ...x, name: updated.name }
+                                  : x
+                              )
+                            );
+                          }}
+                        />
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="zone-row zone-panel-head">
+                    <div className="zone-row-title">
+                      <div className="zone-name">{z.name || z.thermostat_entity_id}</div>
+                      <div className="zone-entity">{z.thermostat_entity_id}</div>
+                    </div>
+                    <span className="pill">{equipmentSummary(z)}</span>
+                    {z.strips_expected && (
+                      <span className="pill pill-heat" title={STRIPS_EXPECTED_HELP}>
+                        Strips Expected
+                      </span>
+                    )}
+                    {z.aux_heat_running && (
+                      <span className="pill pill-heat" role="status">
+                        Auxiliary Heat Running
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => setEditing(z.thermostat_entity_id)}
+                    >
+                      Edit Zone
+                    </button>
+                  </div>
                 )}
-                {z.aux_heat_running && (
-                  <span className="pill pill-heat" role="status">
-                    Auxiliary Heat Running
-                  </span>
-                )}
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={() => setEditing(z.thermostat_entity_id)}
-                >
-                  Edit
-                </button>
-              </div>
-            )
-          )}
+                {renderRooms?.(z.thermostat_entity_id)}
+              </section>
+            );
+          })}
         </section>
       ))}
     </div>

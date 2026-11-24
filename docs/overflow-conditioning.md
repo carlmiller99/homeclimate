@@ -85,7 +85,7 @@ The behaviour is controlled per-thermostat by `ThermostatConfig.overflow_during_
 
 ## Observability
 
-Every overflow open/close is recorded in the cycle vent-event stream (visible on the Logs page cycle-detail view):
+Every overflow open/close is recorded in the cycle vent-event stream (visible in the cycle-detail view under Settings → Logs):
 
 - `opened_overflow_hold` — reason includes the tier (`tier1`/`tier2`/`tier3`), the room's current temperature, and (for tier 3) the computed headroom.
 - `closed_overflow_hold` — reason notes that the room is no longer a candidate.

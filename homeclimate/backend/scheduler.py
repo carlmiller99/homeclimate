@@ -219,6 +219,7 @@ class Scheduler:
 
         await self._sync_engines()
         await self._load_heat_pumps()
+        await self.adopt_zone_contacts()
         # Learn which door and window sensors to watch before events arrive.
         await self._evaluate_openings()
 
@@ -1435,6 +1436,17 @@ class Scheduler:
                 "shades",
                 f"{self._friendly(move.entity_id)}: {move.reason}",
                 {"shade": move.entity_id, "action": move.action},
+            )
+
+    async def adopt_zone_contacts(self) -> None:
+        """Move door and window sensors from before they belonged to rooms."""
+        moved = await openings.adopt_zone_contacts(self._db_conn)
+        if moved and self._event_logger is not None:
+            await self._event_logger.log(
+                "info",
+                "openings",
+                f"Moved {moved} door or window sensor(s) from their zone into a room",
+                {"count": moved},
             )
 
     async def refresh_openings(self) -> None:

@@ -14,7 +14,7 @@ Cards update in real time — the Dashboard subscribes to the WebSocket and re-r
 
 ## Live feed
 
-The **Logs** page has a **Live Feed** tab that streams every significant event as it happens:
+**Settings → Logs** has a **Live Feed** tab that streams every significant event as it happens:
 
 - Engine decisions (cycle start, vents opened/closed, setpoint changes, cycle end).
 - Presence activations and holdover expiries.
@@ -52,7 +52,7 @@ The WebSocket is push-only from server to client; the UI opens it once and recon
 
 ## Retention
 
-The **Logs** page has a third tab, **Retention**, with three independent settings. Only two of the three delete anything; the middle one is a view, not a purge.
+**Logs** has a third tab, **Retention**, with three independent settings. Only two of the three delete anything; the middle one is a view, not a purge.
 
 | Setting | Default | What it governs |
 |---|---|---|

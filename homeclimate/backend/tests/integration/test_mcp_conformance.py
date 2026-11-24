@@ -476,6 +476,8 @@ async def test_delete_room_over_mcp_removes_it(
     """DELETE carries no body — a verb whose request shaping differs from writes."""
     _, room = await _create_room(mcp, _unique("conf-del"))
     room_id = room["id"]
+    # A zone keeps its last room, so make sure this one is not alone.
+    await _create_room(mcp, _unique("conf-keep"))
 
     reply = await mcp.call_tool_raw("delete_rooms_room_id", {"room_id": room_id})
     assert not tool_failed(reply), f"delete failed: {reply}"

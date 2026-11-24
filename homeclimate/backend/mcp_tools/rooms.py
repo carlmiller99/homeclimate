@@ -9,7 +9,7 @@ import aiosqlite
 from mcp.server.mcpserver import MCPServer
 from mcp.types import TextContent
 
-from .. import db
+from .. import db, structure
 from ..models import Room, RoomOverride, RoomPresenceSensor, RoomSensor, RoomVent
 from ..units import to_f
 from ._units import active_unit, echo_abs
@@ -82,6 +82,9 @@ def register(server: MCPServer, conn: aiosqlite.Connection) -> None:
         system_wide_temp: fixed target in the configured display unit (°C/°F),
         stored as °F. Omit to follow schedules instead of a fixed target.
         """
+        problem = structure.zone_id_problem(thermostat_entity_id)
+        if problem is not None:
+            return [TextContent(type="text", text=problem)]
         unit = await active_unit(conn)
         sys_temp_f = to_f(system_wide_temp, unit) if system_wide_temp is not None else None
         room = Room.create(
@@ -92,6 +95,9 @@ def register(server: MCPServer, conn: aiosqlite.Connection) -> None:
             include_thermostat_sensor=include_thermostat_sensor,
             notes=notes,
         )
+        # Every room belongs to a zone: an unregistered thermostat gets its zone
+        # (with default settings) along with its first room.
+        await structure.ensure_zone(conn, thermostat_entity_id)
         await db.upsert_room(conn, room)
         suffix = (
             f" (system_wide_temp {echo_abs(sys_temp_f, unit)})" if sys_temp_f is not None else ""
@@ -118,7 +124,13 @@ def register(server: MCPServer, conn: aiosqlite.Connection) -> None:
             return [TextContent(type="text", text=f"Room {room_id} not found")]
         if name is not None:
             room.name = name
-        if thermostat_entity_id is not None:
+        if thermostat_entity_id is not None and thermostat_entity_id != room.thermostat_entity_id:
+            problem = structure.zone_id_problem(thermostat_entity_id)
+            if problem is not None:
+                return [TextContent(type="text", text=problem)]
+            # A zone keeps at least one room.
+            if await structure.is_last_room(conn, room):
+                return [TextContent(type="text", text=structure.ZONE_NEEDS_A_ROOM)]
             room.thermostat_entity_id = thermostat_entity_id
         if system_wide_temp is not None:
             room.system_wide_temp = to_f(system_wide_temp, await active_unit(conn))
@@ -128,12 +140,20 @@ def register(server: MCPServer, conn: aiosqlite.Connection) -> None:
             room.include_thermostat_sensor = include_thermostat_sensor
         if notes is not None:
             room.notes = notes
+        await structure.ensure_zone(conn, room.thermostat_entity_id)
         await db.upsert_room(conn, room)
         return [TextContent(type="text", text=f"Updated room {room_id}")]
 
     @server.tool()
     async def delete_room(room_id: str) -> list[TextContent]:
-        """Delete a room and all its associated data."""
+        """Delete a room and all its associated data.
+
+        A zone's last room cannot be deleted: add another room first, or delete
+        the zone.
+        """
+        room = await db.get_room(conn, room_id)
+        if room is not None and await structure.is_last_room(conn, room):
+            return [TextContent(type="text", text=structure.ZONE_NEEDS_A_ROOM)]
         await db.delete_room(conn, room_id)
         return [TextContent(type="text", text=f"Deleted room {room_id}")]
 

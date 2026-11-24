@@ -21,7 +21,7 @@ import {
  *   - the Dashboard page-level button + per-zone-card controls,
  *   - the shared EcoSuspendModal with its thermostat picker (per-thermostat
  *     state when switching),
- *   - the Thermostats page-level button + per-card controls.
+ *   (My Home edits structure and hardware only, so it carries no control.)
  *
  * The first test asserts the banner renders after each suspension in the SAME
  * document — no reload. That is the #678 regression: the banner used to read
@@ -206,45 +206,6 @@ test.describe.serial("Eco Suspend (#500)", () => {
 
     // Close without changing anything — the suspensions the first test made
     // must reach the next test, and afterAll, unchanged.
-    await modal.getByRole("button", { name: "Close" }).click();
-    await expect(modal).not.toBeVisible();
-  });
-
-  test("thermostats page carries a pre-scoped control per thermostat", async ({
-    page,
-  }) => {
-    await page.goto("/thermostats");
-    await page.waitForSelector(".loading", {
-      state: "detached",
-      timeout: 15_000,
-    });
-    await page.waitForLoadState("networkidle");
-
-    // Page-level button (top of the page) reflects the active suspensions.
-    await expect(page.getByTestId("thermostats-eco-suspend-btn")).toContainText(
-      "Eco suspended — manage",
-    );
-
-    // Each thermostat's card header carries ITS OWN control with ITS date.
-    const downstairsBtn = page.getByRole("button", {
-      name: `Eco suspended until ${DOWNSTAIRS_LOCAL}`,
-    });
-    const upstairsBtn = page.getByRole("button", {
-      name: `Eco suspended until ${UPSTAIRS_LOCAL}`,
-    });
-    await expect(downstairsBtn).toBeVisible();
-    await expect(upstairsBtn).toBeVisible();
-    await expect(downstairsBtn).toHaveScreenshot(
-      "eco-suspend-card-control.png",
-    );
-
-    // Opening a card's control lands on THAT thermostat.
-    await upstairsBtn.click();
-    const modal = page.locator(".modal");
-    await expect(modal.locator("#eco-suspend-thermostat")).toHaveValue(
-      UPSTAIRS,
-    );
-    await expect(modal).toContainText(`suspended until ${UPSTAIRS_LOCAL}`);
     await modal.getByRole("button", { name: "Close" }).click();
     await expect(modal).not.toBeVisible();
   });

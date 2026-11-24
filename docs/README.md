@@ -4,6 +4,7 @@ High-level guide to what HomeClimate does and how the pieces fit together. For i
 
 ## Feature guides
 
+- [Where things live](./navigation.md) — the five tabs, the rule that decides what goes where, and where each setting is
 - [Rooms & zones](./rooms-and-zones.md) — how rooms map to thermostats and what gets configured per room
 - [Cycle engine](./cycle-engine.md) — the HVAC cycle state machine: what runs every 60s tick
 - [Overflow conditioning](./overflow-conditioning.md) — where surplus air goes during the minimum-runtime hold

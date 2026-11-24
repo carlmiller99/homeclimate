@@ -7,7 +7,6 @@ import {
   deleteSchedule,
   copySchedule,
   getOverrides,
-  clearOverride,
   type Room,
   type RoomOverrideHold,
   type Schedule,
@@ -16,7 +15,6 @@ import {
 import { useUnit } from "../contexts";
 import { Frozen } from "../ci";
 import ConfirmDialog from "../components/ConfirmDialog";
-import HoldModal from "../components/HoldModal";
 import { formatCountdown } from "../countdown";
 import { HouseTime, ZoneHint } from "../components/Time";
 
@@ -543,8 +541,6 @@ function RoomSchedules({
   room,
   allRooms,
   hold,
-  onSetHold,
-  onHoldChanged,
 }: {
   room: Room;
   allRooms: Room[];
@@ -552,8 +548,6 @@ function RoomSchedules({
   // schedule blocks — they take precedence over every block below and are
   // never conflict-checked against them.
   hold: RoomOverrideHold | undefined;
-  onSetHold: () => void;
-  onHoldChanged: () => void;
 }) {
   const { fmtTemp, toDisplayDelta, unitLabel } = useUnit();
   const [schedules, setSchedules] = useState<Schedule[]>([]);
@@ -683,28 +677,10 @@ function RoomSchedules({
                 <Frozen>{formatCountdown(hold.ends_in_seconds)}</Frozen> ·{" "}
                 {hold.respect_eco ? "Eco may relax" : "ignores Eco"}
               </div>
-              <div className="text-sm text-muted" style={{ marginBottom: ".5rem" }}>
+              <div className="text-sm text-muted">
                 Overrides the schedule blocks below (and presence) until it ends, then deletes
-                itself. Holds are not schedule blocks and are never conflict-checked.
-              </div>
-              <div className="flex gap-sm">
-                <button className="btn btn-secondary btn-sm" onClick={onSetHold}>
-                  Manage hold
-                </button>
-                <button
-                  className="btn btn-danger btn-sm"
-                  onClick={async () => {
-                    setActionError("");
-                    try {
-                      await clearOverride(room.id);
-                      onHoldChanged();
-                    } catch (e: unknown) {
-                      setActionError(e instanceof Error ? e.message : "Could not cancel the hold");
-                    }
-                  }}
-                >
-                  Cancel hold
-                </button>
+                itself. Holds are not schedule blocks and are never conflict-checked. Change or
+                cancel it from the Dashboard.
               </div>
             </div>
           )}
@@ -853,15 +829,6 @@ function RoomSchedules({
             >
               + Add schedule block
             </button>
-            {!hold && (
-              <button
-                className="btn btn-secondary btn-sm"
-                onClick={onSetHold}
-                title="Hold this room at an exact temperature for 1–8 hours, overriding the blocks above and presence."
-              >
-                🕒 Set temporary hold
-              </button>
-            )}
           </div>
         </div>
       )}
@@ -913,7 +880,6 @@ export default function Schedules() {
   // Temporary holds (#576), keyed by room_id — one page-level fetch feeds
   // every room card and the shared hold modal.
   const [holds, setHolds] = useState<Record<string, RoomOverrideHold>>({});
-  const [holdModalFor, setHoldModalFor] = useState<{ room?: string } | null>(null);
 
   const refreshHolds = async () => {
     try {
@@ -952,31 +918,12 @@ export default function Schedules() {
         <div className="card">
           <div className="empty-state">
             <p>
-              No rooms configured yet. Go to <strong>Rooms</strong> first.
+              No rooms yet. Add them in <strong>My Home</strong> first.
             </p>
           </div>
         </div>
       ) : (
-        rooms.map((r) => (
-          <RoomSchedules
-            key={r.id}
-            room={r}
-            allRooms={rooms}
-            hold={holds[r.id]}
-            onSetHold={() => setHoldModalFor({ room: r.id })}
-            onHoldChanged={refreshHolds}
-          />
-        ))
-      )}
-
-      {holdModalFor && (
-        <HoldModal
-          rooms={rooms}
-          initialRoom={holdModalFor.room}
-          holds={holds}
-          onClose={() => setHoldModalFor(null)}
-          onChanged={refreshHolds}
-        />
+        rooms.map((r) => <RoomSchedules key={r.id} room={r} allRooms={rooms} hold={holds[r.id]} />)
       )}
     </div>
   );

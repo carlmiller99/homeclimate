@@ -55,24 +55,23 @@ per-schedule deadband (#215, #517).
 ## Where the UI lives
 
 One shared modal — room picker, temperature, duration, the Eco checkbox —
-opens from three places:
+opens from the Dashboard, where every manual control lives:
 
 - **Dashboard** — the page-level **🕒 Temporary hold** button (reading
   "*N* holds active — manage" while any are live). Every live hold gets a
   strip row under the header — room, target, countdown, whether it ignores
   Eco — with a **Cancel** button, and a held room carries a purple **Hold**
   badge on its zone card.
-- **Rooms** — each card's bottom row has a **Hold** (or **Manage hold**)
-  button; while a hold is driving the room, the status row shows the Eco tag
-  and a **Cancel hold** button.
-- **Schedules** — a held room's expanded section shows a **Temporary hold**
-  card above the block table (target, countdown, Eco tag, **Manage hold** and
-  **Cancel hold**); when there is no hold, the footer offers
-  **🕒 Set temporary hold**.
+- **Dashboard room rows** — every room has a **Hold** button that opens the
+  modal for that room, and a held room shows **Cancel Hold** instead.
+- **Schedules** — a held room's expanded section shows a read-only
+  **Temporary hold** notice above the block table (target, countdown, Eco
+  tag), because the hold overrides those blocks. It is changed and cancelled
+  from the Dashboard.
 
 ## Event log
 
-Every hold transition is visible on the [Logs page](./observability.md):
+Every hold transition is visible in [Settings → Logs](./observability.md):
 
 - **Set** — `Temperature hold set for room …`, with the target, duration, and
   whether Eco may relax it.

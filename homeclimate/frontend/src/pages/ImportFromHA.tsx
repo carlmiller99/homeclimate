@@ -102,8 +102,8 @@ export default function ImportFromHA() {
       <div className="import-sheet">
         <h1 className="page-title">Set Up from Home Assistant</h1>
         <p className="form-error">{loadError}</p>
-        <Link className="btn btn-secondary" to="/zones">
-          Back to Zones
+        <Link className="btn btn-secondary" to="/my-home">
+          Back to My Home
         </Link>
       </div>
     );
@@ -208,11 +208,8 @@ export default function ImportFromHA() {
           {`Added ${result.zones_added} zones, ${result.rooms_added} rooms and ${result.entities_added} sensors and vents.`}
         </p>
         <div className="zone-editor-actions">
-          <Link className="btn btn-secondary" to="/zones">
-            Go to Zones
-          </Link>
-          <Link className="btn btn-primary" to="/rooms">
-            Go to Rooms
+          <Link className="btn btn-primary" to="/my-home">
+            Go to My Home
           </Link>
         </div>
       </div>
@@ -332,7 +329,7 @@ export default function ImportFromHA() {
             later to pick up new devices.
           </p>
         </div>
-        <Link className="btn btn-secondary" to="/zones" aria-label="Close">
+        <Link className="btn btn-secondary" to="/my-home" aria-label="Close">
           Close
         </Link>
       </div>
@@ -465,7 +462,7 @@ export default function ImportFromHA() {
       <div className="import-foot">
         <p className="field-help">Rooms you have already set up are never changed.</p>
         {saveError && <p className="form-error">{saveError}</p>}
-        <Link className="btn btn-secondary" to="/zones">
+        <Link className="btn btn-secondary" to="/my-home">
           Cancel
         </Link>
         <button type="button" className="btn btn-primary" onClick={submit} disabled={saving}>

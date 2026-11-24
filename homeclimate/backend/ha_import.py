@@ -316,7 +316,7 @@ async def apply_import(
         # somewhere (to a zone or another room) is left where it is.
         for eid in contacts:
             if eid not in attached_contacts:
-                await openings.save_contact(conn, eid, None, room.id)
+                await openings.save_contact(conn, eid, room.id)
                 attached_contacts.add(eid)
                 result.entities_added += 1
 

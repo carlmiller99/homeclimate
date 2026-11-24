@@ -74,15 +74,15 @@ If a lockout threshold is configured but the outdoor sensor is unset or unreadab
 
 A battery-powered Zigbee or Z-Wave temperature sensor that drops off the mesh does not always flip to `unavailable` in Home Assistant — HA keeps showing the **last numeric value it heard**. If HomeClimate averaged that stale value into a room temperature, it would confidently make the wrong control decision: wrong mode, vents closing on a room that hasn't actually reached target, no cycle starting on a room that's actually warm. The kind of silent failure that only shows up as a comfort complaint.
 
-The engine treats a sensor reading as stale once its Home Assistant `last_updated` timestamp is older than the configured **sensor-staleness threshold** (default **30 minutes**, adjustable on the **Thermostats** page from 1 minute to 24 hours). Stale readings are excluded from `_get_avg_temp`, so they never contribute to the value that drives mode inference, vent-close decisions, or at-target checks. If every sensor in a room is stale, `_get_avg_temp` returns no reading for that room — the same result as a room with no sensors configured at all. Mode inference falls back to the thermostat's own `current_temperature` attribute so the room still casts a vote on cycle direction; the per-tick at-target/vent-close check instead skips the room for that tick — it cannot block cycle termination, but its vent also isn't evaluated for closing until a reading returns.
+The engine treats a sensor reading as stale once its Home Assistant `last_updated` timestamp is older than the configured **sensor-staleness threshold** (default **30 minutes**, adjustable in **Settings → Sensors** from 1 minute to 24 hours). Stale readings are excluded from `_get_avg_temp`, so they never contribute to the value that drives mode inference, vent-close decisions, or at-target checks. If every sensor in a room is stale, `_get_avg_temp` returns no reading for that room — the same result as a room with no sensors configured at all. Mode inference falls back to the thermostat's own `current_temperature` attribute so the room still casts a vote on cycle direction; the per-tick at-target/vent-close check instead skips the room for that tick — it cannot block cycle termination, but its vent also isn't evaluated for closing until a reading returns.
 
-The engine refreshes the threshold at the start of each tick, so changes from the Thermostats page take effect within 60 seconds without a restart.
+The engine refreshes the threshold at the start of each tick, so changes made there take effect within 60 seconds without a restart.
 
 ### UI surfacing
 
 - **Dashboard** — a top-of-page banner appears the moment any configured room sensor crosses the threshold, listing each affected room and entity with its age. The banner disappears as soon as every sensor is fresh again.
-- **Rooms page** — each room card carries a small orange "stale sensor" badge with a hover-tooltip naming each stale entity and how long it's been silent.
-- **Thermostats page** — a "Sensor-staleness threshold" card lets you tune the value to your sensor population.
+- **My Home** — each room card carries a small orange "stale sensor" badge with a hover-tooltip naming each stale entity and how long it's been silent.
+- **Settings → Sensors** — a "Sensor-staleness threshold" card lets you tune the value to your sensor population.
 - **Event log** — the first tick a sensor crosses into staleness, the engine writes a `warning` event naming the entity and its age; further warnings for that same sensor are suppressed until it reports again, at which point a recovery `info` event is logged.
 
 > The outdoor sensor used by the cooling lockout is read separately and is **not** gated by this staleness check — it serves analytics that tolerate slow updates (a weather entity may report hourly). The cooling lockout's existing fail-open behavior already covers a missing reading.

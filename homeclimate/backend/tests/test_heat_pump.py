@@ -412,43 +412,12 @@ def test_backoff_guards():
 
 
 async def test_heat_pump_heating_cycles_get_a_longer_timeout():
-    from .test_cycle_engine import _setup_engine_with_running_cycle
-
-    engine, conn, cycle = await _setup_engine_with_running_cycle()
-    tc = await db.get_thermostat_config(conn, THERMO_ID)
-    # Started 1.2x the timeout ago: a conventional zone would time out.
-    cycle.started_at = datetime.now(UTC) - timedelta(hours=tc.cycle_timeout_hours * 1.2)
-    engine._cycle_log = cycle
-    engine._get_heat_pump = lambda: GUARDS
+    engine, _ = _hp_engine(66.0)
+    tc = ThermostatConfig(thermostat_entity_id=THERMO_ID, cycle_timeout_hours=2)
     engine._cycle_mode = "heating"
-    engine._terminate_cycle = AsyncMock()
-    await engine._do_tick(conn)
-    timeouts = [
-        c for c in engine._terminate_cycle.await_args_list if c.kwargs.get("reason") == "timeout"
-    ]
-    assert timeouts == []
-    await conn.close()
-
-
-ALLOW = HeatPumpGuards(1.0, 2.0, 15, 0.5, 60, avoid_aux=False)
-
-
-async def test_allowing_aux_turns_off_the_setpoint_guards():
-    conn = await _conn()
-    engine, ha = _hp_engine(68.2, guards=ALLOW)
-    _active(engine, 72.0)
-    tc = await engine._load_tc(conn, "heating")
-    # Floors still apply; the cap does not.
-    assert tc.min_cycle_runtime_min == 15
-    assert engine._heat_pump_cap(68.2) is None
-    await engine._set_thermostat_setpoint(tc, "heating", conn=conn)
-    assert ha.set_thermostat_temperature.await_args.args[1] == 74.0
-    ha.get_state.return_value["state"] = "heat"
-    assert await engine._heat_pump_warmups(conn, []) == []
-    engine._state = CycleState.RUNNING
+    assert engine._cycle_timeout_hours(tc) == 3.0
+    engine._cycle_mode = "cooling"
+    assert engine._cycle_timeout_hours(tc) == 2.0
+    engine._get_heat_pump = lambda: None
     engine._cycle_mode = "heating"
-    engine._last_setpoint_sent = 69.0
-    engine._set_thermostat_setpoint = AsyncMock()
-    await engine._heat_pump_ramp(conn)
-    engine._set_thermostat_setpoint.assert_not_awaited()
-    await conn.close()
+    assert engine._cycle_timeout_hours(tc) == 2.0

@@ -1,7 +1,7 @@
 import { HP_DEFAULTS } from "../zoneFixtures";
 /** Rooms page grouping by building and zone (HomeClimate). */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import Rooms from "./Rooms";
 import * as api from "../api";
@@ -141,10 +141,14 @@ describe("Rooms grouped by building and zone", () => {
     ]);
   });
 
-  it("puts each room under its building and zone, with empty and other groups", async () => {
+  it("puts each room under its building and zone, with empty and unzoned groups", async () => {
     useRooms([
       makeRoom(),
       makeRoom({ id: "room-2", name: "Shop", thermostat_entity_id: "climate.unknown" }),
+    ]);
+    vi.mocked(api.getThermostats).mockResolvedValue([
+      makeThermostat(),
+      makeThermostat({ thermostat_entity_id: "climate.empty", name: "" }),
     ]);
     vi.mocked(zonesApi.getZones).mockResolvedValue([
       zone({}),
@@ -154,29 +158,69 @@ describe("Rooms grouped by building and zone", () => {
     const panel = await screen.findByRole("region", { name: "Upstairs" });
     expect(within(panel).getByText("Living Room")).toBeInTheDocument();
     expect(within(panel).getByText("Conventional, Electric Strips")).toBeInTheDocument();
+    expect(within(panel).getByRole("button", { name: "Edit Zone" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Main House" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Unassigned" })).toBeInTheDocument();
     const empty = screen.getByRole("region", { name: "climate.empty" });
-    expect(within(empty).getByText("No rooms in this zone yet.")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Other Rooms" })).toBeInTheDocument();
-    expect(screen.getByText("Shop")).toBeInTheDocument();
     expect(
-      screen.getByText("No zones in this building yet. Assign one on the Zones page.")
+      within(empty).getByText(
+        "This zone has no rooms. Add one — every zone needs at least one room."
+      )
     ).toBeInTheDocument();
+    // A room whose thermostat is not a zone is set apart, not hidden.
+    const loose = screen.getByRole("heading", { name: "Rooms Without a Zone" });
+    expect(
+      within(loose.closest(".building-group") as HTMLElement).getByText("Shop")
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("No zones in this building yet. Edit a zone to move it here.")
+    ).toBeInTheDocument();
+    // One page for structure: the header carries every way to add to it.
+    for (const name of ["Add Building", "Add Zone", "Add Room"]) {
+      expect(screen.getByRole("button", { name })).toBeInTheDocument();
+    }
+    expect(screen.getByRole("link", { name: "Set Up from Home Assistant" })).toHaveAttribute(
+      "href",
+      "/import"
+    );
   });
 
-  it("falls back to one grid when zones fail to load", async () => {
+  it("says so when zones fail to load", async () => {
     vi.mocked(zonesApi.getZones).mockRejectedValue(new Error("down"));
-    vi.mocked(zonesApi.getBuildings).mockRejectedValue(new Error("down"));
     renderPage();
-    expect(await screen.findByText("Living Room")).toBeInTheDocument();
+    expect(await screen.findByText("Could not load zones")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Main House" })).toBeNull();
   });
 
-  it("treats a missing zones payload as no zones", async () => {
-    vi.mocked(zonesApi.getZones).mockResolvedValue(undefined as unknown as zonesApi.ZoneProfile[]);
-    vi.mocked(zonesApi.getBuildings).mockResolvedValue(undefined as unknown as zonesApi.Building[]);
+  it("reloads the zone list after a room is saved", async () => {
+    vi.mocked(zonesApi.getZones).mockResolvedValue([zone({})]);
+    vi.mocked(api.updateRoom).mockResolvedValue(makeRoom({ name: "Lounge" }));
     renderPage();
-    expect(await screen.findByText("Living Room")).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: "Room Settings" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(api.updateRoom).toHaveBeenCalled());
+    await screen.findByRole("region", { name: "Upstairs" });
+    await waitFor(() => expect(zonesApi.getZones).toHaveBeenCalledTimes(2));
+  });
+
+  it("deletes a zone with its rooms from inside the zone, then reloads the house", async () => {
+    vi.mocked(zonesApi.getZones).mockResolvedValue([zone({})]);
+    vi.mocked(api.deleteThermostat).mockResolvedValue({ deleted: "climate.test" });
+    renderPage();
+    const panel = await screen.findByRole("region", { name: "Upstairs" });
+    fireEvent.click(within(panel).getByRole("button", { name: "Edit Zone" }));
+    expect(
+      await within(panel).findByRole("heading", { name: "Thermostat Settings" })
+    ).toBeInTheDocument();
+
+    fireEvent.click(within(panel).getByRole("button", { name: "Delete Zone" }));
+    const dialog = await screen.findByTestId("confirm-dialog");
+    expect(dialog).toHaveTextContent(
+      'Delete the zone "Test Thermostat" and all of its rooms? This cannot be undone.'
+    );
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete Zone" }));
+
+    await waitFor(() => expect(api.deleteThermostat).toHaveBeenCalledWith("climate.test", true));
+    await waitFor(() => expect(api.getRooms).toHaveBeenCalledTimes(2));
   });
 });

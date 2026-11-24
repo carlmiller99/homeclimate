@@ -5,6 +5,17 @@ import App from "./App";
 import * as api from "./api";
 
 vi.mock("./api");
+vi.mock("./smartControlApi", async (orig) => ({
+  ...(await orig<typeof import("./smartControlApi")>()),
+  getSmartControl: vi
+    .fn()
+    .mockResolvedValue({ settings: {}, overrides: [], sensors: [], paused: [] }),
+}));
+vi.mock("./zonesApi", async (orig) => ({
+  ...(await orig<typeof import("./zonesApi")>()),
+  getZones: vi.fn().mockResolvedValue([]),
+  getBuildings: vi.fn().mockResolvedValue([]),
+}));
 
 // The /metrics route is lazy-loaded so recharts stays out of the main bundle
 // (#85 Phase 5e). What is under test here is App's route + Suspense wiring, so
@@ -56,6 +67,11 @@ beforeEach(() => {
     last_error: null,
   });
   vi.mocked(api.connectWS).mockReturnValue(() => {});
+  // Room sensor lists and readings for the per-room temperatures.
+  vi.mocked(api.getRoom).mockImplementation(
+    async (id) => ({ id, sensors: [] }) as unknown as api.Room
+  );
+  vi.mocked(api.getEntityStates).mockResolvedValue({});
   vi.mocked(api.getStatus).mockResolvedValue([]);
   vi.mocked(api.getRooms).mockResolvedValue([]);
   vi.mocked(api.getThermostats).mockResolvedValue([]);
@@ -221,15 +237,18 @@ describe("AppRoot seeding from the API", () => {
     renderApp();
 
     fireEvent.click(await screen.findByLabelText(/Settings/i));
-    expect(await screen.findByText(/Dev Off/i)).toBeInTheDocument();
-    expect(screen.getByText(/Theme: System/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Theme: System/i)).toBeInTheDocument();
     // "system" means no pinned attribute — prefers-color-scheme decides.
     expect(document.documentElement.getAttribute("data-theme")).toBeNull();
     // dev_mode absent → no Dev Mode nav link.
     expect(screen.queryByRole("link", { name: /Dev Mode/i })).not.toBeInTheDocument();
 
     fireEvent.click(await screen.findByRole("link", { name: /Settings/i }));
+    fireEvent.click(await screen.findByRole("link", { name: "Integrations" }));
     expect(await screen.findByText("Off")).toBeInTheDocument(); // MCP card
+    // dev_mode absent → the Dev Mode section offers to turn it on.
+    fireEvent.click(screen.getByRole("link", { name: "Dev Mode" }));
+    expect(await screen.findByRole("button", { name: "Turn On Dev Mode" })).toBeInTheDocument();
   });
 
   it("renders with built-in defaults when both mount fetches fail", async () => {
@@ -241,7 +260,7 @@ describe("AppRoot seeding from the API", () => {
     // renders on its initial state (enabled, dev off, system theme, °F).
     fireEvent.click(await screen.findByLabelText(/Settings/i));
     expect(await screen.findByText(/System On/i)).toBeInTheDocument();
-    expect(screen.getByText(/Dev Off/i)).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Dev Mode On" })).toBeNull();
     expect(screen.getByText(/Theme: System/i)).toBeInTheDocument();
     expect(document.documentElement.getAttribute("data-theme")).toBeNull();
   });
@@ -329,22 +348,16 @@ describe("in-flight toggles ignore a second request", () => {
   it("dev-mode toggle", async () => {
     const d = deferred<{ dev_mode: boolean }>();
     vi.mocked(api.setDevModeApi).mockReturnValue(d.promise);
-    renderApp();
+    renderApp(["/settings?section=dev-mode"]);
 
-    const gear = await screen.findByLabelText(/Settings/i);
-    fireEvent.click(gear);
-    fireEvent.click(await screen.findByText(/Dev Off/i));
-    fireEvent.click(screen.getByRole("button", { name: /Confirm/i }));
+    const turnOn = await screen.findByRole("button", { name: "Turn On Dev Mode" });
+    fireEvent.click(turnOn);
     await waitFor(() => expect(api.setDevModeApi).toHaveBeenCalledTimes(1));
-
-    fireEvent.click(gear);
-    fireEvent.click(await screen.findByText(/Dev Off/i));
-    fireEvent.click(screen.getByRole("button", { name: /Confirm/i }));
+    fireEvent.click(turnOn);
     expect(api.setDevModeApi).toHaveBeenCalledTimes(1);
 
     d.resolve({ dev_mode: true });
-    fireEvent.click(gear);
-    expect(await screen.findByText(/Dev On/i)).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: "Dev Mode On" })).toBeInTheDocument();
   });
 
   it("MCP toggle", async () => {
@@ -358,6 +371,7 @@ describe("in-flight toggles ignore a second request", () => {
     renderApp();
 
     fireEvent.click(await screen.findByRole("link", { name: /Settings/i }));
+    fireEvent.click(await screen.findByRole("link", { name: "Integrations" }));
     fireEvent.click(await screen.findByRole("button", { name: "Turn on" }));
     fireEvent.click(await screen.findByRole("button", { name: /Confirm/i }));
     await waitFor(() => expect(api.setMcpEnabled).toHaveBeenCalledTimes(1));
@@ -414,17 +428,6 @@ describe("confirm modals", () => {
     await waitFor(() => expect(api.setSystemEnabled).toHaveBeenCalledWith(true));
   });
 
-  it("words the dev-mode modal for turning developer mode OFF", async () => {
-    vi.mocked(api.getSystemStatus).mockResolvedValue({ enabled: true, dev_mode: true });
-    renderApp();
-
-    fireEvent.click(await screen.findByLabelText(/Settings/i));
-    fireEvent.click(await screen.findByText(/Dev On/i));
-
-    expect(await screen.findByText(/the system will resume normal operation/i)).toBeInTheDocument();
-    expect(screen.queryByText(/logs all actions instead/i)).not.toBeInTheDocument();
-  });
-
   it("closes the system modal on a backdrop click but not on a click inside it", async () => {
     const { container } = renderApp();
     fireEvent.click(await screen.findByLabelText(/Settings/i));
@@ -438,20 +441,6 @@ describe("confirm modals", () => {
     fireEvent.click(backdrop(container));
     await waitFor(() => expect(screen.queryByText(/Turn off system\?/i)).not.toBeInTheDocument());
     expect(api.setSystemEnabled).not.toHaveBeenCalled();
-  });
-
-  it("closes the dev-mode modal on a backdrop click but not on a click inside it", async () => {
-    const { container } = renderApp();
-    fireEvent.click(await screen.findByLabelText(/Settings/i));
-    fireEvent.click(await screen.findByText(/Dev Off/i));
-    await screen.findByText(/Developer Mode/i);
-
-    fireEvent.click(container.querySelector(".modal") as HTMLElement);
-    expect(screen.getByText(/Developer Mode/i)).toBeInTheDocument();
-
-    fireEvent.click(backdrop(container));
-    await waitFor(() => expect(screen.queryByText(/Developer Mode/i)).not.toBeInTheDocument());
-    expect(api.setDevModeApi).not.toHaveBeenCalled();
   });
 });
 
@@ -468,13 +457,13 @@ describe("Nav", () => {
     // The pill sits in the always-visible nav row, so it is reachable on a
     // phone without opening the menu.
     const pill = await screen.findByRole("link", { name: "Dev Mode On" });
-    expect(pill).toHaveAttribute("href", "/dev");
+    expect(pill).toHaveAttribute("href", "/settings?section=dev-mode");
     expect(container.querySelector(".nav-right")).toContainElement(pill);
 
     fireEvent.click(screen.getByLabelText(/Toggle menu/i));
     const menu = container.querySelector(".nav-mobile-menu") as HTMLElement;
     expect(within(menu).queryByRole("link", { name: /Dev Mode/i })).toBeNull();
-    fireEvent.click(within(menu).getByRole("link", { name: "Logs" }));
+    fireEvent.click(within(menu).getByRole("link", { name: "Smart Control" }));
     await waitFor(() => expect(container.querySelector(".nav-mobile-menu")).toBeNull());
   });
 

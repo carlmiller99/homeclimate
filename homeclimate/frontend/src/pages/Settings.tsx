@@ -1,9 +1,16 @@
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
+import { useSearchParams } from "react-router";
 import { downloadBackup, restoreBackup } from "../api";
 import { useAuth, useTimeZone } from "../contexts";
 import McpServerCard from "../components/McpServerCard";
 import McpTokensCard from "../components/McpTokensCard";
 import MqttBridgeCard from "../components/MqttBridgeCard";
+import OutsideTempPicker from "../components/OutsideTempPicker";
+import SectionLayout from "../components/SectionLayout";
+import { SETTINGS_SECTIONS } from "../sections";
+import DevModePage from "./DevMode";
+import Logs from "./Logs";
+import { SensorStalenessCard } from "./Thermostats";
 
 // ---------------------------------------------------------------------------
 // Backup / Restore card (moved from the Thermostats page in #471 — it is an
@@ -122,31 +129,62 @@ function TimeZoneCard() {
 
 export default function Settings() {
   const { requireAuth } = useAuth();
+  const [params] = useSearchParams();
+  // An unknown or planned section falls back to the first one.
+  const asked = params.get("section");
+  const section = (
+    SETTINGS_SECTIONS.find((x) => x.id === asked && !x.planned) ?? SETTINGS_SECTIONS[0]
+  ).id;
+
+  let body: ReactNode;
+  if (section === "sensors") {
+    body = (
+      <>
+        <OutsideTempPicker />
+        <SensorStalenessCard />
+      </>
+    );
+  } else if (section === "integrations") {
+    body = (
+      <>
+        <McpServerCard />
+        {/* The token card is gated on require_auth (with auth off, MCP is open and
+            tokens are pointless). It sits directly under the MCP server toggle so
+            the whole MCP feature reads as one thing. */}
+        {requireAuth && <McpTokensCard />}
+        <MqttBridgeCard />
+      </>
+    );
+  } else if (section === "logs") {
+    body = (
+      <div className="embedded-page">
+        <Logs />
+      </div>
+    );
+  } else if (section === "dev-mode") {
+    body = (
+      <div className="embedded-page">
+        <DevModePage />
+      </div>
+    );
+  } else {
+    body = (
+      <>
+        <TimeZoneCard />
+        <BackupRestoreCard />
+      </>
+    );
+  }
 
   return (
-    <div>
-      <div className="page-header">
-        <div>
-          <div className="page-title">Settings</div>
-          <div className="page-subtitle">
-            Add-on administration — the house time zone, the MCP server, its access tokens, the MQTT
-            bridge, and database backup.
-          </div>
-        </div>
-      </div>
-
-      <TimeZoneCard />
-
-      <McpServerCard />
-
-      {/* The token card is gated on require_auth (with auth off, MCP is open and
-          tokens are pointless). It sits directly under the MCP server toggle so
-          the whole MCP feature reads as one thing. */}
-      {requireAuth && <McpTokensCard />}
-
-      <MqttBridgeCard />
-
-      <BackupRestoreCard />
-    </div>
+    <SectionLayout
+      title="Settings"
+      subtitle="The house time zone, sensors used everywhere, integrations, logs, and Dev Mode."
+      basePath="/settings"
+      sections={SETTINGS_SECTIONS}
+      current={section}
+    >
+      {body}
+    </SectionLayout>
   );
 }

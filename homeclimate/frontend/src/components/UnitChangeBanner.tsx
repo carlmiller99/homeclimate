@@ -2,11 +2,11 @@ import { useEffect, useState } from "react";
 import { getSettings, ackUnitChange, restartApp } from "../api";
 
 const AFFECTED_SETTINGS = [
-  "Min / max setpoints (Thermostats page)",
-  "Deadband and overshoot delta (Thermostats page)",
-  "Schedule target temperatures (Schedules page)",
-  "Presence-triggered temperatures (Rooms page)",
-  "Temperature offsets (Rooms page)",
+  "Min / max setpoints (a zone's Thermostat Settings in My Home)",
+  "Deadband and overshoot delta (a zone's Thermostat Settings in My Home)",
+  "Schedule target temperatures (Smart Control, Schedules)",
+  "Presence-triggered temperatures (Room Settings in My Home)",
+  "Temperature offsets (Room Settings in My Home)",
 ];
 
 export default function UnitChangeBanner() {

@@ -25,6 +25,7 @@ export interface ContactSensor {
   name: string;
   thermostat_entity_id: string | null;
   room_id: string | null;
+  pauses: "room" | "zone";
   state: ContactState;
   open_since: string | null;
   pausing: boolean;
@@ -43,7 +44,8 @@ export interface SmartControl {
   paused: PausedScope[];
 }
 
-export type ContactTarget = { thermostat_entity_id: string } | { room_id: string };
+/** Where a door or window is, and whether it pauses that room or its whole zone. */
+export type ContactTarget = { room_id: string; pauses: "room" | "zone" };
 
 export const PLANNED_SECTIONS = ["Fireplace Compensation", "Smart Learning", "Forecasts"];
 export const OPENINGS_NOTE =
@@ -84,16 +86,4 @@ export function effectiveSettings(
   const values = { ...data.settings } as Record<OverrideKey, boolean | number>;
   for (const o of own) values[o.key] = o.value;
   return { values: values as unknown as OpeningSettings, overridden: own.map((o) => o.key) };
-}
-
-/** "Open 6 Min, Pausing" and friends, for a sensor row. */
-export function contactStateLabel(s: ContactSensor, now: number): string {
-  if (s.state === "offline") return "Offline";
-  if (s.state === "closed") return "Closed";
-  const parts = ["Open"];
-  if (s.open_since) {
-    const mins = Math.max(0, Math.floor((now - Date.parse(s.open_since)) / 60000));
-    parts[0] = `Open ${mins} Min`;
-  }
-  return s.pausing ? `${parts[0]}, Pausing` : parts[0];
 }

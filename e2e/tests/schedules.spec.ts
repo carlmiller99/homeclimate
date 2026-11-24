@@ -3,7 +3,7 @@ import { test, expect } from "./fixtures";
 const API = `${process.env.HOMECLIMATE_URL ?? "http://localhost:8099"}/api`;
 
 test("schedules list", async ({ page }) => {
-  await page.goto("/schedules");
+  await page.goto("/smart-control?section=schedules");
   await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
   await page.waitForLoadState("networkidle");
 
@@ -11,7 +11,7 @@ test("schedules list", async ({ page }) => {
 });
 
 test("schedule delete confirmation dialog", async ({ page }) => {
-  await page.goto("/schedules");
+  await page.goto("/smart-control?section=schedules");
   await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
   await page.waitForLoadState("networkidle");
 
@@ -63,7 +63,7 @@ test("named schedule blocks keep their id reachable (#520)", async ({ page }) =>
   const first = blocks[0];
   expect(first.name).toBe("Daytime comfort");
 
-  await page.goto("/schedules");
+  await page.goto("/smart-control?section=schedules");
   await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
   await page.waitForLoadState("networkidle");
 

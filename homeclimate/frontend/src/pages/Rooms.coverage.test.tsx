@@ -12,10 +12,24 @@ import { render, screen, fireEvent, waitFor, within, act } from "@testing-librar
 import { MemoryRouter } from "react-router";
 import Rooms from "./Rooms";
 import * as api from "../api";
+import * as zonesApi from "../zonesApi";
+import * as sc from "../smartControlApi";
+import { zoneFor, smartControl } from "../zoneFixtures";
 import { SystemContext, UnitContext, buildUnitContext } from "../contexts";
 import { ecoThermostatDefaults, ecoRoomDefaults } from "../testFixtures";
 
 vi.mock("../api");
+vi.mock("../zonesApi", async (orig) => ({
+  ...(await orig<typeof import("../zonesApi")>()),
+  getZones: vi.fn(),
+  getBuildings: vi.fn(),
+}));
+vi.mock("../smartControlApi", async (orig) => ({
+  ...(await orig<typeof import("../smartControlApi")>()),
+  getSmartControl: vi.fn(),
+  saveContactSensor: vi.fn(),
+  deleteContactSensor: vi.fn(),
+}));
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -84,7 +98,6 @@ const makeStatus = (over: Partial<api.RoomActiveStatus> = {}): api.RoomActiveSta
 });
 
 const mockSystem = { enabled: true, toggle: async () => {} };
-const offSystem = { enabled: false, toggle: async () => {} };
 
 /** Point getRooms / getRoom at the given rooms. */
 function useRooms(rooms: api.Room[]) {
@@ -121,6 +134,17 @@ beforeEach(() => {
   });
 });
 
+// My Home reads the zone list, buildings and door/window sensors too. A zone
+// exists for every registered thermostat, as the backend guarantees.
+beforeEach(() => {
+  vi.mocked(zonesApi.getBuildings).mockResolvedValue([]);
+  vi.mocked(zonesApi.getZones).mockImplementation(async () =>
+    ((await api.getThermostats()) ?? []).map((t) => zoneFor(t.thermostat_entity_id, t.name))
+  );
+  vi.mocked(sc.getSmartControl).mockResolvedValue(smartControl() as sc.SmartControl);
+  vi.mocked(api.getSensorHealth).mockResolvedValue({ stale_after_min: 30, rooms: [] });
+});
+
 // ---------------------------------------------------------------------------
 // Room settings form — validation guards
 // ---------------------------------------------------------------------------
@@ -153,6 +177,27 @@ describe("Rooms settings form — validation guards", () => {
 
     expect(
       await screen.findByText("Deadband override must be between 0°F and 10°F")
+    ).toBeInTheDocument();
+    expect(api.createRoom).not.toHaveBeenCalled();
+  });
+
+  it("rejects a widened deadband below the thermostat's own deadband", async () => {
+    await openNewRoom();
+    fireEvent.change(screen.getByLabelText(/Room name/i), { target: { value: "Den" } });
+    fireEvent.change(screen.getByRole("combobox", { name: /Thermostat/i }), {
+      target: { value: "climate.test" },
+    });
+    const toggle = await screen.findByLabelText(/pre-cool \/ pre-heat/i);
+    await waitFor(() => expect(toggle).not.toBeDisabled());
+    fireEvent.click(toggle);
+
+    fireEvent.change(screen.getByLabelText(/Widened deadband/i), { target: { value: "0.1" } });
+    fireEvent.click(screen.getByRole("button", { name: /Create room/i }));
+
+    expect(
+      await screen.findByText(
+        "Pre-cool/pre-heat: widened deadband must be at least the thermostat's deadband (0.5°F)"
+      )
     ).toBeInTheDocument();
     expect(api.createRoom).not.toHaveBeenCalled();
   });
@@ -271,11 +316,11 @@ describe("Rooms settings form — validation guards", () => {
     expect(await screen.findByText("Save failed")).toBeInTheDocument();
   });
 
-  it("points the user at the Thermostats page when none are registered", async () => {
+  it("points the user at Add Zone when there are no zones", async () => {
     vi.mocked(api.getThermostats).mockResolvedValue([]);
     await openNewRoom();
 
-    expect(screen.getByText(/No thermostats registered yet/i)).toBeInTheDocument();
+    expect(screen.getByText(/No zones yet\. Go back to My Home and use/)).toBeInTheDocument();
     expect(screen.queryByRole("combobox", { name: /Thermostat/i })).not.toBeInTheDocument();
   });
 
@@ -296,7 +341,7 @@ describe("Rooms settings form — validation guards", () => {
 describe("Rooms configure view", () => {
   const openConfigure = async () => {
     renderPage();
-    fireEvent.click(await screen.findByRole("button", { name: /Configure sensors/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Devices" }));
     await screen.findByTestId("room-configure");
   };
 
@@ -326,7 +371,7 @@ describe("Rooms configure view", () => {
     expect(screen.getByText("No sensors added yet — search above to add one.")).toBeInTheDocument();
     expect(screen.getByText(/No vents added yet — search above to add one/i)).toBeInTheDocument();
     expect(
-      screen.getByText("No presence sensors added — the room will only activate via schedules.")
+      screen.getByText("No occupancy sensors added — the room will only activate via schedules.")
     ).toBeInTheDocument();
   });
 
@@ -393,10 +438,58 @@ describe("Rooms configure view", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Room card — live status permutations
+// Room card — one equal section per kind of device
 // ---------------------------------------------------------------------------
 
-describe("Rooms card — live status", () => {
+const contact = (over: Partial<sc.ContactSensor> = {}): sc.ContactSensor => ({
+  entity_id: "binary_sensor.door",
+  name: "Patio Door",
+  thermostat_entity_id: null,
+  room_id: "room-1",
+  pauses: "room",
+  state: "closed",
+  open_since: null,
+  pausing: false,
+  ...over,
+});
+
+const state = (
+  s: string,
+  attributes: Record<string, unknown> = {},
+  numeric: number | null = null
+): api.EntityState => ({ state: s, numeric, unit: "", attributes });
+
+/** The four device sections of the (only) room card. */
+const section = (name: string) => screen.getByRole("region", { name });
+
+/** [name, value] for every device listed in a section. */
+const devices = (name: string) =>
+  [...section(name).querySelectorAll(".device-item")].map((li) => [
+    li.querySelector(".device-name")?.textContent,
+    li.querySelector(".device-value")?.textContent,
+  ]);
+
+describe("Room card — devices", () => {
+  it("gives each kind of device its own section, in a fixed order", async () => {
+    const { container } = renderPage();
+    await screen.findByText("Living Room");
+    const titles = [...container.querySelectorAll(".device-section")].map((s) =>
+      s.getAttribute("aria-label")
+    );
+    expect(titles).toEqual([
+      "Smart Vents",
+      "Temperature Sensors",
+      "Doors & Windows",
+      "Occupancy Sensors",
+    ]);
+    // The card edits hardware only: no manual controls live here any more.
+    expect(screen.getByRole("button", { name: "Edit Devices" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Room Settings" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Hold/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Clear presence/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Delete/ })).toBeNull();
+  });
+
   it("renders a room with no sensors, vents or presence sensors", async () => {
     const bare = makeRoom();
     delete (bare as Partial<api.Room>).sensors;
@@ -404,172 +497,38 @@ describe("Rooms card — live status", () => {
     delete (bare as Partial<api.Room>).presence_sensors;
     useRooms([bare]);
 
-    const { container } = renderPage();
+    renderPage();
     await screen.findByText("Living Room");
 
     // No entity ids at all → the HA state fetch is skipped entirely.
     expect(api.getEntityStates).not.toHaveBeenCalled();
-    expect(container.querySelector(".room-live-value")).toHaveTextContent("—");
-    expect(screen.getByText(/🌡 0 sensors/)).toBeInTheDocument();
-    expect(screen.getByText(/💨 0 vents/)).toBeInTheDocument();
-    expect(screen.getByText(/🚶 0 presence/)).toBeInTheDocument();
-    expect(screen.getByText(/No temperature sensors — configure below/)).toBeInTheDocument();
+    expect(within(section("Smart Vents")).getByText("No vents")).toBeInTheDocument();
+    expect(within(section("Temperature Sensors")).getByText("No sensors")).toBeInTheDocument();
+    expect(within(section("Doors & Windows")).getByText("None")).toBeInTheDocument();
+    expect(within(section("Occupancy Sensors")).getByText("None")).toBeInTheDocument();
+    for (const name of ["Smart Vents", "Temperature Sensors", "Doors & Windows"]) {
+      expect(section(name).querySelector(".device-count")).toHaveTextContent("0");
+    }
   });
 
-  it("warns about missing vents when only sensors are configured", async () => {
-    useRooms([makeRoom({ vents: [] })]);
-    renderPage();
-    await screen.findByText("Living Room");
-
-    expect(screen.getByText(/⚠ No vents — configure below/)).toBeInTheDocument();
-  });
-
-  it("keeps rendering when the HA state fetch fails", async () => {
+  it("keeps rendering, with placeholders, when the HA state fetch fails", async () => {
+    useRooms([
+      makeRoom({
+        presence_sensors: [{ id: "p1", room_id: "room-1", entity_id: "binary_sensor.motion" }],
+      }),
+    ]);
     vi.mocked(api.getEntityStates).mockRejectedValue(new Error("HA down"));
-    const { container } = renderPage();
-    await screen.findByText("Living Room");
-
-    // Sensors exist but no state arrived → the ellipsis placeholder, not "—".
-    await waitFor(() => expect(container.querySelector(".room-live-value")).toHaveTextContent("…"));
-  });
-
-  it("shows a loading status row until active-status data arrives", async () => {
-    vi.mocked(api.getRoomActiveStatuses).mockResolvedValue({});
-    const { container } = renderPage();
-    await screen.findByText("Living Room");
-
-    expect(container.querySelector(".room-status-loading")).toHaveTextContent("…");
-    expect(screen.queryByText("Not active")).not.toBeInTheDocument();
-  });
-
-  it("marks the card as disabled when the system is globally off", async () => {
-    const { container } = renderPage(offSystem);
-    await screen.findByText("Living Room");
-
-    expect(container.querySelector(".card")).toHaveClass("room-card-disabled");
-    expect(screen.getByText("⏸ Global Off")).toBeInTheDocument();
-  });
-
-  it("labels a schedule-driven room and counts down to the next block", async () => {
-    vi.mocked(api.getRoomActiveStatuses).mockResolvedValue({
-      "room-1": makeStatus({
-        source: "schedule",
-        target_temp: 70,
-        ends_in_seconds: 1800,
-        next_schedule_in_seconds: 3600,
-        next_schedule_target: 68,
-        next_schedule_label: "Evening",
-      }),
-    });
-    const { container } = renderPage();
-
-    expect(await screen.findByText("via Schedule")).toBeInTheDocument();
-    expect(screen.getByText("🎯 70.0°F")).toBeInTheDocument();
-    // Active room → "then", and the countdown renders because nextIn > 0.
-    expect(screen.getByText(/then/)).toBeInTheDocument();
-    expect(screen.getByText("68.0°F")).toBeInTheDocument();
-    // The countdown span renders alongside the label because nextIn > 0. Its
-    // exact seconds depend on the render clock, so pin the shape, not the tick
-    // (the fake-timer suite below pins the exact string).
-    expect(container.querySelector(".room-status-next-timer")?.textContent).toMatch(/^ \(\d+[hms]/);
-  });
-
-  it("shows the next block without a timer for an idle room whose block is due now", async () => {
-    vi.mocked(api.getRoomActiveStatuses).mockResolvedValue({
-      "room-1": makeStatus({
-        next_schedule_in_seconds: 0,
-        next_schedule_target: 68,
-        next_schedule_label: "Morning",
-      }),
-    });
-    const { container } = renderPage();
-
-    expect(await screen.findByText("Not active")).toBeInTheDocument();
-    // Idle room → "next" rather than "then"; nextIn === 0 → no timer span.
-    expect(screen.getByText(/next/)).toBeInTheDocument();
-    expect(container.querySelector(".room-status-next-timer")).toBeNull();
-  });
-
-  it("renders an em dash for a status source the UI does not know", async () => {
-    vi.mocked(api.getRoomActiveStatuses).mockResolvedValue({
-      "room-1": makeStatus({
-        source: "manual" as unknown as api.RoomActiveStatus["source"],
-        target_temp: 71,
-      }),
-    });
     renderPage();
-
-    expect(await screen.findByText("via —")).toBeInTheDocument();
-  });
-
-  it("shows the bare entity id when the card's thermostat is unregistered", async () => {
-    useRooms([makeRoom({ thermostat_entity_id: "climate.ghost" })]);
-    const { container } = renderPage();
     await screen.findByText("Living Room");
+    await waitFor(() => expect(api.getEntityStates).toHaveBeenCalled());
 
-    const mono = container.querySelectorAll(".font-mono");
-    expect(mono[0]).toHaveTextContent("climate.ghost");
-    expect(screen.queryByText(/Test Thermostat/)).not.toBeInTheDocument();
+    // No state arrived → the entity id as the name and an ellipsis as the value.
+    expect(devices("Smart Vents")).toEqual([["cover.vent", "…"]]);
+    expect(devices("Temperature Sensors")).toEqual([["sensor.temp", "…"]]);
+    expect(devices("Occupancy Sensors")).toEqual([["binary_sensor.motion", "…"]]);
   });
 
-  it("shows Occupied plus the holdover countdown when presence is the active source", async () => {
-    useRooms([
-      makeRoom({
-        presence_sensors: [{ id: "p1", room_id: "room-1", entity_id: "binary_sensor.motion" }],
-      }),
-    ]);
-    vi.mocked(api.getEntityStates).mockResolvedValue({
-      "sensor.temp": { state: "70", numeric: 70, unit: "°F", attributes: {} },
-      "binary_sensor.motion": { state: "on", numeric: null, unit: "", attributes: {} },
-    });
-    vi.mocked(api.getRoomActiveStatuses).mockResolvedValue({
-      "room-1": makeStatus({ source: "presence", target_temp: 72, ends_in_seconds: 600 }),
-    });
-    const { container } = renderPage();
-
-    expect(await screen.findByText(/Occupied/)).toBeInTheDocument();
-    expect(container.querySelector(".live-occupied")).not.toBeNull();
-    expect(container.querySelector(".room-status-next-timer")?.textContent).toMatch(
-      /resets in \d+m \d+s/
-    );
-  });
-
-  it("shows Unoccupied when the presence sensor reads off", async () => {
-    useRooms([
-      makeRoom({
-        presence_sensors: [{ id: "p1", room_id: "room-1", entity_id: "binary_sensor.motion" }],
-      }),
-    ]);
-    vi.mocked(api.getEntityStates).mockResolvedValue({
-      "binary_sensor.motion": { state: "off", numeric: null, unit: "", attributes: {} },
-    });
-    const { container } = renderPage();
-
-    expect(await screen.findByText("Unoccupied")).toBeInTheDocument();
-    expect(container.querySelector(".live-unoccupied")).not.toBeNull();
-  });
-
-  it("shows an ellipsis until presence states arrive", async () => {
-    useRooms([
-      makeRoom({
-        presence_sensors: [{ id: "p1", room_id: "room-1", entity_id: "binary_sensor.motion" }],
-      }),
-    ]);
-    // Sensor state present, presence state missing → hasPresenceData is false.
-    vi.mocked(api.getEntityStates).mockResolvedValue({
-      "sensor.temp": { state: "70", numeric: 70, unit: "°F", attributes: {} },
-    });
-    const { container } = renderPage();
-    await screen.findByText("Living Room");
-
-    await waitFor(() => {
-      const presenceValue = container.querySelectorAll(".room-live-value")[1];
-      expect(presenceValue).toHaveTextContent("…");
-      expect(presenceValue.className).toBe("room-live-value ");
-    });
-  });
-
-  it("renders every vent-position flavour in the live strip", async () => {
+  it("renders every vent-position flavour", async () => {
     useRooms([
       makeRoom({
         vents: [
@@ -585,52 +544,143 @@ describe("Rooms card — live status", () => {
     vi.mocked(api.getEntityStates).mockResolvedValue({
       // A fully-open standard cover, a Flair-style tilt at 0, and a mid
       // position → "Open", "Closed" and a percentage respectively.
-      "cover.wide": {
-        state: "closed",
-        numeric: null,
-        unit: "",
-        attributes: { current_position: 100 },
-      },
-      "cover.tilt": {
-        state: "open",
-        numeric: null,
-        unit: "",
-        attributes: { current_tilt_position: 0 },
-      },
-      "cover.half": {
-        state: "open",
-        numeric: null,
-        unit: "",
-        attributes: { current_position: 55 },
-      },
+      "cover.wide": state("closed", { current_position: 100, friendly_name: "Wide Vent" }),
+      "cover.tilt": state("open", { current_tilt_position: 0, friendly_name: "" }),
+      "cover.half": state("open", { current_position: 55, friendly_name: 7 }),
       // No position attributes at all → fall back to the cover state string.
-      "cover.plain": { state: "open", numeric: null, unit: "", attributes: {} },
-      "cover.shut": { state: "closed", numeric: null, unit: "", attributes: {} },
-      "cover.weird": { state: "unavailable", numeric: null, unit: "", attributes: {} },
+      "cover.plain": state("open"),
+      "cover.shut": state("closed"),
+      "cover.weird": state("unavailable"),
     });
-    const { container } = renderPage();
+    renderPage();
     await screen.findByText("Living Room");
 
-    await waitFor(() => {
-      const pills = Array.from(container.querySelectorAll(".room-vent-pill")).map(
-        (p) => p.textContent
-      );
+    await waitFor(() =>
       // "cover.wide" reads Open from its position even though its state string
-      // says closed — the position attribute wins over the state fallback.
-      expect(pills).toEqual(["Open", "Closed", "55%", "Open", "Closed", "unavailable"]);
+      // says closed — the position attribute wins over the state fallback. A
+      // blank or non-text friendly name falls back to the entity id.
+      expect(devices("Smart Vents")).toEqual([
+        ["Wide Vent", "Open"],
+        ["cover.tilt", "Closed"],
+        ["cover.half", "55%"],
+        ["cover.plain", "Open"],
+        ["cover.shut", "Closed"],
+        ["cover.weird", "unavailable"],
+      ])
+    );
+    expect(section("Smart Vents").querySelector(".device-count")).toHaveTextContent("6");
+  });
+
+  it("shows each temperature sensor's reading in the display unit, and flags stale ones", async () => {
+    useRooms([
+      makeRoom({
+        sensors: [
+          { id: "s1", room_id: "room-1", entity_id: "sensor.temp" },
+          { id: "s2", room_id: "room-1", entity_id: "sensor.old" },
+          { id: "s3", room_id: "room-1", entity_id: "sensor.quiet" },
+        ],
+      }),
+    ]);
+    vi.mocked(api.getEntityStates).mockResolvedValue({
+      "sensor.temp": state("68", { friendly_name: "Sofa" }, 68),
+      "sensor.old": state("70", {}, 70),
+      "sensor.quiet": state("unknown"),
     });
+    vi.mocked(api.getSensorHealth).mockResolvedValue({
+      stale_after_min: 30,
+      rooms: [
+        {
+          room_id: "room-1",
+          room_name: "Living Room",
+          thermostat_entity_id: "climate.test",
+          stale_sensors: [{ entity_id: "sensor.old", age_seconds: 5400, reason: "stale" }],
+        },
+      ],
+    });
+    renderPage(mockSystem, "C");
+    await screen.findByText("Living Room");
+
+    await waitFor(() =>
+      expect(devices("Temperature Sensors")).toEqual([
+        ["Sofa", "20.0°C"],
+        ["sensor.old", "Stale"],
+        ["sensor.quiet", "…"],
+      ])
+    );
+    expect(within(section("Temperature Sensors")).getByText("Stale")).toHaveClass("device-warn");
+    expect(within(section("Temperature Sensors")).getByText("20.0°C")).not.toHaveClass(
+      "device-warn"
+    );
   });
 
-  it("shows a temperature-offset badge with the sign", async () => {
-    useRooms([makeRoom({ temp_offset: 3 })]);
+  it("lists this room's doors and windows with their state and what they pause", async () => {
+    vi.mocked(sc.getSmartControl).mockResolvedValue(
+      smartControl([
+        contact({ state: "open", pauses: "zone" }),
+        contact({ entity_id: "binary_sensor.win", name: "Bay Window" }),
+        contact({ entity_id: "binary_sensor.dead", name: "Side Door", state: "offline" }),
+        // Another room's sensor never shows on this card.
+        contact({ entity_id: "binary_sensor.other", name: "Garage Door", room_id: "room-9" }),
+      ]) as sc.SmartControl
+    );
     renderPage();
-    expect(await screen.findByText(/offset \+3°F/)).toBeInTheDocument();
+    await screen.findByText("Living Room");
+
+    await waitFor(() =>
+      expect(devices("Doors & Windows")).toEqual([
+        ["Patio Door", "OpenZone"],
+        ["Bay Window", "Closed"],
+        ["Side Door", "Offline"],
+      ])
+    );
+    const doors = section("Doors & Windows");
+    expect(within(doors).getByText("Zone")).toHaveClass("device-tag");
+    expect(doors.querySelectorAll(".device-tag")).toHaveLength(1);
+    expect(doors.querySelector(".device-open")).toHaveTextContent("Open");
+    expect(doors.querySelectorAll(".device-open")).toHaveLength(1);
+    expect(screen.queryByText("Garage Door")).toBeNull();
   });
 
-  it("omits the plus sign for a negative offset badge", async () => {
-    useRooms([makeRoom({ temp_offset: -2 })]);
+  it("shows no doors or windows when Smart Control cannot be read", async () => {
+    vi.mocked(sc.getSmartControl).mockRejectedValue(new Error("down"));
     renderPage();
-    expect(await screen.findByText(/offset -2°F/)).toBeInTheDocument();
+    await screen.findByText("Living Room");
+    await waitFor(() => expect(sc.getSmartControl).toHaveBeenCalled());
+    expect(within(section("Doors & Windows")).getByText("None")).toBeInTheDocument();
+  });
+
+  it("reads occupancy sensors as Occupied, Clear or Offline", async () => {
+    useRooms([
+      makeRoom({
+        presence_sensors: [
+          { id: "p1", room_id: "room-1", entity_id: "binary_sensor.desk" },
+          { id: "p2", room_id: "room-1", entity_id: "binary_sensor.sofa" },
+          { id: "p3", room_id: "room-1", entity_id: "binary_sensor.lost" },
+          { id: "p4", room_id: "room-1", entity_id: "binary_sensor.late" },
+        ],
+      }),
+    ]);
+    vi.mocked(api.getEntityStates).mockResolvedValue({
+      "binary_sensor.desk": state("on", { friendly_name: "Desk" }),
+      "binary_sensor.sofa": state("off"),
+      "binary_sensor.lost": state("unavailable"),
+      // HA has no state for this one yet.
+      "binary_sensor.late": null,
+    });
+    renderPage();
+    await screen.findByText("Living Room");
+
+    await waitFor(() =>
+      expect(devices("Occupancy Sensors")).toEqual([
+        ["Desk", "Occupied"],
+        ["binary_sensor.sofa", "Clear"],
+        ["binary_sensor.lost", "Offline"],
+        ["binary_sensor.late", "…"],
+      ])
+    );
+    const occupancy = section("Occupancy Sensors");
+    expect(occupancy.querySelectorAll(".device-occupied")).toHaveLength(1);
+    expect(within(occupancy).getByText("Occupied")).toHaveClass("device-occupied");
   });
 
   it("keeps the stale badge singular for exactly one sensor", async () => {
@@ -648,7 +698,7 @@ describe("Rooms card — live status", () => {
     renderPage();
 
     const badge = await screen.findByTestId("stale-badge-room-1");
-    expect(badge.textContent).toBe("⚠ 1 stale sensor");
+    expect(badge.textContent).toBe("1 stale sensor");
     expect(badge.getAttribute("title")).toBe("sensor.one — 1.5 h ago");
   });
 
@@ -674,12 +724,116 @@ describe("Rooms card — live status", () => {
     const badge = await screen.findByTestId("stale-badge-room-1");
     // Exact text, not a substring: a hardcoded "s" would still satisfy
     // toHaveTextContent("… stale sensor") and leave the plural unpinned.
-    expect(badge.textContent).toBe("⚠ 4 stale sensors");
+    expect(badge.textContent).toBe("4 stale sensors");
     const title = badge.getAttribute("title") ?? "";
     expect(title).toContain("sensor.never — never seen by HA");
     expect(title).toContain("sensor.null_age — never seen by HA");
     expect(title).toContain("sensor.minutes — 2 min ago");
     expect(title).toContain("sensor.days — 2 d ago");
+  });
+
+  it("shows no stale badge when sensor health cannot be read", async () => {
+    vi.mocked(api.getSensorHealth).mockRejectedValue(new Error("down"));
+    renderPage();
+    await screen.findByText("Living Room");
+    await waitFor(() => expect(api.getSensorHealth).toHaveBeenCalled());
+    expect(screen.queryByTestId("stale-badge-room-1")).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Doors & Windows inside Edit Devices
+// ---------------------------------------------------------------------------
+
+describe("Edit Devices — doors and windows", () => {
+  const open = async () => {
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Devices" }));
+    await screen.findByPlaceholderText(/Search door and window sensors/);
+  };
+
+  it("adds a door to the room, pausing the room by default", async () => {
+    vi.mocked(api.getHAEntities).mockResolvedValue([
+      { entity_id: "binary_sensor.door", friendly_name: "Patio Door", state: "" },
+    ]);
+    vi.mocked(sc.saveContactSensor).mockResolvedValue(smartControl([contact()]) as sc.SmartControl);
+    await open();
+    expect(screen.getByText("No doors or windows in this room.")).toBeInTheDocument();
+
+    const picker = screen.getByPlaceholderText(/Search door and window sensors/);
+    fireEvent.focus(picker);
+    fireEvent.change(picker, { target: { value: "patio" } });
+    fireEvent.mouseDown(await screen.findByText("Patio Door"));
+
+    await waitFor(() =>
+      expect(sc.saveContactSensor).toHaveBeenCalledWith("binary_sensor.door", {
+        room_id: "room-1",
+        pauses: "room",
+      })
+    );
+    expect(await screen.findByLabelText("What Patio Door pauses")).toHaveValue("room");
+    expect(screen.queryByText("No doors or windows in this room.")).toBeNull();
+  });
+
+  it("switches a door between pausing the room and the whole zone, and removes it", async () => {
+    vi.mocked(sc.getSmartControl).mockResolvedValue(
+      smartControl([
+        contact(),
+        contact({ entity_id: "binary_sensor.other", name: "Garage Door", room_id: "room-9" }),
+      ]) as sc.SmartControl
+    );
+    vi.mocked(sc.saveContactSensor).mockResolvedValue(
+      smartControl([contact({ pauses: "zone" })]) as sc.SmartControl
+    );
+    vi.mocked(sc.deleteContactSensor).mockResolvedValue(smartControl() as sc.SmartControl);
+    await open();
+    // Only this room's sensors are listed.
+    expect(screen.queryByText("Garage Door")).toBeNull();
+
+    const scope = await screen.findByLabelText("What Patio Door pauses");
+    fireEvent.change(scope, { target: { value: "zone" } });
+    await waitFor(() =>
+      expect(sc.saveContactSensor).toHaveBeenCalledWith("binary_sensor.door", {
+        room_id: "room-1",
+        pauses: "zone",
+      })
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText("What Patio Door pauses")).toHaveValue("zone")
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove Patio Door" }));
+    await waitFor(() => expect(sc.deleteContactSensor).toHaveBeenCalledWith("binary_sensor.door"));
+    expect(await screen.findByText("No doors or windows in this room.")).toBeInTheDocument();
+  });
+
+  it("reports failures to add, change and remove a sensor", async () => {
+    vi.mocked(sc.getSmartControl).mockResolvedValue(smartControl([contact()]) as sc.SmartControl);
+    vi.mocked(api.getHAEntities).mockResolvedValue([
+      { entity_id: "binary_sensor.win", friendly_name: "Bay Window", state: "" },
+    ]);
+    await open();
+    const scope = await screen.findByLabelText("What Patio Door pauses");
+
+    vi.mocked(sc.saveContactSensor).mockRejectedValueOnce(new Error("That room does not exist"));
+    fireEvent.change(scope, { target: { value: "zone" } });
+    expect(await screen.findByText("That room does not exist")).toBeInTheDocument();
+    vi.mocked(sc.saveContactSensor).mockRejectedValueOnce(0);
+    fireEvent.change(scope, { target: { value: "zone" } });
+    expect(await screen.findByText("Could not save the sensor")).toBeInTheDocument();
+
+    vi.mocked(sc.deleteContactSensor).mockRejectedValueOnce(null);
+    fireEvent.click(screen.getByRole("button", { name: "Remove Patio Door" }));
+    expect(await screen.findByText("Could not remove the sensor")).toBeInTheDocument();
+
+    vi.mocked(sc.saveContactSensor).mockRejectedValueOnce("x");
+    const picker = screen.getByPlaceholderText(/Search door and window sensors/);
+    fireEvent.focus(picker);
+    fireEvent.change(picker, { target: { value: "bay" } });
+    fireEvent.mouseDown(await screen.findByText("Bay Window"));
+    expect(await screen.findByText("Could not add the sensor")).toBeInTheDocument();
+    // The list is unchanged by a failed write.
+    expect(screen.getByLabelText("What Patio Door pauses")).toHaveValue("room");
   });
 });
 
@@ -687,7 +841,7 @@ describe("Rooms card — live status", () => {
 // Timers
 // ---------------------------------------------------------------------------
 
-describe("Rooms — timers", () => {
+describe("My Home — timers", () => {
   beforeEach(() => {
     vi.useFakeTimers();
   });
@@ -702,39 +856,26 @@ describe("Rooms — timers", () => {
     }
   };
 
-  it("ticks the ends-in countdown once a second", async () => {
-    vi.mocked(api.getRoomActiveStatuses).mockResolvedValue({
-      "room-1": makeStatus({ source: "schedule", target_temp: 70, ends_in_seconds: 125 }),
-    });
-    const { container } = renderPage();
+  it("re-polls sensor health every 30 seconds, and nothing else", async () => {
+    const { unmount } = renderPage();
     await flush();
 
-    expect(container.querySelector(".room-status-ends")).toHaveTextContent("2m 5s");
-
-    // The per-second interval re-renders the card; elapsed time is derived from
-    // the clock, so the countdown must decrement without a refetch.
-    await act(async () => {
-      vi.advanceTimersByTime(3000);
-    });
-    expect(container.querySelector(".room-status-ends")).toHaveTextContent("2m 2s");
-    expect(api.getRoomActiveStatuses).toHaveBeenCalledTimes(1);
-  });
-
-  it("re-polls statuses, holds and sensor health every 30 seconds", async () => {
-    renderPage();
-    await flush();
-
-    expect(api.getRoomActiveStatuses).toHaveBeenCalledTimes(1);
-    expect(api.getOverrides).toHaveBeenCalledTimes(1);
     expect(api.getSensorHealth).toHaveBeenCalledTimes(1);
+    expect(api.getRooms).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       vi.advanceTimersByTime(30_000);
     });
     await flush();
 
-    expect(api.getRoomActiveStatuses).toHaveBeenCalledTimes(2);
-    expect(api.getOverrides).toHaveBeenCalledTimes(2);
+    expect(api.getSensorHealth).toHaveBeenCalledTimes(2);
+    expect(api.getRooms).toHaveBeenCalledTimes(1);
+
+    // The poll stops with the page.
+    unmount();
+    await act(async () => {
+      vi.advanceTimersByTime(60_000);
+    });
     expect(api.getSensorHealth).toHaveBeenCalledTimes(2);
   });
 });
@@ -743,17 +884,54 @@ describe("Rooms — timers", () => {
 // Page-level edge cases
 // ---------------------------------------------------------------------------
 
-describe("Rooms — page edge cases", () => {
-  it("renders the empty state and skips the status poll when there are no rooms", async () => {
+describe("My Home — page edge cases", () => {
+  it("shows a loading line until the house has been read", async () => {
+    renderPage();
+    expect(screen.getByText(/Loading My Home…/)).toBeInTheDocument();
+    await screen.findByText("Living Room");
+    expect(screen.queryByText(/Loading My Home…/)).toBeNull();
+  });
+
+  it("invites the first zone when the house is empty", async () => {
     useRooms([]);
+    vi.mocked(api.getThermostats).mockResolvedValue([]);
     renderPage();
 
-    expect(await screen.findByText("No rooms yet.")).toBeInTheDocument();
     expect(
-      screen.getByText("Rooms are grouped by building and by the thermostat that serves them.")
+      await screen.findByText(/No zones yet\. Add a zone with its thermostat/)
     ).toBeInTheDocument();
-    // No rooms → no active-status request is issued at all.
-    expect(api.getRoomActiveStatuses).not.toHaveBeenCalled();
+    expect(screen.queryByText("Rooms Without a Zone")).toBeNull();
+  });
+
+  it("says a zone with no rooms needs one", async () => {
+    useRooms([]);
+    renderPage();
+    expect(
+      await screen.findByText(
+        "This zone has no rooms. Add one — every zone needs at least one room."
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("lists rooms whose thermostat is not a zone, so they can be given one", async () => {
+    useRooms([
+      makeRoom(),
+      makeRoom({ id: "room-2", name: "Attic", thermostat_entity_id: "climate.gone" }),
+    ]);
+    renderPage();
+    const heading = await screen.findByRole("heading", { name: "Rooms Without a Zone" });
+    const group = heading.closest(".building-group") as HTMLElement;
+    expect(within(group).getByText("Attic")).toBeInTheDocument();
+    expect(within(group).queryByText("Living Room")).toBeNull();
+    expect(
+      within(group).getByText("Open Room Settings and choose a zone for each of these rooms.")
+    ).toBeInTheDocument();
+    // The zoned room sits inside its zone's panel.
+    expect(
+      within(await screen.findByRole("region", { name: "Test Thermostat" })).getByText(
+        "Living Room"
+      )
+    ).toBeInTheDocument();
   });
 
   it("cancels the outside-sensor probe when the settings form unmounts first", async () => {
@@ -808,7 +986,7 @@ describe("Rooms configure view — refresh after a mutation", () => {
     });
 
     renderPage();
-    fireEvent.click(await screen.findByRole("button", { name: /Configure sensors/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Devices" }));
     await screen.findByTestId("room-configure");
     expect(screen.getByText("No sensors added yet — search above to add one.")).toBeInTheDocument();
 

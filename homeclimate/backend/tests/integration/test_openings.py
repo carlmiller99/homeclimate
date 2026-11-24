@@ -44,9 +44,10 @@ async def house(client, fake_ha):
     await _thermostat(client, T2, "North Wing")
     bunk = await _room(client, "Bunk Room", T1)
     craft = await _room(client, "Craft Room", T1)
+    den = await _room(client, "Den", T2)
     for eid, name in ((FRONT, "Front Door"), (PORCH, "Porch Door"), (WINDOW, "Bunk Window")):
         fake_ha.seed_state(eid, "off", {"friendly_name": name, "device_class": "door"})
-    return {"bunk": bunk, "craft": craft}
+    return {"bunk": bunk, "craft": craft, "den": den}
 
 
 # ---------------------------------------------------------------------------
@@ -148,7 +149,7 @@ async def test_overrides(client, house):
 
 async def test_contact_sensors(client, fake_ha, house):
     resp = await client.put(
-        f"/api/smart-control/contacts/{FRONT}", json={"thermostat_entity_id": T1}
+        f"/api/smart-control/contacts/{FRONT}", json={"room_id": house["craft"], "pauses": "zone"}
     )
     assert resp.status == 200
     resp = await client.put(
@@ -159,40 +160,42 @@ async def test_contact_sensors(client, fake_ha, house):
         "entity_id": FRONT,
         "name": "Front Door",
         "thermostat_entity_id": T1,
-        "room_id": None,
+        "room_id": house["craft"],
+        "pauses": "zone",
         "state": "closed",
         "open_since": None,
         "pausing": False,
     }
-    assert sensors[WINDOW]["room_id"] == house["bunk"]
+    assert (sensors[WINDOW]["room_id"], sensors[WINDOW]["pauses"]) == (house["bunk"], "room")
 
-    # Move the front door to a room.
+    # Move the front door to another room, pausing just that room.
     resp = await client.put(
-        f"/api/smart-control/contacts/{FRONT}", json={"room_id": house["craft"]}
+        f"/api/smart-control/contacts/{FRONT}", json={"room_id": house["den"], "pauses": "room"}
     )
     moved = {s["entity_id"]: s for s in (await resp.json())["sensors"]}[FRONT]
-    assert (moved["thermostat_entity_id"], moved["room_id"]) == (None, house["craft"])
+    assert (moved["thermostat_entity_id"], moved["room_id"], moved["pauses"]) == (
+        T2,
+        house["den"],
+        "room",
+    )
 
     # An unknown entity has no friendly name and reads offline.
     resp = await client.put(
-        "/api/smart-control/contacts/binary_sensor.gone", json={"thermostat_entity_id": T2}
+        "/api/smart-control/contacts/binary_sensor.gone", json={"room_id": house["den"]}
     )
     gone = {s["entity_id"]: s for s in (await resp.json())["sensors"]}["binary_sensor.gone"]
     assert (gone["name"], gone["state"]) == ("binary_sensor.gone", "offline")
 
     for path, body, message in [
-        ("sensor.front", {"thermostat_entity_id": T1}, "Choose a door or window binary_sensor"),
-        (PORCH, {}, "Attach the sensor to a zone or to one room"),
-        (PORCH, {"thermostat_entity_id": T1, "room_id": house["bunk"]}, None),
-        (PORCH, {"thermostat_entity_id": "climate.none"}, "That zone does not exist"),
-        (PORCH, {"thermostat_entity_id": 5}, "That zone does not exist"),
+        ("sensor.front", {"room_id": house["bunk"]}, "Choose a door or window binary_sensor"),
+        (PORCH, {}, "That room does not exist"),
         (PORCH, {"room_id": "nope"}, "That room does not exist"),
         (PORCH, {"room_id": 7}, "That room does not exist"),
+        (PORCH, {"room_id": house["bunk"], "pauses": "house"}, "pauses must be room or zone"),
     ]:
         resp = await client.put(f"/api/smart-control/contacts/{path}", json=body)
         assert resp.status == 400, body
-        if message:
-            assert (await resp.json())["error"] == message
+        assert (await resp.json())["error"] == message
 
     assert (await client.delete(f"/api/smart-control/contacts/{FRONT}")).status == 200
     assert (await client.delete(f"/api/smart-control/contacts/{FRONT}")).status == 404
@@ -201,6 +204,81 @@ async def test_contact_sensors(client, fake_ha, house):
     assert (await client.delete(f"/api/rooms/{house['bunk']}")).status in (200, 204)
     sensors = (await (await client.get("/api/smart-control")).json())["sensors"]
     assert [s["entity_id"] for s in sensors] == ["binary_sensor.gone"]
+
+
+async def test_legacy_zone_rows_still_pause_their_zone(client, fake_ha, house):
+    conn = await client.app["scheduler"].get_db()
+    await conn.execute(
+        "INSERT INTO contact_sensors(entity_id, thermostat_entity_id) VALUES(?,?)", (FRONT, T1)
+    )
+    await conn.commit()
+    [legacy] = await openings.list_contacts(conn)
+    assert (legacy.room_id, legacy.pauses) == (None, "zone")
+    snap = await (await client.get("/api/smart-control")).json()
+    assert snap["sensors"][0]["thermostat_entity_id"] == T1
+    mon = openings.OpeningMonitor()
+    await mon.evaluate(conn, fake_ha.get_state, at(0))
+    mon.observe(FRONT, _state("on"), at(0))
+    [t] = await mon.evaluate(conn, fake_ha.get_state, at(3))
+    assert (t.scope, t.scope_id) == ("zone", T1)
+
+
+async def test_zone_attached_sensors_move_into_a_room_at_start(client, house):
+    conn = await client.app["scheduler"].get_db()
+    await conn.execute(
+        "INSERT INTO contact_sensors(entity_id, thermostat_entity_id) VALUES(?,?)", (FRONT, T1)
+    )
+    # A zone with no room: its sensor has nowhere to go and stays as it is.
+    await conn.execute(
+        "INSERT INTO thermostat_configs(thermostat_entity_id) VALUES('climate.empty')"
+    )
+    await conn.execute(
+        "INSERT INTO contact_sensors(entity_id, thermostat_entity_id) VALUES(?,?)",
+        (PORCH, "climate.empty"),
+    )
+    await conn.commit()
+
+    assert await openings.adopt_zone_contacts(conn) == 1
+    by_id = {c.entity_id: c for c in await openings.list_contacts(conn)}
+    # Bunk Room sorts before Craft Room; the sensor still pauses the whole zone.
+    front = by_id[FRONT]
+    assert (front.thermostat_entity_id, front.room_id, front.pauses) == (
+        None,
+        house["bunk"],
+        "zone",
+    )
+    porch = by_id[PORCH]
+    assert (porch.thermostat_entity_id, porch.room_id, porch.pauses) == (
+        "climate.empty",
+        None,
+        "zone",
+    )
+    # Running it again changes nothing.
+    assert await openings.adopt_zone_contacts(conn) == 0
+
+
+async def test_start_up_moves_zone_attached_sensors_and_logs_it(client, house):
+    scheduler = client.app["scheduler"]
+    conn = await scheduler.get_db()
+    await conn.execute(
+        "INSERT INTO contact_sensors(entity_id, thermostat_entity_id) VALUES(?,?)", (FRONT, T1)
+    )
+    await conn.commit()
+    await scheduler.adopt_zone_contacts()
+    [sensor] = [
+        s
+        for s in (await (await client.get("/api/smart-control")).json())["sensors"]
+        if s["entity_id"] == FRONT
+    ]
+    assert (sensor["room_id"], sensor["pauses"]) == (house["bunk"], "zone")
+    events = await (await client.get("/api/logs/events?category=openings")).json()
+    messages = [e["message"] for e in (events["events"] if isinstance(events, dict) else events)]
+    assert "Moved 1 door or window sensor(s) from their zone into a room" in messages
+    # Nothing left to move: nothing more is logged.
+    await scheduler.adopt_zone_contacts()
+    events = await (await client.get("/api/logs/events?category=openings")).json()
+    again = [e["message"] for e in (events["events"] if isinstance(events, dict) else events)]
+    assert again.count("Moved 1 door or window sensor(s) from their zone into a room") == 1
 
 
 async def test_body_must_be_a_json_object(client):
@@ -223,7 +301,7 @@ def _state(value: str) -> dict:
 
 
 async def test_zone_pause_lifecycle(client, fake_ha, house):
-    await _attach(client, FRONT, thermostat_entity_id=T1)
+    await _attach(client, FRONT, room_id=house["craft"], pauses="zone")
     conn = await client.app["scheduler"].get_db()
     mon = openings.OpeningMonitor()
     get = fake_ha.get_state
@@ -264,7 +342,7 @@ async def test_zone_pause_lifecycle(client, fake_ha, house):
 
 async def test_only_closed_to_open_starts_the_timer(client, fake_ha, house):
     fake_ha.seed_state(FRONT, "on", {"friendly_name": "Front Door"})
-    await _attach(client, FRONT, thermostat_entity_id=T1)
+    await _attach(client, FRONT, room_id=house["craft"], pauses="zone")
     conn = await client.app["scheduler"].get_db()
     mon = openings.OpeningMonitor()
 
@@ -286,7 +364,7 @@ async def test_only_closed_to_open_starts_the_timer(client, fake_ha, house):
 
 
 async def test_nothing_is_seeded_before_home_assistant_reports(client, fake_ha, house):
-    await _attach(client, "binary_sensor.not_loaded", thermostat_entity_id=T1)
+    await _attach(client, "binary_sensor.not_loaded", room_id=house["craft"], pauses="zone")
     conn = await client.app["scheduler"].get_db()
     mon = openings.OpeningMonitor()
     await mon.evaluate(conn, fake_ha.get_state, at(0))
@@ -299,7 +377,7 @@ async def test_nothing_is_seeded_before_home_assistant_reports(client, fake_ha, 
 
 
 async def test_offline_releases_the_pause(client, fake_ha, house):
-    await _attach(client, FRONT, thermostat_entity_id=T1)
+    await _attach(client, FRONT, room_id=house["craft"], pauses="zone")
     conn = await client.app["scheduler"].get_db()
     await client.put("/api/smart-control/settings", json={"resume_min": 0})
     mon = openings.OpeningMonitor()
@@ -353,8 +431,8 @@ async def test_room_pause_and_override_resolution(client, fake_ha, house):
 
 
 async def test_disabling_or_removing_releases(client, fake_ha, house):
-    await _attach(client, FRONT, thermostat_entity_id=T1)
-    await _attach(client, PORCH, thermostat_entity_id=T2)
+    await _attach(client, FRONT, room_id=house["craft"], pauses="zone")
+    await _attach(client, PORCH, room_id=house["den"], pauses="zone")
     conn = await client.app["scheduler"].get_db()
     mon = openings.OpeningMonitor()
     await mon.evaluate(conn, fake_ha.get_state, at(0))
@@ -370,7 +448,7 @@ async def test_disabling_or_removing_releases(client, fake_ha, house):
     # Removing the only sensor of a paused zone resumes after the delay; the
     # zone's name falls back to its entity id once the thermostat is gone too.
     await client.delete(f"/api/smart-control/contacts/{PORCH}")
-    await client.delete(f"/api/thermostats/{T2}")
+    await client.delete(f"/api/thermostats/{T2}?with_rooms=true")
     assert await mon.evaluate(conn, fake_ha.get_state, at(4)) == []
     [t] = await mon.evaluate(conn, fake_ha.get_state, at(6))
     assert (t.scope_id, t.name, t.paused) == (T2, T2, False)
@@ -397,7 +475,7 @@ async def test_removed_room_name_falls_back_to_its_id(client, fake_ha, house):
 async def test_state_change_pauses_logs_and_kicks_the_engine(client, fake_ha, house, tick):
     scheduler = client.app["scheduler"]
     await client.put("/api/smart-control/settings", json={"zone_pause_min": 1})
-    await _attach(client, FRONT, thermostat_entity_id=T1)
+    await _attach(client, FRONT, room_id=house["craft"], pauses="zone")
     await _attach(client, WINDOW, room_id=house["bunk"])
     await tick()
     assert FRONT in scheduler.openings.entities
@@ -432,7 +510,7 @@ async def test_state_change_pauses_logs_and_kicks_the_engine(client, fake_ha, ho
 async def test_resume_is_logged_and_deleted_rooms_touch_no_zone(client, fake_ha, house):
     scheduler = client.app["scheduler"]
     await client.put("/api/smart-control/settings", json={"resume_min": 0})
-    await _attach(client, FRONT, thermostat_entity_id=T1)
+    await _attach(client, FRONT, room_id=house["craft"], pauses="zone")
     await _attach(client, WINDOW, room_id=house["bunk"])
     mon = scheduler.openings
     await scheduler._evaluate_openings()
@@ -464,7 +542,7 @@ async def test_evaluation_failure_is_logged_not_raised(client, monkeypatch):
 
 async def test_transitions_without_a_logger(client, fake_ha, house):
     scheduler = client.app["scheduler"]
-    await _attach(client, FRONT, thermostat_entity_id=T1)
+    await _attach(client, FRONT, room_id=house["craft"], pauses="zone")
     scheduler._event_logger = None
     mon = scheduler.openings
     await scheduler._evaluate_openings()

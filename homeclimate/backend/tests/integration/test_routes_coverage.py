@@ -107,6 +107,11 @@ class TestRoomsValidation:
 
     async def test_delete_room(self, client):
         room = await _create_room(client)
+        # A zone keeps its last room (My Home structure)...
+        resp = await client.delete(f"/api/rooms/{room['id']}")
+        assert resp.status == 409
+        # ...so a second room in the zone lets the first go.
+        await _create_room(client, name="Den")
         resp = await client.delete(f"/api/rooms/{room['id']}")
         assert resp.status == 200
         data = await resp.json()

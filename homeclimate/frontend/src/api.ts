@@ -508,8 +508,11 @@ export const updateThermostat = (entity_id: string, data: Partial<ThermostatConf
     method: "PUT",
     body: JSON.stringify(data),
   });
-export const deleteThermostat = (entity_id: string) =>
-  api<{ deleted: string }>(`/api/thermostats/${entity_id}`, { method: "DELETE" });
+/** Delete a zone. A zone that still has rooms needs ``withRooms`` (they go too). */
+export const deleteThermostat = (entity_id: string, withRooms = false) =>
+  api<{ deleted: string }>(`/api/thermostats/${entity_id}${withRooms ? "?with_rooms=true" : ""}`, {
+    method: "DELETE",
+  });
 
 // ---------------------------------------------------------------------------
 // System

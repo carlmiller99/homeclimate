@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   getStatus,
   getRooms,
@@ -8,6 +8,9 @@ import {
   clearOverride,
   clearPresenceHoldover,
   connectWS,
+  getEntityStates,
+  getRoom,
+  getSensorHealth,
   type ZoneStatus,
   type Room,
   type RoomOverrideHold,
@@ -15,6 +18,14 @@ import {
   type VacationMode,
 } from "../api";
 import { vacationState } from "../vacation";
+import {
+  getBuildings,
+  getZones,
+  groupByBuilding,
+  type Building,
+  type ZoneProfile,
+} from "../zonesApi";
+import { getSmartControl, type SmartControl } from "../smartControlApi";
 import { useTimeZone, useUnit } from "../contexts";
 import { onStateChanged } from "../stateEvents";
 import { Frozen, FROZEN } from "../ci";
@@ -26,6 +37,52 @@ import EcoSuspendModal from "../components/EcoSuspendModal";
 import HoldModal from "../components/HoldModal";
 import { formatCountdown } from "../countdown";
 import Time from "../components/Time";
+
+/**
+ * A room's temperature (°F) the way the engine works it out: the mean of its
+ * fresh sensor readings, plus the thermostat's own reading when the room
+ * includes it. Null when nothing has reported.
+ */
+function roomAverage(
+  sensorIds: string[],
+  states: Record<string, { numeric?: number | null } | null>,
+  stale: Set<string>,
+  thermostatTemp: number | null
+): number | null {
+  const values = sensorIds
+    .filter((id) => !stale.has(id))
+    .map((id) => states[id]?.numeric)
+    .filter((n): n is number => typeof n === "number");
+  if (thermostatTemp != null) values.push(thermostatTemp);
+  if (values.length === 0) return null;
+  return values.reduce((a, b) => a + b, 0) / values.length;
+}
+
+/** How long a room's sensor list is trusted before it is read again. */
+const SENSOR_LIST_MAX_AGE_MS = 5 * 60_000;
+
+/** The open doors and windows pausing a zone or a room, by name. */
+function pausedBy(
+  smart: SmartControl | null,
+  scope: "zone" | "room",
+  id: string,
+  rooms: Room[]
+): string[] | null {
+  if (!smart?.paused.some((p) => p.scope === scope && p.scope_id === id)) return null;
+  return smart.sensors
+    .filter((c) => c.pausing && c.pauses === scope)
+    .filter((c) =>
+      scope === "room"
+        ? c.room_id === id
+        : c.thermostat_entity_id === id ||
+          rooms.some((r) => r.id === c.room_id && r.thermostat_entity_id === id)
+    )
+    .map((c) => c.name);
+}
+
+function pausedText(names: string[]): string {
+  return names.length > 0 ? `Paused: ${names.join(", ")} open` : "Paused: door or window open";
+}
 
 function modeColor(mode: string): string {
   if (mode === "cooling") return "blue";
@@ -42,106 +99,92 @@ function modeLabel(action: string, state: string): string {
 }
 
 function RoomRow({
-  r,
-  rooms,
+  room,
+  active,
+  temp,
   held,
+  paused,
+  onHold,
+  onCancelHold,
   onClearPresence,
 }: {
-  r: ZoneStatus["rooms"][number];
-  rooms: Room[];
-  // #576: whether this room's active trigger is a temporary hold. The zone
-  // payload carries no trigger source, so the caller derives this from the
-  // live-holds list.
+  room: { id: string; name: string };
+  active?: ZoneStatus["rooms"][number];
+  temp: number | null;
   held: boolean;
+  /** Names of the open doors/windows pausing this room, or null. */
+  paused: string[] | null;
+  onHold: () => void;
+  onCancelHold: () => void;
   onClearPresence: () => void;
 }) {
   const { fmtTemp } = useUnit();
-  const room = rooms.find((x) => x.id === r.room_id);
-  const ventEntries = Object.entries(r.vent_states);
+  const ventEntries = Object.entries(active?.vent_states ?? {});
   const openCount = ventEntries.filter(([, s]) => s === "open").length;
   const [clearing, setClearing] = useState(false);
+  const [error, setError] = useState("");
+  const shownTemp = active?.avg_temp ?? temp;
 
   const clearPresence = async () => {
     setClearing(true);
+    setError("");
     try {
-      await clearPresenceHoldover(r.room_id);
+      await clearPresenceHoldover(room.id);
       onClearPresence();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not clear presence");
     } finally {
       setClearing(false);
     }
   };
 
   return (
-    <div
-      className="stat-row"
-      style={{ flexDirection: "column", alignItems: "flex-start", gap: ".4rem" }}
-    >
-      <div className="flex-between" style={{ width: "100%" }}>
-        <span className="stat-label" style={{ fontWeight: 600, color: "var(--gray-900)" }}>
-          {room?.name ?? r.room_id}
+    <div className="dash-room" data-testid={`dash-room-${room.id}`}>
+      <div className="dash-room-main">
+        <span className="dash-room-name">
+          {room.name}
           {held && (
             <span
               className="badge badge-purple"
-              style={{ marginLeft: ".5rem" }}
               title="A temporary hold is driving this room — it overrides schedules and presence until it ends."
             >
               Hold
             </span>
           )}
-          {r.presence_active && (
-            <span className="badge badge-green" style={{ marginLeft: ".5rem" }}>
-              Presence
+          {active?.presence_active && <span className="badge badge-green">Presence</span>}
+          {paused && (
+            <span className="badge badge-orange" role="status" title={pausedText(paused)}>
+              Paused
             </span>
           )}
         </span>
-        <span style={{ textAlign: "right" }}>
-          <span className="stat-value">{r.avg_temp != null ? fmtTemp(r.avg_temp) : "—"}</span>
-          {r.target_temp != null &&
-            (r.eco_active && r.requested_target != null ? (
-              // Eco Mode is relaxing this room (Issue #404): show the requested
-              // ask and the relaxed effective target it is actually running to.
-              // The relaxed target can be fractional — it is the room's true
-              // stop condition; only the setpoint commanded to the thermostat
-              // is rounded to a whole degree. A target equal to the requested
-              // value (possible in state persisted by older versions that
-              // rounded the target itself) renders without the redundant
-              // "requested" echo.
-              // Rendered live (not frozen) — the values are stable for a given
-              // fixture, so the golden covers the indicator content.
+        <span className="dash-room-temp">
+          <span className="stat-value">{shownTemp != null ? fmtTemp(shownTemp) : "—"}</span>
+          {active?.target_temp != null &&
+            (active.eco_active && active.requested_target != null ? (
               <span
-                className="text-sm text-muted"
-                style={{ display: "block", fontWeight: 500 }}
+                className="text-sm text-muted dash-room-target"
                 title="Eco Mode relaxed this room's target based on the outdoor temperature; only the setpoint sent to the thermostat is rounded to a whole degree"
               >
-                {r.target_temp === r.requested_target ? (
-                  <>🌿 {fmtTemp(r.target_temp)} — Eco</>
+                {active.target_temp === active.requested_target ? (
+                  <>🌿 {fmtTemp(active.target_temp)} — Eco</>
                 ) : (
                   <>
-                    🌿 {fmtTemp(r.target_temp)} · requested {fmtTemp(r.requested_target)} — Eco
+                    🌿 {fmtTemp(active.target_temp)} · requested {fmtTemp(active.requested_target)}{" "}
+                    — Eco
                   </>
                 )}
               </span>
             ) : (
               <span
-                className="text-sm text-muted"
-                style={{ display: "block", fontWeight: 500 }}
+                className="text-sm text-muted dash-room-target"
                 title="Temperature this room is requesting from the cycle"
               >
-                🎯 requesting {fmtTemp(r.target_temp)}
+                🎯 requesting {fmtTemp(active.target_temp)}
               </span>
             ))}
         </span>
       </div>
-      {r.presence_active && (
-        <button
-          className="btn btn-sm btn-outline-danger"
-          style={{ padding: "0 .5rem", fontSize: ".75rem" }}
-          onClick={clearPresence}
-          disabled={clearing}
-        >
-          {clearing ? "Clearing…" : "Clear presence"}
-        </button>
-      )}
       {ventEntries.length > 0 && (
         <div className="flex gap-sm" style={{ flexWrap: "wrap" }}>
           {ventEntries.map(([eid, state]) => (
@@ -155,51 +198,82 @@ function RoomRow({
           </span>
         </div>
       )}
+      <div className="dash-room-actions">
+        {held ? (
+          <button
+            className="btn btn-sm btn-outline-danger"
+            title="End the hold now — the room returns to its schedules and presence."
+            aria-label={`Cancel Hold for ${room.name}`}
+            onClick={onCancelHold}
+          >
+            Cancel Hold
+          </button>
+        ) : (
+          <button
+            className="btn btn-sm btn-secondary"
+            title="Hold this room at an exact temperature for 1–8 hours, overriding schedules and presence."
+            aria-label={`Hold for ${room.name}`}
+            onClick={onHold}
+          >
+            Hold
+          </button>
+        )}
+        {active?.presence_active && (
+          <button
+            className="btn btn-sm btn-outline-danger"
+            aria-label={clearing ? undefined : `Clear Presence for ${room.name}`}
+            onClick={clearPresence}
+            disabled={clearing}
+          >
+            {clearing ? "Clearing…" : "Clear Presence"}
+          </button>
+        )}
+      </div>
+      {error && <p className="form-error">{error}</p>}
     </div>
   );
 }
 
-// Renders the "Active rooms" list for a zone. Factored out so the live path and
-// the CI-frozen placeholder below share exactly one markup definition.
-function activeRoomsBlock(
-  roomList: ZoneStatus["rooms"],
-  rooms: Room[],
+function roomsBlock(
+  zoneRooms: { id: string; name: string }[],
+  activeList: ZoneStatus["rooms"],
+  temps: Record<string, number | null>,
   heldRoomIds: Set<string>,
-  onClearPresence: () => void
+  pausedRooms: Record<string, string[] | null>,
+  controls: {
+    onHold: (roomId: string) => void;
+    onCancelHold: (roomId: string) => void;
+    onClearPresence: () => void;
+  }
 ) {
-  if (roomList.length === 0) return null;
+  // A room the cycle reports but the room list does not know yet (it was
+  // added a moment ago) still gets a row, named by its id.
+  const listed = [
+    ...zoneRooms,
+    ...activeList
+      .filter((a) => !zoneRooms.some((r) => r.id === a.room_id))
+      .map((a) => ({ id: a.room_id, name: a.room_id })),
+  ];
+  if (listed.length === 0) return null;
   return (
-    <div style={{ marginTop: "1rem" }}>
-      <div
-        className="text-sm"
-        style={{ fontWeight: 600, marginBottom: ".5rem", color: "var(--gray-700)" }}
-      >
-        Active rooms
-      </div>
-      {roomList.map((r) => (
+    <div className="dash-rooms">
+      {listed.map((room) => (
         <RoomRow
-          key={r.room_id}
-          r={r}
-          rooms={rooms}
-          held={heldRoomIds.has(r.room_id)}
-          onClearPresence={onClearPresence}
+          key={room.id}
+          room={room}
+          active={activeList.find((a) => a.room_id === room.id)}
+          temp={temps[room.id] ?? null}
+          held={heldRoomIds.has(room.id)}
+          paused={pausedRooms[room.id] ?? null}
+          onHold={() => controls.onHold(room.id)}
+          onCancelHold={() => controls.onCancelHold(room.id)}
+          onClearPresence={controls.onClearPresence}
         />
       ))}
     </div>
   );
 }
 
-// The live active-rooms list is engine-driven (membership, counts and vent
-// positions flip between the update and verify screenshot passes), so it is
-// frozen out of the golden under CI. That left the requesting-temp line and the
-// Clear-presence button — both of which only appear on an active room — with no
-// visual-regression coverage. Under CI we therefore render these fixed,
-// representative rows in its place: deterministic (no engine/wall-clock input),
-// unit-aware via fmtTemp, and mirroring the real-world case (Bedroom reading
-// 71.4° while requesting 68°). Two rooms are shown so the golden makes it clear
-// the requesting line and Clear-presence button render once *per room* — not
-// once for the whole section. Shown on a single zone card only (see
-// showActiveRoomsSample) to avoid a duplicate.
 const CI_SAMPLE_ACTIVE_ROOMS: ZoneStatus["rooms"] = [
   {
     room_id: "Bedroom",
@@ -222,6 +296,10 @@ function ZoneCard({
   rooms,
   thermostats,
   heldRoomIds,
+  temps,
+  smart,
+  onHold,
+  onCancelHold,
   onClearPresence,
   onSuspendEco,
   showActiveRoomsSample,
@@ -231,6 +309,11 @@ function ZoneCard({
   thermostats: ThermostatConfig[];
   // #576: rooms currently driven by a temporary hold, for the per-room badge.
   heldRoomIds: Set<string>;
+  temps: Record<string, number | null>;
+  /** Door and window pauses; null when they could not be read. */
+  smart: SmartControl | null;
+  onHold: (roomId: string) => void;
+  onCancelHold: (roomId: string) => void;
   onClearPresence: () => void;
   onSuspendEco: (thermostatEntityId: string) => void;
   showActiveRoomsSample: boolean;
@@ -240,9 +323,13 @@ function ZoneCard({
   const colorClass = modeColor(zone.hvac_action);
   const label = modeLabel(zone.hvac_action, zone.hvac_mode);
   const badgeClass = `badge badge-${colorClass}`;
+  const zonePaused = pausedBy(smart, "zone", zone.thermostat_entity_id, rooms);
   const tc = thermostats.find((t) => t.thermostat_entity_id === zone.thermostat_entity_id);
   const zoneRooms = rooms.filter((r) => r.thermostat_entity_id === zone.thermostat_entity_id);
   const totalRooms = zoneRooms.length;
+  const pausedRooms = Object.fromEntries(
+    zoneRooms.map((r) => [r.id, pausedBy(smart, "room", r.id, rooms)])
+  );
   const activeRooms = zone.rooms.length;
   const doneRooms = zone.rooms.filter((r) =>
     Object.values(r.vent_states).every((s) => s === "closed")
@@ -313,14 +400,41 @@ function ZoneCard({
         )}
       </Frozen>
 
+      {zonePaused && (
+        <div className="dash-paused" role="status">
+          {pausedText(zonePaused)}
+        </div>
+      )}
+
+      {/* Every room in the zone, with its manual controls. Which rooms are in
+          the running cycle (and their targets and vents) changes between the
+          update and verify screenshot passes, so under CI the live membership
+          is replaced by a fixed sample. */}
       <Frozen
-        frozen={
-          showActiveRoomsSample
-            ? activeRoomsBlock(CI_SAMPLE_ACTIVE_ROOMS, rooms, new Set(), onClearPresence)
-            : null
-        }
+        frozen={roomsBlock(
+          zoneRooms,
+          !showActiveRoomsSample
+            ? []
+            : zoneRooms.length === 0
+              ? CI_SAMPLE_ACTIVE_ROOMS
+              : // Lay the sample over the zone's own first rooms.
+                CI_SAMPLE_ACTIVE_ROOMS.slice(0, zoneRooms.length).map((r, i) => ({
+                  ...r,
+                  room_id: zoneRooms[i].id,
+                })),
+          temps,
+          // Holds are set and cleared by the user (or a spec), not by the
+          // engine, so they stay live under CI.
+          heldRoomIds,
+          pausedRooms,
+          { onHold, onCancelHold, onClearPresence }
+        )}
       >
-        {activeRoomsBlock(zone.rooms, rooms, heldRoomIds, onClearPresence)}
+        {roomsBlock(zoneRooms, zone.rooms, temps, heldRoomIds, pausedRooms, {
+          onHold,
+          onCancelHold,
+          onClearPresence,
+        })}
       </Frozen>
 
       {/* Eco Suspend (Issue #500): per-zone control, shown only when Eco is in
@@ -369,8 +483,21 @@ export default function Dashboard() {
   // per-room badges; the modal state mirrors ecoSuspendFor's shape.
   const [holds, setHolds] = useState<RoomOverrideHold[]>([]);
   const [holdModalFor, setHoldModalFor] = useState<{ room?: string } | null>(null);
+  const [buildings, setBuildings] = useState<Building[]>([]);
+  const [profiles, setProfiles] = useState<ZoneProfile[]>([]);
+  const [temps, setTemps] = useState<Record<string, number | null>>({});
+  // Each room's temperature sensors, fetched once per set of rooms: the list
+  // only changes when the house's structure does, unlike the readings.
+  const sensorsByRoom = useRef<{ key: string; at: number; map: Record<string, string[]> }>({
+    key: "",
+    at: 0,
+    map: {},
+  });
+  const [smart, setSmart] = useState<SmartControl | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [actionError, setActionError] = useState("");
 
-  const load = async () => {
+  const loadAll = async () => {
     const [z, r, tc, vm, hd] = await Promise.all([
       getStatus(),
       getRooms(),
@@ -386,6 +513,84 @@ export default function Dashboard() {
     setHolds(hd);
     setLastUpdate(new Date());
     setLoading(false);
+    setLoadFailed(false);
+    // Building layout, pauses and idle-room temperatures are extras: a failure
+    // here leaves the zone cards ungrouped and idle rooms showing "—".
+    const [b, zp, sc, health] = await Promise.all([
+      getBuildings().catch(() => [] as Building[]),
+      getZones().catch(() => [] as ZoneProfile[]),
+      getSmartControl().catch(() => null),
+      getSensorHealth().catch(() => null),
+    ]);
+    setBuildings(b);
+    setProfiles(zp);
+    setSmart(sc ?? null);
+    const key = r.map((room) => room.id).join(",");
+    const cache = sensorsByRoom.current;
+    if (cache.key !== key || Date.now() - cache.at > SENSOR_LIST_MAX_AGE_MS) {
+      let complete = true;
+      const detailed = await Promise.all(
+        r.map((room) =>
+          getRoom(room.id).catch(() => {
+            complete = false;
+            return room;
+          })
+        )
+      );
+      sensorsByRoom.current = {
+        // A list that could not be read is tried again on the next refresh.
+        key: complete ? key : "",
+        at: Date.now(),
+        map: Object.fromEntries(
+          detailed.map((d) => [d.id, d.sensors?.map((x) => x.entity_id) ?? []])
+        ),
+      };
+    }
+    const map = sensorsByRoom.current.map;
+    const sensorIds = Object.values(map).flat();
+    const states =
+      sensorIds.length > 0
+        ? await getEntityStates(sensorIds).catch(() => ({}) as Record<string, null>)
+        : {};
+    const stale = new Set(
+      (health?.rooms ?? []).flatMap((h) => h.stale_sensors.map((x) => x.entity_id))
+    );
+    setTemps(
+      Object.fromEntries(
+        r.map((room) => [
+          room.id,
+          roomAverage(
+            map[room.id],
+            states,
+            stale,
+            room.include_thermostat_sensor
+              ? (z.find((zone) => zone.thermostat_entity_id === room.thermostat_entity_id)
+                  ?.current_temp ?? null)
+              : null
+          ),
+        ])
+      )
+    );
+  };
+
+  const load = async () => {
+    try {
+      await loadAll();
+    } catch {
+      // A failed refresh keeps the last good data on screen; only a failed
+      // first load has nothing to show.
+      setLoadFailed(true);
+    }
+  };
+
+  const cancelHold = async (roomId: string) => {
+    setActionError("");
+    try {
+      await clearOverride(roomId);
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Could not cancel the hold");
+    }
+    load();
   };
 
   useEffect(() => {
@@ -406,8 +611,21 @@ export default function Dashboard() {
       stopVacation();
       stopEco();
     };
+    // Mount-only: `load` reads nothing that changes between renders.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  if (loading && loadFailed)
+    return (
+      <div className="card">
+        <p className="form-error">
+          Could not load the dashboard. Check that HomeClimate is running.
+        </p>
+        <button className="btn btn-secondary" onClick={load}>
+          Try Again
+        </button>
+      </div>
+    );
   if (loading)
     return (
       <div className="loading">
@@ -500,6 +718,7 @@ export default function Dashboard() {
             {`Schedules paused until ${tz.format(vacationMode.return_at)}`}
           </div>
         )}
+        {actionError && <p className="form-error">{actionError}</p>}
         {/* Active holds strip (#576): every live hold — including rooms that
             are not part of a running cycle — with a cancel next to each. The
             countdown is backend-derived and time-varying, so it is frozen for
@@ -523,10 +742,7 @@ export default function Dashboard() {
                 className="btn btn-sm btn-outline-danger"
                 style={{ padding: "0 .5rem", fontSize: ".75rem" }}
                 title="End the hold now — the room returns to its schedules and presence."
-                onClick={async () => {
-                  await clearOverride(h.room_id);
-                  load();
-                }}
+                onClick={() => cancelHold(h.room_id)}
               >
                 Cancel
               </button>
@@ -538,28 +754,57 @@ export default function Dashboard() {
       {zones.length === 0 ? (
         <div className="card">
           <div className="empty-state">
-            <p>No thermostat zones configured yet.</p>
+            <p>No zones set up yet.</p>
             <p style={{ marginTop: ".5rem" }}>
-              Go to <strong>Rooms</strong> to add your first room.
+              Go to <strong>My Home</strong> to add your first zone.
             </p>
           </div>
         </div>
       ) : (
-        <div className="card-grid">
-          {zones.map((z, i) => (
-            <ZoneCard
-              key={z.thermostat_entity_id}
-              zone={z}
-              rooms={rooms}
-              thermostats={thermostats}
-              heldRoomIds={new Set(holds.map((h) => h.room_id))}
-              onClearPresence={load}
-              onSuspendEco={(tid) => setEcoSuspendFor({ thermostat: tid })}
-              // Render the CI active-rooms sample on the first zone card only.
-              showActiveRoomsSample={i === 0}
-            />
-          ))}
-        </div>
+        groupByBuilding(
+          buildings,
+          [...zones].sort(
+            (a, b) =>
+              (profiles.find((p) => p.thermostat_entity_id === a.thermostat_entity_id)
+                ?.sort_order ?? 0) -
+              (profiles.find((p) => p.thermostat_entity_id === b.thermostat_entity_id)
+                ?.sort_order ?? 0)
+          ),
+          (z) =>
+            profiles.find((p) => p.thermostat_entity_id === z.thermostat_entity_id)?.building_id ??
+            null
+        )
+          // A building with no zones has nothing to show here; My Home lists it.
+          .filter((group) => group.items.length > 0)
+          .map((group) => (
+            <section
+              key={group.building?.id ?? "unassigned"}
+              className="dash-building"
+              data-testid={`dash-building-${group.building?.id ?? "unassigned"}`}
+            >
+              {buildings.length > 0 && (
+                <div className="dash-building-title">{group.building?.name ?? "Other Zones"}</div>
+              )}
+              <div className="card-grid">
+                {group.items.map((z) => (
+                  <ZoneCard
+                    key={z.thermostat_entity_id}
+                    zone={z}
+                    rooms={rooms}
+                    thermostats={thermostats}
+                    heldRoomIds={new Set(holds.map((h) => h.room_id))}
+                    temps={temps}
+                    smart={smart}
+                    onHold={(roomId) => setHoldModalFor({ room: roomId })}
+                    onCancelHold={cancelHold}
+                    onClearPresence={load}
+                    onSuspendEco={(tid) => setEcoSuspendFor({ thermostat: tid })}
+                    showActiveRoomsSample={z === zones[0]}
+                  />
+                ))}
+              </div>
+            </section>
+          ))
       )}
 
       {showVacationModal && (

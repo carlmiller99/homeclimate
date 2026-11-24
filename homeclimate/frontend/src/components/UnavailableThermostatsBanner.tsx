@@ -74,7 +74,7 @@ function describe(t: UnavailableThermostat): string {
       : `unavailable ${formatAge(t.unavailable_seconds)}`;
   if (!t.cycle_running) return age;
   if (t.abort_after_min <= 0) {
-    return `${age} — a cycle is running and will NOT be auto-aborted (abort disabled on the Thermostats page)`;
+    return `${age} — a cycle is running and will NOT be auto-aborted (abort disabled in the zone's Thermostat Settings)`;
   }
   return `${age} — the running cycle aborts after ${t.abort_after_min} min and all vents re-open`;
 }

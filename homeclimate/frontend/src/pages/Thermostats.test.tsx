@@ -141,22 +141,22 @@ describe("Thermostats Page", () => {
     vi.mocked(api.deleteThermostat).mockResolvedValue({ deleted: "climate.test" });
     render(<Thermostats />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Remove" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Delete Zone" }));
 
     const dialog = await screen.findByTestId("confirm-dialog");
     expect(within(dialog).getByText(/Main HVAC/)).toBeInTheDocument();
     expect(api.deleteThermostat).not.toHaveBeenCalled();
 
-    fireEvent.click(within(dialog).getByRole("button", { name: "Remove" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete Zone" }));
     await waitFor(() => {
-      expect(api.deleteThermostat).toHaveBeenCalledWith("climate.test");
+      expect(api.deleteThermostat).toHaveBeenCalledWith("climate.test", true);
     });
   });
 
   it("does not remove a thermostat when the confirmation dialog is cancelled", async () => {
     render(<Thermostats />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Remove" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Delete Zone" }));
 
     const dialog = await screen.findByTestId("confirm-dialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
@@ -301,11 +301,11 @@ describe("Thermostats Page", () => {
     vi.mocked(api.getThermostats).mockResolvedValue([{ ...mockThermostats[0] }]);
 
     const spareCard = screen.getByText("climate.spare").closest(".card") as HTMLElement;
-    fireEvent.click(within(spareCard).getByRole("button", { name: "Remove" }));
+    fireEvent.click(within(spareCard).getByRole("button", { name: "Delete Zone" }));
     const dialog = await screen.findByTestId("confirm-dialog");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Remove" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete Zone" }));
 
-    await waitFor(() => expect(api.deleteThermostat).toHaveBeenCalledWith("climate.spare"));
+    await waitFor(() => expect(api.deleteThermostat).toHaveBeenCalledWith("climate.spare", true));
     await waitFor(() => expect(screen.queryByText("climate.spare")).toBeNull());
 
     // Settle React fully before asserting. The old reset was queued in a passive

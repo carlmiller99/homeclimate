@@ -88,7 +88,8 @@ class TestWriteBoundary:
     @pytest.mark.asyncio
     async def test_a_deleted_room_frees_its_name(self, client, fake_ha) -> None:
         room_id = (await (await _create(client, "Office")).json())["id"]
-        await client.delete(f"/api/rooms/{room_id}")
+        await _create(client, "Den")  # a zone keeps its last room
+        assert (await client.delete(f"/api/rooms/{room_id}")).status == 200
         assert (await _create(client, "Office")).status == 201
 
     @pytest.mark.asyncio

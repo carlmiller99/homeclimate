@@ -1,13 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  contactStateLabel,
   deleteContactSensor,
   effectiveSettings,
   getSmartControl,
   saveContactSensor,
   setOpeningOverride,
   updateOpeningSettings,
-  type ContactSensor,
   type SmartControl,
 } from "./smartControlApi";
 
@@ -24,13 +22,17 @@ describe("smartControlApi requests", () => {
     await getSmartControl();
     await updateOpeningSettings({ resume_min: 1 });
     await setOpeningOverride("room", "r 1", { resume_min: null });
-    await saveContactSensor("binary_sensor.a", { room_id: "r1" });
+    await saveContactSensor("binary_sensor.a", { room_id: "r1", pauses: "room" });
     await deleteContactSensor("binary_sensor.a");
     expect(fetchMock.mock.calls.map(([u, i]) => [u, i?.method ?? "GET", i?.body])).toEqual([
       ["/api/smart-control", "GET", undefined],
       ["/api/smart-control/settings", "PUT", JSON.stringify({ resume_min: 1 })],
       ["/api/smart-control/overrides/room/r%201", "PUT", JSON.stringify({ resume_min: null })],
-      ["/api/smart-control/contacts/binary_sensor.a", "PUT", JSON.stringify({ room_id: "r1" })],
+      [
+        "/api/smart-control/contacts/binary_sensor.a",
+        "PUT",
+        JSON.stringify({ room_id: "r1", pauses: "room" }),
+      ],
       ["/api/smart-control/contacts/binary_sensor.a", "DELETE", undefined],
     ]);
   });
@@ -56,22 +58,5 @@ describe("helpers", () => {
       overridden: ["resume_min"],
     });
     expect(effectiveSettings(base, "zone", "r1").overridden).toEqual([]);
-  });
-
-  it("describes a sensor's state", () => {
-    const s: ContactSensor = {
-      entity_id: "binary_sensor.a",
-      name: "A",
-      thermostat_entity_id: "climate.a",
-      room_id: null,
-      state: "open",
-      open_since: "2026-01-05T12:00:00Z",
-      pausing: false,
-    };
-    const now = Date.parse("2026-01-05T12:02:30Z");
-    expect(contactStateLabel(s, now)).toBe("Open 2 Min");
-    expect(contactStateLabel({ ...s, pausing: true }, now)).toBe("Open 2 Min, Pausing");
-    expect(contactStateLabel({ ...s, open_since: "2026-01-05T12:05:00Z" }, now)).toBe("Open 0 Min");
-    expect(contactStateLabel({ ...s, open_since: null, pausing: true }, now)).toBe("Open, Pausing");
   });
 });
