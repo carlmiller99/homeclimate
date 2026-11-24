@@ -1,9 +1,9 @@
 # Time zones
 
-Plenum runs on one clock: the **house's** time zone, set by the add-on's
+HomeClimate runs on one clock: the **house's** time zone, set by the add-on's
 `timezone` option (or the `TIMEZONE` environment variable on standalone
 Docker). Schedules fire in it, and since Issue #729 every time the UI shows or
-accepts is in it too, whatever zone the device viewing Plenum is in.
+accepts is in it too, whatever zone the device viewing HomeClimate is in.
 
 So if you set a vacation return time from a phone while you are in Tokyo,
 "Jan 15, 10:00 AM" means 10:00 AM at the house, not 10:00 AM in Tokyo, and the
@@ -11,10 +11,10 @@ banner shows it back as 10:00 AM.
 
 ## Where you see it
 
-- **Settings page, Time zone card.** Shows the zone Plenum is using
+- **Settings page, Time zone card.** Shows the zone HomeClimate is using
   (`America/New_York`) and its current short name (`currently EST`). If the
   `timezone` option is missing or invalid, the card shows an orange warning
-  naming the zone Plenum fell back to (the operating system's offset, written
+  naming the zone HomeClimate fell back to (the operating system's offset, written
   `UTC-05:00`, or `UTC`). If the zone could not be loaded at all, a red badge
   says the UI is showing your browser's zone instead.
 - **Every time in the UI** carries the zone's short name as a tooltip: `EST`
@@ -28,7 +28,7 @@ banner shows it back as 10:00 AM.
 A wall-clock time typed into a picker is turned into an exact instant with
 these rules:
 
-| Case | Example (New York) | What Plenum does |
+| Case | Example (New York) | What HomeClimate does |
 |---|---|---|
 | Normal | 10:00 AM on Jan 15 | That instant (15:00 UTC). |
 | **Overlap**: the time happens twice (the fall-back hour) | 1:30 AM on the first Sunday of November | The **earlier** of the two (1:30 EDT). |
@@ -66,7 +66,7 @@ show times in its own zone, and now shows the house's.
 
 ## For developers
 
-- `smart_vent/frontend/src/time.ts` is the only module allowed to turn an
+- `homeclimate/frontend/src/time.ts` is the only module allowed to turn an
   instant into wall-clock text, or wall-clock input back into an instant. An
   ESLint rule bans `toLocaleString`, `toLocaleDateString`,
   `toLocaleTimeString` and `toISOString` everywhere else.

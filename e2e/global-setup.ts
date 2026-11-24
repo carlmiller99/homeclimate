@@ -6,7 +6,7 @@
  * A) WITH real HA (CI / Docker Compose):
  *    Configures the addon by navigating the actual UI with a headless Chromium
  *    browser.  The EntityPicker calls /api/ha/entities which proxies to HA, so
- *    this verifies the HA→Plenum connection is alive before any test screenshot
+ *    this verifies the HA→HomeClimate connection is alive before any test screenshot
  *    is taken.
  *
  * B) WITHOUT real HA (Claude Cloud / local no-Docker):
@@ -23,7 +23,7 @@
 
 import { chromium } from "@playwright/test";
 
-const BASE_URL = process.env.PLENUM_URL ?? "http://localhost:8099";
+const BASE_URL = process.env.HOMECLIMATE_URL ?? "http://localhost:8099";
 const API = `${BASE_URL}/api`;
 
 async function waitForAddon(): Promise<void> {
@@ -69,7 +69,7 @@ async function put(path: string, body: unknown): Promise<Response> {
 // Occupancy sensor defined in e2e/fixtures/ha-config/configuration.yaml. Wired
 // to the Office room so it resolves to `via Presence` in the goldens (#456).
 const PRESENCE_ENTITY = "binary_sensor.office_occupancy";
-// Mon–Fri. The pinned clock (PLENUM_CLOCK_OVERRIDE) lands on a Wednesday.
+// Mon–Fri. The pinned clock (HOMECLIMATE_CLOCK_OVERRIDE) lands on a Wednesday.
 const WEEKDAYS = [0, 1, 2, 3, 4];
 
 async function haIsReachable(): Promise<boolean> {
@@ -284,7 +284,7 @@ async function setupViaREST(): Promise<void> {
 // ── Room active-status fixtures (schedules / presence) ───────────────────────
 //
 // Seeds the four status permutations the Rooms/Room-detail goldens capture,
-// evaluated against the pinned clock (PLENUM_CLOCK_OVERRIDE = Wed 2025-06-04
+// evaluated against the pinned clock (HOMECLIMATE_CLOCK_OVERRIDE = Wed 2025-06-04
 // 10:00 ET). Runs once, via REST, after rooms exist — identical on both the UI
 // (path A) and REST (path B) setup paths. See ROOM_DEFS for the per-room intent.
 
@@ -437,7 +437,7 @@ export default async function globalSetup(): Promise<void> {
   // Auth leg (#373): the stack runs require_auth=true with no Supervisor, so the
   // unauthenticated seeding below would 401 — and the auth specs (login page,
   // MCP-token card, settings) don't need seeded rooms/metrics. Skip it all.
-  if (process.env.PLENUM_E2E_AUTH === "1") {
+  if (process.env.HOMECLIMATE_E2E_AUTH === "1") {
     console.log("[e2e] Auth leg — skipping entity/metrics seeding (require_auth on)");
     return;
   }

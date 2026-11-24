@@ -22,7 +22,7 @@ name: Container CI
 #   • Fork PR / workflow_dispatch
 #       → fork tokens are read-only and cannot push to GHCR, so build
 #         single-arch, `docker save` to an artifact; downstream jobs
-#         download + `docker load` it (tagged plenum-e2e). See #337.
+#         download + `docker load` it (tagged homeclimate-e2e). See #337.
 #         workflow_dispatch also uses this path (no PR, so HEAD_REPO is empty).
 #
 # Every code PR also gets its built image vulnerability-scanned by the
@@ -103,7 +103,7 @@ jobs:
           # .jules/, .vscode/, the README screenshots dir, and committed golden
           # PNGs. NOTE: .github/ is deliberately NOT docs — a workflow change
           # must run the pipeline so we can validate CI still works. Nested
-          # markdown outside those dirs (e.g. smart_vent/CHANGELOG.md) counts as
+          # markdown outside those dirs (e.g. homeclimate/CHANGELOG.md) counts as
           # code too; only root *.md is treated as docs. Anything not matched
           # here = code.
           if grep -vE '^(docs/|\.claude/|\.jules/|\.vscode/|screenshots/|e2e/screenshots/)|^[^/]+\.md$' /tmp/changed.txt | grep -q .; then
@@ -121,7 +121,7 @@ jobs:
           # backend. Known trade-off: a backend change that alters what the
           # fixture pages display (e.g. a setpoint computation) won't refresh
           # goldens until the next UI-touching PR regenerates them.
-          if grep -E '^(smart_vent/frontend/|e2e/|docker-compose\.test|smart_vent/config\.yaml|smart_vent/Dockerfile|\.github/workflows/container-ci\.yml)' /tmp/changed.txt | grep -vE '^e2e/screenshots/' | grep -q .; then
+          if grep -E '^(homeclimate/frontend/|e2e/|docker-compose\.test|homeclimate/config\.yaml|homeclimate/Dockerfile|\.github/workflows/container-ci\.yml)' /tmp/changed.txt | grep -vE '^e2e/screenshots/' | grep -q .; then
             echo "ui=true" >> "$GITHUB_OUTPUT"
           else
             echo "No UI-affecting paths — visual-regression legs will be skipped."
@@ -173,7 +173,7 @@ jobs:
           fi
 
           # Release PR? The release workflow opens it from a release/vX.Y.Z branch
-          # and has already bumped smart_vent/config.yaml to the numeric version.
+          # and has already bumped homeclimate/config.yaml to the numeric version.
           # Fork takes precedence: a fork can't push to GHCR, so even a fork PR
           # named release/v* uses the artifact-handoff path, never the publish
           # path (otherwise both build steps would fire and the push would fail).
@@ -189,7 +189,7 @@ jobs:
           REPO_LC=$(echo "${REGISTRY}/${IMAGE_NAME}" | tr '[:upper:]' '[:lower:]')
           echo "latest_image=${REPO_LC}:latest" >> "$GITHUB_OUTPUT"
           if [ "${IS_RELEASE}" = "true" ]; then
-            VERSION=$(grep '^version:' smart_vent/config.yaml \
+            VERSION=$(grep '^version:' homeclimate/config.yaml \
               | sed 's/version:[[:space:]]*//' | tr -d '"')
             echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
             echo "image=${REPO_LC}:${VERSION}" >> "$GITHUB_OUTPUT"
@@ -203,7 +203,7 @@ jobs:
         # that image is built first, below, from the unmodified config.yaml.
         if: steps.meta.outputs.is_release != 'true'
         run: |
-          sed -i 's/^version:.*/version: CI/' smart_vent/config.yaml
+          sed -i 's/^version:.*/version: CI/' homeclimate/config.yaml
 
       - name: Set up QEMU
         # Only the RELEASE build is multi-arch (#413) — normal-PR ci-* images
@@ -228,8 +228,8 @@ jobs:
         if: steps.meta.outputs.is_release == 'true'
         uses: docker/build-push-action@v7
         with:
-          context: ./smart_vent
-          platforms: linux/amd64,linux/arm64
+          context: ./homeclimate
+          platforms: linux/amd64
           push: true
           tags: |
             ${{ steps.meta.outputs.image }}
@@ -248,7 +248,7 @@ jobs:
         if: steps.meta.outputs.is_release != 'true' && steps.meta.outputs.is_fork != 'true'
         uses: docker/build-push-action@v7
         with:
-          context: ./smart_vent
+          context: ./homeclimate
           platforms: linux/amd64
           push: true
           tags: ${{ steps.meta.outputs.image }}
@@ -267,7 +267,7 @@ jobs:
       - name: Pin addon version to CI for the release PR's test-only image
         if: steps.meta.outputs.is_release == 'true'
         run: |
-          sed -i 's/^version:.*/version: CI/' smart_vent/config.yaml
+          sed -i 's/^version:.*/version: CI/' homeclimate/config.yaml
 
       # ── Fork PR, or release PR needing a frozen-UI test image: can't/shouldn't
       # push; build single-arch and hand off via artifact. `load: true` only
@@ -278,24 +278,24 @@ jobs:
         if: steps.meta.outputs.is_fork == 'true' || steps.meta.outputs.is_release == 'true'
         uses: docker/build-push-action@v7
         with:
-          context: ./smart_vent
+          context: ./homeclimate
           platforms: linux/amd64
           push: false
           load: true
-          tags: plenum-e2e:latest
+          tags: homeclimate-e2e:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       - name: Save fork/frozen-UI image to artifact
         if: steps.meta.outputs.is_fork == 'true' || steps.meta.outputs.is_release == 'true'
-        run: docker save plenum-e2e:latest -o /tmp/plenum-image.tar
+        run: docker save homeclimate-e2e:latest -o /tmp/homeclimate-image.tar
 
       - name: Upload fork/frozen-UI image artifact
         if: steps.meta.outputs.is_fork == 'true' || steps.meta.outputs.is_release == 'true'
         uses: actions/upload-artifact@v7
         with:
-          name: plenum-image
-          path: /tmp/plenum-image.tar
+          name: homeclimate-image
+          path: /tmp/homeclimate-image.tar
           retention-days: 1
 
       # ── Release PR: vulnerability scan of the PUBLISHED image ──────────────
@@ -368,12 +368,12 @@ jobs:
         if: needs.build.outputs.is_fork == 'true'
         uses: actions/download-artifact@v8
         with:
-          name: plenum-image
+          name: homeclimate-image
           path: /tmp
 
       - name: Load fork image
         if: needs.build.outputs.is_fork == 'true'
-        run: docker load -i /tmp/plenum-image.tar
+        run: docker load -i /tmp/homeclimate-image.tar
 
       - name: Log in to GitHub Container Registry
         if: needs.build.outputs.is_fork != 'true'
@@ -391,7 +391,7 @@ jobs:
         id: img
         run: |
           if [ "${{ needs.build.outputs.is_fork }}" = "true" ]; then
-            echo "ref=plenum-e2e:latest" >> "$GITHUB_OUTPUT"
+            echo "ref=homeclimate-e2e:latest" >> "$GITHUB_OUTPUT"
           else
             echo "ref=${{ needs.build.outputs.image }}" >> "$GITHUB_OUTPUT"
           fi
@@ -427,12 +427,12 @@ jobs:
         if: needs.build.outputs.is_fork == 'true'
         uses: actions/download-artifact@v8
         with:
-          name: plenum-image
+          name: homeclimate-image
           path: /tmp
 
       - name: Load fork image
         if: needs.build.outputs.is_fork == 'true'
-        run: docker load -i /tmp/plenum-image.tar
+        run: docker load -i /tmp/homeclimate-image.tar
 
       - name: Log in to GitHub Container Registry
         if: needs.build.outputs.is_fork != 'true'
@@ -450,7 +450,7 @@ jobs:
         id: img
         run: |
           if [ "${{ needs.build.outputs.is_fork }}" = "true" ]; then
-            echo "ref=plenum-e2e:latest" >> "$GITHUB_OUTPUT"
+            echo "ref=homeclimate-e2e:latest" >> "$GITHUB_OUTPUT"
           else
             echo "ref=${{ needs.build.outputs.image }}" >> "$GITHUB_OUTPUT"
           fi
@@ -587,12 +587,12 @@ jobs:
         if: needs.build.outputs.is_fork == 'true'
         uses: actions/download-artifact@v8
         with:
-          name: plenum-image
+          name: homeclimate-image
           path: /tmp
 
       - name: Load fork image
         if: needs.build.outputs.is_fork == 'true'
-        run: docker load -i /tmp/plenum-image.tar
+        run: docker load -i /tmp/homeclimate-image.tar
 
       - name: Log in to GitHub Container Registry
         if: needs.build.outputs.is_fork != 'true'
@@ -606,15 +606,15 @@ jobs:
         if: needs.build.outputs.is_fork != 'true'
         run: docker pull "${{ needs.build.outputs.image }}"
 
-      - name: Resolve PLENUM_IMAGE for compose
+      - name: Resolve HOMECLIMATE_IMAGE for compose
         run: |
-          # docker-compose.test.yml's plenum service uses ${PLENUM_IMAGE:-plenum-e2e}.
+          # docker-compose.test.yml's homeclimate service uses ${HOMECLIMATE_IMAGE:-homeclimate-e2e}.
           # Same-repo: point it at the pulled tag. Fork: the loaded image is
-          # already tagged plenum-e2e (the compose default), so use that.
+          # already tagged homeclimate-e2e (the compose default), so use that.
           if [ "${{ needs.build.outputs.is_fork }}" = "true" ]; then
-            echo "PLENUM_IMAGE=plenum-e2e" >> "$GITHUB_ENV"
+            echo "HOMECLIMATE_IMAGE=homeclimate-e2e" >> "$GITHUB_ENV"
           else
-            echo "PLENUM_IMAGE=${{ needs.build.outputs.image }}" >> "$GITHUB_ENV"
+            echo "HOMECLIMATE_IMAGE=${{ needs.build.outputs.image }}" >> "$GITHUB_ENV"
           fi
 
       - name: Compose file list
@@ -637,29 +637,29 @@ jobs:
             --ha-url http://localhost:8123 \
             --output /tmp/ha_token.txt
 
-      - name: Start Plenum (reuse prebuilt image)
+      - name: Start HomeClimate (reuse prebuilt image)
         run: |
           HA_TOKEN=$(cat /tmp/ha_token.txt) \
-          docker compose ${{ steps.compose.outputs.files }} up -d plenum
+          docker compose ${{ steps.compose.outputs.files }} up -d homeclimate
 
-      - name: Wait for Plenum health
+      - name: Wait for HomeClimate health
         run: |
           for i in $(seq 1 30); do
             if curl -sf http://localhost:8099/api/healthz -o /dev/null; then
-              echo "Plenum is healthy."
+              echo "HomeClimate is healthy."
               exit 0
             fi
             sleep 3
           done
-          echo "ERROR: Plenum did not become healthy within 90s" >&2
-          docker compose ${{ steps.compose.outputs.files }} logs plenum >&2
+          echo "ERROR: HomeClimate did not become healthy within 90s" >&2
+          docker compose ${{ steps.compose.outputs.files }} logs homeclimate >&2
           exit 1
 
       - name: Verify active temperature unit matches matrix
         run: |
           UNIT=$(curl -sf http://localhost:8099/api/settings | python3 -c \
             'import json,sys; print(json.load(sys.stdin).get("temperature_unit","?"))')
-          echo "Plenum reports temperature_unit=${UNIT}"
+          echo "HomeClimate reports temperature_unit=${UNIT}"
           if [ "${UNIT}" != "${{ matrix.unit }}" ]; then
             echo "ERROR: expected ${{ matrix.unit }}, got ${UNIT}" >&2
             exit 1
@@ -694,8 +694,8 @@ jobs:
       - name: Run temperature round-trip tests
         working-directory: e2e
         env:
-          PLENUM_URL: "http://localhost:8099"
-          PLENUM_TEMP_UNIT: ${{ matrix.unit }}
+          HOMECLIMATE_URL: "http://localhost:8099"
+          HOMECLIMATE_TEMP_UNIT: ${{ matrix.unit }}
         run: npx playwright test temperature-units.spec.ts --project=chromium
 
       - name: Upload test results on failure
@@ -741,12 +741,12 @@ jobs:
         if: needs.build.outputs.is_fork == 'true'
         uses: actions/download-artifact@v8
         with:
-          name: plenum-image
+          name: homeclimate-image
           path: /tmp
 
       - name: Load fork image
         if: needs.build.outputs.is_fork == 'true'
-        run: docker load -i /tmp/plenum-image.tar
+        run: docker load -i /tmp/homeclimate-image.tar
 
       - name: Log in to GitHub Container Registry
         if: needs.build.outputs.is_fork != 'true'
@@ -760,12 +760,12 @@ jobs:
         if: needs.build.outputs.is_fork != 'true'
         run: docker pull "${{ needs.build.outputs.image }}"
 
-      - name: Resolve PLENUM_IMAGE for compose
+      - name: Resolve HOMECLIMATE_IMAGE for compose
         run: |
           if [ "${{ needs.build.outputs.is_fork }}" = "true" ]; then
-            echo "PLENUM_IMAGE=plenum-e2e" >> "$GITHUB_ENV"
+            echo "HOMECLIMATE_IMAGE=homeclimate-e2e" >> "$GITHUB_ENV"
           else
-            echo "PLENUM_IMAGE=${{ needs.build.outputs.image }}" >> "$GITHUB_ENV"
+            echo "HOMECLIMATE_IMAGE=${{ needs.build.outputs.image }}" >> "$GITHUB_ENV"
           fi
 
       - name: Compose file list
@@ -787,37 +787,37 @@ jobs:
             --ha-url http://localhost:8123 \
             --output /tmp/ha_token.txt
 
-      - name: Start Plenum (reuse prebuilt image)
+      - name: Start HomeClimate (reuse prebuilt image)
         run: |
           HA_TOKEN=$(cat /tmp/ha_token.txt) \
-          docker compose ${{ steps.compose.outputs.files }} up -d plenum
+          docker compose ${{ steps.compose.outputs.files }} up -d homeclimate
 
-      - name: Wait for Plenum health
+      - name: Wait for HomeClimate health
         run: |
           for i in $(seq 1 30); do
             if curl -sf http://localhost:8099/api/healthz -o /dev/null; then
-              echo "Plenum is healthy."
+              echo "HomeClimate is healthy."
               exit 0
             fi
             sleep 3
           done
-          echo "ERROR: Plenum did not become healthy within 90s" >&2
-          docker compose ${{ steps.compose.outputs.files }} logs plenum >&2
+          echo "ERROR: HomeClimate did not become healthy within 90s" >&2
+          docker compose ${{ steps.compose.outputs.files }} logs homeclimate >&2
           exit 1
 
       - name: Run the MQTT round-trip
         run: |
           pip install paho-mqtt requests --quiet
           python3 e2e/scripts/mqtt-roundtrip.py \
-            --plenum-url http://localhost:8099 \
+            --homeclimate-url http://localhost:8099 \
             --broker localhost \
             --port 1883 \
-            --prefix plenum
+            --prefix homeclimate
 
       - name: Dump logs on failure
         if: failure()
         run: |
-          docker compose ${{ steps.compose.outputs.files }} logs plenum >&2
+          docker compose ${{ steps.compose.outputs.files }} logs homeclimate >&2
           docker compose ${{ steps.compose.outputs.files }} logs mosquitto >&2
 
       - name: Tear down
@@ -867,12 +867,12 @@ jobs:
         if: needs.build.outputs.is_fork == 'true'
         uses: actions/download-artifact@v8
         with:
-          name: plenum-image
+          name: homeclimate-image
           path: /tmp
 
       - name: Load fork image
         if: needs.build.outputs.is_fork == 'true'
-        run: docker load -i /tmp/plenum-image.tar
+        run: docker load -i /tmp/homeclimate-image.tar
 
       - name: Log in to GitHub Container Registry
         if: needs.build.outputs.is_fork != 'true'
@@ -886,12 +886,12 @@ jobs:
         if: needs.build.outputs.is_fork != 'true'
         run: docker pull "${{ needs.build.outputs.image }}"
 
-      - name: Resolve PLENUM_IMAGE for compose
+      - name: Resolve HOMECLIMATE_IMAGE for compose
         run: |
           if [ "${{ needs.build.outputs.is_fork }}" = "true" ]; then
-            echo "PLENUM_IMAGE=plenum-e2e" >> "$GITHUB_ENV"
+            echo "HOMECLIMATE_IMAGE=homeclimate-e2e" >> "$GITHUB_ENV"
           else
-            echo "PLENUM_IMAGE=${{ needs.build.outputs.image }}" >> "$GITHUB_ENV"
+            echo "HOMECLIMATE_IMAGE=${{ needs.build.outputs.image }}" >> "$GITHUB_ENV"
           fi
 
       - name: Compose file list
@@ -909,9 +909,9 @@ jobs:
             --ha-url http://localhost:8123 \
             --output /tmp/ha_token.txt
 
-      - name: Start Plenum (reuse prebuilt image)
+      - name: Start HomeClimate (reuse prebuilt image)
         env:
-          # "stateful" → PLENUM_MCP_STATELESS=false
+          # "stateful" → HOMECLIMATE_MCP_STATELESS=false
           TRANSPORT: ${{ matrix.transport }}
         run: |
           if [ "$TRANSPORT" = "stateful" ]; then
@@ -919,22 +919,22 @@ jobs:
           else
             STATELESS=true
           fi
-          echo "PLENUM_MCP_STATELESS=$STATELESS" >> "$GITHUB_ENV"
+          echo "HOMECLIMATE_MCP_STATELESS=$STATELESS" >> "$GITHUB_ENV"
           HA_TOKEN=$(cat /tmp/ha_token.txt) \
-          PLENUM_MCP_STATELESS=$STATELESS \
-          docker compose ${{ steps.compose.outputs.files }} up -d plenum
+          HOMECLIMATE_MCP_STATELESS=$STATELESS \
+          docker compose ${{ steps.compose.outputs.files }} up -d homeclimate
 
-      - name: Wait for Plenum health
+      - name: Wait for HomeClimate health
         run: |
           for i in $(seq 1 30); do
             if curl -sf http://localhost:8099/api/healthz -o /dev/null; then
-              echo "Plenum is healthy."
+              echo "HomeClimate is healthy."
               exit 0
             fi
             sleep 3
           done
-          echo "ERROR: Plenum did not become healthy within 90s" >&2
-          docker compose ${{ steps.compose.outputs.files }} logs plenum >&2
+          echo "ERROR: HomeClimate did not become healthy within 90s" >&2
+          docker compose ${{ steps.compose.outputs.files }} logs homeclimate >&2
           exit 1
 
       - name: Prove MCP is gated off, then enable it
@@ -947,7 +947,7 @@ jobs:
             -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"0"}}}' || true)
           if [ "$CODE" != "503" ]; then
             echo "ERROR: expected 503 from the disabled MCP endpoint, got $CODE" >&2
-            docker compose ${{ steps.compose.outputs.files }} logs plenum >&2
+            docker compose ${{ steps.compose.outputs.files }} logs homeclimate >&2
             exit 1
           fi
           echo "MCP correctly gated off (503). Enabling it..."
@@ -960,32 +960,32 @@ jobs:
 
       - name: Install test dependencies
         run: pip install ".[dev]"
-        working-directory: smart_vent
+        working-directory: homeclimate
 
       - name: Run the MCP conformance suite against the container
         env:
-          PLENUM_CONFORMANCE_TARGET: container
-          PLENUM_MCP_URL: http://localhost:9099/mcp
-          PLENUM_REST_URL: http://localhost:8099
-          PLENUM_HA_URL: http://localhost:8123
+          HOMECLIMATE_CONFORMANCE_TARGET: container
+          HOMECLIMATE_MCP_URL: http://localhost:9099/mcp
+          HOMECLIMATE_REST_URL: http://localhost:8099
+          HOMECLIMATE_HA_URL: http://localhost:8123
           # The e2e fixture's vents are template covers with a CONSTANT
           # position_template, so their reported position never moves. The
           # fixture routes cover services onto these input_booleans instead —
           # that flip is the real proof the call reached Home Assistant.
-          PLENUM_CONFORMANCE_VENT: cover.living_room_vent
-          PLENUM_CONFORMANCE_VENT_EFFECT: input_boolean.dummy_downstairs
-          PLENUM_CONFORMANCE_THERMOSTAT: climate.downstairs_thermostat
+          HOMECLIMATE_CONFORMANCE_VENT: cover.living_room_vent
+          HOMECLIMATE_CONFORMANCE_VENT_EFFECT: input_boolean.dummy_downstairs
+          HOMECLIMATE_CONFORMANCE_THERMOSTAT: climate.downstairs_thermostat
         run: |
-          export PLENUM_HA_TOKEN="$(cat /tmp/ha_token.txt)"
+          export HOMECLIMATE_HA_TOKEN="$(cat /tmp/ha_token.txt)"
           # --no-cov: the repo's pytest addopts turn on the coverage gate, which
           # a partial run can never satisfy (documented trap in CLAUDE.md).
           python -m pytest backend/tests/integration/test_mcp_conformance.py -v --no-cov
-        working-directory: smart_vent
+        working-directory: homeclimate
 
       - name: Dump logs on failure
         if: failure()
         run: |
-          docker compose ${{ steps.compose.outputs.files }} logs plenum >&2
+          docker compose ${{ steps.compose.outputs.files }} logs homeclimate >&2
           docker compose ${{ steps.compose.outputs.files }} logs homeassistant >&2
 
       - name: Tear down
@@ -1042,7 +1042,7 @@ jobs:
         if: needs.build.outputs.is_fork != 'true' && needs.build.outputs.is_release != 'true'
         run: |
           docker pull "${{ needs.build.outputs.image }}"
-          docker tag "${{ needs.build.outputs.image }}" plenum-e2e
+          docker tag "${{ needs.build.outputs.image }}" homeclimate-e2e
           echo "Reusing prebuilt image ${{ needs.build.outputs.image }}"
 
       # ── Fork / workflow_dispatch / release PR: load from saved artifact.
@@ -1053,22 +1053,22 @@ jobs:
         if: needs.build.outputs.is_fork == 'true' || needs.build.outputs.is_release == 'true'
         uses: actions/download-artifact@v8
         with:
-          name: plenum-image
+          name: homeclimate-image
           path: /tmp
 
       - name: Load fork/frozen-UI image
         if: needs.build.outputs.is_fork == 'true' || needs.build.outputs.is_release == 'true'
-        run: docker load -i /tmp/plenum-image.tar
+        run: docker load -i /tmp/homeclimate-image.tar
 
-      - name: Resolve PLENUM_IMAGE for compose
+      - name: Resolve HOMECLIMATE_IMAGE for compose
         run: |
           if [ "${{ needs.build.outputs.is_fork }}" = "true" ] || [ "${{ needs.build.outputs.is_release }}" = "true" ]; then
-            echo "PLENUM_IMAGE=plenum-e2e" >> "$GITHUB_ENV"
+            echo "HOMECLIMATE_IMAGE=homeclimate-e2e" >> "$GITHUB_ENV"
           else
-            echo "PLENUM_IMAGE=${{ needs.build.outputs.image }}" >> "$GITHUB_ENV"
+            echo "HOMECLIMATE_IMAGE=${{ needs.build.outputs.image }}" >> "$GITHUB_ENV"
           fi
 
-      # The °C leg layers the celsius override (TEMPERATURE_UNIT=C on plenum)
+      # The °C leg layers the celsius override (TEMPERATURE_UNIT=C on homeclimate)
       # on top of the base compose file; the °F leg uses the base file alone.
       - name: Compose file list
         id: compose
@@ -1095,31 +1095,31 @@ jobs:
             --ha-url http://localhost:8123 \
             --output /tmp/ha_token.txt
 
-      # Inject the token and start Plenum (it connects to HA on the Docker network)
-      - name: Start Plenum
+      # Inject the token and start HomeClimate (it connects to HA on the Docker network)
+      - name: Start HomeClimate
         run: |
           HA_TOKEN=$(cat /tmp/ha_token.txt) \
-          docker compose ${{ steps.compose.outputs.files }} up -d plenum
+          docker compose ${{ steps.compose.outputs.files }} up -d homeclimate
 
-      - name: Wait for Plenum health
+      - name: Wait for HomeClimate health
         run: |
-          echo "Waiting for Plenum..."
+          echo "Waiting for HomeClimate..."
           for i in $(seq 1 30); do
             if curl -sf http://localhost:8099/api/healthz -o /dev/null; then
-              echo "Plenum is healthy."
+              echo "HomeClimate is healthy."
               exit 0
             fi
             sleep 3
           done
-          echo "ERROR: Plenum did not become healthy within 90s" >&2
-          docker compose ${{ steps.compose.outputs.files }} logs plenum >&2
+          echo "ERROR: HomeClimate did not become healthy within 90s" >&2
+          docker compose ${{ steps.compose.outputs.files }} logs homeclimate >&2
           exit 1
 
       - name: Verify active temperature unit matches matrix
         run: |
           UNIT=$(curl -sf http://localhost:8099/api/settings | python3 -c \
             'import json,sys; print(json.load(sys.stdin).get("temperature_unit","?"))')
-          echo "Plenum reports temperature_unit=${UNIT}"
+          echo "HomeClimate reports temperature_unit=${UNIT}"
           if [ "${UNIT}" != "${{ matrix.unit }}" ]; then
             echo "ERROR: expected ${{ matrix.unit }}, got ${UNIT}" >&2
             exit 1
@@ -1157,8 +1157,8 @@ jobs:
         id: run_tests
         working-directory: e2e
         env:
-          PLENUM_URL: "http://localhost:8099"
-          PLENUM_TEMP_UNIT: ${{ matrix.unit }}
+          HOMECLIMATE_URL: "http://localhost:8099"
+          HOMECLIMATE_TEMP_UNIT: ${{ matrix.unit }}
         # Exclude the temperature-conversion round-trip: it mutates shared
         # backend state (creates schedules), so it can't run across two
         # projects (chromium + mobile) or the update→verify double pass against
@@ -1174,8 +1174,8 @@ jobs:
         if: steps.run_tests.outcome == 'failure'
         working-directory: e2e
         env:
-          PLENUM_URL: "http://localhost:8099"
-          PLENUM_TEMP_UNIT: ${{ matrix.unit }}
+          HOMECLIMATE_URL: "http://localhost:8099"
+          HOMECLIMATE_TEMP_UNIT: ${{ matrix.unit }}
         run: npx playwright test --update-snapshots --grep-invert "Temperature round-trip|@auth"
 
       # Verify that the regenerated goldens actually fix the failures before
@@ -1187,8 +1187,8 @@ jobs:
         if: steps.run_tests.outcome == 'failure'
         working-directory: e2e
         env:
-          PLENUM_URL: "http://localhost:8099"
-          PLENUM_TEMP_UNIT: ${{ matrix.unit }}
+          HOMECLIMATE_URL: "http://localhost:8099"
+          HOMECLIMATE_TEMP_UNIT: ${{ matrix.unit }}
         run: npx playwright test --grep-invert "Temperature round-trip|@auth"
 
       # Stage ONLY this leg's unit-specific goldens for the fan-in commit.
@@ -1232,7 +1232,7 @@ jobs:
   # login screen, MCP-token card, settings "Signed in / Log out" — renders and
   # is captured as goldens. Isolated from the F/C legs: it runs only the `@auth`
   # specs (which those legs grep-invert out), and the harness authenticates by
-  # injecting a session cookie signed with the stack's pinned PLENUM_SESSION_SECRET
+  # injecting a session cookie signed with the stack's pinned HOMECLIMATE_SESSION_SECRET
   # (e2e/auth-cookie.ts). Its `goldens-auth` artifact is picked up by the same
   # commit-goldens fan-in (which globs goldens-*).
   # -----------------------------------------------------------------------
@@ -1261,25 +1261,25 @@ jobs:
         if: needs.build.outputs.is_fork != 'true' && needs.build.outputs.is_release != 'true'
         run: |
           docker pull "${{ needs.build.outputs.image }}"
-          docker tag "${{ needs.build.outputs.image }}" plenum-e2e
+          docker tag "${{ needs.build.outputs.image }}" homeclimate-e2e
 
       - name: Download fork/frozen-UI image artifact
         if: needs.build.outputs.is_fork == 'true' || needs.build.outputs.is_release == 'true'
         uses: actions/download-artifact@v8
         with:
-          name: plenum-image
+          name: homeclimate-image
           path: /tmp
 
       - name: Load fork/frozen-UI image
         if: needs.build.outputs.is_fork == 'true' || needs.build.outputs.is_release == 'true'
-        run: docker load -i /tmp/plenum-image.tar
+        run: docker load -i /tmp/homeclimate-image.tar
 
-      - name: Resolve PLENUM_IMAGE for compose
+      - name: Resolve HOMECLIMATE_IMAGE for compose
         run: |
           if [ "${{ needs.build.outputs.is_fork }}" = "true" ] || [ "${{ needs.build.outputs.is_release }}" = "true" ]; then
-            echo "PLENUM_IMAGE=plenum-e2e" >> "$GITHUB_ENV"
+            echo "HOMECLIMATE_IMAGE=homeclimate-e2e" >> "$GITHUB_ENV"
           else
-            echo "PLENUM_IMAGE=${{ needs.build.outputs.image }}" >> "$GITHUB_ENV"
+            echo "HOMECLIMATE_IMAGE=${{ needs.build.outputs.image }}" >> "$GITHUB_ENV"
           fi
 
       - name: Compose file list
@@ -1297,23 +1297,23 @@ jobs:
             --ha-url http://localhost:8123 \
             --output /tmp/ha_token.txt
 
-      - name: Start Plenum
+      - name: Start HomeClimate
         run: |
           HA_TOKEN=$(cat /tmp/ha_token.txt) \
-          docker compose ${{ steps.compose.outputs.files }} up -d plenum
+          docker compose ${{ steps.compose.outputs.files }} up -d homeclimate
 
-      - name: Wait for Plenum health
+      - name: Wait for HomeClimate health
         run: |
-          echo "Waiting for Plenum..."
+          echo "Waiting for HomeClimate..."
           for i in $(seq 1 30); do
             if curl -sf http://localhost:8099/api/healthz -o /dev/null; then
-              echo "Plenum is healthy."
+              echo "HomeClimate is healthy."
               exit 0
             fi
             sleep 3
           done
-          echo "ERROR: Plenum did not become healthy within 90s" >&2
-          docker compose ${{ steps.compose.outputs.files }} logs plenum >&2
+          echo "ERROR: HomeClimate did not become healthy within 90s" >&2
+          docker compose ${{ steps.compose.outputs.files }} logs homeclimate >&2
           exit 1
 
       - name: Verify auth is enforced
@@ -1323,7 +1323,7 @@ jobs:
           echo "GET /api/rooms (no credential) => $CODE"
           if [ "$CODE" != "401" ]; then
             echo "ERROR: expected 401 (require_auth on), got $CODE" >&2
-            docker compose ${{ steps.compose.outputs.files }} logs plenum >&2
+            docker compose ${{ steps.compose.outputs.files }} logs homeclimate >&2
             exit 1
           fi
 
@@ -1351,9 +1351,9 @@ jobs:
         id: run_tests
         working-directory: e2e
         env:
-          PLENUM_URL: "http://localhost:8099"
-          PLENUM_TEMP_UNIT: F
-          PLENUM_E2E_AUTH: "1"
+          HOMECLIMATE_URL: "http://localhost:8099"
+          HOMECLIMATE_TEMP_UNIT: F
+          HOMECLIMATE_E2E_AUTH: "1"
         run: npx playwright test --grep "@auth"
         continue-on-error: true
 
@@ -1361,9 +1361,9 @@ jobs:
         if: steps.run_tests.outcome == 'failure'
         working-directory: e2e
         env:
-          PLENUM_URL: "http://localhost:8099"
-          PLENUM_TEMP_UNIT: F
-          PLENUM_E2E_AUTH: "1"
+          HOMECLIMATE_URL: "http://localhost:8099"
+          HOMECLIMATE_TEMP_UNIT: F
+          HOMECLIMATE_E2E_AUTH: "1"
         run: npx playwright test --update-snapshots --grep "@auth"
 
       - name: Verify tests pass with updated goldens
@@ -1371,9 +1371,9 @@ jobs:
         if: steps.run_tests.outcome == 'failure'
         working-directory: e2e
         env:
-          PLENUM_URL: "http://localhost:8099"
-          PLENUM_TEMP_UNIT: F
-          PLENUM_E2E_AUTH: "1"
+          HOMECLIMATE_URL: "http://localhost:8099"
+          HOMECLIMATE_TEMP_UNIT: F
+          HOMECLIMATE_E2E_AUTH: "1"
         run: npx playwright test --grep "@auth"
 
       # Stages every golden named in auth.spec.ts (read from the spec, not a

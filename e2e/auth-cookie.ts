@@ -1,10 +1,10 @@
 // Session-cookie helper for the authentication visual-regression leg (#373/#476).
 //
-// The auth E2E stack (docker-compose.test.auth.yml) runs Plenum with
+// The auth E2E stack (docker-compose.test.auth.yml) runs HomeClimate with
 // require_auth=true and no Home Assistant Supervisor, so every request is
 // "direct" and the API requires a credential. There is no live Supervisor to
 // log in against, so the harness authenticates by *minting a session cookie*
-// signed with the same key the stack is pinned to (PLENUM_SESSION_SECRET). This
+// signed with the same key the stack is pinned to (HOMECLIMATE_SESSION_SECRET). This
 // mirrors backend/session.py::issue_token exactly — verified to round-trip
 // against the Python verifier.
 //
@@ -20,12 +20,12 @@
 import { createHmac } from "crypto";
 
 export const E2E_SESSION_SECRET = "gjncHw3UQkBNvHhgRDhN5hQRcNpmvK48UPmZz-IV1PA";
-export const SESSION_COOKIE = "plenum_session";
+export const SESSION_COOKIE = "homeclimate_session";
 
 const b64url = (s: string): string => Buffer.from(s, "utf-8").toString("base64url");
 
 /**
- * Mint a Plenum session token — an HS256 JWT accepted by
+ * Mint a HomeClimate session token — an HS256 JWT accepted by
  * backend/session.py::verify_token (joserfc, pinned to HS256). exp/iat use real
  * time (session verification checks the wall clock, not the pinned test clock);
  * the token itself is never rendered, so this doesn't affect golden determinism.
@@ -41,4 +41,4 @@ export function mintSession(user = "e2e-admin", ttlSeconds = 7 * 24 * 3600): str
 }
 
 /** True when the current E2E run targets the auth (require_auth=true) stack. */
-export const AUTH_MODE = process.env.PLENUM_E2E_AUTH === "1";
+export const AUTH_MODE = process.env.HOMECLIMATE_E2E_AUTH === "1";

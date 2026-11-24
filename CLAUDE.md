@@ -1,4 +1,6 @@
-# Plenum — Developer Notes for Claude
+# HomeClimate — Developer Notes for Claude
+
+HomeClimate (version line from 0.5.0) is a private fork, used with the original author's permission. The beta channel was removed. CI builds amd64 only.
 
 ## Workflow conventions
 
@@ -6,7 +8,7 @@
 - **When reviewing a PR and pushing fixes**: push directly to the PR's own branch (not to a separate review branch), so the fixes appear in the PR diff.
 - **Never include Claude session links** in commit messages, PR titles, PR bodies, or issue comments.
 - **Never mention that code was written by Claude** (or any AI assistant) in commit messages, PR titles, PR bodies, or issue comments.
-- **Never leak real-world names from the production system.** Data pulled from the live Plenum install — MCP tool output, event logs, screenshots — can contain personal names (rooms are often named after people). Before quoting it anywhere public (GitHub issue titles/bodies, PR titles/bodies, commit messages, code comments, test fixtures, docs), replace names with a generic description ("an upstairs office"), the room's opaque UUID, or an invented name. This applies even when the user pasted the data themselves. Scrubbing after the fact is painful (GitHub keeps issue/PR edit history and force-pushed commits stay fetchable by SHA), so get it right on first publish.
+- **Never leak real-world names from the production system.** Data pulled from the live HomeClimate install — MCP tool output, event logs, screenshots — can contain personal names (rooms are often named after people). Before quoting it anywhere public (GitHub issue titles/bodies, PR titles/bodies, commit messages, code comments, test fixtures, docs), replace names with a generic description ("an upstairs office"), the room's opaque UUID, or an invented name. This applies even when the user pasted the data themselves. Scrubbing after the fact is painful (GitHub keeps issue/PR edit history and force-pushed commits stay fetchable by SHA), so get it right on first publish.
 - **Never leak exception detail into API responses.** In `except` blocks inside route handlers, call `log.exception("…context…")` (or `log.error("…", exc_info=True)`) to preserve the full traceback in server logs, then return a generic user-safe message via `error("…", status=5xx)` — never embed `{exc}` or `str(exc)` in the response body. This includes exception text stored for later and served by another endpoint (the MQTT bridge's `last_error` was one), and exceptions whose message you wrote yourself: return a module constant instead (`VACATION_START_LOCKED`). Exposing raw exception strings is an information-disclosure vulnerability (CWE-209) and was the subject of security alert #4. Pattern to follow:
   ```python
   except Exception:
@@ -23,21 +25,21 @@ task matches a skill, load it instead of re-deriving from source. Quick router:
 
 | Task | Skill |
 |---|---|
-| Any change: gates, review evidence, non-negotiables + their incidents | `plenum-change-control` |
-| Something misbehaves at runtime (wrong temps, stuck cycles, thrashing vents, dead zone, shifted times) | `plenum-debugging-playbook` |
-| "Was this bug seen before?" / settled decisions — do not re-fight | `plenum-failure-archaeology` |
-| Invariants, °F contract ownership, component map, before-you-change-X | `plenum-architecture-contract` |
+| Any change: gates, review evidence, non-negotiables + their incidents | `homeclimate-change-control` |
+| Something misbehaves at runtime (wrong temps, stuck cycles, thrashing vents, dead zone, shifted times) | `homeclimate-debugging-playbook` |
+| "Was this bug seen before?" / settled decisions — do not re-fight | `homeclimate-failure-archaeology` |
+| Invariants, °F contract ownership, component map, before-you-change-X | `homeclimate-architecture-contract` |
 | HVAC/zoning domain theory, °F/°C math, HA entity model | `hvac-zoning-reference` |
-| Any config axis: options, env vars, system_settings keys, field catalogs, add-a-knob checklists | `plenum-config-and-flags` |
-| Fresh-clone setup, install/build traps | `plenum-build-and-env` |
-| Running the add-on/Docker/local, data paths, backup/restore, MCP attach | `plenum-run-and-operate` |
-| Measuring behavior: DB queries, metrics semantics, ready-made scripts | `plenum-diagnostics-and-tooling` |
-| Running/writing the test suites, parity/enforcement failures, Celsius patterns, goldens | `plenum-validation-and-qa` |
-| CI red, golden-bot pushes, workflows, releases | `plenum-ci-and-release` |
-| Editing docs/README/CHANGELOG, house style, claims discipline | `plenum-docs-and-writing` |
-| Auth work (#373) | `plenum-auth-campaign` |
-| Proving a fix correct (conversion algebra, state tables, off-by-ones) | `plenum-proof-and-analysis-toolkit` |
-| Research directions / experiments on cycle data | `plenum-research-frontier` + `plenum-research-methodology` |
+| Any config axis: options, env vars, system_settings keys, field catalogs, add-a-knob checklists | `homeclimate-config-and-flags` |
+| Fresh-clone setup, install/build traps | `homeclimate-build-and-env` |
+| Running the add-on/Docker/local, data paths, backup/restore, MCP attach | `homeclimate-run-and-operate` |
+| Measuring behavior: DB queries, metrics semantics, ready-made scripts | `homeclimate-diagnostics-and-tooling` |
+| Running/writing the test suites, parity/enforcement failures, Celsius patterns, goldens | `homeclimate-validation-and-qa` |
+| CI red, golden-bot pushes, workflows, releases | `homeclimate-ci-and-release` |
+| Editing docs/README/CHANGELOG, house style, claims discipline | `homeclimate-docs-and-writing` |
+| Auth work (#373) | `homeclimate-auth-campaign` |
+| Proving a fix correct (conversion algebra, state tables, off-by-ones) | `homeclimate-proof-and-analysis-toolkit` |
+| Research directions / experiments on cycle data | `homeclimate-research-frontier` + `homeclimate-research-methodology` |
 
 Where a skill and this file disagree, the repo source wins — then fix whichever
 document drifted (skills carry re-verification commands in their Provenance
@@ -48,7 +50,7 @@ sections for exactly this).
 A Home Assistant add-on that replaces the Flair cloud app. It controls HA `cover` entities (vents) while reading temperature from HA `sensor` entities and commanding HA `climate` entities (thermostats). The UI is a React SPA served via HA ingress.
 
 ```
-smart_vent/
+homeclimate/
 ├── backend/          # Python 3.12, aiohttp, asyncio
 │   ├── api/routes.py # All REST endpoints (~3700 lines)
 │   ├── scheduler.py  # Orchestrator: unit detection, DB init, APScheduler jobs
@@ -209,7 +211,7 @@ Every time the UI shows or accepts is in the **house's** zone (add-on `timezone`
 
 ### Backend
 ```bash
-cd smart_vent && python -m pytest backend/tests/ -v
+cd homeclimate && python -m pytest backend/tests/ -v
 ```
 Coverage threshold: **99.9%** (`pyproject.toml` `fail_under = 99.9`). Subset runs
 need `--no-cov` or the gate fails the partial run.
@@ -226,10 +228,10 @@ need `--no-cov` or the gate fails the partial run.
 
 ### Frontend
 ```bash
-cd smart_vent/frontend && npx vitest run
+cd homeclimate/frontend && npx vitest run
 npx vitest run --coverage   # also checks thresholds
 ```
-Coverage thresholds (in `vite.config.ts`): lines 94.2, functions 91.3, branches 79.9, statements 92.0.
+Coverage thresholds (in `vite.config.ts`): lines 99.9, functions 99.9, branches 99.1, statements 99.5.
 
 **Test patterns:**
 - Celsius mode: wrap with `<UnitContext.Provider value={buildUnitContext("C")}>`
@@ -240,35 +242,35 @@ Coverage thresholds (in `vite.config.ts`): lines 94.2, functions 91.3, branches 
 ### E2E round-trip (`e2e/tests/temperature-units.spec.ts`)
 Matrix-runs against both °F and °C stacks via the `conversion` job in `.github/workflows/container-ci.yml`. Each test edits a temperature field through the UI, reloads, and asserts the field shows exactly the value the user typed. This is the only place the full conversion contract is exercised end-to-end, and would have caught the #231 double-conversion bug — neither side's unit tests did.
 - °C run uses `docker-compose.test.celsius.yml` as an override on top of `docker-compose.test.yml` to set `TEMPERATURE_UNIT=C`.
-- `PLENUM_TEMP_UNIT` env var tells the spec which unit the stack is in so the assertion values are scaled accordingly.
+- `HOMECLIMATE_TEMP_UNIT` env var tells the spec which unit the stack is in so the assertion values are scaled accordingly.
 
 ### E2E visual regression (inside `.github/workflows/container-ci.yml` since #366; originally re-enabled per #182)
 A separate suite from the round-trip above: it screenshots every page against committed golden PNGs in `e2e/screenshots/` and fails on any pixel deviation. It is the only test that catches *rendering* regressions (layout, a setpoint showing `158°F` instead of `70°F`, a chart axis flipping units). There is no standalone `e2e.yml` anymore — the suite runs as the `E2E visual regression (F)` / `(C)` / `(auth)` jobs in container-ci, with a fan-in `Commit updated goldens` job. Hard-won facts:
 
 - **Determinism via `isCI` / `<Frozen>` (`frontend/src/ci.tsx`).** `isCI = import.meta.env.VITE_APP_VERSION === "CI"`. The screenshot stack builds the image with `config.yaml` `version: CI`, so the bundle bakes `VITE_APP_VERSION=CI`. `<Frozen>{volatile}</Frozen>` renders a frozen placeholder (`—`) under CI and the live value otherwise. Wrap **anything that changes between two renders of the same fixture**: wall-clock strings ("Updated HH:MM:SS"), countdown timers, active-room counts, progress bars, and the engine-driven Dashboard action feed. (The Logs page's event feed and cycle-log table are NOT frozen — they render seeded demo data instead; see the next bullet.) Do **not** freeze static fixture values (live temps, vent positions) — those are stable and freezing them defeats the test. Without this, the update pass and verify pass render differently and goldens are never stable.
 - **Charts render real pixels via seeded demo data, not `<Frozen>` (#442).** Accumulating engine data was the third source of nondeterminism, and freezing the whole Metrics data region hid every chart from the visual suite. Instead: the E2E global setup calls `POST /api/dev/seed-demo-metrics` (dev-mode-gated, deterministic, fixed past window 2025-06-01 → 2025-06-07, `demo-` prefixed rows exempt from retention purge), `ci.tsx` pins the page's date range to that window under CI (`CI_METRICS_RANGE` — must match `backend/demo_seed.py`), and every recharts series sets `isAnimationActive={chartAnimationActive}` (also from `ci.tsx`; recharts animations are JS-driven, Playwright's `animations: "disabled"` can't reach them). Live engine cycles are dated "now" and fall outside the pinned window, so they can't perturb the goldens. Playwright pins `timezoneId: "UTC"` + `locale: "en-US"`; since #729 timestamps (vent timeline) render in the house zone whatever the browser zone, so the locale pin is what keeps their format identical on every runner. Prefer this seeded-fixture pattern over freezing when the volatile thing is *data* rather than *time*. The Logs page uses the same pattern: the seeder also writes demo-flagged `event_log` rows (`"demo": true` in the details JSON — exempt from retention purge and trim), `CI_LOGS_RANGE` pins both Logs tabs' time windows to the demo week, the Live Feed starts paused under CI so websocket pushes can't append between passes, and `logs.spec.ts` expands one event and one cycle so the goldens cover the detail rendering.
-- **The room active-status line is pinned via a backend clock override, not `<Frozen>` (#456).** Whether a room reads `via Schedule` vs `Not active` — and the `next … Wed 6:00 PM` label — is computed by the **backend** (`POST /api/rooms/active-status` → `room_manager.get_room_active_status` → `_find_matching_schedule`), so it's a pure function of the backend's "now". `<Frozen>` (frontend) and Playwright's `page.clock` (browser) can't reach it. Instead, `tz.now_utc()` honours `PLENUM_CLOCK_OVERRIDE` (an ISO-8601 instant set **only** in `docker-compose.test.yml`: `2025-06-04T10:00:00-04:00` = Wed 10:00 ET, a weekday inside the seeded demo week). Scope is deliberately narrow — **only the status read path** calls `now_utc()`; `tz.now_local()` and the live engine stay on the real clock (variant "1a"), so pinning the display can't stall cycle timing, holdover expiry, or the schedule-expiry sweep. `TIMEZONE: America/New_York` in the compose makes the UTC→local conversion explicit. At that instant `e2e/global-setup.ts` seeds the status permutations: Living Room (08:00–17:00 active + a later 20:00–22:00 block → renders both `via Schedule` and the upcoming `then …` line), Office (presence — a continuously-`on` `binary_sensor.office_occupancy` in the HA fixture, armed by the engine's continuous-presence refresh, so `global-setup` polls active-status until `source=presence`), Bedroom + Kitchen (idle). Only Living Room carries seeded schedules: it's the one room `schedule-flow.spec` never touches, so its blocks survive that spec's beforeAll/afterAll resets and stay identical across the update→verify passes — a schedule seeded on Bedroom/Kitchen/Office would be cleared between passes. `e2e/tests/fixtures.ts` pins `page.clock.setFixedTime` to the same absolute instant (`14:00Z`) so the browser and backend clocks agree.
+- **The room active-status line is pinned via a backend clock override, not `<Frozen>` (#456).** Whether a room reads `via Schedule` vs `Not active` — and the `next … Wed 6:00 PM` label — is computed by the **backend** (`POST /api/rooms/active-status` → `room_manager.get_room_active_status` → `_find_matching_schedule`), so it's a pure function of the backend's "now". `<Frozen>` (frontend) and Playwright's `page.clock` (browser) can't reach it. Instead, `tz.now_utc()` honours `HOMECLIMATE_CLOCK_OVERRIDE` (an ISO-8601 instant set **only** in `docker-compose.test.yml`: `2025-06-04T10:00:00-04:00` = Wed 10:00 ET, a weekday inside the seeded demo week). Scope is deliberately narrow — **only the status read path** calls `now_utc()`; `tz.now_local()` and the live engine stay on the real clock (variant "1a"), so pinning the display can't stall cycle timing, holdover expiry, or the schedule-expiry sweep. `TIMEZONE: America/New_York` in the compose makes the UTC→local conversion explicit. At that instant `e2e/global-setup.ts` seeds the status permutations: Living Room (08:00–17:00 active + a later 20:00–22:00 block → renders both `via Schedule` and the upcoming `then …` line), Office (presence — a continuously-`on` `binary_sensor.office_occupancy` in the HA fixture, armed by the engine's continuous-presence refresh, so `global-setup` polls active-status until `source=presence`), Bedroom + Kitchen (idle). Only Living Room carries seeded schedules: it's the one room `schedule-flow.spec` never touches, so its blocks survive that spec's beforeAll/afterAll resets and stay identical across the update→verify passes — a schedule seeded on Bedroom/Kitchen/Office would be cleared between passes. `e2e/tests/fixtures.ts` pins `page.clock.setFixedTime` to the same absolute instant (`14:00Z`) so the browser and backend clocks agree.
 - **Keep the `isCI` branch in one place.** All page call-sites use `<Frozen>`; the single `import.meta.env` branch lives only in `ci.tsx`, tested both ways in `ci.test.tsx` (`vi.resetModules()` + `vi.stubEnv("VITE_APP_VERSION","CI")` + dynamic import). Branching inline on `isCI` in each page would tank frontend branch coverage — funnel it through `<Frozen>`.
-- **Dual-unit goldens.** container-ci matrixes `unit: [F, C]` so conversion regressions are caught in both directions. Golden filenames encode the unit (`dashboard-Fahrenheit-chromium.png` vs `dashboard-Celsius-chromium.png`) via `playwright.config.ts`'s `PLENUM_TEMP_UNIT`-driven `snapshotPathTemplate`. The °C leg layers `docker-compose.test.celsius.yml`; the matrix varies only the **addon's** display unit.
+- **Dual-unit goldens.** container-ci matrixes `unit: [F, C]` so conversion regressions are caught in both directions. Golden filenames encode the unit (`dashboard-Fahrenheit-chromium.png` vs `dashboard-Celsius-chromium.png`) via `playwright.config.ts`'s `HOMECLIMATE_TEMP_UNIT`-driven `snapshotPathTemplate`. The °C leg layers `docker-compose.test.celsius.yml`; the matrix varies only the **addon's** display unit.
 - **A third leg covers the auth UI (#373).** The `e2e-auth` job runs the same image with `require_auth=true` (`docker-compose.test.auth.yml`) so the login screen, MCP-token card, and settings auth panel render and get captured as goldens. It's isolated from the F/C legs — it runs only `@auth`-tagged specs (which the F/C legs grep-invert out) and authenticates by injecting a signed session cookie (`e2e/auth-cookie.ts`) — and its `goldens-auth` artifact feeds the same `commit-goldens` fan-in (which globs `goldens-*`). Every `auth.spec.ts` test starts by revoking any leftover MCP token (`beforeEach`): the revoke test only empties the store at its very end, so a golden mismatch earlier in it used to leak a token into every later project and the verify pass, and the leg could never regenerate its own goldens.
 - **Browser UTC, house New York (#729).** Playwright pins the *browser* to `timezoneId: "UTC"`; the stack's backend runs `TIMEZONE: America/New_York`. Since #729 the UI renders and parses in the house zone, so a picker value typed in a spec comes back as the same wall clock — but the stored instant is the New York one. `CI_LOGS_RANGE` in `ci.tsx` is therefore house-local. `e2e/tests/time-zones.spec.ts` overrides the browser to `Asia/Tokyo` and asserts the stored instant, the rendered wall clock and the `EST`/`EDT` tooltip; it takes no screenshots and resets vacation mode in beforeAll/afterAll so the double pass stays idempotent. Backend "must be in the future" checks use the real clock while the browser clock is pinned to 2025, so use far-future (2099) dates.
-- **The HA fixture must pin `unit_system: us_customary`** (`e2e/fixtures/ha-config/configuration.yaml`). This was the root cause of the `158°F` bug: a HA YAML config with no `unit_system` defaults to metric/°C, so `generic_thermostat target_temp: 70` is read as 70 °C and the backend's *correct* °C→°F normalisation surfaces it as 158 °F. HA itself is always °F in the fixture; the matrix toggles only Plenum's display unit.
+- **The HA fixture must pin `unit_system: us_customary`** (`e2e/fixtures/ha-config/configuration.yaml`). This was the root cause of the `158°F` bug: a HA YAML config with no `unit_system` defaults to metric/°C, so `generic_thermostat target_temp: 70` is read as 70 °C and the backend's *correct* °C→°F normalisation surfaces it as 158 °F. HA itself is always °F in the fixture; the matrix toggles only HomeClimate's display unit.
 - **Legs run in parallel; the commit is fanned in.** The two legs upload regenerated goldens as artifacts (`goldens-F` / `goldens-C`); only the single `Commit updated goldens` job commits them, so there is no push race (the old `max-parallel: 1` serialization is gone). That job pushes with `HEAD:"$BRANCH"` (the #369/#370 detached-HEAD fix). GITHUB_TOKEN pushes don't re-trigger workflows, so each leg runs its own "verify with updated goldens" pass **in the same job**; that (not a `paths-ignore`) is what stops the bot commit from looping — container-ci has no `paths-ignore`, and its `changes` job independently classifies a goldens-only diff as docs-only anyway.
 - **Expect golden-bot pushes on any code PR — always fetch/rebase before pushing.** Runner rendering drift can regenerate goldens even when your change is backend-only, so the bot may add a `ci: update E2E golden screenshots` commit to your branch while you work. Never force-push over it. (Docs-only PRs skip the **entire** container pipeline — `Build (PR validation)`, smoke, round-trip, MQTT round-trip, MCP conformance, and all three visual legs — via the `changes` job's `code`/`ui` gates. `.github/` changes are treated as code so a workflow edit still runs the full pipeline.)
 - **A golden rewrite lands on a GREEN run.** Pass 1 is `continue-on-error`, so a leg whose regenerate+verify succeeds concludes success — the signals are the bot commit and the PR comment `commit-goldens` posts listing every changed PNG (#415). Review those PNGs in the diff like code; do not assume green means "no rendering change".
-- **Reuse the prebuilt image; don't rebuild — except on release PRs, which get a second, frozen-UI-only image.** Normal same-repo PRs and forks: the visual legs consume the same image container-ci's `Build (PR validation)` job just produced (pull the `ci-<sha>` tag, or `docker load` the artifact on fork PRs), tagged `plenum-e2e` (the compose default). That prebuilt image is already `version: CI`, so the frozen UI is baked in. Release PRs are the one exception: the *published* `:<version>` image must keep the real version (for the footer and for HA Supervisor), so it is **not** `isCI`-frozen and would never match a golden — the build job therefore builds a second, throwaway, single-arch image with `version: CI` pinned *after* pushing the real one, and hands it off via the same `plenum-image` artifact/`docker load` path as forks. Smoke test and the round-trip legs still test the real published image; only the visual-regression legs use the frozen one.
+- **Reuse the prebuilt image; don't rebuild — except on release PRs, which get a second, frozen-UI-only image.** Normal same-repo PRs and forks: the visual legs consume the same image container-ci's `Build (PR validation)` job just produced (pull the `ci-<sha>` tag, or `docker load` the artifact on fork PRs), tagged `homeclimate-e2e` (the compose default). That prebuilt image is already `version: CI`, so the frozen UI is baked in. Release PRs are the one exception: the *published* `:<version>` image must keep the real version (for the footer and for HA Supervisor), so it is **not** `isCI`-frozen and would never match a golden — the build job therefore builds a second, throwaway, single-arch image with `version: CI` pinned *after* pushing the real one, and hands it off via the same `homeclimate-image` artifact/`docker load` path as forks. Smoke test and the round-trip legs still test the real published image; only the visual-regression legs use the frozen one.
 - **The round-trip spec is excluded here** (`--grep-invert "Temperature round-trip"`): it mutates shared backend state (creates schedules), so it can't survive two projects (chromium + mobile) or the update→verify double pass on one stack. It's covered by container-ci's conversion job instead.
 - **Tall pages need the 30s screenshot budget (`expect.timeout` in playwright.config.ts) — don't shrink it.** `toHaveScreenshot` keeps capturing until two CONSECUTIVE shots match, and the first fullPage capture of a page always differs: the capture's viewport resize settles ~2px of trailing layout (measured 6801px → 6799px on the Thermostats settings panel, with the overlapping pixels byte-identical). Proving stability therefore takes three captures at ~1.7s each (more at mobile 3× DPI), which cannot fit Playwright's default 5s assertion timeout — the tallest pages then fail with "Failed to take two consecutive stable screenshots" on whichever leg's runner is slowest that day. The fixtures.ts auto-fixture additionally pins `scrollbar-gutter: stable` so viewport and capture renders wrap identically.
 - **High-DPI mobile amplifies sub-pixel jitter.** The `mobile` project uses `deviceScaleFactor: 3`, so native widgets like `<input type="date">` jitter ~9× more than desktop. `metrics.spec.ts` needs `maxDiffPixels: 800`; the global default is 100. Prefer a per-spec `maxDiffPixels` bump over masking, so the rest of the page is still pixel-checked.
 
 ### Temperature field registry (parity-enforced)
 Every temperature field on a write boundary is registered in two manifests kept in lockstep:
-- **Python**: `TEMPERATURE_FIELDS` dict in `smart_vent/backend/api/routes.py` (`field` → `kind`, where `kind` ∈ `absolute | absolute_nullable | delta | delta_nullable`).
+- **Python**: `TEMPERATURE_FIELDS` dict in `homeclimate/backend/api/routes.py` (`field` → `kind`, where `kind` ∈ `absolute | absolute_nullable | delta | delta_nullable`).
 - **TypeScript**: `TEMPERATURE_FIELDS` array in `e2e/tests/temperature-fields.ts` (`field`, `kind`, `ui`, `endpoints`).
 
 Each test in `temperature-units.spec.ts` tags itself with `// @covers: <field>[, <field>...]`.
 
-`smart_vent/backend/tests/test_temperature_field_parity.py` enforces:
+`homeclimate/backend/tests/test_temperature_field_parity.py` enforces:
 1. The Python and TS field sets match (no field on one side only).
 2. The `kind` agrees between Python and TS for each shared field (mismatched `_to_f` vs `_delta_to_f` silently corrupts data).
 3. Every TS entry with `ui: true` has a `// @covers:` tag in the spec.
@@ -279,8 +281,7 @@ Adding a temperature field anywhere on a write boundary therefore requires touch
 ### Config parity test
 `tests/test_addon_config.py` — asserts every key in `config.yaml`'s `options:` block
 is read in `run.sh` via `bashio::config '<key>'` or the `get_config '<key>' '<default>'`
-wrapper helper, and that `smart_vent_beta/config.yaml`'s options block stays a verbatim
-copy of stable's. Add new options to **all three**.
+wrapper helper. Add new options to **both**.
 
 ### MQTT control registry parity (Issue #519)
 `backend/mqtt/registry.py` holds one `Control` row per exposed control; discovery
@@ -325,17 +326,16 @@ which satisfies branch protection). A PR whose diff touches **only** root-level
 markdown (`*.md`), `docs/`, `.claude/`, `.jules/`, `.vscode/`, `screenshots/`,
 or `e2e/screenshots/` (goldens) skips lint/test/scan entirely. `.github/` is
 deliberately **code** — a workflow edit must run the full suite so CI validates
-itself. Nested markdown outside those dirs (e.g. `smart_vent/CHANGELOG.md`) is
+itself. Nested markdown outside those dirs (e.g. `homeclimate/CHANGELOG.md`) is
 also code. The identical ignore set gates the container pipeline (container-ci's
-`changes` job, including `Build (PR validation)`), the beta-pointer bump
-(`beta.yml`), `docker.yml` (push-to-main `paths-ignore`), and the local
+`changes` job, including `Build (PR validation)`), `docker.yml` (push-to-main `paths-ignore`), and the local
 `git commit` gate (`.claude/hooks/precommit-gate.sh`) — keep all five in sync
 when adding a docs-like path.
 
-**Container CI (`.github/workflows/container-ci.yml`)** builds the addon image **once** and reuses it across the **Build (PR validation)**, **Image vulnerability scan**, **Docker Smoke Test**, **Round-trip (F)/(C)** temperature-conversion, **MQTT round-trip**, **MCP conformance (stateless/stateful)**, and **E2E visual regression (F)/(C)/(auth)** jobs — instead of rebuilding the container per PR. See #333. `docker-compose.test.yml`'s `plenum` service reads `${PLENUM_IMAGE}` so each E2E leg reuses the prebuilt image rather than rebuilding. The `build` job picks a mode at runtime (#337):
+**Container CI (`.github/workflows/container-ci.yml`)** builds the addon image **once** and reuses it across the **Build (PR validation)**, **Image vulnerability scan**, **Docker Smoke Test**, **Round-trip (F)/(C)** temperature-conversion, **MQTT round-trip**, **MCP conformance (stateless/stateful)**, and **E2E visual regression (F)/(C)/(auth)** jobs — instead of rebuilding the container per PR. See #333. `docker-compose.test.yml`'s `homeclimate` service reads `${HOMECLIMATE_IMAGE}` so each E2E leg reuses the prebuilt image rather than rebuilding. The `build` job picks a mode at runtime (#337):
 - **Normal same-repo PR** → multi-arch build, push `ghcr.io/<repo>:ci-<pr-sha>` (throwaway); downstream jobs **pull** it.
 - **Release PR** (`release/vX.Y.Z` head) → multi-arch build, push the **real** `:<version>` + `:latest`, then Trivy-scan. Smoke test and the round-trip (F)/(C) legs pull the explicit `:<version>` tag (never `:latest`). This is the publish + scan that used to be `docker.yml`'s `build-release` job — moving it here means a release PR's *published* artifact builds **once** instead of twice. `docker.yml` now only builds on push-to-main (a config bump outside the release flow). The visual-regression legs are the one exception: they need `isCI`-frozen UI to match goldens, which the published (real-version) image can't provide, so the build job also builds a throwaway single-arch `version: CI` image and hands it to those legs the same way it hands off a fork build (`docker load` from an artifact) — see the E2E visual regression section below.
-- **Fork PR** → fork tokens are read-only, so build single-arch, `docker save` to an artifact; downstream jobs `docker load` it (tagged `plenum-e2e`, the compose default).
+- **Fork PR** → fork tokens are read-only, so build single-arch, `docker save` to an artifact; downstream jobs `docker load` it (tagged `homeclimate-e2e`, the compose default).
 
 The throwaway `ci-*` tags are pruned nightly by **`.github/workflows/ci-image-cleanup.yml`** (deletes `ci-*` versions older than `RETENTION_DAYS`; never `:latest` or semver tags).
 
@@ -380,7 +380,7 @@ Rules of the road:
   upload is skipped there (a fork's `GITHUB_TOKEN` is read-only). Docs-only
   PRs skip the whole container pipeline as usual.
 - **Fix findings at the source, don't suppress them**: an apk `>=` floor in
-  `smart_vent/Dockerfile` (the floors double as the layer's cache key — a bare
+  `homeclimate/Dockerfile` (the floors double as the layer's cache key — a bare
   `apk upgrade` is re-served from cache and upgrades nothing), a dependency
   bump, or deleting an unused base-image binary. `.trivyignore` is the last
   resort and wants a comment saying why.
@@ -398,7 +398,7 @@ PyYAML is NOT a dependency; do not `import yaml` in code or tests.
 
 ## Key architectural facts
 
-- **DB schema**: `system_settings` key-value table stores flags (`temperature_unit`, `unit_change_ack_required`, `unit_change_acked_unit`, `system_enabled`, `developer_mode`, `mcp_enabled`, `vacation_mode_enabled`, `vacation_mode_return_at`, `vacation_mode_start_at` (scheduled trip, #728), `vacation_welcome_fired`, `vacation_missed_notice`, log-retention keys, and more). No dedicated settings table — the full catalog with defaults and guards lives in the `plenum-config-and-flags` skill.
+- **DB schema**: `system_settings` key-value table stores flags (`temperature_unit`, `unit_change_ack_required`, `unit_change_acked_unit`, `system_enabled`, `developer_mode`, `mcp_enabled`, `vacation_mode_enabled`, `vacation_mode_return_at`, `vacation_mode_start_at` (scheduled trip, #728), `vacation_welcome_fired`, `vacation_missed_notice`, log-retention keys, and more). No dedicated settings table — the full catalog with defaults and guards lives in the `homeclimate-config-and-flags` skill.
 - **Engine**: `cycle_engine.py` calls `_set_thermostat_setpoint()` with pre-converted °F values. Never convert inside the engine — conversion is the API layer's job.
 - **Scheduler**: Owns `_active_unit`. The engine and routes both read the unit through the scheduler, not directly from DB.
 - **WebSocket**: `ws_handler.py` broadcasts zone status events. Temperatures in these events are raw °F — the frontend converts for display.

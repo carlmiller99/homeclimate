@@ -1,6 +1,6 @@
 # Vent control methods
 
-Every vent stores how Plenum should actually open and close it. The right method depends on which services the vent's Home Assistant integration exposes.
+Every vent stores how HomeClimate should actually open and close it. The right method depends on which services the vent's Home Assistant integration exposes.
 
 ## The four methods
 
@@ -15,10 +15,10 @@ Every vent stores how Plenum should actually open and close it. The right method
 
 In the UI, the vent row has a **Test** button that lets you trial a method before saving. If a vent opens but the UI keeps showing it as closed, the attribute you're reading doesn't match — try `set_tilt_position` for Flair vents, or `set_position` for standard position-based covers.
 
-## How Plenum reads vent state
+## How HomeClimate reads vent state
 
-Plenum judges whether a vent is passing air using the attribute that matches its own configured `control_method` — it does not check both position attributes on every vent. A `set_tilt_position` vent is read from `current_tilt_position`; a `set_position` vent is read from `current_position`; `open_close` and `toggle` vents have no position attribute to read and fall back to HA's plain cover `state` (`open`/`closed`). If the matching attribute is present but the value can't be read, or the control method doesn't use one, Plenum also falls back to `state`. That's why `set_tilt_position` is the right choice for Flair — the integration reports tilt, not position, and picking the wrong method means Plenum is reading an attribute the vent never updates.
+HomeClimate judges whether a vent is passing air using the attribute that matches its own configured `control_method` — it does not check both position attributes on every vent. A `set_tilt_position` vent is read from `current_tilt_position`; a `set_position` vent is read from `current_position`; `open_close` and `toggle` vents have no position attribute to read and fall back to HA's plain cover `state` (`open`/`closed`). If the matching attribute is present but the value can't be read, or the control method doesn't use one, HomeClimate also falls back to `state`. That's why `set_tilt_position` is the right choice for Flair — the integration reports tilt, not position, and picking the wrong method means HomeClimate is reading an attribute the vent never updates.
 
 ## What happens on failure
 
-If a single vent fails to open or close, Plenum logs the error with the entity ID and control method and moves on. A misconfigured method on one vent does not abort the cycle or affect other vents in the room.
+If a single vent fails to open or close, HomeClimate logs the error with the entity ID and control method and moves on. A misconfigured method on one vent does not abort the cycle or affect other vents in the room.

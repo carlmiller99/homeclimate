@@ -27,7 +27,7 @@ test("room settings — full page with all room controls", async ({ page }) => {
   // Grow the viewport tall enough to paint the whole form in a single pass.
   // Otherwise Playwright stitches the capture in viewport-height slices, and
   // because it scrolls between slices the position:sticky <nav> re-renders at
-  // each slice top — splicing the "Plenum" bar into the middle of the page on
+  // each slice top — splicing the "HomeClimate" bar into the middle of the page on
   // high-DPI mobile and clipping the title under it on desktop. One paint (no
   // scroll) avoids both; width/DPI stay per-project so the layout is unchanged,
   // and the element capture sits below the sticky nav so the nav is excluded.

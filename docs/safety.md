@@ -1,12 +1,12 @@
 # Safety features
 
-Plenum drives real HVAC equipment, so several settings exist purely to protect that equipment from being damaged by software decisions. This page collects them and is updated as new protections are added. Each is configured per-thermostat on the **Thermostats** page unless noted.
+HomeClimate drives real HVAC equipment, so several settings exist purely to protect that equipment from being damaged by software decisions. This page collects them and is updated as new protections are added. Each is configured per-thermostat on the **Thermostats** page unless noted.
 
-> **Heat pumps are not supported.** Plenum assumes a conventional system — a furnace or air handler for heat and an AC compressor for cooling. The cooling lockout below has no heating equivalent for that reason.
+> **Heat pumps are not supported.** HomeClimate assumes a conventional system — a furnace or air handler for heat and an AC compressor for cooling. The cooling lockout below has no heating equivalent for that reason.
 
 ## Short-cycle protection
 
-Rapidly stopping and restarting a compressor — *short-cycling* — is one of the most common ways control software damages HVAC equipment: it stresses the motor windings and contactor and prevents oil from returning to the compressor. Plenum bounds how often a cycle can stop and start.
+Rapidly stopping and restarting a compressor — *short-cycling* — is one of the most common ways control software damages HVAC equipment: it stresses the motor windings and contactor and prevents oil from returning to the compressor. HomeClimate bounds how often a cycle can stop and start.
 
 | Setting | Default | What it does |
 |---|---|---|
@@ -15,7 +15,7 @@ Rapidly stopping and restarting a compressor — *short-cycling* — is one of t
 
 ### How the minimum-runtime hold works
 
-When every room in a cycle reaches its target before the minimum runtime has elapsed, Plenum does **not** stop the HVAC. It re-opens the vents of every room that was part of the cycle so the air handler keeps a full duct path — never dead-heading airflow through a single room — and the small unavoidable overshoot is spread evenly. The cycle completes normally once the runtime clock is satisfied.
+When every room in a cycle reaches its target before the minimum runtime has elapsed, HomeClimate does **not** stop the HVAC. It re-opens the vents of every room that was part of the cycle so the air handler keeps a full duct path — never dead-heading airflow through a single room — and the small unavoidable overshoot is spread evenly. The cycle completes normally once the runtime clock is satisfied.
 
 The hold is tracked by a persisted flag on the cycle log (`in_min_runtime_hold`). While the flag is set, the engine's per-tick monitoring loop **does not close vents on rooms that have hit their target** — without this gate, the close loop would re-close vents the hold just re-opened on the very next 60-second tick, producing open/close churn through the entire hold window. The flag survives a server restart, so a mid-hold reboot resumes the hold rather than ending the cycle.
 
@@ -28,7 +28,7 @@ A room over-conditioned past its setpoint can swing far enough that it then call
 1. **The hold gate never closes a satisfied room's vent while the hold is active.** Combined with the existing "vent re-opened on hold entry" behaviour, this means the conditioning is always distributed across all originally-active rooms, never dumped into one and dead-heading the duct system.
 2. **Overflow conditioning excludes any candidate room whose temperature is already across its opposite-direction trigger.** A room that's already across `setpoint − deadband` (cooling) or `setpoint + deadband` (heating) is denied surplus air — pushing into it is exactly what creates an opposite cycle. The tier-3 fallback only runs when at least one non-active room still has positive headroom; if none do, the hold reverts to today's behaviour (active rooms only).
 
-Together these mean Plenum cannot, by construction, create an opposite-direction cycle as a *side effect* of holding a cycle open. (A genuine opposite call from a room that legitimately needs the other direction is still detected on the next tick — that's the cycle engine's primary job and is unchanged.)
+Together these mean HomeClimate cannot, by construction, create an opposite-direction cycle as a *side effect* of holding a cycle open. (A genuine opposite call from a room that legitimately needs the other direction is still detected on the next tick — that's the cycle engine's primary job and is unchanged.)
 
 ### Off-time lockout
 
@@ -64,7 +64,7 @@ The lockout needs to know the outdoor temperature. The **outside-temperature sen
 
 ### Fail-open behavior
 
-If a lockout threshold is configured but the outdoor sensor is unset or unreadable, Plenum **fails open** — it allows the cooling cycle and logs a warning. A dropped sensor should not silently disable cooling for the whole house in summer; the warning makes the gap visible so it can be fixed.
+If a lockout threshold is configured but the outdoor sensor is unset or unreadable, HomeClimate **fails open** — it allows the cooling cycle and logs a warning. A dropped sensor should not silently disable cooling for the whole house in summer; the warning makes the gap visible so it can be fixed.
 
 ### Related: pre-cool / pre-heat
 
@@ -72,7 +72,7 @@ If a lockout threshold is configured but the outdoor sensor is unset or unreadab
 
 ## Sensor-staleness guard
 
-A battery-powered Zigbee or Z-Wave temperature sensor that drops off the mesh does not always flip to `unavailable` in Home Assistant — HA keeps showing the **last numeric value it heard**. If Plenum averaged that stale value into a room temperature, it would confidently make the wrong control decision: wrong mode, vents closing on a room that hasn't actually reached target, no cycle starting on a room that's actually warm. The kind of silent failure that only shows up as a comfort complaint.
+A battery-powered Zigbee or Z-Wave temperature sensor that drops off the mesh does not always flip to `unavailable` in Home Assistant — HA keeps showing the **last numeric value it heard**. If HomeClimate averaged that stale value into a room temperature, it would confidently make the wrong control decision: wrong mode, vents closing on a room that hasn't actually reached target, no cycle starting on a room that's actually warm. The kind of silent failure that only shows up as a comfort complaint.
 
 The engine treats a sensor reading as stale once its Home Assistant `last_updated` timestamp is older than the configured **sensor-staleness threshold** (default **30 minutes**, adjustable on the **Thermostats** page from 1 minute to 24 hours). Stale readings are excluded from `_get_avg_temp`, so they never contribute to the value that drives mode inference, vent-close decisions, or at-target checks. If every sensor in a room is stale, `_get_avg_temp` returns no reading for that room — the same result as a room with no sensors configured at all. Mode inference falls back to the thermostat's own `current_temperature` attribute so the room still casts a vote on cycle direction; the per-tick at-target/vent-close check instead skips the room for that tick — it cannot block cycle termination, but its vent also isn't evaluated for closing until a reading returns.
 
@@ -108,11 +108,11 @@ Each tick the engine computes:
 ```
 required_smart_open = max(
     0,
-    ceil(total_vents_count × fraction) − (total_vents_count − smart_vents_count)
+    ceil(total_vents_count × fraction) − (total_vents_count − homeclimates_count)
 )
 ```
 
-`smart_vents_count` is the live count of smart vents configured across the thermostat's rooms. The right-hand subtraction is the number of passive registers — always-open — which already contribute to the airflow floor. The clamp at zero handles cases where there are enough passive vents to satisfy the floor on their own.
+`homeclimates_count` is the live count of smart vents configured across the thermostat's rooms. The right-hand subtraction is the number of passive registers — always-open — which already contribute to the airflow floor. The clamp at zero handles cases where there are enough passive vents to satisfy the floor on their own.
 
 A worked example. A floor has 12 total registers and 4 of them are smart, with the default 1/3 fraction:
 
@@ -134,7 +134,7 @@ Thermostats registered before this safety shipped have `total_vents_count = null
 
 A few longer-standing limits on the [Thermostat settings](./thermostat-settings.md) page also protect equipment:
 
-- **Min / max setpoint** — hard clamps; Plenum never commands the thermostat outside this range. During [vacation mode](./vacation-mode.md) this pair also becomes the whole-house hold band, and on a single-setpoint thermostat a room whose own sensor leaves it starts a safety cycle just as it would outside vacation.
+- **Min / max setpoint** — hard clamps; HomeClimate never commands the thermostat outside this range. During [vacation mode](./vacation-mode.md) this pair also becomes the whole-house hold band, and on a single-setpoint thermostat a room whose own sensor leaves it starts a safety cycle just as it would outside vacation.
 - **Max vent closed** — force-reopen a vent after this long, a safety valve for systems that need airflow.
 - **Cycle timeout** — abort a cycle that runs too long (stuck equipment, unreachable sensors).
 - **Abort when thermostat unavailable (min)** (Issue #267) — while the climate entity is unavailable in Home Assistant, the engine skips its tick, which suspends every other per-tick safety monitor above (cycle timeout, max-vent-closed watchdog, reconciliation) even though the physical HVAC may keep running at the last commanded setpoint. Once the entity has been unavailable this long, a running cycle is aborted and all zone vents are re-opened. Shorter outages are tolerated and the cycle resumes untouched. Recommended **5 min**. `0` = never abort (not recommended).

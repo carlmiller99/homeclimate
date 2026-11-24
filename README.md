@@ -1,33 +1,18 @@
-# Plenum
+# HomeClimate
 
 > **AI-generated disclaimer:** this project — code, tests, and documentation — was developed with substantial help from AI coding assistants. Review the diffs, run the tests, and exercise normal judgement before trusting it to run your HVAC.
 
 ## About this project
 
-Plenum began as a replacement for [Flair.co](https://flair.co)'s scheduler. I wanted to pull in additional sensors — extra room temp sensors, motion sensors, outdoor conditions — and drive my HVAC off a richer picture than what the Flair app supports. Flair's hardware is great; their scheduler just didn't have the hooks I wanted.
+HomeClimate is a whole-home zoning controller for Home Assistant: buildings, zones (one per thermostat) and rooms, driven by room sensors, schedules, presence, doors and windows, shades and heat pump-aware control.
 
-So Plenum **schedules and decides**, and then hands the actual vent control back to the excellent [RobertD502/home-assistant-flair](https://github.com/RobertD502/home-assistant-flair) HACS integration, which exposes each Flair vent as a Home Assistant `cover.*` entity. Plenum talks to HA, never to Flair's cloud directly.
-
-Because Plenum only speaks to `cover.*` and `climate.*` entities, **it's not Flair-specific**. Any cover integration works — Flair via HACS, SmartThings vents, Keen Home, Zigbee/Z-Wave roller shutters, anything you can drive as a cover — and any HA `climate.*` thermostat can host a zone. Any `sensor.*` can feed into a room's average temperature, and any `binary_sensor.*` can trigger presence activation.
-
-### Tested
-
-> Stats last updated: September 2026 — coverage thresholds are enforced by CI and only ever increase.
-
-- **Backend:** **2400+ unit + integration tests** across **112 test modules** (54 unit + 58 integration) covering the cycle engine state machine, scheduler, room manager, vent controller, presence/holdover logic, setpoint bounds, cycle restore after reboot, idle-vent close dispatch, the authentication trust boundary (ingress spoof-rejection, session cookies, MCP token scopes), the MQTT bridge and discovery registry, the MCP tool surface, and end-to-end cycle flow through the aiohttp API. Coverage gates enforced by CI, with **branch coverage on**: **99.9% combined**, pinned per-metric at **99.90% statements · 99.75% branches**.
-  - `pytest backend/tests` from `smart_vent/` runs the full suite.
-- **Frontend:** **950+ tests** across **54 test files** with **Vitest + React Testing Library**, covering all major pages and components, form validations, tab navigation, unit-conversion correctness, the login/auth gate, and WebSocket integration. Coverage gates enforced by CI: **99.9% lines · 99.9% functions · 99.1% branches · 99.5% statements**.
-  - `npm test` from `smart_vent/frontend` runs the frontend suite.
-- **E2E (Playwright):** **42 end-to-end tests** across **19 spec files** covering every major page (Dashboard, Rooms, Schedules, Thermostats, Metrics, Logs, Settings, Dev Mode, Vacation Mode, Eco Suspend) plus the login/auth gate and a full temperature round-trip suite that matrix-runs against both a °F stack and a °C stack — the only layer that exercises the full frontend → API → DB → UI conversion contract end-to-end.
-  - Specs live in `e2e/tests/`; CI runs them via the `conversion` job in `.github/workflows/container-ci.yml`.
-
----
+Based on smart-thermostat-with-vents by [dhruvb14](https://github.com/dhruvb14/smart-thermostat-with-vents), used with the author's permission.
 
 ## What it does
 
 https://github.com/user-attachments/assets/6ce1e29f-7fc1-4fe4-9b44-f60e4526605d
 
-A Home Assistant add-on that provides HVAC zoning control for your home. Plenum drives HA cover entities (smart vents like Flair, or any other `cover.*` integration) and climate thermostats using temperature data from your native HA sensors, with per-room scheduling, presence-based activation, temporary temperature holds, vacation mode that can be scheduled ahead and warms or cools the house back up before you return, and a full web UI accessible via HA Ingress. Access through the Home Assistant sidebar is always trusted; if you publish the raw web-UI or MCP ports, they can require authentication (Home Assistant login for the UI, scoped bearer tokens for MCP) — see [`docs/auth.md`](docs/auth.md).
+A Home Assistant add-on that provides HVAC zoning control for your home. HomeClimate drives HA cover entities (smart vents like Flair, or any other `cover.*` integration) and climate thermostats using temperature data from your native HA sensors, with per-room scheduling, presence-based activation, temporary temperature holds, vacation mode that can be scheduled ahead and warms or cools the house back up before you return, and a full web UI accessible via HA Ingress. Access through the Home Assistant sidebar is always trusted; if you publish the raw web-UI or MCP ports, they can require authentication (Home Assistant login for the UI, scoped bearer tokens for MCP) — see [`docs/auth.md`](docs/auth.md).
 
 ## Screenshots
 
@@ -83,7 +68,7 @@ Feature-by-feature guides live in [`docs/`](./docs/README.md):
 - [Backup & restore](./docs/backup-restore.md)
 - [Authentication & trust model](./docs/auth.md) — ingress vs. direct-port trust, HA login, OIDC single sign-on, MCP token scopes
 - [MCP server](./docs/mcp.md) — Claude-callable tools
-- [MQTT interface](./docs/mqtt.md) — control Plenum from Home Assistant automations
+- [MQTT interface](./docs/mqtt.md) — control HomeClimate from Home Assistant automations
 - **API Documentation** — Interactive Swagger UI available at `/api/docs`
 
 ---
@@ -105,7 +90,7 @@ Multiple rooms sharing one thermostat are fully supported and are the primary us
 
 ## Safety
 
-Plenum drives real HVAC equipment, so it includes protections that exist purely to keep that equipment safe from software decisions:
+HomeClimate drives real HVAC equipment, so it includes protections that exist purely to keep that equipment safe from software decisions:
 
 - **Short-cycle protection** — a minimum compressor run time and a minimum off-time between cycles, so the equipment is never rapidly stopped and restarted.
 - **In-place cycle updates** — a mid-cycle change to a room's target or source (a schedule edit, a presence-to-schedule handoff) is applied to the running cycle instead of stopping and restarting the HVAC, avoiding an unnecessary compressor stop/start.
@@ -113,7 +98,7 @@ Plenum drives real HVAC equipment, so it includes protections that exist purely 
 - **Airflow floor / dead-head protection** — keeps a configurable fraction (default one third) of the thermostat's total registers open at all times, accounting for passive (non-smart) vents that are always open. Tickable opt-out for systems with a bypass damper.
 - **Equipment-protection limits** — setpoint clamps, a force-reopen valve for closed vents, and a cycle timeout for stuck equipment.
 
-> Plenum assumes a conventional HVAC system (furnace/air handler + AC compressor). **Heat pumps are not supported.**
+> HomeClimate assumes a conventional HVAC system (furnace/air handler + AC compressor). **Heat pumps are not supported.**
 
 See [`docs/safety.md`](./docs/safety.md) for how each protection works and how to configure it.
 
@@ -125,7 +110,7 @@ See [`docs/safety.md`](./docs/safety.md) for how each protection works and how t
 
 1. In HA, go to **Settings → Add-ons → Add-on Store → ⋮ → Repositories**
 2. Add this repository URL
-3. Find **Plenum** and click **Install**
+3. Find **HomeClimate** and click **Install**
 4. Go to the add-on **Configuration** tab and set your **`timezone`** (e.g. `America/New_York`) — no token or URL is needed when running as an HA add-on
 5. Click **Start** — the UI is available via the **Open Web UI** button (HA Ingress)
 
@@ -134,14 +119,14 @@ See [`docs/safety.md`](./docs/safety.md) for how each protection works and how t
 Pull the image built by GitHub Actions:
 
 ```bash
-docker pull ghcr.io/dhruvb14/smart-thermostat-with-vents:latest
+docker pull ghcr.io/carlmiller99/homeclimate:latest
 ```
 
 Run it:
 
 ```bash
 docker run -d \
-  --name smart-vent \
+  --name homeclimate \
   -p 8099:8099 \
   -v /path/to/data:/data \
   -e DATA_DIR=/data \
@@ -149,14 +134,14 @@ docker run -d \
   -e HA_TOKEN=your_long_lived_token \
   -e TIMEZONE=America/New_York \
   -e REQUIRE_AUTH=false \
-  ghcr.io/dhruvb14/smart-thermostat-with-vents:latest
+  ghcr.io/carlmiller99/homeclimate:latest
 ```
 
 > **Important:** `run.sh` defaults `DATA_DIR` to `/config`, not `/data` — without `-e DATA_DIR=/data` above, the app writes `app.db` inside the container instead of your mounted volume, and every restart wipes your configuration. Likewise, the timezone variable is `TIMEZONE`, not `TZ` — `run.sh` overwrites `TZ` from `TIMEZONE` unconditionally, so setting `-e TZ=...` alone has no effect and schedules will evaluate in UTC.
 
 > **Important:** the `-v /path/to/data:/data` volume mount is required. Without it, `app.db` is written inside the ephemeral container layer and **all configuration is lost when the container restarts**.
 
-> **You are running Plenum without authentication.** `REQUIRE_AUTH=false` is set above because Plenum's default login (`require_auth`, on by default) authenticates against the Home Assistant Supervisor's `/auth` backend — which doesn't exist in a standalone container, so without this flag the UI would be unreachable off HAOS. With it set, **anyone who can reach `8099`/`9099` on your network has full read/write control of your HVAC, no credentials required.** This is the pre-#373 legacy behavior, intended for local/trusted-network testing only.
+> **You are running HomeClimate without authentication.** `REQUIRE_AUTH=false` is set above because HomeClimate's default login (`require_auth`, on by default) authenticates against the Home Assistant Supervisor's `/auth` backend — which doesn't exist in a standalone container, so without this flag the UI would be unreachable off HAOS. With it set, **anyone who can reach `8099`/`9099` on your network has full read/write control of your HVAC, no credentials required.** This is the pre-#373 legacy behavior, intended for local/trusted-network testing only.
 >
 > - **Never** publish `8099`/`9099` to the public internet while `REQUIRE_AUTH=false` is set.
 > - To keep authentication enabled instead, drop the `REQUIRE_AUTH` line and configure **OIDC single sign-on** — it works without a Supervisor and supports MFA. See [`docs/auth.md`](docs/auth.md#oidc-single-sign-on-optional-closes-the-two-direct-port-gaps) for the required `OIDC_*` environment variables.
@@ -169,8 +154,8 @@ Open `http://localhost:8099` in your browser. See [`docs/auth.md`](docs/auth.md)
 
 1. **Clone the repository**
 ```bash
-git clone https://github.com/dhruvb14/smart-thermostat-with-vents.git
-cd smart-thermostat-with-vents
+git clone https://github.com/carlmiller99/homeclimate.git
+cd homeclimate
 ```
 
 2. **Configure environment**
@@ -184,12 +169,12 @@ cp .env.sample .env
 # Requires Python >= 3.12
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -e ./smart_vent
+pip install -e ./homeclimate
 ```
 
 4. **Build the frontend**
 ```bash
-cd smart_vent/frontend
+cd homeclimate/frontend
 npm install
 npm run build
 cd ../..
@@ -198,7 +183,7 @@ cd ../..
 5. **Run the server**
 ```bash
 source .venv/bin/activate
-cd smart_vent
+cd homeclimate
 python -m backend.main
 ```
 Then open `http://localhost:8099` (or the port defined in your `.env`) in your browser to view the UI.
@@ -220,22 +205,22 @@ Recommended extensions are listed in `.vscode/extensions.json` (Python, Ruff, ES
 
 1. In HA, click your profile picture (bottom-left)
 2. Scroll to **Long-Lived Access Tokens**
-3. Click **Create Token**, give it a name (e.g. `smart-vent`)
+3. Click **Create Token**, give it a name (e.g. `homeclimate`)
 4. Copy the token — you won't see it again
 
 ---
 
 ## Timezone configuration
 
-Plenum evaluates all schedule times in the timezone configured on the add-on. **You must set this** — the default is `UTC`, which will misfire schedules unless your local time happens to be UTC.
+HomeClimate evaluates all schedule times in the timezone configured on the add-on. **You must set this** — the default is `UTC`, which will misfire schedules unless your local time happens to be UTC.
 
-1. In Home Assistant, go to **Settings → Add-ons → Plenum → Configuration**.
+1. In Home Assistant, go to **Settings → Add-ons → HomeClimate → Configuration**.
 2. Set the **`timezone`** field to your IANA zone (e.g. `America/New_York`, `America/Chicago`, `America/Denver`, `America/Los_Angeles`, `Europe/London`, `Europe/Paris`, `Asia/Tokyo`).
 3. Click **Save** — the add-on will restart and pick up the new timezone.
 
 This also handles DST transitions automatically. The value is exported as the `TZ` environment variable to the Python process, so all `astimezone()` / local-time conversions (used by schedules and presence holdover) resolve in the right zone.
 
-The same zone drives the UI: every time Plenum shows or accepts — vacation return, Eco Suspend, schedule expiry, log and metrics ranges — is in the house's zone, never the zone of the phone or laptop you view it from. The **Settings** page shows the zone in use (and warns if the option is missing or invalid), and every time carries its short name (`EST`/`EDT`) as a tooltip. See [docs/time-zones.md](docs/time-zones.md).
+The same zone drives the UI: every time HomeClimate shows or accepts — vacation return, Eco Suspend, schedule expiry, log and metrics ranges — is in the house's zone, never the zone of the phone or laptop you view it from. The **Settings** page shows the zone in use (and warns if the option is missing or invalid), and every time carries its short name (`EST`/`EDT`) as a tooltip. See [docs/time-zones.md](docs/time-zones.md).
 
 ---
 
@@ -317,7 +302,7 @@ All configuration lives in a single SQLite file (`app.db` in the `DATA_DIR`). To
 
 1. Stop the add-on
 2. Copy your local `app.db` (default: `./data/app.db`, per `DATA_DIR` in `.env.sample`) to the add-on data directory:
-   - **HA OS / Supervised**: the real host path is `/mnt/data/supervisor/addons/data/<repo_id>_plenum/app.db`. Find your exact path via SSH with `docker inspect $(docker ps -q --filter name=plenum) --format '{{ json .Mounts }}'` and look for the mount whose `Destination` is `/data`. Note: `/root/addon_configs` (the Samba share) is for add-on *configuration* files, not this data directory.
+   - **HA OS / Supervised**: the real host path is `/mnt/data/supervisor/addons/data/<repo_id>_homeclimate/app.db`. Find your exact path via SSH with `docker inspect $(docker ps -q --filter name=homeclimate) --format '{{ json .Mounts }}'` and look for the mount whose `Destination` is `/data`. Note: `/root/addon_configs` (the Samba share) is for add-on *configuration* files, not this data directory.
    - **Docker**: wherever you mounted `/data` with `-v`
 3. Start the add-on — it will apply any pending migrations automatically
 
@@ -350,7 +335,7 @@ The **Logs** page has two tabs:
 
 ## API Documentation
 
-Plenum ships with built-in **OpenAPI (Swagger)** documentation. This provides an interactive playground to explore the REST API, view schema definitions, and test endpoints directly from your browser.
+HomeClimate ships with built-in **OpenAPI (Swagger)** documentation. This provides an interactive playground to explore the REST API, view schema definitions, and test endpoints directly from your browser.
 
 - **Access:** Click the **📖 API Docs** button in the top banner of the web UI.
 - **Direct URL:** Available at `/api/docs` (or `/api/docs/` behind Home Assistant Ingress).
@@ -390,7 +375,7 @@ Data is persisted in SQLite via `aiosqlite`. No external services or cloud depen
 Built automatically by GitHub Actions on every push to `main` and on `v*.*.*` tags.
 
 ```
-ghcr.io/dhruvb14/smart-thermostat-with-vents:latest
-ghcr.io/dhruvb14/smart-thermostat-with-vents:sha-<commit>
-ghcr.io/dhruvb14/smart-thermostat-with-vents:1.2.3   # on version tags
+ghcr.io/carlmiller99/homeclimate:latest
+ghcr.io/carlmiller99/homeclimate:sha-<commit>
+ghcr.io/carlmiller99/homeclimate:1.2.3   # on version tags
 ```

@@ -7,7 +7,7 @@ name: Create Release PR
 #   3. Generates changelog bullets from merged PRs in that range
 #   4. Lists unique contributors for the range
 #   5. Prepends a new section to CHANGELOG.md
-#   6. Bumps version in smart_vent/config.yaml
+#   6. Bumps version in homeclimate/config.yaml
 #   7. Opens a PR "Release vX.Y.Z" → main for review
 #   8. Populates the GitHub Release notes for the tag (retried on failure)
 #
@@ -187,19 +187,19 @@ jobs:
           awk -v section="$NEW_SECTION" '
             /^# Changelog/ { print; print ""; printf "%s", section; next }
             { print }
-          ' smart_vent/CHANGELOG.md > /tmp/CHANGELOG_new.md
+          ' homeclimate/CHANGELOG.md > /tmp/CHANGELOG_new.md
 
-          mv /tmp/CHANGELOG_new.md smart_vent/CHANGELOG.md
+          mv /tmp/CHANGELOG_new.md homeclimate/CHANGELOG.md
 
       - name: Bump version in config.yaml, pyproject.toml, and package.json
         if: github.event_name == 'push'
         env:
           VERSION: ${{ steps.versions.outputs.version }}
         run: |
-          sed -i "s/^version: \".*\"/version: \"${VERSION}\"/" smart_vent/config.yaml
-          sed -i "s/^version = \".*\"/version = \"${VERSION}\"/" smart_vent/pyproject.toml
-          sed -i "s/\"version\": \".*\"/\"version\": \"${VERSION}\"/" smart_vent/frontend/package.json
-          npm install --package-lock-only --prefix smart_vent/frontend
+          sed -i "s/^version: \".*\"/version: \"${VERSION}\"/" homeclimate/config.yaml
+          sed -i "s/^version = \".*\"/version = \"${VERSION}\"/" homeclimate/pyproject.toml
+          sed -i "s/\"version\": \".*\"/\"version\": \"${VERSION}\"/" homeclimate/frontend/package.json
+          npm install --package-lock-only --prefix homeclimate/frontend
 
       - name: Create release branch, commit, and push
         if: github.event_name == 'push'
@@ -212,7 +212,7 @@ jobs:
 
           BRANCH="release/${TAG}"
           git checkout -b "$BRANCH"
-          git add smart_vent/CHANGELOG.md smart_vent/config.yaml smart_vent/pyproject.toml smart_vent/frontend/package.json smart_vent/frontend/package-lock.json
+          git add homeclimate/CHANGELOG.md homeclimate/config.yaml homeclimate/pyproject.toml homeclimate/frontend/package.json homeclimate/frontend/package-lock.json
           git commit -m "chore: release ${TAG} — bump version and update changelog"
           git push origin "$BRANCH" --force
 
@@ -275,7 +275,7 @@ jobs:
           for attempt in 1 2 3 4 5; do
             if gh release edit "${TAG}" \
               --repo "$REPO" \
-              --title "Plenum ${TAG}" \
+              --title "HomeClimate ${TAG}" \
               --notes-file /tmp/pr_body.md; then
               exit 0
             fi

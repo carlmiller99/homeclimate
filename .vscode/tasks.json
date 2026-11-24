@@ -11,7 +11,7 @@
       "command": "npm run dev",
       "dependsOn": ["frontend: install"],
       "options": {
-        "cwd": "${workspaceFolder}/smart_vent/frontend"
+        "cwd": "${workspaceFolder}/homeclimate/frontend"
       },
       "isBackground": true,
       "presentation": {
@@ -40,7 +40,7 @@
       "type": "shell",
       "command": "npm install",
       "options": {
-        "cwd": "${workspaceFolder}/smart_vent/frontend"
+        "cwd": "${workspaceFolder}/homeclimate/frontend"
       },
       "problemMatcher": []
     },
@@ -49,7 +49,7 @@
       "type": "shell",
       "command": "npm run build",
       "options": {
-        "cwd": "${workspaceFolder}/smart_vent/frontend"
+        "cwd": "${workspaceFolder}/homeclimate/frontend"
       },
       "problemMatcher": []
     },
@@ -58,7 +58,7 @@
       // root and installs the backend in editable mode with dev extras.
       "label": "backend: install (.venv)",
       "type": "shell",
-      "command": "python3 -m venv .venv && .venv/bin/pip install -e './smart_vent[dev]'",
+      "command": "python3 -m venv .venv && .venv/bin/pip install -e './homeclimate[dev]'",
       "options": {
         "cwd": "${workspaceFolder}"
       },
@@ -69,7 +69,7 @@
       "type": "shell",
       "command": "python -m pytest backend/tests/ -v",
       "options": {
-        "cwd": "${workspaceFolder}/smart_vent"
+        "cwd": "${workspaceFolder}/homeclimate"
       },
       "problemMatcher": []
     },
@@ -78,7 +78,7 @@
       "type": "shell",
       "command": "ruff check backend/ && ruff format --check backend/",
       "options": {
-        "cwd": "${workspaceFolder}/smart_vent"
+        "cwd": "${workspaceFolder}/homeclimate"
       },
       "problemMatcher": []
     }

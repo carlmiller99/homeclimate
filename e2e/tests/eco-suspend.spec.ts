@@ -47,7 +47,7 @@ import {
  * time-zones.spec.ts pins the instant that is actually stored.
  */
 
-const API = `${process.env.PLENUM_URL ?? "http://localhost:8099"}/api`;
+const API = `${process.env.HOMECLIMATE_URL ?? "http://localhost:8099"}/api`;
 
 const DOWNSTAIRS = "climate.downstairs_thermostat";
 const UPSTAIRS = "climate.upstairs_thermostat";

@@ -274,7 +274,7 @@ whether Eco was active. Query the impact over any date range:
   fields, so you can trend drift against outdoor temperature.
 
 All of these are exposed as [MCP](./mcp.md) tools, so you can mine the collected
-data for savings after rollout. Because Plenum can't read kWh, savings are
+data for savings after rollout. Because HomeClimate can't read kWh, savings are
 inferred from **runtime reduction**, not measured directly.
 
 ## See also

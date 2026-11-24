@@ -125,7 +125,7 @@ test("logs retention settings tab", async ({ page }) => {
   //
   // fullPage: true is the wrong fix. It stitches the capture in viewport-height
   // slices and scrolls between them, so the position:sticky <nav> re-renders at
-  // every slice boundary — splicing the "Plenum" bar into the middle of the
+  // every slice boundary — splicing the "HomeClimate" bar into the middle of the
   // page on high-DPI mobile. That instability is why rooms.spec.ts and
   // room-settings.spec.ts both refuse fullPage.
   //

@@ -3,9 +3,9 @@ import { test, expect } from "./fixtures";
 /**
  * House time zone, end to end (Issue #729).
  *
- * Every time Plenum shows or accepts is in the HOUSE's zone (the add-on's
+ * Every time HomeClimate shows or accepts is in the HOUSE's zone (the add-on's
  * `timezone` option; the test stack sets `TIMEZONE: America/New_York`), never
- * the browser's. This spec views Plenum from a browser in Asia/Tokyo — 13 or
+ * the browser's. This spec views HomeClimate from a browser in Asia/Tokyo — 13 or
  * 14 hours away from the house — and proves the whole chain:
  *
  *  1. the Settings page names the house zone;
@@ -24,7 +24,7 @@ import { test, expect } from "./fixtures";
  * clock, while the browser clock is pinned to 2025 (fixtures.ts).
  */
 
-const API = `${process.env.PLENUM_URL ?? "http://localhost:8099"}/api`;
+const API = `${process.env.HOMECLIMATE_URL ?? "http://localhost:8099"}/api`;
 
 test.use({ timezoneId: "Asia/Tokyo" });
 

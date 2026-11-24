@@ -24,7 +24,7 @@ import { test, expect } from "./fixtures";
  * unchanged and the page renders stay deterministic).
  */
 
-const API = `${process.env.PLENUM_URL ?? "http://localhost:8099"}/api`;
+const API = `${process.env.HOMECLIMATE_URL ?? "http://localhost:8099"}/api`;
 
 const UPSTAIRS = "climate.upstairs_thermostat";
 

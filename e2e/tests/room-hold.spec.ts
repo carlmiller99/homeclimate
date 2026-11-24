@@ -26,16 +26,16 @@ import { test, expect, captureModal } from "./fixtures";
  * individual Kitchen-card golden that clearing the hold could churn.
  */
 
-const API = `${process.env.PLENUM_URL ?? "http://localhost:8099"}/api`;
+const API = `${process.env.HOMECLIMATE_URL ?? "http://localhost:8099"}/api`;
 
 // Display-unit-aware hold target (#231): POST /api/rooms/{id}/override runs
 // the body through `_to_f(value, unit)`, so a hard-coded 72 would mean 72°C
-// on the Celsius leg — outside the 40–90°F hold bound. PLENUM_TEMP_UNIT
+// on the Celsius leg — outside the 40–90°F hold bound. HOMECLIMATE_TEMP_UNIT
 // mirrors the stack's TEMPERATURE_UNIT (set by the CI matrix / compose
 // override — the same variable playwright.config.ts derives golden names
 // from). 72°F and 22°C are both ~71.6–72°F stored, matching the rationale in
 // global-setup's scheduleTargetTemp().
-const UNIT = (process.env.PLENUM_TEMP_UNIT ?? "F") as "F" | "C";
+const UNIT = (process.env.HOMECLIMATE_TEMP_UNIT ?? "F") as "F" | "C";
 const HOLD_TARGET = UNIT === "C" ? 22 : 72;
 // The exact string fmtTemp renders for the stored °F value (1dp).
 const HOLD_TARGET_LABEL = UNIT === "C" ? "22.0°C" : "72.0°F";

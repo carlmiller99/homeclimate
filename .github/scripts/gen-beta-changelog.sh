@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Generate the rolling Plenum Beta changelog to stdout: a single
+# Generate the rolling HomeClimate Beta changelog to stdout: a single
 # "building toward vX.Y.0" section listing every pull request that has landed
 # (or is landing) on the beta channel since the last stable minor release.
 # Because every change reaches beta before stable, this is simply "all PRs
@@ -67,10 +67,10 @@ if [ -z "$BULLETS" ]; then
   BULLETS="- (nothing on the beta channel yet since ${SINCE})\n"
 fi
 
-printf '# Plenum Beta — Changelog\n\n'
+printf '# HomeClimate Beta — Changelog\n\n'
 printf '## %s — building toward v%s\n\n' "$BETA_VERSION" "$TARGET"
 printf '> ⚠️ **Beta channel.** Tracks the tip of `main` and may be unstable. For a\n'
-printf '> production install, use the **Plenum** (stable) add-on. Everything below is\n'
+printf '> production install, use the **HomeClimate** (stable) add-on. Everything below is\n'
 printf '> heading for the next stable release (v%s).\n\n' "$TARGET"
 printf '**Landed on beta since %s:**\n\n' "$SINCE"
 printf '%b' "$BULLETS"

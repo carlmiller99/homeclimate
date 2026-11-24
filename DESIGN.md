@@ -267,7 +267,7 @@ Exposes all room/schedule/thermostat management as MCP tools for Claude.
 ```json
 {
   "mcpServers": {
-    "plenum": {
+    "homeclimate": {
       "command": "python",
       "args": ["/path/to/addon/backend/mcp_server.py"],
       "env": {

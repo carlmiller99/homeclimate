@@ -1,4 +1,4 @@
-# Plenum E2E visual regression tests
+# HomeClimate E2E visual regression tests
 
 Playwright tests run against a real Home Assistant instance + the addon in Docker Compose.
 Golden screenshots are stored in `e2e/screenshots/` and committed to git.
@@ -7,8 +7,8 @@ CI diffs every PR against the committed goldens and fails on any pixel deviation
 **Dual-unit goldens.** The suite runs once per display unit so UI temperature-conversion
 regressions are caught in both directions. The `e2e` job in
 `.github/workflows/container-ci.yml` matrixes over `[F, C]` (the °C leg layers
-`docker-compose.test.celsius.yml`, setting `TEMPERATURE_UNIT=C` on Plenum), and the golden
-filename encodes the unit via `playwright.config.ts`'s `PLENUM_TEMP_UNIT`-driven
+`docker-compose.test.celsius.yml`, setting `TEMPERATURE_UNIT=C` on HomeClimate), and the golden
+filename encodes the unit via `playwright.config.ts`'s `HOMECLIMATE_TEMP_UNIT`-driven
 `snapshotPathTemplate` — e.g. `dashboard-Fahrenheit-chromium.png` vs
 `dashboard-Celsius-chromium.png`. Note the underlying Home Assistant fixture is pinned to
 `unit_system: us_customary`, so HA itself is always °F; the matrix varies only the *addon's*
@@ -35,7 +35,7 @@ above grep those specs out.
 docker-compose.test.yml
   ha-init     ─── copies configuration.yaml into the HA volume
   homeassistant ─ real HA with fake entities (thermostats, vents, sensors)
-  plenum      ─── the addon, connected to HA via HA_TOKEN
+  homeclimate      ─── the addon, connected to HA via HA_TOKEN
 
 e2e/global-setup.ts  ─ configures the addon by clicking through the UI in a
                        headless Chromium browser (EntityPicker → real HA entities)
@@ -46,7 +46,7 @@ e2e/tests/*.spec.ts  ─ navigates each page, compares against screenshots/
 
 `global-setup.ts` uses Playwright to navigate to `/thermostats`, open the
 "Register Thermostat" modal, and pick entities from the **EntityPicker** — the
-same flow a real user follows.  This verifies that the HA→Plenum connection is
+same flow a real user follows.  This verifies that the HA→HomeClimate connection is
 alive before any test screenshot is taken.  Rooms are then created and their
 sensors/vents wired up the same way.
 
@@ -87,7 +87,7 @@ python3 e2e/scripts/setup-ha.py \
 
 # 3. Start the addon with the token
 HA_TOKEN=$(cat /tmp/ha_token.txt) \
-docker compose -f docker-compose.test.yml up -d plenum
+docker compose -f docker-compose.test.yml up -d homeclimate
 
 # 4. Install Playwright
 cd e2e && npm ci && npx playwright install chromium
@@ -116,24 +116,24 @@ git commit -m "add E2E golden screenshots"
 Docker is not available in all environments (e.g. Claude Code cloud sessions).
 This path runs the addon backend directly with Python and downloads Chrome for Testing.
 
-**Prerequisites:** Python 3.12+ (matches `smart_vent/pyproject.toml`'s `requires-python`), Node 20+
+**Prerequisites:** Python 3.12+ (matches `homeclimate/pyproject.toml`'s `requires-python`), Node 20+
 
 ```bash
-# 1. Install backend Python dependencies (runtime deps from smart_vent/pyproject.toml —
+# 1. Install backend Python dependencies (runtime deps from homeclimate/pyproject.toml —
 #    installing the package itself keeps this in sync as deps change)
-pip install ./smart_vent
+pip install ./homeclimate
 
 # 2. Build the frontend
-cd smart_vent/frontend
+cd homeclimate/frontend
 VITE_APP_VERSION=e2e-test npm ci && npm run build
 cd ../..
 
 # 3. Start the backend (no real HA — it retries the WS connection but the API works)
-mkdir -p /tmp/plenum-e2e-data
-cd smart_vent
+mkdir -p /tmp/homeclimate-e2e-data
+cd homeclimate
 nohup env HA_URL="http://127.0.0.1:19999" HA_TOKEN="fake-token" \
-          TEMPERATURE_UNIT="F" DATA_DIR="/tmp/plenum-e2e-data" PORT=8099 \
-          python3 -m backend.main > /tmp/plenum-backend.log 2>&1 &
+          TEMPERATURE_UNIT="F" DATA_DIR="/tmp/homeclimate-e2e-data" PORT=8099 \
+          python3 -m backend.main > /tmp/homeclimate-backend.log 2>&1 &
 cd ..
 # Wait for it to start
 until curl -sf http://localhost:8099/api/healthz -o /dev/null; do sleep 2; done
@@ -159,7 +159,7 @@ cd /path/to/repo/e2e
 npm ci
 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
 PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/tmp/chrome-linux64/chrome \
-PLENUM_URL=http://localhost:8099 \
+HOMECLIMATE_URL=http://localhost:8099 \
 npm run test:update
 
 # 7. Review screenshots in e2e/screenshots/, commit them

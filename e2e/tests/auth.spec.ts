@@ -58,7 +58,7 @@ test("@auth login button is enabled once credentials are entered", async ({ page
   await expect(submit).toBeVisible();
   await expect(submit).toBeDisabled();
 
-  await page.getByLabel(/Username/i).fill("plenum");
+  await page.getByLabel(/Username/i).fill("homeclimate");
   await page.getByLabel(/Password/i).fill("hunter2");
 
   // The DOM state and the rendered appearance are separate failures; assert both.

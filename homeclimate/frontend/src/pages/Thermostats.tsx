@@ -1,0 +1,1515 @@
+import { useEffect, useRef, useState, type CSSProperties } from "react";
+import {
+  getThermostats,
+  getRooms,
+  createThermostat,
+  updateThermostat,
+  deleteThermostat,
+  testVacationMode,
+  revertVacationTest,
+  getSensorStaleness,
+  setSensorStaleness,
+  getOutsideTempEntity,
+  type Room,
+  type ThermostatConfig,
+} from "../api";
+import EntityPicker from "../components/EntityPicker";
+import ConfirmDialog from "../components/ConfirmDialog";
+import EcoSuspendModal from "../components/EcoSuspendModal";
+import AirflowConfigBanner from "../components/AirflowConfigBanner";
+import OutsideTempPicker from "../components/OutsideTempPicker";
+import { EcoWorkedExample } from "../components/EcoMode";
+import { ECO_NUMERIC_FIELDS } from "../eco";
+import { useTimeZone, useUnit } from "../contexts";
+import { onStateChanged } from "../stateEvents";
+import { vacationHoldTarget } from "../vacationHold";
+
+// ---------------------------------------------------------------------------
+// Safety settings fields (numerical config)
+// ---------------------------------------------------------------------------
+
+const SAFETY_FIELDS: {
+  key: keyof ThermostatConfig;
+  label: string;
+  help: string;
+  step: string;
+  min: string;
+  kind: "absolute_temp" | "delta_temp" | "other";
+}[] = [
+  {
+    key: "min_setpoint",
+    label: "Min setpoint",
+    help: "Never set thermostat below this temperature",
+    step: "0.5",
+    min: "0",
+    kind: "absolute_temp",
+  },
+  {
+    key: "max_setpoint",
+    label: "Max setpoint",
+    help: "Never set thermostat above this temperature",
+    step: "0.5",
+    min: "0",
+    kind: "absolute_temp",
+  },
+  {
+    key: "deadband",
+    label: "Deadband",
+    help: "±tolerance to consider a room 'at target'. 0 = exact match.",
+    step: "0.1",
+    min: "0",
+    kind: "delta_temp",
+  },
+  {
+    key: "overshoot_delta",
+    label: "Overshoot delta",
+    help: "How far past target to set the thermostat to keep the HVAC running",
+    step: "0.5",
+    min: "0",
+    kind: "delta_temp",
+  },
+  {
+    key: "max_vent_closed_min",
+    label: "Max vent closed (min)",
+    help: "Reopen vents after this many minutes. 0 = disabled.",
+    step: "1",
+    min: "0",
+    kind: "other",
+  },
+  {
+    key: "cycle_timeout_hours",
+    label: "Cycle timeout (hours)",
+    help: "Abort a stuck cycle after this many hours",
+    step: "0.5",
+    min: "0.5",
+    kind: "other",
+  },
+  {
+    key: "min_cycle_runtime_min",
+    label: "Min cycle runtime (min)",
+    help: "Keep the HVAC running at least this long before completing a cycle, to protect the compressor from short-cycling. Recommended: 10 min (long enough to return oil to the compressor and condition effectively). 0 = disabled.",
+    step: "1",
+    min: "0",
+    kind: "other",
+  },
+  {
+    key: "min_cycle_offtime_min",
+    label: "Min compressor off-time (min)",
+    help: "Wait at least this long after a cycle ends before starting a new one, so the compressor is not restarted too soon. Recommended: 5 min — the industry-standard anti-short-cycle delay that lets refrigerant pressures equalize. 0 = disabled.",
+    step: "1",
+    min: "0",
+    kind: "other",
+  },
+  {
+    key: "unavailable_abort_after_min",
+    label: "Abort when thermostat unavailable (min)",
+    help: "If the thermostat entity is unavailable in Home Assistant for this long while a cycle is running, abort the cycle and re-open all vents — while it is unavailable the engine cannot supervise the cycle (no timeout, no closed-vent watchdog). Shorter outages are tolerated and the cycle resumes untouched. Recommended: 5 min. 0 = never abort (not recommended).",
+    step: "1",
+    min: "0",
+    kind: "other",
+  },
+];
+
+// ---------------------------------------------------------------------------
+// Add thermostat modal
+// ---------------------------------------------------------------------------
+
+// Welcome home (Issue #728) — the backend's defaults and bounds, named once so
+// the inputs, the validation and the backend cannot drift apart silently.
+const WELCOME_HOME_DEFAULT_LEAD_MIN = 60;
+const WELCOME_HOME_DEFAULT_HOURS = 1;
+const WELCOME_HOME_FIELD_STYLE: CSSProperties = {
+  flex: "1 1 140px",
+  display: "flex",
+  flexDirection: "column",
+  justifyContent: "flex-end",
+};
+
+/** The same rules as the API's write boundary, so Save fails fast and clearly. */
+function welcomeHomeError(form: Partial<ThermostatConfig>): string {
+  const lead = form.welcome_home_lead_min ?? WELCOME_HOME_DEFAULT_LEAD_MIN;
+  const hours = form.welcome_home_hours ?? WELCOME_HOME_DEFAULT_HOURS;
+  if (!Number.isInteger(lead) || lead < 0 || lead > 240) {
+    return "Welcome home start must be a whole number of minutes from 0 to 240";
+  }
+  if (!Number.isFinite(hours) || hours < 0.25 || hours > 12) {
+    return "Welcome home duration must be between 0.25 and 12 hours";
+  }
+  return "";
+}
+
+function AddThermostatModal({
+  onClose,
+  onSave,
+}: {
+  onClose: () => void;
+  onSave: (tc: ThermostatConfig) => void;
+}) {
+  const [entityId, setEntityId] = useState("");
+  const [name, setName] = useState("");
+  const [totalVentsCount, setTotalVentsCount] = useState("");
+  const [hasBypassDamper, setHasBypassDamper] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const save = async () => {
+    if (!entityId) {
+      setError("Select a thermostat entity");
+      return;
+    }
+    if (!name.trim()) {
+      setError("Friendly name is required");
+      return;
+    }
+    const parsedTotal = parseInt(totalVentsCount, 10);
+    if (!Number.isFinite(parsedTotal) || parsedTotal < 1) {
+      setError("Total vent count is required — a positive integer");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      const tc = await createThermostat({
+        thermostat_entity_id: entityId,
+        name: name.trim(),
+        total_vents_count: parsedTotal,
+        has_bypass_damper: hasBypassDamper,
+      });
+      onSave(tc);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="modal-backdrop" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal">
+        <div className="modal-title">Register Thermostat</div>
+        {error && (
+          <div className="badge badge-red" style={{ marginBottom: "1rem" }}>
+            {error}
+          </div>
+        )}
+
+        <div className="form-group">
+          <label className="form-label">HA Thermostat Entity *</label>
+          <EntityPicker domain="climate" placeholder="Search thermostats…" onSelect={setEntityId} />
+          {entityId && (
+            <div className="tag" style={{ marginTop: ".4rem" }}>
+              ✓ <span className="font-mono">{entityId}</span>
+              <button className="tag-remove" onClick={() => setEntityId("")}>
+                ×
+              </button>
+            </div>
+          )}
+        </div>
+
+        <div className="form-group">
+          <label className="form-label" htmlFor="add-thermo-name">
+            Friendly name *
+          </label>
+          <input
+            id="add-thermo-name"
+            className="form-control"
+            placeholder="e.g. Upstairs HVAC"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            autoFocus
+          />
+          <div className="form-hint">
+            This name appears on the Dashboard and in Room configuration.
+          </div>
+        </div>
+
+        <div className="form-group">
+          <label className="form-label" htmlFor="add-thermo-total-vents">
+            Total vent count on this thermostat *
+          </label>
+          <input
+            id="add-thermo-total-vents"
+            className="form-control"
+            type="number"
+            min="1"
+            step="1"
+            placeholder="e.g. 12"
+            value={totalVentsCount}
+            onChange={(e) => setTotalVentsCount(e.target.value)}
+          />
+          <div className="form-hint">
+            <strong>Count every register on this thermostat — smart vents AND passive ones</strong>,
+            not only the smart ones. HomeClimate uses this to keep enough airflow open that closing
+            vents never raises duct static pressure to a point where the furnace trips its
+            high-limit, the blower strains, or the AC evaporator freezes.
+          </div>
+        </div>
+
+        <div className="form-group">
+          <label
+            htmlFor="add-thermo-bypass-damper"
+            style={{ display: "flex", alignItems: "center", gap: ".5rem", cursor: "pointer" }}
+          >
+            <input
+              id="add-thermo-bypass-damper"
+              type="checkbox"
+              checked={hasBypassDamper}
+              onChange={(e) => setHasBypassDamper(e.target.checked)}
+            />
+            <span>I have a bypass damper</span>
+          </label>
+          <div className="form-hint">
+            A mechanical relief valve that opens when duct static pressure exceeds a setpoint. Most
+            residential systems do <strong>not</strong> have one. If yours does, ticking this
+            disables the airflow floor — the damper handles pressure relief.
+          </div>
+        </div>
+
+        <div className="modal-footer">
+          <button className="btn btn-secondary" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn btn-primary" onClick={save} disabled={saving}>
+            {saving ? "Saving…" : "Register"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Per-thermostat card (name, default_temp, safety settings)
+// ---------------------------------------------------------------------------
+
+/**
+ * Derived-form keys the form does NOT own, so a change in them must not
+ * re-derive the form and discard what the user has typed.
+ *
+ * This is a decision record, not a denylist to pad — the same shape as
+ * `ROOM_EXCLUDED_FIELDS` in `backend/mqtt/registry.py`. A key earns a place
+ * here only if the card renders it from `config` rather than from `form` AND
+ * the REST write boundary refuses it, so letting the form's copy go stale is
+ * unobservable.
+ *
+ * - `eco_suspend_until`: scheduler-owned and READ-ONLY (see `ThermostatConfig`
+ *   — "Never send this on config saves"). The card header reads it straight
+ *   off `config`, and the PUT allowlist drops it. Without this exclusion,
+ *   suspending Eco from the header of the very card you are editing refetches,
+ *   moves this one field, and throws the edit away — #597's symptom on its
+ *   most reachable path, since that button lives inside the card (#500).
+ */
+const FORM_UNOWNED_FIELDS = new Set<string>(["eco_suspend_until"]);
+
+/**
+ * Content equality for two derived thermostat forms (#597).
+ *
+ * Both operands always come from `toDisplayForm`, which spreads `...cfg`, so
+ * every value is a scalar (string | number | boolean | null) and comparing the
+ * union of both key sets is an exact comparison — a field added to
+ * `ThermostatConfig` joins it automatically, with no manifest to drift.
+ *
+ * Keep every field scalar. A nested value would be spread by reference, so a
+ * refetch — which rebuilds `config` from a fresh JSON parse — would hand it a
+ * new reference every time, `Object.is` would report "changed" on every
+ * refetch, and the form would be re-derived out from under whatever the user
+ * had typed. That is not a safe degradation, it is #597 again: over-deriving
+ * IS the bug this guard exists to stop. If a nested field ever becomes
+ * necessary, compare it by value here rather than letting it fall through.
+ *
+ * `Object.is`, not `===`, on purpose: this decides whether to set state during
+ * render, and `NaN !== NaN` would make a NaN-valued field re-derive forever
+ * ("Too many re-renders"). `Object.is(NaN, NaN)` is true.
+ */
+function sameDerivedForm(a: ThermostatConfig, b: ThermostatConfig): boolean {
+  const keys = new Set<string>([...Object.keys(a), ...Object.keys(b)]);
+  for (const key of keys) {
+    if (FORM_UNOWNED_FIELDS.has(key)) continue;
+    const k = key as keyof ThermostatConfig;
+    if (!Object.is(a[k], b[k])) return false;
+  }
+  return true;
+}
+
+function ThermostatCard({
+  config,
+  onDeleted,
+  onSaved,
+  onSuspendEco,
+  zoneHasRoomOptIn = false,
+}: {
+  config: ThermostatConfig;
+  onDeleted: () => void;
+  onSaved?: (updated: ThermostatConfig) => void;
+  onSuspendEco?: () => void;
+  // Eco Suspend visibility (#500): true when a room under this thermostat has
+  // an explicit Eco opt-in, which puts Eco in play even with the thermostat
+  // toggle off.
+  zoneHasRoomOptIn?: boolean;
+}) {
+  const { unitLabel, toDisplay, toDisplayDelta } = useUnit();
+  const tz = useTimeZone();
+  // Form state holds temperatures in DISPLAY units (°C or °F as the user
+  // sees them). The backend converts to storage (°F) on the write boundary
+  // via _to_f / _delta_to_f. See CLAUDE.md "Temperature unit system".
+  // Field names like `cooling_lockout_below_f` describe storage semantics;
+  // the value here is whatever unit the user is currently typing in.
+  const toDisplayForm = (cfg: ThermostatConfig): ThermostatConfig => ({
+    ...cfg,
+    default_temp: cfg.default_temp != null ? toDisplay(cfg.default_temp) : null,
+    min_setpoint: toDisplay(cfg.min_setpoint),
+    max_setpoint: toDisplay(cfg.max_setpoint),
+    deadband: toDisplayDelta(cfg.deadband),
+    overshoot_delta: toDisplayDelta(cfg.overshoot_delta),
+    cooling_lockout_below_f:
+      cfg.cooling_lockout_below_f != null ? toDisplay(cfg.cooling_lockout_below_f) : null,
+    // Eco Mode (Issue #404). Outdoor thresholds / full-drift temps are absolute;
+    // max-drift and hysteresis are deltas. Converted to display units on init;
+    // submitted raw (the backend converts). eco_mode_enabled is a plain bool.
+    eco_cooling_outdoor_threshold: toDisplay(cfg.eco_cooling_outdoor_threshold),
+    eco_cooling_full_drift_temp: toDisplay(cfg.eco_cooling_full_drift_temp),
+    eco_cooling_max_drift: toDisplayDelta(cfg.eco_cooling_max_drift),
+    eco_heating_outdoor_threshold: toDisplay(cfg.eco_heating_outdoor_threshold),
+    eco_heating_full_drift_temp: toDisplay(cfg.eco_heating_full_drift_temp),
+    eco_heating_max_drift: toDisplayDelta(cfg.eco_heating_max_drift),
+    eco_hysteresis_band: toDisplayDelta(cfg.eco_hysteresis_band),
+  });
+  // Re-derive the form when the derived CONTENT changes: the unit context
+  // resolving (App fetches /api/settings async on mount — if /api/thermostats
+  // wins that race, this card mounts under the default °F context and the first
+  // derivation bakes °F numbers into a form about to be labeled °C, so any save
+  // would round-trip the wrong value — #231 follow-up), or a config whose values
+  // actually moved (the echo a save feeds back through onSaved, #293).
+  //
+  // Two properties are load-bearing, both from #597:
+  //
+  //  1. CONTENT, not object identity. `load()` hands every surviving card a
+  //     brand-new config object after any refetch — removing another
+  //     thermostat, registering one, suspending Eco. Re-deriving on identity
+  //     silently discarded whatever the user had typed into the other cards.
+  //     Same class of bug as #293, one path over.
+  //
+  //  2. During RENDER, not in a passive effect. React commits the DOM and then
+  //     schedules passive effects as a separate host task, so a reset queued in
+  //     useEffect can flush AFTER an input's onChange has queued its own update
+  //     — React drains pending passive effects at the top of the next render
+  //     pass. `setForm(<plain object>)` then replaces the queued edit no matter
+  //     how that edit was written, functional updater included: the form
+  //     silently reverted to its initial values and the next Save posted them.
+  //     This is React's "adjusting state when a prop changes". The baseline is
+  //     a state cell rather than a ref because writing a ref during render is
+  //     impure — React's own rule — and a state cell is rolled back with a
+  //     discarded render pass, which StrictMode (main.tsx) produces on every
+  //     render. Measured: a ref baseline behaves identically today, so this is
+  //     about staying inside the rules, not about a difference you can observe.
+  //
+  //     The comparison must be by CONTENT for a second reason: `derivedForm` is
+  //     a fresh object every render, so an identity check would set state on
+  //     every pass and React would throw "Too many re-renders" (verified).
+  //
+  // `lastDerivedForm` is an immutable snapshot and aliases `form` right after a
+  // derive — never mutate either in place. Every edit below goes through
+  // `setForm((f) => ({ ...f, … }))`; an in-place write would corrupt the
+  // baseline this comparison reads, and a genuine unit flip would then be
+  // skipped, putting °F numbers under a °C label (#231) with no test failing.
+  const derivedForm = toDisplayForm(config);
+  const [form, setForm] = useState<ThermostatConfig>(derivedForm);
+  const [lastDerivedForm, setLastDerivedForm] = useState<ThermostatConfig>(derivedForm);
+  if (!sameDerivedForm(derivedForm, lastDerivedForm)) {
+    setLastDerivedForm(derivedForm);
+    setForm(derivedForm);
+  }
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState("");
+  const [testingVacation, setTestingVacation] = useState(false);
+  const [vacationTestActive, setVacationTestActive] = useState(false);
+  const [vacationTestResult, setVacationTestResult] = useState<string | null>(null);
+  // Eco Mode (Issue #404) is outdoor-temperature-driven, so the toggle is only
+  // available once an outside-temperature sensor is configured (set at the top
+  // of this page). Tracked here to gate the checkbox + save.
+  const [hasOutsideSensor, setHasOutsideSensor] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    getOutsideTempEntity()
+      .then((r) => {
+        if (!cancelled) setHasOutsideSensor(!!r?.entity_id);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Track the "Saved!" reset timer so it can be cancelled on unmount. Without
+  // this, a save that completes just before the card unmounts (e.g. a test
+  // tearing down jsdom) fires setSaved() after teardown — "window is not
+  // defined" in CI. Clearing on unmount keeps the timer from outliving the
+  // component.
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    return () => {
+      if (savedTimerRef.current !== null) clearTimeout(savedTimerRef.current);
+    };
+  }, []);
+
+  const save = async () => {
+    if (!form.name.trim()) {
+      setError("Friendly name is required");
+      return;
+    }
+    if (form.min_setpoint >= form.max_setpoint) {
+      setError("Min setpoint must be less than max setpoint");
+      return;
+    }
+    const welcomeError = welcomeHomeError(form);
+    if (welcomeError) {
+      setError(welcomeError);
+      return;
+    }
+    // Eco Mode (Issue #404) is outdoor-temperature-driven — block enabling it
+    // without a configured outside-temperature sensor.
+    if (form.eco_mode_enabled && !hasOutsideSensor) {
+      setError(
+        "Eco Mode needs an outside-temperature sensor. Configure one at the top of this page " +
+          "(e.g. via a PirateWeather sensor) before enabling Eco Mode."
+      );
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      const updated = await updateThermostat(config.thermostat_entity_id, form);
+      // Refresh the parent's baseline (°F storage units, as returned by the API)
+      // so a later form reset re-derives from the just-saved values — never the
+      // stale page-load config that would silently regress the DB on re-save.
+      // (Issue #293)
+      onSaved?.(updated);
+      setSaved(true);
+      if (savedTimerRef.current !== null) clearTimeout(savedTimerRef.current);
+      savedTimerRef.current = setTimeout(() => setSaved(false), 2000);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const remove = async () => {
+    setConfirmRemove(false);
+    try {
+      await deleteThermostat(config.thermostat_entity_id);
+      onDeleted();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Delete failed");
+    }
+  };
+
+  return (
+    <div className="card" style={{ marginBottom: "1rem" }}>
+      {/* Header */}
+      <div className="flex-between" style={{ marginBottom: "1rem" }}>
+        <div>
+          <div className="card-title" style={{ marginBottom: ".15rem" }}>
+            {form.name || <span className="text-muted">(unnamed)</span>}
+          </div>
+          <div className="font-mono text-muted" style={{ fontSize: ".78rem" }}>
+            {config.thermostat_entity_id}
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: ".5rem", flexWrap: "wrap" }}>
+          {/* Eco Suspend (#500): top-of-card control, present only when Eco is
+              in play for this thermostat — enabled on the thermostat, opted
+              into by one of its rooms, or already suspended. */}
+          {onSuspendEco &&
+            (config.eco_mode_enabled || config.eco_suspend_until || zoneHasRoomOptIn) && (
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={onSuspendEco}
+                title={config.eco_suspend_until ? tz.tooltip(config.eco_suspend_until) : undefined}
+              >
+                🍃{" "}
+                {config.eco_suspend_until
+                  ? `Eco suspended until ${tz.format(config.eco_suspend_until)}`
+                  : "Suspend Eco"}
+              </button>
+            )}
+          <button className="btn btn-danger btn-sm" onClick={() => setConfirmRemove(true)}>
+            Remove
+          </button>
+        </div>
+      </div>
+
+      {error && (
+        <div className="badge badge-red" style={{ marginBottom: "1rem" }}>
+          {error}
+        </div>
+      )}
+
+      {/* Identity fields — auto-fit so the pair stacks on narrow phones
+          instead of squeezing side-by-side (#458). */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(min(220px, 100%), 1fr))",
+          gap: "1rem",
+          marginBottom: "1rem",
+        }}
+      >
+        <div className="form-group" style={{ marginBottom: 0 }}>
+          <label className="form-label" htmlFor={`thermo-${config.thermostat_entity_id}-name`}>
+            Friendly name *
+          </label>
+          <input
+            id={`thermo-${config.thermostat_entity_id}-name`}
+            className="form-control"
+            value={form.name}
+            onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+            placeholder="e.g. Upstairs HVAC"
+          />
+        </div>
+        <div className="form-group" style={{ marginBottom: 0 }}>
+          <label
+            className="form-label"
+            htmlFor={`thermo-${config.thermostat_entity_id}-default_temp`}
+          >
+            Default presence temp ({unitLabel})
+          </label>
+          <input
+            id={`thermo-${config.thermostat_entity_id}-default_temp`}
+            className="form-control"
+            type="number"
+            step="0.5"
+            value={form.default_temp ?? ""}
+            placeholder={`e.g. ${Math.round(toDisplay(72))}`}
+            onChange={(e) =>
+              setForm((f) => ({
+                ...f,
+                default_temp: e.target.value ? parseFloat(e.target.value) : null,
+              }))
+            }
+          />
+          <div className="form-hint">
+            Target temperature when a room in this zone is activated by presence and has no
+            room-level presence temp set. Rooms can override this individually.
+          </div>
+        </div>
+      </div>
+
+      <hr className="divider" />
+
+      {/* Safety settings */}
+      <div
+        className="text-sm"
+        style={{ fontWeight: 600, color: "var(--gray-700)", marginBottom: ".75rem" }}
+      >
+        Safety &amp; cycle settings
+      </div>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
+          gap: "1rem",
+        }}
+      >
+        {SAFETY_FIELDS.map(({ key, label, help, step, min, kind }) => {
+          // Temp fields in `form` are already in display units (see useState
+          // above), so render directly. Backend converts on save.
+          const displayVal = form[key] as number;
+          const fieldLabel =
+            kind === "absolute_temp" || kind === "delta_temp" ? `${label} (${unitLabel})` : label;
+          return (
+            <div className="form-group" key={key} style={{ marginBottom: 0 }}>
+              <label
+                className="form-label"
+                htmlFor={`thermo-${config.thermostat_entity_id}-${key}`}
+              >
+                {fieldLabel}
+              </label>
+              <input
+                id={`thermo-${config.thermostat_entity_id}-${key}`}
+                className="form-control"
+                type="number"
+                step={step}
+                min={min}
+                value={displayVal ?? ""}
+                onChange={(e) => {
+                  const v = parseFloat(e.target.value) || 0;
+                  setForm((f) => ({ ...f, [key]: v }));
+                }}
+              />
+              <div className="form-hint">{help}</div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Overflow conditioning during the minimum-runtime hold (Issue #237).
+          Boolean — rendered outside the SAFETY_FIELDS loop, which only
+          handles numeric inputs. Only meaningful when min_cycle_runtime_min
+          > 0; the helper text says so. Disabled in vacation mode regardless. */}
+      <div className="form-group" style={{ maxWidth: 480, marginTop: "1rem" }}>
+        <label
+          htmlFor={`thermo-${config.thermostat_entity_id}-overflow`}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: ".5rem",
+            cursor: "pointer",
+          }}
+        >
+          <input
+            id={`thermo-${config.thermostat_entity_id}-overflow`}
+            type="checkbox"
+            checked={form.overflow_during_min_runtime ?? true}
+            disabled={(form.min_cycle_runtime_min ?? 0) <= 0}
+            onChange={(e) =>
+              setForm((f) => ({ ...f, overflow_during_min_runtime: e.target.checked }))
+            }
+          />
+          <span>Redirect surplus air to other rooms during the minimum-runtime hold</span>
+        </label>
+        <div className="form-hint">
+          When a cycle hits its target before the minimum runtime has elapsed, the HVAC keeps
+          running. With this on (default), the engine opens vents in non-active rooms that can
+          absorb the surplus air without crossing into the opposite-direction trigger, so the
+          satisfied rooms do not overshoot and the air handler has a larger homeclimate. Turn off if
+          you would rather keep only the cycle's original rooms open during the hold. No effect
+          unless <strong>Min cycle runtime</strong> above is &gt; 0; disabled automatically in
+          vacation mode. See the{" "}
+          <a
+            href="https://github.com/carlmiller99/homeclimate/blob/main/docs/overflow-conditioning.md"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            overflow conditioning docs
+          </a>{" "}
+          for the tier-by-tier candidate selection.
+        </div>
+      </div>
+
+      {/* Outdoor-temperature cooling lockout (Issue #209). Nullable (blank =
+          disabled), so it is rendered outside the SAFETY_FIELDS loop. */}
+      <div className="form-group" style={{ maxWidth: 280, marginTop: "1rem" }}>
+        <label
+          className="form-label"
+          htmlFor={`thermo-${config.thermostat_entity_id}-cooling-lockout`}
+        >
+          Cooling lockout — pause AC below ({unitLabel})
+        </label>
+        <input
+          id={`thermo-${config.thermostat_entity_id}-cooling-lockout`}
+          className="form-control"
+          type="number"
+          step="0.5"
+          placeholder="Disabled"
+          value={form.cooling_lockout_below_f ?? ""}
+          onChange={(e) => {
+            const raw = e.target.value;
+            setForm((f) => ({
+              ...f,
+              cooling_lockout_below_f: raw === "" ? null : parseFloat(raw) || 0,
+            }));
+          }}
+        />
+        <div className="form-hint">
+          Skip cooling cycles while the outdoor temperature is below this, to protect the AC
+          compressor from cold-weather operation (liquid slugging, evaporator coil icing).
+          Recommended around 55°F (about 13°C). Leave blank to disable. Requires the
+          outside-temperature sensor (configured at the top of this page). Heat pumps are not
+          supported.
+        </div>
+      </div>
+
+      {/* Eco Mode — outdoor-temperature-compensated setpoint drift (Issue #404).
+          Global per-thermostat; overridable per room on the Rooms page. Fields
+          hold display units and submit the raw value (the backend converts). */}
+      <hr className="divider" />
+      <div
+        className="text-sm"
+        style={{ fontWeight: 600, color: "var(--gray-700)", marginBottom: ".5rem" }}
+      >
+        Eco Mode — outdoor-compensated setpoint drift
+      </div>
+      <div className="form-group" style={{ maxWidth: 560 }}>
+        <label
+          htmlFor={`thermo-${config.thermostat_entity_id}-eco-enabled`}
+          style={{ display: "flex", alignItems: "center", gap: ".5rem", cursor: "pointer" }}
+        >
+          <input
+            id={`thermo-${config.thermostat_entity_id}-eco-enabled`}
+            type="checkbox"
+            checked={form.eco_mode_enabled ?? false}
+            disabled={!hasOutsideSensor && !form.eco_mode_enabled}
+            onChange={(e) => setForm((f) => ({ ...f, eco_mode_enabled: e.target.checked }))}
+          />
+          <span>Enable Eco Mode for this thermostat</span>
+        </label>
+        {!hasOutsideSensor && (
+          <div className="form-hint" style={{ color: "var(--orange)" }}>
+            Eco Mode needs an outside-temperature sensor — configure one at the top of this page to
+            enable it. No physical outdoor thermometer in Home Assistant? Add a free weather
+            integration such as <strong>PirateWeather</strong> and point the outside-temperature
+            setting at its temperature sensor.
+          </div>
+        )}
+        <div className="form-hint">
+          When it is extreme outside, relax each room&rsquo;s target toward a configured drift so
+          the HVAC works less. Off by default; a room can still opt in individually. Requires the
+          outside-temperature sensor configured at the top of this page.
+        </div>
+      </div>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))",
+          gap: "1rem",
+        }}
+      >
+        {ECO_NUMERIC_FIELDS.map(({ key, label, help, step, kind }) => {
+          const fieldLabel = `${label} (${unitLabel})`;
+          return (
+            <div className="form-group" key={key} style={{ marginBottom: 0 }}>
+              <label
+                className="form-label"
+                htmlFor={`thermo-${config.thermostat_entity_id}-${key}`}
+              >
+                {fieldLabel}
+              </label>
+              <input
+                id={`thermo-${config.thermostat_entity_id}-${key}`}
+                className="form-control"
+                type="number"
+                step={step}
+                value={(form[key] as number) ?? ""}
+                onChange={(e) => {
+                  const v = parseFloat(e.target.value) || 0;
+                  setForm((f) => ({ ...f, [key]: v }));
+                }}
+              />
+              <div className="form-hint">
+                {kind === "absolute_temp" ? "Outdoor temperature. " : "Difference. "}
+                {help}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ marginTop: ".75rem", maxWidth: 560 }}>
+        <EcoWorkedExample
+          params={{
+            coolingThreshold: form.eco_cooling_outdoor_threshold,
+            coolingFullDrift: form.eco_cooling_full_drift_temp,
+            coolingMaxDrift: form.eco_cooling_max_drift,
+            heatingThreshold: form.eco_heating_outdoor_threshold,
+            heatingFullDrift: form.eco_heating_full_drift_temp,
+            heatingMaxDrift: form.eco_heating_max_drift,
+          }}
+        />
+      </div>
+
+      {/* Airflow floor / dead-head protection (Issue #213). Replaces the
+          legacy ``min_open_vents`` count with a fraction of total registers
+          (smart + passive). */}
+      <hr className="divider" />
+      <div
+        className="text-sm"
+        style={{ fontWeight: 600, color: "var(--gray-700)", marginBottom: ".75rem" }}
+      >
+        Airflow floor — dead-head protection
+      </div>
+      <div className="form-hint" style={{ marginBottom: "1rem" }}>
+        Closing too many vents at once raises duct static pressure and can trip a furnace
+        high-limit, strain the blower, or freeze the evaporator coil. The floor keeps a fraction of
+        the thermostat's total registers open at all times.
+      </div>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
+          gap: "1rem",
+        }}
+      >
+        <div className="form-group" style={{ marginBottom: 0 }}>
+          <label
+            className="form-label"
+            htmlFor={`thermo-${config.thermostat_entity_id}-total-vents`}
+          >
+            Total vent count
+          </label>
+          <input
+            id={`thermo-${config.thermostat_entity_id}-total-vents`}
+            className="form-control"
+            type="number"
+            min="1"
+            step="1"
+            placeholder="e.g. 12"
+            value={form.total_vents_count ?? ""}
+            onChange={(e) => {
+              const raw = e.target.value;
+              setForm((f) => ({
+                ...f,
+                total_vents_count: raw === "" ? null : Math.max(1, parseInt(raw, 10) || 0),
+              }));
+            }}
+          />
+          <div className="form-hint">
+            <strong>Every register on this thermostat — smart vents AND passive ones.</strong>{" "}
+            Passive registers are always open and reduce how many of the smart vents have to stay
+            open.
+          </div>
+        </div>
+
+        <div className="form-group" style={{ marginBottom: 0 }}>
+          <label
+            htmlFor={`thermo-${config.thermostat_entity_id}-bypass-damper`}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: ".5rem",
+              cursor: "pointer",
+              marginTop: "1.5rem",
+            }}
+          >
+            <input
+              id={`thermo-${config.thermostat_entity_id}-bypass-damper`}
+              type="checkbox"
+              checked={form.has_bypass_damper}
+              onChange={(e) => setForm((f) => ({ ...f, has_bypass_damper: e.target.checked }))}
+            />
+            <span>I have a bypass damper</span>
+          </label>
+          <div className="form-hint">
+            A mechanical relief valve that opens when duct pressure exceeds a setpoint. Most homes
+            don't have one. Ticking this disables the airflow floor.
+          </div>
+        </div>
+      </div>
+
+      <div className="form-group" style={{ marginTop: "1rem", marginBottom: 0 }}>
+        <label className="form-label" htmlFor={`thermo-${config.thermostat_entity_id}-fraction`}>
+          Minimum open fraction:{" "}
+          <strong>{Math.round((form.min_open_vents_fraction ?? 0.333) * 100)}%</strong> of total
+          vents
+        </label>
+        <input
+          id={`thermo-${config.thermostat_entity_id}-fraction`}
+          type="range"
+          min={0.1}
+          max={1}
+          step={0.05}
+          value={form.min_open_vents_fraction ?? 0.333}
+          disabled={form.has_bypass_damper}
+          onChange={(e) =>
+            setForm((f) => ({ ...f, min_open_vents_fraction: parseFloat(e.target.value) }))
+          }
+          style={{ width: "100%", maxWidth: 320 }}
+        />
+        <div className="form-hint">
+          {form.has_bypass_damper ? (
+            <em>Not enforced — your bypass damper handles pressure relief.</em>
+          ) : (
+            <>
+              Default 33% (one third). Raise it for tighter safety, lower it if your duct system can
+              tolerate more closed vents.
+            </>
+          )}
+        </div>
+      </div>
+
+      <hr className="divider" />
+
+      {/* Drift correction — rendered separately because max depends on cycle_timeout_hours */}
+      <div
+        className="text-sm"
+        style={{ fontWeight: 600, color: "var(--gray-700)", marginBottom: ".75rem" }}
+      >
+        Drift correction
+      </div>
+      <div className="form-group" style={{ maxWidth: 280 }}>
+        <label className="form-label" htmlFor={`thermo-${config.thermostat_entity_id}-drift`}>
+          Drift correction interval (min)
+        </label>
+        <input
+          id={`thermo-${config.thermostat_entity_id}-drift`}
+          className="form-control"
+          type="number"
+          step="1"
+          min="0"
+          max={Math.floor(form.cycle_timeout_hours * 60)}
+          value={form.reconciliation_interval_min ?? 0}
+          onChange={(e) => {
+            const val = parseInt(e.target.value) || 0;
+            const maxVal = Math.floor(form.cycle_timeout_hours * 60);
+            setForm((f) => ({ ...f, reconciliation_interval_min: Math.min(val, maxVal) }));
+          }}
+        />
+        <div className="form-hint">
+          How often (in minutes) the engine re-checks actual vent and thermostat state in Home
+          Assistant and corrects any external changes (e.g. from other integrations or manual HA
+          overrides). Set to <strong>0</strong> to disable. Cannot exceed the cycle timeout (
+          {Math.floor(form.cycle_timeout_hours * 60)} min).
+        </div>
+      </div>
+
+      <hr className="divider" />
+
+      {/* Vacation mode HVAC strategy */}
+      <div
+        className="text-sm"
+        style={{ fontWeight: 600, color: "var(--gray-700)", marginBottom: ".75rem" }}
+      >
+        Vacation mode hold strategy
+      </div>
+      <div className="form-hint" style={{ marginBottom: ".75rem" }}>
+        Vacation mode is enabled system-wide from the Dashboard and applies to all thermostats.
+        Configure below how <em>this</em> thermostat should hold temperature while vacation mode is
+        active.
+      </div>
+
+      <div className="form-group" style={{ maxWidth: 400 }}>
+        <label
+          className="form-label"
+          htmlFor={`thermo-${config.thermostat_entity_id}-vacation-mode`}
+        >
+          Vacation HVAC mode
+        </label>
+        <select
+          id={`thermo-${config.thermostat_entity_id}-vacation-mode`}
+          className="form-control"
+          value={form.vacation_hvac_mode ?? "single"}
+          onChange={(e) =>
+            setForm((f) => ({
+              ...f,
+              vacation_hvac_mode: e.target.value as "range" | "single",
+              // Clear test result when switching mode
+            }))
+          }
+        >
+          <option value="single">Single setpoint (heat or cool)</option>
+          <option value="range">Range (heat_cool / auto)</option>
+        </select>
+        <div className="form-hint">
+          {form.vacation_hvac_mode === "range" ? (
+            <>
+              Requires your thermostat to support <strong>heat_cool</strong> or{" "}
+              <strong>auto</strong> mode in Home Assistant. During vacation mode the thermostat will
+              be set to <em>heat_cool</em> with a lower bound of{" "}
+              <strong>
+                {form.min_setpoint}
+                {unitLabel}
+              </strong>{" "}
+              and an upper bound of{" "}
+              <strong>
+                {form.max_setpoint}
+                {unitLabel}
+              </strong>
+              , letting it manage both heating and cooling natively.{" "}
+              <strong>
+                In this mode vacation sensing uses only the thermostat&apos;s own built-in ambient
+                sensor — your rooms&apos; temperature sensors are not consulted, so a single room
+                can drift well past its limits without the system reacting.
+              </strong>{" "}
+              The bounds are commanded exactly as configured — in this mode the equipment applies
+              its own hysteresis — but it also has{" "}
+              <strong>no compressor off-time protection</strong>: the system never commands this
+              thermostat off, so it has no stop to measure the lockout from. For per-room protection
+              and short-cycle protection while you are away, <strong>Single setpoint</strong> is
+              recommended.
+            </>
+          ) : (
+            <>
+              For thermostats that only support a single target temperature at a time. Rather than
+              turning the HVAC off, the system parks it in a <strong>recovered direction</strong> —
+              the same mode as the thermostat&apos;s last completed cycle, or whichever bound is
+              nearer when it has no cycle history yet — sitting the setpoint on the idle side of the
+              live reading by the configured <strong>Overshoot delta</strong>, so the equipment does
+              not call for heat or cooling on its own. If the temperature drops below{" "}
+              <strong>
+                {form.min_setpoint}
+                {unitLabel}
+              </strong>{" "}
+              it heats to{" "}
+              <strong>
+                {vacationHoldTarget(form.min_setpoint, form.deadband, form.max_setpoint, "heat")}
+                {unitLabel}
+              </strong>
+              ; if it rises above{" "}
+              <strong>
+                {form.max_setpoint}
+                {unitLabel}
+              </strong>{" "}
+              it cools to{" "}
+              <strong>
+                {vacationHoldTarget(form.max_setpoint, form.deadband, form.min_setpoint, "cool")}
+                {unitLabel}
+              </strong>
+              , then returns to parking rather than turning off. Recovering one{" "}
+              <strong>deadband</strong> past the limit rather than stopping on it keeps the hold
+              from switching on and off at the boundary for the whole trip. Stopping the compressor
+              also re-arms the <strong>Min cycle off-time</strong> lockout above. This is the only
+              mode that can also watch each room&apos;s own sensor — see below.
+            </>
+          )}
+        </div>
+      </div>
+
+      <div className="form-group" style={{ maxWidth: 400 }}>
+        <label
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: ".5rem",
+            cursor: "pointer",
+          }}
+        >
+          <input
+            id={`thermo-${config.thermostat_entity_id}-vacation-safety`}
+            type="checkbox"
+            checked={form.vacation_safety_cycles ?? true}
+            disabled={form.vacation_hvac_mode === "range"}
+            onChange={(e) => setForm((f) => ({ ...f, vacation_safety_cycles: e.target.checked }))}
+          />
+          <span>Run per-room safety cycles during vacation</span>
+        </label>
+        <div className="form-hint">
+          {form.vacation_hvac_mode === "range" ? (
+            <>
+              Unavailable in <strong>Range</strong> mode. A heat_cool thermostat decides heating vs
+              cooling itself from its built-in sensor, so HomeClimate cannot direct a cycle for a
+              single room. Switch to <strong>Single setpoint</strong> above to use this.
+            </>
+          ) : (
+            <>
+              With this on (default), a room whose own sensor leaves the{" "}
+              <strong>
+                {form.min_setpoint}–{form.max_setpoint}
+                {unitLabel}
+              </strong>{" "}
+              envelope while you are away starts a real cycle — so it appears in Cycle History and
+              the event log, and short-cycle protection applies as usual. Every other room&apos;s
+              vent stays open to share the conditioned air, closing only once that room comes within
+              its deadband of the opposite limit. Turn off to fall back to holding the whole house
+              on the thermostat&apos;s own sensor alone.
+            </>
+          )}
+        </div>
+      </div>
+
+      {form.vacation_hvac_mode === "range" && (
+        <div className="form-group" style={{ maxWidth: 400 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: ".75rem", flexWrap: "wrap" }}>
+            {!vacationTestActive ? (
+              <button
+                className="btn btn-secondary"
+                disabled={testingVacation}
+                onClick={async () => {
+                  setTestingVacation(true);
+                  setVacationTestResult(null);
+                  try {
+                    await testVacationMode(config.thermostat_entity_id);
+                    setVacationTestActive(true);
+                    setVacationTestResult(
+                      "heat_cool active — check your thermostat in Home Assistant."
+                    );
+                  } catch (e: unknown) {
+                    setVacationTestResult(
+                      "Error: " + (e instanceof Error ? e.message : "Test failed")
+                    );
+                  } finally {
+                    setTestingVacation(false);
+                  }
+                }}
+              >
+                {testingVacation ? "Testing…" : "Test auto mode"}
+              </button>
+            ) : (
+              <button
+                className="btn btn-warning"
+                onClick={async () => {
+                  try {
+                    await revertVacationTest(config.thermostat_entity_id);
+                    setVacationTestActive(false);
+                    setVacationTestResult("Reverted — thermostat set back to off.");
+                  } catch (e: unknown) {
+                    setVacationTestResult(
+                      "Error: " + (e instanceof Error ? e.message : "Revert failed")
+                    );
+                  }
+                }}
+              >
+                Revert test
+              </button>
+            )}
+            {vacationTestResult && (
+              <span
+                className={`badge ${vacationTestResult.startsWith("Error") ? "badge-red" : "badge-green"}`}
+              >
+                {vacationTestResult}
+              </span>
+            )}
+          </div>
+          <div className="form-hint" style={{ marginTop: ".5rem" }}>
+            <em>Test auto mode</em> sends the <strong>heat_cool</strong> command with your current
+            min/max setpoints so you can verify the thermostat responded in Home Assistant. Click{" "}
+            <em>Revert test</em> to set it back to off immediately, or the engine will revert it
+            automatically on the next tick (~60 s).
+          </div>
+        </div>
+      )}
+
+      {/* Welcome home before a vacation return (Issue #728). */}
+      <div className="form-group" style={{ maxWidth: 400 }} data-testid="welcome-home-group">
+        <div className="form-label">Welcome home</div>
+        <label
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: ".5rem",
+            cursor: "pointer",
+          }}
+        >
+          <input
+            id={`thermo-${config.thermostat_entity_id}-welcome-home`}
+            type="checkbox"
+            checked={form.welcome_home_enabled ?? true}
+            onChange={(e) => setForm((f) => ({ ...f, welcome_home_enabled: e.target.checked }))}
+          />
+          <span>Get the house ready before I return from vacation</span>
+        </label>
+        {/* Each label is a bottom-justified column, so when one caption wraps
+            to two lines the two inputs still line up. */}
+        <div style={{ display: "flex", gap: ".75rem", marginTop: ".5rem", flexWrap: "wrap" }}>
+          <label style={WELCOME_HOME_FIELD_STYLE}>
+            <span className="form-hint" style={{ display: "block" }}>
+              Start (minutes before return)
+            </span>
+            <input
+              id={`thermo-${config.thermostat_entity_id}-welcome-lead`}
+              className="form-control"
+              type="number"
+              min={0}
+              max={240}
+              step={5}
+              value={form.welcome_home_lead_min ?? WELCOME_HOME_DEFAULT_LEAD_MIN}
+              disabled={!(form.welcome_home_enabled ?? true)}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, welcome_home_lead_min: parseFloat(e.target.value) }))
+              }
+            />
+          </label>
+          <label style={WELCOME_HOME_FIELD_STYLE}>
+            <span className="form-hint" style={{ display: "block" }}>
+              Keep rooms occupied for (hours)
+            </span>
+            <input
+              id={`thermo-${config.thermostat_entity_id}-welcome-hours`}
+              className="form-control"
+              type="number"
+              min={0.25}
+              max={12}
+              step={0.25}
+              value={form.welcome_home_hours ?? WELCOME_HOME_DEFAULT_HOURS}
+              disabled={!(form.welcome_home_enabled ?? true)}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, welcome_home_hours: parseFloat(e.target.value) }))
+              }
+            />
+          </label>
+        </div>
+        <div className="form-hint">
+          Before you return from vacation, HomeClimate treats every room on this thermostat as
+          occupied once, so the house is comfortable when you walk in. Rooms with an active schedule
+          follow their schedule; every other room heats or cools to its presence temperature for the
+          time set here, then normal presence detection takes over. Rooms with presence holdover set
+          to 0 are skipped. Ending vacation early fires it straight away.
+        </div>
+      </div>
+
+      <div style={{ marginTop: "1.25rem", display: "flex", alignItems: "center", gap: ".75rem" }}>
+        <button className="btn btn-primary" onClick={save} disabled={saving}>
+          {saving ? "Saving…" : "Save changes"}
+        </button>
+        {saved && <span className="badge badge-green">Saved!</span>}
+      </div>
+
+      {confirmRemove && (
+        <ConfirmDialog
+          title="Remove thermostat?"
+          message={`Remove thermostat "${form.name || config.thermostat_entity_id}"?\n\nRooms already using this thermostat will keep their entity ID but the thermostat will no longer appear in the picker.`}
+          confirmLabel="Remove"
+          onConfirm={() => void remove()}
+          onCancel={() => setConfirmRemove(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Sensor-staleness threshold (Issue #211)
+// ---------------------------------------------------------------------------
+
+// Mirrors SENSOR_STALE_AFTER_MIN in backend/engine/cycle_engine.py, which
+// routes.py also serves when the setting was never written. Named rather than
+// inlined so the seed and the warning copy below cannot drift apart from each
+// other — the failure path is the only place the seed is ever visible, so a
+// divergence would not fail any test.
+const SENSOR_STALE_DEFAULT_MIN = 30;
+
+function SensorStalenessCard() {
+  // Seeded with the backend's own default so the input never renders from
+  // `null`, and gated on the mount fetch so a late resolve cannot land on top
+  // of what the operator is typing (#600). This is CLAUDE.md pitfall #9's
+  // mount-fetch trap; `RetentionSettings` in Logs.tsx is the precedent.
+  const [value, setValue] = useState(SENSOR_STALE_DEFAULT_MIN);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  // Separate from `status` on purpose: `save()` clears `status`, and a warning
+  // that the shown number is a fabricated default must NOT be erased by the
+  // very Save it exists to warn about.
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [status, setStatus] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  useEffect(() => {
+    // `cancelled` is not ceremony: <StrictMode> (main.tsx) runs setup → cleanup
+    // → setup, so without it TWO GETs are in flight and the loser writes into a
+    // card that the winner already made interactive — reopening exactly the
+    // race this component is being fixed for, one response later.
+    let cancelled = false;
+    getSensorStaleness()
+      .then((s) => {
+        if (cancelled) return;
+        setValue(s.stale_after_min);
+        setLoading(false);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setLoadFailed(true);
+        setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const save = async () => {
+    setSaving(true);
+    setStatus(null);
+    try {
+      const r = await setSensorStaleness(value);
+      setValue(r.stale_after_min);
+      // The field now holds what the server holds, so the "this is a default"
+      // warning has stopped being true.
+      setLoadFailed(false);
+      setStatus({ ok: true, msg: "Saved" });
+    } catch (err) {
+      setStatus({ ok: false, msg: (err as Error).message });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="card" style={{ marginBottom: "1rem" }}>
+      <div className="card-title">Sensor-staleness threshold</div>
+      <div className="form-hint" style={{ marginBottom: ".75rem" }}>
+        Temperature sensor readings older than this are excluded from the room temperature average
+        so the engine never drives control decisions off stale data (Issue&nbsp;#211).
+        Battery-powered Zigbee/Z-Wave sensors that drop off the mesh keep showing their last numeric
+        value in Home Assistant — without this guard, that stale value would silently poison the
+        average. Typical: <strong>30 min</strong>. Increase if your sensors report infrequently;
+        decrease if you want a tighter check.
+      </div>
+      {loading ? (
+        // No input exists until the GET lands, so there is nothing for a late
+        // resolve to overwrite and nothing for a Save to no-op on (#600).
+        <div className="loading" style={{ padding: ".5rem 0" }}>
+          <div className="spinner" /> Loading current threshold…
+        </div>
+      ) : (
+        <>
+          <div style={{ display: "flex", gap: ".5rem", alignItems: "center" }}>
+            <label
+              htmlFor="thermostats-sensor-stale-min"
+              className="form-label"
+              style={{ margin: 0 }}
+            >
+              Minutes
+            </label>
+            <input
+              id="thermostats-sensor-stale-min"
+              className="form-control"
+              type="number"
+              min={1}
+              max={24 * 60}
+              step={1}
+              value={value}
+              onChange={(e) => setValue(parseFloat(e.target.value) || 0)}
+              // Disabled while the PUT is in flight for the same reason the
+              // button is: `save()` adopts the server's echo, and that write
+              // would land on anything typed in the meantime.
+              disabled={saving}
+              style={{ width: 120 }}
+            />
+            <button className="btn btn-primary" onClick={() => void save()} disabled={saving}>
+              Save
+            </button>
+          </div>
+          {/* On their own line rather than inside the nowrap row above: the load
+              warning and a real backend rejection ("stale_after_min must be
+              between 1 and 1440 minutes") are both too long to sit next to a
+              120px input. Nothing renders here until the operator acts or the
+              GET fails, so the settled page is unchanged. */}
+          {loadFailed && (
+            <div className="text-danger" style={{ marginTop: ".5rem" }}>
+              {/* One expression, so this renders as a single text node — a
+                  message split across nodes by JSX interpolation cannot be
+                  matched by getByText, and the escaped-apostrophe entity JSX
+                  would otherwise need renders as ’ rather than '. */}
+              {`Couldn't load the saved threshold — showing the ${SENSOR_STALE_DEFAULT_MIN} min default, not your configured value.`}
+            </div>
+          )}
+          {status && (
+            <div
+              className={status.ok ? "text-success" : "text-danger"}
+              style={{ marginTop: ".5rem" }}
+            >
+              {status.msg}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Page
+// ---------------------------------------------------------------------------
+
+export default function Thermostats() {
+  const [configs, setConfigs] = useState<ThermostatConfig[]>([]);
+  const [rooms, setRooms] = useState<Room[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showAdd, setShowAdd] = useState(false);
+  // Eco Suspend modal (#500): null = closed; { thermostat } = open, optionally
+  // pre-scoped to the card it was opened from.
+  const [ecoSuspendFor, setEcoSuspendFor] = useState<{ thermostat?: string } | null>(null);
+
+  const load = async () => {
+    // Rooms are needed for the Eco Suspend visibility rule (#500): a room's
+    // explicit Eco opt-in puts Eco in play even when its thermostat has it off.
+    const [tc, r] = await Promise.all([getThermostats(), getRooms()]);
+    setConfigs(tc);
+    setRooms(r);
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    load();
+    // The global Eco banner's Manage modal changes suspensions too; keep the
+    // per-card "Eco suspended until …" lines in step with it (#678). Safe to
+    // refetch under unsaved edits — `eco_suspend_until` is form-unowned, so the
+    // cards' content-keyed re-derive leaves the forms alone (#597).
+    return onStateChanged("eco-suspend", load);
+  }, []);
+
+  if (loading)
+    return (
+      <div className="loading">
+        <div className="spinner" /> Loading thermostats…
+      </div>
+    );
+
+  return (
+    <div>
+      <div className="page-header">
+        <div>
+          <div className="page-title">Thermostats</div>
+          <div className="page-subtitle">
+            Register your thermostats here first, then assign rooms to them
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: ".5rem", flexWrap: "wrap" }}>
+          {/* Only shown when Eco is in play somewhere: a thermostat has Eco
+              enabled, a room has an explicit Eco opt-in, or a suspension is
+              already active (#500). */}
+          {(configs.some((c) => c.eco_mode_enabled || c.eco_suspend_until) ||
+            rooms.some((r) => r.eco_mode_enabled === true)) && (
+            <button
+              className="btn btn-secondary"
+              data-testid="thermostats-eco-suspend-btn"
+              onClick={() => setEcoSuspendFor({})}
+            >
+              🍃{" "}
+              {configs.some((c) => c.eco_suspend_until) ? "Eco suspended — manage" : "Suspend Eco"}
+            </button>
+          )}
+          <button className="btn btn-primary" onClick={() => setShowAdd(true)}>
+            + Register thermostat
+          </button>
+        </div>
+      </div>
+
+      <AirflowConfigBanner />
+
+      <OutsideTempPicker />
+
+      <SensorStalenessCard />
+
+      {configs.length === 0 ? (
+        <div className="card">
+          <div className="empty-state">
+            <p>No thermostats registered yet.</p>
+            <p style={{ marginTop: ".5rem" }}>
+              Click <strong>+ Register thermostat</strong> to add your first thermostat. Once
+              registered, it will appear in the Room configuration picker by its friendly name.
+            </p>
+          </div>
+        </div>
+      ) : (
+        configs.map((c) => (
+          <ThermostatCard
+            key={c.thermostat_entity_id}
+            config={c}
+            zoneHasRoomOptIn={rooms.some(
+              (r) =>
+                r.thermostat_entity_id === c.thermostat_entity_id && r.eco_mode_enabled === true
+            )}
+            onDeleted={load}
+            onSuspendEco={() => setEcoSuspendFor({ thermostat: c.thermostat_entity_id })}
+            onSaved={(updated) =>
+              setConfigs((cs) =>
+                cs.map((x) =>
+                  x.thermostat_entity_id === updated.thermostat_entity_id ? updated : x
+                )
+              )
+            }
+          />
+        ))
+      )}
+
+      {showAdd && (
+        <AddThermostatModal
+          onClose={() => setShowAdd(false)}
+          onSave={() => {
+            setShowAdd(false);
+            load();
+          }}
+        />
+      )}
+
+      {ecoSuspendFor && (
+        <EcoSuspendModal
+          thermostats={configs}
+          initialThermostat={ecoSuspendFor.thermostat}
+          onClose={() => setEcoSuspendFor(null)}
+          onChanged={load}
+        />
+      )}
+    </div>
+  );
+}

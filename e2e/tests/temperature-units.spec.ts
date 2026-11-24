@@ -13,7 +13,7 @@ import { test, expect } from "./fixtures";
  * asserted "POSTs the pre-converted °F"; backend tests asserted "GET returns
  * °F when given °C") — only an end-to-end round-trip exposes it.
  *
- * This spec is parameterised on PLENUM_TEMP_UNIT (set by the CI matrix) so
+ * This spec is parameterised on HOMECLIMATE_TEMP_UNIT (set by the CI matrix) so
  * the same assertions run under both °F and °C stacks. Under °F the round-trip
  * is trivial (no conversion); under °C it is the regression test.
  *
@@ -24,7 +24,7 @@ import { test, expect } from "./fixtures";
  * entry is mentioned in at least one `@covers:` here. Add a field, add a tag.
  */
 
-const UNIT = (process.env.PLENUM_TEMP_UNIT ?? "F") as "F" | "C";
+const UNIT = (process.env.HOMECLIMATE_TEMP_UNIT ?? "F") as "F" | "C";
 const isCelsius = UNIT === "C";
 
 // Values chosen so the °C number is comfortable in the field's valid range
@@ -76,7 +76,7 @@ const ECO_VALUES: Record<string, string> = {
 // avoid strict-mode collisions with the second thermostat ("upstairs").
 const TC_ID = "climate.downstairs_thermostat";
 
-test.describe(`Temperature round-trip (PLENUM_TEMP_UNIT=${UNIT})`, () => {
+test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
   test("thermostat fields persist exactly as entered (#231)", async ({
     page,
   }) => {

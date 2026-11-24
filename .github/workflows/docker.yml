@@ -17,7 +17,7 @@ name: Build & Push Docker Image
 #        (build + push to a ci-<sha> tag, reused by smoke + E2E). See #333.
 #
 #   Any other branch merged → main
-#     └─ build-and-push : BUILD + PUSH — only when smart_vent/config.yaml changed
+#     └─ build-and-push : BUILD + PUSH — only when homeclimate/config.yaml changed
 #        (covers a version bump that lands outside the release/v* flow).
 #
 # This workflow therefore only does work on push-to-main now; all pull_request
@@ -27,7 +27,7 @@ on:
   push:
     branches:
       - main
-    # Docs/config-doc-only pushes never change smart_vent/config.yaml, so the
+    # Docs/config-doc-only pushes never change homeclimate/config.yaml, so the
     # build below already no-ops on them — this just avoids spinning a runner.
     # A workflow-level filter is safe here because this workflow runs ONLY on
     # push to main (no PR required-check to strand). `*.md` matches root-level
@@ -85,7 +85,7 @@ jobs:
         id: config-check
         if: steps.branch-check.outputs.is_release_merge == 'false'
         run: |
-          if git diff --name-only HEAD^ HEAD | grep -q 'smart_vent/config.yaml'; then
+          if git diff --name-only HEAD^ HEAD | grep -q 'homeclimate/config.yaml'; then
             echo "config_changed=true" >> "$GITHUB_OUTPUT"
             echo "config.yaml changed — will build and push"
           else
@@ -99,7 +99,7 @@ jobs:
           steps.branch-check.outputs.is_release_merge == 'false' &&
           steps.config-check.outputs.config_changed == 'true'
         run: |
-          VERSION=$(grep '^version:' smart_vent/config.yaml \
+          VERSION=$(grep '^version:' homeclimate/config.yaml \
             | sed 's/version:[[:space:]]*//' \
             | tr -d '"')
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
@@ -133,8 +133,8 @@ jobs:
           steps.config-check.outputs.config_changed == 'true'
         uses: docker/build-push-action@v7
         with:
-          context: ./smart_vent
-          platforms: linux/amd64,linux/arm64
+          context: ./homeclimate
+          platforms: linux/amd64
           push: true
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}

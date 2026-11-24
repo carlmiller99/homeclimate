@@ -1,6 +1,6 @@
 import { test, expect } from "./fixtures";
 
-const API = `${process.env.PLENUM_URL ?? "http://localhost:8099"}/api`;
+const API = `${process.env.HOMECLIMATE_URL ?? "http://localhost:8099"}/api`;
 
 test("schedules list", async ({ page }) => {
   await page.goto("/schedules");

@@ -1,5 +1,5 @@
 /**
- * Single source of truth for every temperature field that any Plenum
+ * Single source of truth for every temperature field that any HomeClimate
  * write endpoint accepts.
  *
  * Two enforcement mechanisms keep this list honest:
@@ -9,9 +9,9 @@
  *     with `// @covers: <field>[, <field>...]` so the parity test
  *     below can verify coverage by grep.
  *
- *  2. `smart_vent/backend/tests/test_temperature_field_parity.py`
+ *  2. `homeclimate/backend/tests/test_temperature_field_parity.py`
  *     compares this manifest to `TEMPERATURE_FIELDS` in
- *     `smart_vent/backend/api/routes.py` (both the field set and
+ *     `homeclimate/backend/api/routes.py` (both the field set and
  *     the kind for each), and asserts every `ui: true` entry has at
  *     least one `@covers:` mention in the e2e spec.
  *

@@ -1,0 +1,70 @@
+import type { ReactNode } from "react";
+
+// ---------------------------------------------------------------------------
+// CI-frozen UI flag — deterministic Playwright visual-regression screenshots.
+//
+// The E2E workflow patches config.yaml to `version: CI`, which the Docker build
+// bakes into VITE_APP_VERSION (see homeclimate/Dockerfile). When that flag is
+// set we freeze every volatile UI surface — wall-clock strings, live countdown
+// timers, and the engine-driven action/event/cycle feeds — so two screenshots
+// taken seconds apart (the workflow's update pass → verify pass) are identical.
+//
+// In production VITE_APP_VERSION is a real semver, so `isCI` is a compile-time
+// `false`. See issue #182.
+// ---------------------------------------------------------------------------
+export const isCI = import.meta.env.VITE_APP_VERSION === "CI";
+
+// Fixed-width placeholder shown in place of a volatile value under CI. A
+// constant keeps the element's width stable run-to-run; a varying width (e.g. a
+// "7h 5m" countdown) would shift sibling layout and cause spurious pixel diffs.
+export const FROZEN = "—";
+
+/**
+ * Render `children` normally, but under CI render `frozen` instead.
+ *
+ * - inline value:    <Frozen>{clock.toLocaleTimeString()}</Frozen>   → "—"
+ * - custom placeholder: <Frozen frozen="(frozen)">{feed}</Frozen>
+ * - drop a region:   <Frozen frozen={null}>{progressBar}</Frozen>    → nothing
+ *
+ * Funnelling every freeze through this one component keeps the single `isCI`
+ * branch in one tested place — call sites stay branch-free, so they don't dent
+ * frontend branch coverage.
+ */
+export function Frozen({ children, frozen = FROZEN }: { children: ReactNode; frozen?: ReactNode }) {
+  return <>{isCI ? frozen : children}</>;
+}
+
+/**
+ * Value-flavoured `<Frozen>`: the live value normally, a fixed one under CI.
+ * Same single-branch rationale — call sites stay branch-free. Lives here (not
+ * a separate module) so the single `isCI` branch stays in one tested place,
+ * which is worth the fast-refresh mixed-exports warning.
+ */
+// eslint-disable-next-line react-refresh/only-export-components
+export function ciPinned<T>(live: T, pinned: T): T {
+  return isCI ? pinned : live;
+}
+
+// The Metrics date range pinned under CI (Issue #442). Must match the window
+// the E2E global setup seeds via POST /api/dev/seed-demo-metrics
+// (backend/demo_seed.py DEFAULT_START_DATE/DEFAULT_DAYS): a fixed *past* week,
+// so cycles the live engine logs during the E2E run can never leak into the
+// screenshots — and so the date inputs stop baking "today" into the goldens.
+// eslint-disable-next-line react-refresh/only-export-components
+export const CI_METRICS_RANGE = { start: "2025-06-01", end: "2025-06-07" } as const;
+
+// The Logs page time window pinned under CI — the datetime-local counterpart
+// of CI_METRICS_RANGE, spanning the same seeded demo week (the exclusive end
+// bound is the following midnight so the whole last day is included). Like
+// every datetime-local value since #729 these are HOUSE-local wall-clock
+// times, so the window is the same house-local week the metrics range uses. Both
+// Logs tabs pin their "Custom" window to this range so only the seeded demo
+// rows render: live engine cycles/events are dated "now" and fall outside it.
+// eslint-disable-next-line react-refresh/only-export-components
+export const CI_LOGS_RANGE = { from: "2025-06-01T00:00", to: "2025-06-08T00:00" } as const;
+
+// Recharts animates series on mount (JS-driven — Playwright's
+// `animations: "disabled"` can't reach it). Harmless for users, but under CI
+// it costs the screenshot-stability loop an extra capture round and risks a
+// mid-tween frame, so charts pass this to `isAnimationActive`.
+export const chartAnimationActive = !isCI;

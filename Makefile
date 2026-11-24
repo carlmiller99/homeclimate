@@ -9,10 +9,10 @@ build: build-backend build-frontend
 
 build-backend:
 	python3 -m venv $(VENV)
-	$(VENV)/bin/pip install -e ./smart_vent
+	$(VENV)/bin/pip install -e ./homeclimate
 
 build-frontend:
-	cd smart_vent/frontend && npm install && npm run build
+	cd homeclimate/frontend && npm install && npm run build
 
 clean:
-	rm -rf $(VENV) smart_vent/frontend/dist smart_vent/frontend/node_modules
+	rm -rf $(VENV) homeclimate/frontend/dist homeclimate/frontend/node_modules

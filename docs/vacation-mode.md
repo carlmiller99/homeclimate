@@ -32,7 +32,7 @@ For thermostats that support `heat_cool` or `auto`. The thermostat is put into `
 
 > **Range mode senses only the thermostat's own built-in ambient probe.** Your rooms' temperature sensors are not consulted, so a single room can drift well past its limits without the system reacting. If you want per-room protection while you are away, use **Single setpoint**.
 >
-> This is a structural limit, not an oversight. In `heat_cool` the *equipment* decides whether to heat or cool, from its own internal sensor. Plenum's cycle engine locks a cycle's direction at the moment the cycle starts and never re-derives it from the thermostat's live state — deriving direction from live `hvac_action` is exactly the bug that caused hours-long runaway cycles before it was fixed. Plenum cannot direct a single-room cycle through a thermostat whose direction it does not own, so it does not pretend to.
+> This is a structural limit, not an oversight. In `heat_cool` the *equipment* decides whether to heat or cool, from its own internal sensor. HomeClimate's cycle engine locks a cycle's direction at the moment the cycle starts and never re-derives it from the thermostat's live state — deriving direction from live `hvac_action` is exactly the bug that caused hours-long runaway cycles before it was fixed. HomeClimate cannot direct a single-room cycle through a thermostat whose direction it does not own, so it does not pretend to.
 
 Range mode commands the bounds **as configured**, with no deadband inset — in `heat_cool` the equipment applies its own hysteresis, so there is no arrive-and-shut-off edge to cushion and insetting would only condition the house more tightly than you asked.
 
@@ -115,23 +115,23 @@ While a trip is scheduled:
 - From **two hours before the start** the banner turns amber and counts down: *Vacation mode starts in 1 h 40 min (5:00 PM).*
 - **Manage** offers **Edit dates**, **Start now** (the trip begins immediately and keeps its return) and **Cancel scheduled vacation** (with a confirmation step). Cancelling a trip that never started changes nothing else.
 
-Plenum starts the trip by itself within one minute of the start time, through the same path as starting it by hand: every open cycle is reset, the hold takes over, and every open page updates. Once the trip is active its start cannot be changed (the API answers 409), but its return can: moving the return of an active trip only moves the date, without aborting a vacation safety cycle that happens to be running.
+HomeClimate starts the trip by itself within one minute of the start time, through the same path as starting it by hand: every open cycle is reset, the hold takes over, and every open page updates. Once the trip is active its start cannot be changed (the API answers 409), but its return can: moving the return of an active trip only moves the date, without aborting a vacation safety cycle that happens to be running.
 
 ### Restarts, downtime and downgrades
 
-The trip is stored as UTC instants, so neither a restart nor a daylight-saving change can move it. What happens after Plenum was offline depends on what the downtime covered:
+The trip is stored as UTC instants, so neither a restart nor a daylight-saving change can move it. What happens after HomeClimate was offline depends on what the downtime covered:
 
-| Plenum was offline across… | Result |
+| HomeClimate was offline across… | Result |
 |---|---|
 | nothing relevant | The trip stays scheduled. |
-| the start time only | The trip starts on the first tick after Plenum is back, and the Live Feed notes that it started late. |
+| the start time only | The trip starts on the first tick after HomeClimate is back, and the Live Feed notes that it started late. |
 | both the start and the return | The trip never starts. An orange **Scheduled vacation missed** notice shows the dates until you **Dismiss** it, and a warning is logged. |
 
-> **Downgrading removes scheduling.** An older Plenum version ignores a scheduled trip, so a trip scheduled before a downgrade silently never starts. Cancel any scheduled trip, or start it now, before installing an older version. An active trip is unaffected.
+> **Downgrading removes scheduling.** An older HomeClimate version ignores a scheduled trip, so a trip scheduled before a downgrade silently never starts. Cancel any scheduled trip, or start it now, before installing an older version. An active trip is unaffected.
 
 ## Welcome home
 
-When a trip ends, schedules and presence come back, but a room whose only trigger is presence (or whose schedule is not active at that hour) would otherwise stay wherever the hold left it — at the edge of the safe range — until someone walks in. **Welcome home** fixes that: shortly before the return, Plenum treats every room as occupied **once**, as if someone had walked into each room.
+When a trip ends, schedules and presence come back, but a room whose only trigger is presence (or whose schedule is not active at that hour) would otherwise stay wherever the hold left it — at the edge of the safe range — until someone walks in. **Welcome home** fixes that: shortly before the return, HomeClimate treats every room as occupied **once**, as if someone had walked into each room.
 
 Nothing new decides what a room does; the normal [room precedence](./presence.md#priority) does:
 

@@ -9,7 +9,7 @@
             "if": "Bash(git commit *)",
             "statusMessage": "Running lint + tests before commit (skipped for docs-only; installs deps if missing)…",
             "timeout": 600,
-            "command": "bash /home/user/smart-thermostat-with-vents/.claude/hooks/precommit-gate.sh"
+            "command": "bash "$CLAUDE_PROJECT_DIR/.claude/hooks/precommit-gate.sh""
           }
         ]
       }

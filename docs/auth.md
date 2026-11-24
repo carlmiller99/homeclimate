@@ -1,13 +1,13 @@
 # Authentication & the trust model
 
-Plenum listens on two ports inside the add-on: the web UI / REST API (`8099`)
+HomeClimate listens on two ports inside the add-on: the web UI / REST API (`8099`)
 and the MCP server (`9099`). Both bind `0.0.0.0`. This page describes who is
 trusted, how, and why — the threat model behind the authentication added in
 issue #373.
 
 ## The one thing that never changes: Home Assistant ingress
 
-When you open Plenum from the Home Assistant sidebar, the request is
+When you open HomeClimate from the Home Assistant sidebar, the request is
 reverse-proxied by the **Supervisor**, which has *already* authenticated you
 against your Home Assistant account. Those requests are **always trusted** and
 never see a login screen — that is the whole point of ingress, and it is
@@ -24,7 +24,7 @@ the *non-ingress* surfaces are gated:
 | `false` (legacy) | trusted, no login | open (pre-#373 behavior) | open |
 
 Because ingress is always trusted, turning the switch **on by default does not
-break anyone using Plenum through Home Assistant** — it only matters if you have
+break anyone using HomeClimate through Home Assistant** — it only matters if you have
 *published* the raw `8099`/`9099` host ports (both are unpublished by default).
 `require_auth` is a deployment setting (add-on **Configuration** tab); it is
 surfaced read-only in the UI and is not a runtime toggle, so an unauthenticated
@@ -63,7 +63,7 @@ and, if unauthenticated, renders a login screen.
 
 - **Credential:** your **Home Assistant username + password**, validated by the
   add-on against the Supervisor's `/auth` backend (`auth_api: true` →
-  `POST http://supervisor/auth`). Plenum stores no password of its own. This
+  `POST http://supervisor/auth`). HomeClimate stores no password of its own. This
   backend validates the **first factor only** — it does not run Home Assistant's
   MFA/TOTP step, so direct-port login is not MFA-enforced (see known
   limitations). It also requires a Supervisor, so it is unavailable in
@@ -88,7 +88,7 @@ The HA-account login above has two limitations: it validates only the first
 factor (no MFA — HA's TOTP step runs in its interactive login flow, not the
 add-on `/auth` backend), and it needs a Supervisor (so standalone / plain-Docker
 installs can't use it). **OpenID Connect single sign-on** closes both: you point
-Plenum at your own identity provider (Authelia, Authentik, Keycloak, Google,
+HomeClimate at your own identity provider (Authelia, Authentik, Keycloak, Google,
 Microsoft Entra ID, …), the IdP enforces MFA, and no Supervisor is required.
 
 When OIDC is configured, the direct-port login screen shows a **"Sign in with
@@ -99,7 +99,7 @@ directly. **Ingress is unaffected** (always trusted, never sees this). **MCP is
 unaffected** — it keeps its bearer tokens; to add SSO in front of the MCP port,
 see `docs/mcp.md`.
 
-**OIDC is configured entirely outside the Plenum UI** — via add-on options (the
+**OIDC is configured entirely outside the HomeClimate UI** — via add-on options (the
 Supervisor **Configuration** tab) or container environment variables — so an
 unauthenticated visitor can never reach the configuration, and you never have to
 disable auth to reach the UI off-HAOS. Each add-on option key uppercases to the
@@ -108,9 +108,9 @@ env var of the same name, so standalone Docker sets the env var directly:
 | Add-on option / env var | Required | Meaning |
 |---|---|---|
 | `oidc_configuration_url` / `OIDC_CONFIGURATION_URL` | yes | Your IdP's `…/.well-known/openid-configuration` discovery URL. |
-| `oidc_client_id` / `OIDC_CLIENT_ID` | yes | The OAuth client you register with the IdP for Plenum. |
+| `oidc_client_id` / `OIDC_CLIENT_ID` | yes | The OAuth client you register with the IdP for HomeClimate. |
 | `oidc_client_secret` / `OIDC_CLIENT_SECRET` | yes | That client's secret (a `password`-typed option, masked in the add-on UI). |
-| `plenum_external_url` / `PLENUM_EXTERNAL_URL` | yes | Public base URL of the Plenum web UI. The **redirect URI** is `<plenum_external_url>/api/auth/oidc/callback` — register exactly that at your IdP. |
+| `homeclimate_external_url` / `HOMECLIMATE_EXTERNAL_URL` | yes | Public base URL of the HomeClimate web UI. The **redirect URI** is `<homeclimate_external_url>/api/auth/oidc/callback` — register exactly that at your IdP. |
 | `oidc_scopes` / `OIDC_SCOPES` | no | Space-separated scopes (default `openid email profile`; `openid` is added if you omit it). |
 | `oidc_allowed_users_glob` / `OIDC_ALLOWED_USERS_GLOB` | no | Glob over the authenticated identity (email, then username, then `sub`) allowed in. Default `*` (**anyone** your IdP authenticates — narrow this in production, e.g. `*@example.com`). |
 | `oidc_provider_name` / `OIDC_PROVIDER_NAME` | no | Label for the button, e.g. `Authelia` (default `SSO`). |
@@ -125,7 +125,7 @@ disabled:
 
 ```bash
 docker run -d \
-  --name smart-vent \
+  --name homeclimate \
   -p 8099:8099 \
   -v /path/to/data:/data \
   -e DATA_DIR=/data \
@@ -133,25 +133,25 @@ docker run -d \
   -e HA_TOKEN=your_long_lived_token \
   -e TIMEZONE=America/New_York \
   -e OIDC_CONFIGURATION_URL=https://your-idp.example.com/.well-known/openid-configuration \
-  -e OIDC_CLIENT_ID=plenum \
+  -e OIDC_CLIENT_ID=homeclimate \
   -e OIDC_CLIENT_SECRET=your_client_secret \
-  -e PLENUM_EXTERNAL_URL=https://plenum.example.com \
-  ghcr.io/dhruvb14/smart-thermostat-with-vents:latest
+  -e HOMECLIMATE_EXTERNAL_URL=https://homeclimate.example.com \
+  ghcr.io/carlmiller99/homeclimate:latest
 ```
 
-`TIMEZONE` is the house's zone: Plenum shows and accepts every time in it, whichever zone a signed-in user browses from ([Time zones](./time-zones.md)).
+`TIMEZONE` is the house's zone: HomeClimate shows and accepts every time in it, whichever zone a signed-in user browses from ([Time zones](./time-zones.md)).
 
-Register `https://plenum.example.com/api/auth/oidc/callback` as the redirect
-URI at your IdP — it must exactly match `PLENUM_EXTERNAL_URL` above. Add
+Register `https://homeclimate.example.com/api/auth/oidc/callback` as the redirect
+URI at your IdP — it must exactly match `HOMECLIMATE_EXTERNAL_URL` above. Add
 `-e OIDC_ALLOWED_USERS_GLOB=...` to narrow who can sign in beyond "anyone your
 IdP authenticates".
 
 - **Flow.** Standard OAuth 2.1 **Authorization Code + PKCE**. The IdP validates
-  the login (and MFA); Plenum validates the returned ID token's signature and
+  the login (and MFA); HomeClimate validates the returned ID token's signature and
   claims (`joserfc`), checks the allowlist, then issues the **same** signed
   session cookie as the password path (so the session model is identical).
 - **CSRF / state.** The `state`, PKCE `code_verifier`, and `nonce` ride in a
-  short-lived, signed (HS256 JWT) `plenum_oidc_state` cookie (`SameSite=Lax` so it
+  short-lived, signed (HS256 JWT) `homeclimate_oidc_state` cookie (`SameSite=Lax` so it
   survives the redirect back from the IdP) — nothing is written to `app.db`, so a
   backup still can't forge a login.
 - **Algorithm pinning.** ID tokens must be signed with an asymmetric algorithm
@@ -218,7 +218,7 @@ backwards-compatibility guarantee.
   proxy that rewrites `Host`. Two things still key on what the add-on sees on the
   wire: the `Secure` cookie flag (set only when the add-on's own connection is
   TLS) and the CSRF `Origin` check on the **WebSocket** `/ws` handshake (which
-  can't send a custom header). If you front Plenum with a TLS-terminating /
+  can't send a custom header). If you front HomeClimate with a TLS-terminating /
   Host-rewriting proxy, forward the original `Host` and scheme so those two agree
   with the external URL.
 - **Not verified against a live Supervisor.** The development/CI environment is

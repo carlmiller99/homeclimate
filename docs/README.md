@@ -1,13 +1,13 @@
-# Plenum documentation
+# HomeClimate documentation
 
-High-level guide to what Plenum does and how the pieces fit together. For install instructions and quick-start, see the [top-level README](../README.md).
+High-level guide to what HomeClimate does and how the pieces fit together. For install instructions and quick-start, see the [top-level README](../README.md).
 
 ## Feature guides
 
 - [Rooms & zones](./rooms-and-zones.md) — how rooms map to thermostats and what gets configured per room
 - [Cycle engine](./cycle-engine.md) — the HVAC cycle state machine: what runs every 60s tick
 - [Overflow conditioning](./overflow-conditioning.md) — where surplus air goes during the minimum-runtime hold
-- [Vent control methods](./vent-control.md) — the four ways Plenum can drive a `cover.*` entity
+- [Vent control methods](./vent-control.md) — the four ways HomeClimate can drive a `cover.*` entity
 - [Thermostat settings](./thermostat-settings.md) — setpoint bounds, deadband and the room/schedule overrides that inherit from it, overshoot, timeouts, safety limits
 - [Safety features](./safety.md) — short-cycle protection, outdoor-temperature cooling lockout, equipment-protection limits
 - [Schedules](./schedules.md) — time blocks, overnight ranges, priority rules, per-block deadband override
@@ -23,11 +23,11 @@ High-level guide to what Plenum does and how the pieces fit together. For instal
 - [Backup & restore](./backup-restore.md) — download/upload the SQLite database
 - [Authentication & the trust model](./auth.md) — ingress trust, login on the direct ports, MCP bearer tokens, OIDC single sign-on
 - [MCP server](./mcp.md) — Claude-callable tools over the add-on
-- [MQTT interface](./mqtt.md) — drive Plenum from Home Assistant automations, with controls exposed as native HA entities
+- [MQTT interface](./mqtt.md) — drive HomeClimate from Home Assistant automations, with controls exposed as native HA entities
 - **API Documentation** — Interactive Swagger UI available at `/api/docs`
 
 ## Conventions
 
 - All temperatures are stored and displayed in **°F**. Sensors reporting °C are converted on ingest.
 - All times are evaluated **and shown** in the timezone configured in the add-on's **Configuration** tab (see the [top-level README](../README.md#timezone-configuration)), never the viewing device's zone. See [Time zones](./time-zones.md).
-- Entity IDs follow Home Assistant's `domain.object_id` format. Plenum only drives `cover.*` (vents), `climate.*` (thermostats), reads from `sensor.*` (temperature), and `binary_sensor.*` (presence).
+- Entity IDs follow Home Assistant's `domain.object_id` format. HomeClimate only drives `cover.*` (vents), `climate.*` (thermostats), reads from `sensor.*` (temperature), and `binary_sensor.*` (presence).

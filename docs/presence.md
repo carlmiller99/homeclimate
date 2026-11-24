@@ -41,7 +41,7 @@ A room can be configured to **ignore presence-driven heating/cooling** when the 
 
 ## Welcome home after vacation
 
-Shortly before a [vacation](./vacation-mode.md#welcome-home) return, Plenum fires **one synthetic presence event** for every room on each thermostat that has welcome home on, as if someone had walked into each room. It writes the same holdover a real sensor would, with three differences:
+Shortly before a [vacation](./vacation-mode.md#welcome-home) return, HomeClimate fires **one synthetic presence event** for every room on each thermostat that has welcome home on, as if someone had walked into each room. It writes the same holdover a real sensor would, with three differences:
 
 - **The window is forced.** The holdover ends `welcome_home_hours` (default 1 hour) after the event, whatever the room's own holdover length is.
 - **It never shortens** a longer holdover that is already running.

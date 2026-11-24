@@ -1,6 +1,6 @@
 # Overflow conditioning during minimum-runtime hold
 
-When a cycle reaches its goal early (every active room is at target before the configured **minimum cycle runtime** has elapsed), the compressor must keep running until the runtime clock is satisfied — short-cycling is a primary equipment-failure mode. The leftover conditioning still has to go somewhere. Plenum routes it through up to three tiers of fallback candidates, opening additional vents in non-active rooms that can absorb the surplus without being driven into an opposite-direction cycle.
+When a cycle reaches its goal early (every active room is at target before the configured **minimum cycle runtime** has elapsed), the compressor must keep running until the runtime clock is satisfied — short-cycling is a primary equipment-failure mode. The leftover conditioning still has to go somewhere. HomeClimate routes it through up to three tiers of fallback candidates, opening additional vents in non-active rooms that can absorb the surplus without being driven into an opposite-direction cycle.
 
 > **Scope:** This logic runs **only** during the minimum-runtime hold phase. Normal cycle operation is unchanged, and after the cycle fully terminates every zone vent returns to the open idle state regardless of which vents the hold opened.
 
@@ -11,11 +11,11 @@ Before this feature, the hold kept only the originally-active rooms' vents open.
 1. **Overshoot.** The active rooms continue to receive cold (or hot) air past their target, drifting well below (or above) the setpoint. If the drift is large enough, those same rooms call for the *opposite* direction on the next cycle — the kind of oscillation the cycle engine is otherwise designed to prevent.
 2. **Restricted airflow.** With only one or two rooms' vents open and no bypass damper, duct static pressure rises and the air handler dead-heads through whichever rooms finished last.
 
-Opening additional vents in rooms that can absorb the surplus addresses both: it reduces overshoot in the active rooms, gives the air handler a larger plenum, and pre-conditions rooms toward where they'd want to be when their schedule or presence next activates.
+Opening additional vents in rooms that can absorb the surplus addresses both: it reduces overshoot in the active rooms, gives the air handler a larger homeclimate, and pre-conditions rooms toward where they'd want to be when their schedule or presence next activates.
 
 ## The four tiers
 
-For each non-active room on the same thermostat, Plenum computes an **effective presence setpoint** (see "Setpoint resolution" below) and tries up to three filtering tiers in order. The first tier that yields any candidates wins; every candidate in that tier has its vent opened. If all three are empty, the system falls back to today's behaviour.
+For each non-active room on the same thermostat, HomeClimate computes an **effective presence setpoint** (see "Setpoint resolution" below) and tries up to three filtering tiers in order. The first tier that yields any candidates wins; every candidate in that tier has its vent opened. If all three are empty, the system falls back to today's behaviour.
 
 Throughout, `deadband` follows the same [deadband inheritance](./thermostat-settings.md#deadband-inheritance) as the rest of the engine: a candidate room's own `deadband_override` (`±°F`) wins when set, falling back to `ThermostatConfig.deadband` (the same value that gates cycle start/stop). A schedule block's deadband override never applies here — overflow candidates are non-active rooms, so there is no active block to draw one from. `active_cycle_target_f` is the most aggressive target across the cycle's active rooms — the lowest for cooling, the highest for heating.
 
@@ -30,11 +30,11 @@ These are clear wins: the room is past its setpoint in the same direction the sy
 
 ### Tier 2 — Inside-deadband rooms
 
-Same direction check, but without the deadband margin. Used only when Tier 1 is empty (every non-active room is already within deadband of its setpoint). This lets Plenum nudge a room a little further past its setpoint when there's no better destination — the room is still moving in the right direction, just not by much.
+Same direction check, but without the deadband margin. Used only when Tier 1 is empty (every non-active room is already within deadband of its setpoint). This lets HomeClimate nudge a room a little further past its setpoint when there's no better destination — the room is still moving in the right direction, just not by much.
 
 ### Tier 3 — Headroom rooms (accept pushing past goal)
 
-Used only when Tiers 1 and 2 are both empty: every non-active room is at-or-past its goal in the conditioning direction. Plenum still needs somewhere to send the surplus air, so it picks the room with the most **headroom** before its temperature would trigger an opposite-direction cycle.
+Used only when Tiers 1 and 2 are both empty: every non-active room is at-or-past its goal in the conditioning direction. HomeClimate still needs somewhere to send the surplus air, so it picks the room with the most **headroom** before its temperature would trigger an opposite-direction cycle.
 
 "Headroom" is how far the room can drift in the conditioning direction before the room itself would start calling for the opposite cycle:
 
@@ -45,7 +45,7 @@ A room with zero or negative headroom is **excluded** — pushing more condition
 
 ### Tier 4 — Active rooms only (current behaviour)
 
-If even Tier 3 yields nothing (every non-active room has zero or negative headroom), Plenum falls back to today's behaviour: only the originally-active cycle rooms stay open through the rest of the hold.
+If even Tier 3 yields nothing (every non-active room has zero or negative headroom), HomeClimate falls back to today's behaviour: only the originally-active cycle rooms stay open through the rest of the hold.
 
 ## Setpoint resolution
 
@@ -55,11 +55,11 @@ For each non-active room, the **effective presence setpoint** is resolved in thi
 2. The thermostat's **global presence default** (`ThermostatConfig.default_temp`), used as the fallback when a room has no per-room setpoint.
 3. If neither is configured, the room has no rankable goal. Tiers 1, 2, and 3 all skip it — there is nothing to compare against.
 
-A room without a schedule and without an active presence trigger is *not* excluded from consideration: it's just an unoccupied room with no current call for conditioning. As long as it has an effective setpoint (per the resolution above), Plenum is happy to send surplus air there.
+A room without a schedule and without an active presence trigger is *not* excluded from consideration: it's just an unoccupied room with no current call for conditioning. As long as it has an effective setpoint (per the resolution above), HomeClimate is happy to send surplus air there.
 
 ## Safety reasoning
 
-The tier system is deliberately structured so that **Plenum never pushes a room past its own goal except when there is genuinely nowhere better to send the air**, and even then only into the room with the most headroom before it would itself trigger the opposite cycle. Specifically:
+The tier system is deliberately structured so that **HomeClimate never pushes a room past its own goal except when there is genuinely nowhere better to send the air**, and even then only into the room with the most headroom before it would itself trigger the opposite cycle. Specifically:
 
 - Tiers 1 and 2 only ever choose rooms that are still moving toward their goal — no room is over-conditioned past its setpoint while a better destination exists.
 - Tier 3 accepts pushing past goal, but excludes any room that is already across its opposite-direction trigger. So even when the system has nowhere ideal to dump the air, it cannot drive a room into a state where the room itself would call for the opposite cycle.
