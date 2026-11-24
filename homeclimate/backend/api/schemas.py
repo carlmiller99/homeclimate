@@ -783,16 +783,17 @@ class ContactSensorSchema(Schema):
     name = fields.Str()
     thermostat_entity_id = fields.Str(allow_none=True)
     room_id = fields.Str(allow_none=True)
+    pauses = fields.Str(metadata={"description": "room | zone"})
     state = fields.Str(metadata={"description": "open | closed | offline"})
     open_since = fields.Str(allow_none=True)
     pausing = fields.Bool()
 
 
 class ContactSensorWriteSchema(Schema):
-    thermostat_entity_id = fields.Str(
-        allow_none=True, metadata={"description": "Pause this whole zone"}
+    room_id = fields.Str(metadata={"description": "The room the door or window is in"})
+    pauses = fields.Str(
+        metadata={"description": "room (default): pause the room; zone: pause its whole zone"}
     )
-    room_id = fields.Str(allow_none=True, metadata={"description": "Pause only this room"})
 
 
 class PausedScopeSchema(Schema):

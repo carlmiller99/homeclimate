@@ -68,8 +68,7 @@ _NOT_OVERRIDABLE = {
     for scope, keys in OVERRIDE_KEYS.items()
 }
 NOT_A_CONTACT = fixed("Choose a door or window binary_sensor")
-NEEDS_ONE_TARGET = fixed("Attach the sensor to a zone or to one room")
-ZONE_UNKNOWN = fixed("That zone does not exist")
+BAD_PAUSES = fixed("pauses must be room or zone")
 ROOM_UNKNOWN = fixed("That room does not exist")
 
 
@@ -198,49 +197,63 @@ async def set_overrides(
     await conn.commit()
 
 
+PAUSES = ("room", "zone")
+
+
 @dataclass
 class ContactSensor:
+    """A door or window in a room. ``pauses`` is "room" or "zone" (the room's zone).
+
+    ``thermostat_entity_id`` is only set on rows written before sensors
+    belonged to rooms; those have no room and always pause that zone.
+    """
+
     entity_id: str
     thermostat_entity_id: str | None = None
     room_id: str | None = None
+    pauses: str = "room"
 
 
 async def list_contacts(conn: aiosqlite.Connection) -> list[ContactSensor]:
     async with conn.execute(
-        "SELECT entity_id, thermostat_entity_id, room_id FROM contact_sensors ORDER BY entity_id"
+        "SELECT entity_id, thermostat_entity_id, room_id, pauses FROM contact_sensors "
+        "ORDER BY entity_id"
     ) as cur:
         rows = await cur.fetchall()
-    return [ContactSensor(r["entity_id"], r["thermostat_entity_id"], r["room_id"]) for r in rows]
+    return [
+        ContactSensor(
+            r["entity_id"],
+            r["thermostat_entity_id"],
+            r["room_id"],
+            "zone" if r["thermostat_entity_id"] else r["pauses"],
+        )
+        for r in rows
+    ]
 
 
 async def save_contact(
     conn: aiosqlite.Connection,
     entity_id: str,
-    thermostat_entity_id: str | None,
-    room_id: str | None,
+    room_id: Any,
+    pauses: Any = "room",
 ) -> ContactSensor:
-    """Attach a sensor to a zone or a room, or move it if already attached."""
+    """Put a door or window sensor in a room, or move it or change what it pauses."""
     if not isinstance(entity_id, str) or not entity_id.startswith("binary_sensor."):
         raise OpeningsError(NOT_A_CONTACT)
-    if (thermostat_entity_id is None) == (room_id is None):
-        raise OpeningsError(NEEDS_ONE_TARGET)
-    if thermostat_entity_id is not None:
-        if not isinstance(thermostat_entity_id, str) or not await _zone_exists(
-            conn, thermostat_entity_id
-        ):
-            raise OpeningsError(ZONE_UNKNOWN)
-    elif not isinstance(room_id, str) or await db.get_room(conn, room_id) is None:
+    if not isinstance(room_id, str) or await db.get_room(conn, room_id) is None:
         raise OpeningsError(ROOM_UNKNOWN)
+    if pauses not in PAUSES:
+        raise OpeningsError(BAD_PAUSES)
     await conn.execute(
-        """INSERT INTO contact_sensors(entity_id, thermostat_entity_id, room_id)
-           VALUES(?,?,?)
+        """INSERT INTO contact_sensors(entity_id, thermostat_entity_id, room_id, pauses)
+           VALUES(?,NULL,?,?)
            ON CONFLICT(entity_id) DO UPDATE SET
-               thermostat_entity_id=excluded.thermostat_entity_id,
-               room_id=excluded.room_id""",
-        (entity_id, thermostat_entity_id, room_id),
+               thermostat_entity_id=NULL, room_id=excluded.room_id,
+               pauses=excluded.pauses""",
+        (entity_id, room_id, pauses),
     )
     await conn.commit()
-    return ContactSensor(entity_id, thermostat_entity_id, room_id)
+    return ContactSensor(entity_id, None, room_id, str(pauses))
 
 
 async def delete_contact(conn: aiosqlite.Connection, entity_id: str) -> bool:
@@ -378,9 +391,11 @@ class OpeningMonitor:
                 room = rooms.get(c.room_id)
                 if room is None:  # pragma: no cover - the FK cascade removes these
                     continue
-                watched[c.entity_id] = _Watched(
-                    c.entity_id, "room", c.room_id, room.thermostat_entity_id
-                )
+                tid = room.thermostat_entity_id
+                if c.pauses == "zone":
+                    watched[c.entity_id] = _Watched(c.entity_id, "zone", tid, tid)
+                else:
+                    watched[c.entity_id] = _Watched(c.entity_id, "room", c.room_id, tid)
             else:
                 tid = str(c.thermostat_entity_id)
                 watched[c.entity_id] = _Watched(c.entity_id, "zone", tid, tid)
