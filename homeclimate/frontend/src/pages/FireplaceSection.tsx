@@ -71,16 +71,26 @@ function FireplaceCard({
   fireplace: f,
   rooms,
   busy,
+  attempt,
   onSave,
   onRemove,
 }: {
   fireplace: Fireplace;
   rooms: Room[];
   busy: boolean;
+  /** Bumped when a save is refused: drafts go back to what is stored. */
+  attempt: number;
   onSave: (id: string, data: FireplaceWrite) => void;
   onRemove: (f: Fireplace) => void;
 }) {
   const [name, setName] = useState(f.name);
+  const [shown, setShown] = useState({ name: f.name, attempt });
+  if (shown.name !== f.name || shown.attempt !== attempt) {
+    // The stored name changed, or a save was refused: show what is stored
+    // (adjust during render, keyed on content).
+    setShown({ name: f.name, attempt });
+    setName(f.name);
+  }
   const ignored = f.control === "off";
   return (
     <div className="fireplace-card" role="group" aria-label={f.name}>
@@ -150,6 +160,7 @@ function FireplaceCard({
         <div className="field-stack">
           <span className="field-label">Cool-Down After It Goes Out</span>
           <MinutesInput
+            key={attempt}
             value={f.cooldown_min}
             min={0}
             max={COOLDOWN_MAX_MIN}
@@ -359,8 +370,9 @@ export default function FireplaceSection() {
       )}
       {data.fireplaces.map((f) => (
         <FireplaceCard
-          key={`${f.id}:${f.name}:${attempt}`}
+          key={f.id}
           fireplace={f}
+          attempt={attempt}
           rooms={rooms}
           busy={busy}
           onSave={(id, body) =>

@@ -1367,7 +1367,7 @@ class Scheduler:
         rooms = {r.id: r for r in await db.get_all_rooms(self._db_conn)}
         for note in notes:
             f = note.fireplace
-            names = ", ".join(sorted(rooms[r].name for r in f.room_ids if r in rooms))
+            names = ", ".join(sorted(rooms[r].name for r in f.room_ids if r in rooms)) or "no rooms"
             acting = f.control == "on"
             hold_h = fireplace.SIGNAL_LOST_HOLD.total_seconds() / 3600
             message = {

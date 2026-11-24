@@ -379,3 +379,47 @@ async def test_changes_apply_without_a_logger_or_a_running_engine(client, fake_h
         scheduler._event_logger = logger
         scheduler._engines.update(engines)
     assert scheduler._pause_for(T1)[1] == frozenset({house["great"], house["loft"]})
+
+
+async def test_a_disconnect_while_lit_is_not_a_lost_signal(client, fake_ha, house):
+    f = await _add(client, house, control="on", cooldown_min=0)
+    scheduler = client.app["scheduler"]
+    conn = await scheduler.get_db()
+    monitor = scheduler.fireplaces
+    await fake_ha.set_entity_state(RELAY, "on")
+    lit_since = monitor.statuses()[0].lit_since
+    before = await _events(client)
+    # Home Assistant restarts: the fire is still lit as far as anyone knows.
+    later = datetime.now(UTC) + timedelta(minutes=10)
+    assert await monitor.evaluate(conn, fake_ha.get_state, later, connected=False) == []
+    status = monitor.statuses()[0]
+    assert (status.state, status.signal_lost, status.setting_aside) == ("lit", False, True)
+    assert status.lit_since == lit_since  # "lit since" and the long-burn clock carry on
+    assert await _events(client) == before
+    # Still disconnected past the hold: handed back quietly, as cooling then out.
+    much_later = datetime.now(UTC) + timedelta(hours=3, minutes=1)
+    await monitor.evaluate(conn, fake_ha.get_state, much_later, connected=False)
+    assert monitor.statuses()[0].state == "out"
+    assert f["id"]
+
+
+async def test_turning_a_fireplace_off_ends_what_was_being_reported(client, fake_ha, house):
+    f = await _add(client, house, control="on", cooldown_min=0)
+    url = f"/api/fireplaces/{f['id']}"
+    await fake_ha.set_entity_state(RELAY, "on")
+    await client.put(url, json={"control": "off"})
+    await fake_ha.set_entity_state(RELAY, "off")
+    await client.put(url, json={"control": "on"})  # no stray "has cooled down"
+    await fake_ha.set_entity_state(RELAY, "on")  # a new fire is announced
+    assert await _events(client) == [
+        "Great Room Fireplace is lit; Great Room, Loft set aside",
+        "Great Room Fireplace is lit; Great Room, Loft set aside",
+    ]
+
+
+async def test_a_fireplace_whose_rooms_are_all_gone_still_logs_sensibly(client, fake_ha, house):
+    await _add(client, house, control="on", room_ids=[house["loft"]])
+    await client.post("/api/rooms", json={"name": "Loft 2", "thermostat_entity_id": T2})
+    await client.delete(f"/api/rooms/{house['loft']}")
+    await fake_ha.set_entity_state(RELAY, "on")
+    assert await _events(client) == ["Great Room Fireplace is lit; no rooms set aside"]

@@ -5456,6 +5456,10 @@ class CycleEngine:
             return False
 
         if current_temp_f > tc.max_setpoint:
+            if await self._fire_is_warming_this_zone(conn):
+                # The thermostat is reading a fire's heat (Smart Control →
+                # Fireplace). Cooling would only fight the fire.
+                return False
             await self._command_safety_bound(
                 thermo_state, "cool", tc.max_setpoint, current_temp_f, tc
             )
@@ -5466,6 +5470,16 @@ class CycleEngine:
             )
             return True
         return False
+
+    async def _fire_is_warming_this_zone(self, conn: aiosqlite.Connection) -> bool:
+        """Whether a lit fireplace has set aside any room of this zone."""
+        if self._get_fireplace_rooms is None:
+            return False
+        fire_rooms = self._get_fireplace_rooms()
+        if not fire_rooms:
+            return False
+        zone_rooms = await db.get_rooms_for_thermostat(conn, self.thermostat_entity_id)
+        return any(r.id in fire_rooms for r in zone_rooms)
 
     async def _command_safety_bound(
         self,

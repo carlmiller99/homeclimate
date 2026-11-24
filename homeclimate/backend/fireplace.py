@@ -318,34 +318,50 @@ class FireplaceMonitor:
                     "UPDATE fireplaces SET last_lit_at = ?, out_seen = 0 WHERE id = ?",
                     (int(now.timestamp()), f.id),
                 )
-            else:
+            elif lit is False:
                 self._lit_since.pop(f.id, None)
-                if lit is False and not out_seen:
+                if not out_seen:
                     out_seen = True
                     await conn.execute("UPDATE fireplaces SET out_seen = 1 WHERE id = ?", (f.id,))
             # Nobody saw it go out: hold its rooms longer than a normal cool-down.
-            lost = lit is None and not out_seen
+            unseen = lit is None and not out_seen
             hold = timedelta(minutes=f.cooldown_min)
-            until = None if last is None else last + (max(hold, SIGNAL_LOST_HOLD) if lost else hold)
+            until = (
+                None if last is None else last + (max(hold, SIGNAL_LOST_HOLD) if unseen else hold)
+            )
+            holding = until is not None and now < until
             if lit:
                 state = LIT
-            elif until is not None and now < until:
-                state = COOLING
             elif not connected:
-                # No information: keep what it was, and never call it "not reporting".
-                state = before.state if before and before.state in (OUT, UNKNOWN) else OUT
+                # No information. A fire that was lit is still lit as far as anyone
+                # knows (within the hold); otherwise keep what it was, and never
+                # call it "not reporting".
+                if unseen and holding and before is not None and before.state == LIT:
+                    state = LIT
+                elif holding:
+                    state = COOLING
+                else:
+                    state = before.state if before and before.state in (OUT, UNKNOWN) else OUT
+            elif holding:
+                state = COOLING
             else:
                 state = UNKNOWN if lit is None else OUT
+            if state != LIT:
+                self._lit_since.pop(f.id, None)
             status = Status(
                 f,
                 state,
                 self._lit_since.get(f.id),
                 until if state == COOLING else None,
-                signal_lost=lost and state == COOLING,
+                # A lost signal is only a finding while Home Assistant is connected.
+                signal_lost=connected and unseen and state == COOLING,
             )
             seen[f.id] = status
             if f.control != "off":
                 notes.extend(self._notes(before, status, now))
+            else:
+                # Ignored fireplaces have no fire in progress to report on later.
+                self._episode.pop(f.id, None)
         await conn.commit()
         for gone in set(self._lit_since) - set(seen):
             del self._lit_since[gone]

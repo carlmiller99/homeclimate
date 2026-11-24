@@ -217,6 +217,16 @@ describe("Fireplace section", () => {
     fireEvent.blur(within(card).getByLabelText("Name"));
     await waitFor(() => expect(fp.saveFireplace).toHaveBeenLastCalledWith("f1", { name: "Stove" }));
     expect(await screen.findByRole("group", { name: "Stove" })).toBeInTheDocument();
+    // The card is the same one: its details stay as the user left them.
+    expect(within(card).getByLabelText("Name")).toHaveValue("Stove");
+
+    // A refused rename puts the stored name back.
+    vi.mocked(fp.saveFireplace).mockRejectedValueOnce(new Error("Another fireplace has it"));
+    await waitFor(() => expect(within(card).getByLabelText("Name")).not.toBeDisabled());
+    fireEvent.change(within(card).getByLabelText("Name"), { target: { value: "Taken" } });
+    fireEvent.blur(within(card).getByLabelText("Name"));
+    expect(await screen.findByText("Another fireplace has it")).toBeInTheDocument();
+    expect(within(card).getByLabelText("Name")).toHaveValue("Stove");
   });
 
   it("puts back what is stored when a save is refused", async () => {
