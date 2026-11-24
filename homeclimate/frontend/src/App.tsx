@@ -435,23 +435,63 @@ function SettingsDropdown() {
   );
 }
 
+/** One list drives both the desktop links and the mobile menu. */
+export const NAV_ITEMS: { to: string; label: string; end?: boolean }[] = [
+  { to: "/", label: "Dashboard", end: true },
+  { to: "/rooms", label: "Rooms" },
+  { to: "/schedules", label: "Schedules" },
+  { to: "/thermostats", label: "Thermostats" },
+  { to: "/metrics", label: "Metrics" },
+  { to: "/logs", label: "Logs" },
+  { to: "/settings", label: "Settings" },
+];
+
+function BrandMark() {
+  return (
+    <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true">
+      <rect className="brand-mark-bg" x="2" y="2" width="24" height="24" rx="8" />
+      <path
+        d="M8 17c2-3 4-3 6 0s4 3 6 0"
+        stroke="#E8892B"
+        strokeWidth="2.2"
+        fill="none"
+        strokeLinecap="round"
+      />
+      <path
+        d="M8 11c2-3 4-3 6 0s4 3 6 0"
+        stroke="#6FA7D6"
+        strokeWidth="2.2"
+        fill="none"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 function Nav() {
   const [open, setOpen] = useState(false);
   const { devMode } = useDevMode();
   const close = () => setOpen(false);
+  const links = NAV_ITEMS.map((item) => (
+    <NavLink key={item.to} to={item.to} end={item.end} onClick={close}>
+      {item.label}
+    </NavLink>
+  ));
 
   return (
     <nav className="nav">
       {/* Always-visible top row */}
       <NavLink to="/" end className="nav-brand" style={{ textDecoration: "none" }}>
-        <span className="nav-icon">🌡</span>
+        <span className="nav-icon">
+          <BrandMark />
+        </span>
         HomeClimate
         <span
           className="nav-version"
           style={{
             fontSize: ".65rem",
             opacity: 0.45,
-            marginLeft: ".4rem",
+            marginLeft: ".1rem",
             fontWeight: 400,
             letterSpacing: 0,
           }}
@@ -461,36 +501,14 @@ function Nav() {
       </NavLink>
 
       {/* Desktop links */}
-      <div className="nav-links nav-links-desktop">
-        <NavLink to="/" end onClick={close}>
-          Dashboard
-        </NavLink>
-        <NavLink to="/rooms" onClick={close}>
-          Rooms
-        </NavLink>
-        <NavLink to="/schedules" onClick={close}>
-          Schedules
-        </NavLink>
-        <NavLink to="/thermostats" onClick={close}>
-          Thermostats
-        </NavLink>
-        <NavLink to="/metrics" onClick={close}>
-          Metrics
-        </NavLink>
-        <NavLink to="/logs" onClick={close}>
-          Logs
-        </NavLink>
-        <NavLink to="/settings" onClick={close}>
-          Settings
-        </NavLink>
-        {devMode && (
-          <NavLink to="/dev" onClick={close} className="nav-dev-link">
-            🛠 Dev Mode
-          </NavLink>
-        )}
-      </div>
+      <div className="nav-links nav-links-desktop">{links}</div>
 
       <div className="nav-right">
+        {devMode && (
+          <NavLink to="/dev" onClick={close} className="nav-dev-pill">
+            Dev Mode On
+          </NavLink>
+        )}
         <SettingsDropdown />
         {/* Hamburger — mobile only */}
         <button
@@ -503,36 +521,7 @@ function Nav() {
       </div>
 
       {/* Mobile dropdown */}
-      {open && (
-        <div className="nav-mobile-menu">
-          <NavLink to="/" end onClick={close}>
-            Dashboard
-          </NavLink>
-          <NavLink to="/rooms" onClick={close}>
-            Rooms
-          </NavLink>
-          <NavLink to="/schedules" onClick={close}>
-            Schedules
-          </NavLink>
-          <NavLink to="/thermostats" onClick={close}>
-            Thermostats
-          </NavLink>
-          <NavLink to="/metrics" onClick={close}>
-            Metrics
-          </NavLink>
-          <NavLink to="/logs" onClick={close}>
-            Logs
-          </NavLink>
-          <NavLink to="/settings" onClick={close}>
-            Settings
-          </NavLink>
-          {devMode && (
-            <NavLink to="/dev" onClick={close}>
-              🛠 Dev Mode
-            </NavLink>
-          )}
-        </div>
-      )}
+      {open && <div className="nav-mobile-menu">{links}</div>}
     </nav>
   );
 }

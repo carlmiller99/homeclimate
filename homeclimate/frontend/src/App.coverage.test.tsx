@@ -460,23 +460,21 @@ describe("confirm modals", () => {
 // ---------------------------------------------------------------------------
 
 describe("Nav", () => {
-  it("offers the Dev Mode link in the mobile menu too when dev mode is on", async () => {
+  it("shows the Dev Mode pill outside the mobile menu, and menu links close the menu", async () => {
     vi.mocked(api.getSystemStatus).mockResolvedValue({ enabled: true, dev_mode: true });
     const { container } = renderApp();
     await screen.findByLabelText(/Settings/i);
 
-    fireEvent.click(screen.getByLabelText(/Toggle menu/i));
-    // The Dev Mode entry only appears once the getSystemStatus fetch resolves
-    // with dev_mode: true, which lands after the nav itself renders — so poll
-    // for it rather than reading the menu synchronously.
-    const devLink = await waitFor(() => {
-      const menu = container.querySelector(".nav-mobile-menu") as HTMLElement;
-      return within(menu).getByRole("link", { name: /Dev Mode/i });
-    });
-    expect(devLink).toHaveAttribute("href", "/dev");
+    // The pill sits in the always-visible nav row, so it is reachable on a
+    // phone without opening the menu.
+    const pill = await screen.findByRole("link", { name: "Dev Mode On" });
+    expect(pill).toHaveAttribute("href", "/dev");
+    expect(container.querySelector(".nav-right")).toContainElement(pill);
 
-    // Following it navigates and closes the menu.
-    fireEvent.click(devLink);
+    fireEvent.click(screen.getByLabelText(/Toggle menu/i));
+    const menu = container.querySelector(".nav-mobile-menu") as HTMLElement;
+    expect(within(menu).queryByRole("link", { name: /Dev Mode/i })).toBeNull();
+    fireEvent.click(within(menu).getByRole("link", { name: "Logs" }));
     await waitFor(() => expect(container.querySelector(".nav-mobile-menu")).toBeNull());
   });
 

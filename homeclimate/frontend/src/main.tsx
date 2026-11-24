@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router";
 import App from "./App";
 import { installIosZoomGuard } from "./iosZoomGuard";
+import "@fontsource-variable/instrument-sans";
 import "./styles.css";
 
 // Stop iOS from auto-zooming the viewport when a sub-16px form control is
