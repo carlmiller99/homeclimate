@@ -229,26 +229,33 @@ CREATE TABLE IF NOT EXISTS room_shades (
     closed_position INTEGER
 );
 
--- HomeClimate Smart Learning: one row per room every few minutes, whatever the
+-- Smart Learning: one reading per room every few minutes, whatever the
 -- system is doing, so a room's idle behaviour can be learned (backend/learning.py).
--- Temperatures are °F. Rows are kept after a room is deleted and age out.
-CREATE TABLE IF NOT EXISTS room_samples (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    ts TEXT NOT NULL,
-    room_id TEXT NOT NULL,
-    thermostat_entity_id TEXT NOT NULL,
-    room_temp REAL,
-    zone_temp REAL,
-    outside_temp REAL,
-    hvac_action TEXT NOT NULL,
-    aux_heat INTEGER NOT NULL DEFAULT 0,
-    vent_open REAL,
-    zone_vent_open REAL,
-    occupied INTEGER,
-    opening INTEGER NOT NULL DEFAULT 0
+-- Stored compactly because it is the largest table: text values (room ids,
+-- thermostat entity ids, hvac actions) are numbered once in room_reading_keys,
+-- ts is Unix seconds, temperatures are hundredths of a °F and vent openness is
+-- thousandths. NULL means unknown. Rows are kept after a room is deleted and age out.
+CREATE TABLE IF NOT EXISTS room_reading_keys (
+    key INTEGER PRIMARY KEY,
+    kind TEXT NOT NULL CHECK (kind IN ('room', 'zone', 'action')),
+    value TEXT NOT NULL,
+    UNIQUE (kind, value)
 );
-CREATE INDEX IF NOT EXISTS idx_room_samples_room_ts ON room_samples(room_id, ts);
-CREATE INDEX IF NOT EXISTS idx_room_samples_ts ON room_samples(ts);
+CREATE TABLE IF NOT EXISTS room_readings (
+    room_key INTEGER NOT NULL,
+    ts INTEGER NOT NULL,
+    zone_key INTEGER NOT NULL,
+    action_key INTEGER NOT NULL,
+    room_temp INTEGER,
+    zone_temp INTEGER,
+    outside_temp INTEGER,
+    aux_heat INTEGER NOT NULL DEFAULT 0,
+    vent_open INTEGER,
+    zone_vent_open INTEGER,
+    occupied INTEGER,
+    opening INTEGER,
+    PRIMARY KEY (room_key, ts)
+) WITHOUT ROWID;
 
 -- HomeClimate heat pumps: each backup (aux) heat episode seen on a zone's
 -- equipment-running source, for Metrics.

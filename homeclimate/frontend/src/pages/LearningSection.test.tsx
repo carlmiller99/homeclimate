@@ -25,6 +25,7 @@ function data(over: Partial<la.Learning> = {}): la.Learning {
     settings: { sampling_enabled: true, sample_retention_days: 60 },
     samples: 3600,
     collecting_since: "2026-01-01T00:00:00+00:00",
+    last_sample_at: "2026-01-13T12:00:00+00:00",
     sample_every_min: 5,
     checked_at: "2026-01-13T12:00:00+00:00",
     rooms: [
@@ -68,14 +69,14 @@ describe("Smart Learning section", () => {
     expect(toggle).toBeChecked();
     expect(screen.getByText(/every 5 minutes/)).toBeInTheDocument();
     expect(screen.getByLabelText("Keep Room Data For")).toHaveValue(60);
-    expect(screen.getByText(/about two weeks of readings/)).toBeInTheDocument();
+    expect(screen.getByText(/How much each room has recorded so far/)).toBeInTheDocument();
+    expect(screen.getByText(/Last reading/)).toBeInTheDocument();
 
     const rows = screen.getAllByRole("listitem");
     expect(rows).toHaveLength(3);
     expect(within(rows[0]).getByText("12.5 days")).toBeInTheDocument();
-    expect(rows[0]).not.toHaveClass("is-patchy");
+    expect(within(rows[0]).queryByText(/No room temperature/)).toBeNull();
     // A room whose sensors are often missing says so.
-    expect(rows[1]).toHaveClass("is-patchy");
     expect(
       within(rows[1]).getByText(
         "No room temperature in 38% of readings. Check this room's sensors."
@@ -83,7 +84,7 @@ describe("Smart Learning section", () => {
     ).toBeInTheDocument();
     // A room with nothing yet is not flagged for missing sensors.
     expect(within(rows[2]).getByText("No data yet")).toBeInTheDocument();
-    expect(rows[2]).not.toHaveClass("is-patchy");
+    expect(within(rows[2]).queryByText(/No room temperature/)).toBeNull();
   });
 
   it("turns collection off and says what happens to existing data", async () => {
@@ -93,6 +94,7 @@ describe("Smart Learning section", () => {
       expect(la.updateLearningSettings).toHaveBeenCalledWith({ sampling_enabled: false })
     );
     expect(await screen.findByText(/Collection is off/)).toBeInTheDocument();
+    expect(screen.queryByText(/How much each room/)).toBeNull();
     expect(screen.getByRole("switch", { name: "Collect Room Data" })).not.toBeChecked();
   });
 
@@ -145,6 +147,61 @@ describe("Smart Learning section", () => {
 
     fireEvent.click(toggle);
     await waitFor(() => expect(screen.queryByText("Could not save the setting")).toBeNull());
+  });
+
+  it("asks before shortening the retention, because that deletes readings", async () => {
+    render(<LearningSection />);
+    const input = await screen.findByLabelText("Keep Room Data For");
+    fireEvent.change(input, { target: { value: "30" } });
+    fireEvent.blur(input);
+    const dialog = await screen.findByText("Keep room data for 30 days?");
+    expect(
+      screen.getByText(
+        "Readings older than 30 days will be deleted within 5 minutes. This can't be undone."
+      )
+    ).toBeInTheDocument();
+    expect(la.updateLearningSettings).not.toHaveBeenCalled();
+    // Cancel puts the stored number back.
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(dialog).not.toBeInTheDocument();
+    expect(input).toHaveValue(60);
+    expect(la.updateLearningSettings).not.toHaveBeenCalled();
+
+    fireEvent.change(input, { target: { value: "45" } });
+    fireEvent.blur(input);
+    fireEvent.click(await screen.findByRole("button", { name: "Delete Older Readings" }));
+    await waitFor(() =>
+      expect(la.updateLearningSettings).toHaveBeenCalledWith({ sample_retention_days: 45 })
+    );
+    await waitFor(() => expect(input).toHaveValue(45));
+    expect(screen.queryByText("Keep room data for 45 days?")).toBeNull();
+  });
+
+  it("holds the controls while a save is in flight, and puts back a refused number", async () => {
+    let finish!: (d: la.Learning) => void;
+    vi.mocked(la.updateLearningSettings).mockReturnValueOnce(new Promise((r) => (finish = r)));
+    render(<LearningSection />);
+    const toggle = await screen.findByRole("switch", { name: "Collect Room Data" });
+    const input = screen.getByLabelText("Keep Room Data For");
+    fireEvent.click(toggle);
+    await waitFor(() => expect(input).toBeDisabled());
+    fireEvent.click(toggle); // ignored: one save at a time
+    expect(la.updateLearningSettings).toHaveBeenCalledTimes(1);
+    finish(data({ settings: { sampling_enabled: false, sample_retention_days: 60 } }));
+    await waitFor(() => expect(input).not.toBeDisabled());
+
+    vi.mocked(la.updateLearningSettings).mockRejectedValueOnce(new Error("Not allowed"));
+    fireEvent.change(input, { target: { value: "90" } });
+    fireEvent.blur(input);
+    expect(await screen.findByText("Not allowed")).toBeInTheDocument();
+    expect(input).toHaveValue(60);
+  });
+
+  it("leaves out the last-reading time before anything is recorded", async () => {
+    vi.mocked(la.getLearning).mockResolvedValue(data({ last_sample_at: null }));
+    render(<LearningSection />);
+    await screen.findByText(/How much each room/);
+    expect(screen.queryByText(/Last reading/)).toBeNull();
   });
 
   it("says so when it cannot load", async () => {

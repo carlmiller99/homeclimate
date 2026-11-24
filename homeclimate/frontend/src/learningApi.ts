@@ -20,6 +20,7 @@ export interface Learning {
   settings: LearningSettings;
   samples: number;
   collecting_since: string | null;
+  last_sample_at: string | null;
   sample_every_min: number;
   checked_at: string;
   rooms: LearningRoom[];

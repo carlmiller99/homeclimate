@@ -879,6 +879,7 @@ class LearningSchema(Schema):
     settings = fields.Nested(LearningSettingsSchema)
     samples = fields.Int()
     collecting_since = fields.Str(allow_none=True)
+    last_sample_at = fields.Str(allow_none=True)
     sample_every_min = fields.Int()
     checked_at = fields.Str()
     rooms = fields.List(fields.Nested(LearningRoomSchema))

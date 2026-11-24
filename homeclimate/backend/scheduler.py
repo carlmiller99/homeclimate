@@ -220,6 +220,7 @@ class Scheduler:
         await self._sync_engines()
         await self._load_heat_pumps()
         await self.adopt_zone_contacts()
+        await self.adopt_first_build_readings()
         # Learn which door and window sensors to watch before events arrive.
         await self._evaluate_openings()
 
@@ -245,8 +246,8 @@ class Scheduler:
         # Smart Learning: sample every room, running or idle. Read-only.
         self._apscheduler.add_job(
             self._sample_rooms,
-            "interval",
-            minutes=learning.SAMPLE_EVERY_MIN,
+            "cron",
+            minute=f"*/{learning.SAMPLE_EVERY_MIN}",
             id="room_sampler",
             max_instances=1,
             coalesce=True,
@@ -1429,12 +1430,14 @@ class Scheduler:
         return {"heat": "heating", "cool": "cooling"}.get(str(state))
 
     async def _sample_rooms(self) -> None:
-        """Store one Smart Learning sample per room, and drop the oldest."""
+        """Store one Smart Learning reading per room, and drop the oldest."""
+        now = datetime.now(UTC)
         try:
             conn = self._db_conn
             settings = await learning.get_settings(conn)
-            now = datetime.now(UTC)
-            if settings["sampling_enabled"] and self._vent_ctrl is not None:
+            # Disconnected, Home Assistant's cached states are old news: a gap
+            # in the record is honest, a stale reading with a fresh time is not.
+            if settings["sampling_enabled"] and self._vent_ctrl and self._ha.is_connected:
                 try:
                     stale = float(
                         await db.get_system_setting(
@@ -1443,25 +1446,30 @@ class Scheduler:
                     )
                 except ValueError:
                     stale = SENSOR_STALE_AFTER_MIN
-                open_rooms = frozenset(
-                    c.room_id
-                    for c in await openings.list_contacts(conn)
-                    if c.room_id and openings.classify(self._ha.get_state(c.entity_id)) == "open"
-                )
+                contacts: dict[str, list[str]] = {}
+                for c in await openings.list_contacts(conn):
+                    if c.room_id:
+                        contacts.setdefault(c.room_id, []).append(
+                            openings.classify(self._ha.get_state(c.entity_id))
+                        )
                 samples = await learning.collect(
                     conn,
                     self._ha,
                     now=now,
                     stale_after_min=stale,
-                    vent_is_open=self._vent_ctrl._is_open,
+                    vent_openness=self._vent_ctrl.openness,
                     aux_running=self.aux_heat_running,
-                    open_contact_rooms=open_rooms,
+                    contact_states=contacts,
                 )
                 await learning.store(conn, samples)
-            await learning.purge(conn, now=now, keep_days=settings["sample_retention_days"])
         except Exception:
             # Sampling must never disturb control; the next run tries again.
             log.exception("Could not sample rooms for Smart Learning")
+        try:
+            keep = (await learning.get_settings(self._db_conn))["sample_retention_days"]
+            await learning.purge(self._db_conn, now=now, keep_days=keep)
+        except Exception:
+            log.exception("Could not clear old Smart Learning readings")
 
     async def _run_shades(self) -> None:
         """Move shades for the sun, after the engines have settled their modes."""
@@ -1481,6 +1489,12 @@ class Scheduler:
                 f"{self._friendly(move.entity_id)}: {move.reason}",
                 {"shade": move.entity_id, "action": move.action},
             )
+
+    async def adopt_first_build_readings(self) -> None:
+        """Move Smart Learning readings out of the first recorder build's table."""
+        moved = await learning.adopt_first_build(self._db_conn)
+        if moved:
+            log.info("Moved %d Smart Learning readings into compact storage", moved)
 
     async def adopt_zone_contacts(self) -> None:
         """Move door and window sensors from before they belonged to rooms."""
