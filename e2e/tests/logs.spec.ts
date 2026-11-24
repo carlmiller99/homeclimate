@@ -13,7 +13,7 @@ import { test, expect } from "./fixtures";
 // cycle history.
 
 test("logs live feed", async ({ page }) => {
-  await page.goto("/logs");
+  await page.goto("/settings?section=logs");
   await page.waitForSelector(".loading", {
     state: "detached",
     timeout: 15_000,
@@ -34,7 +34,7 @@ test("logs live feed", async ({ page }) => {
 });
 
 test("logs cycle history with expanded cycle", async ({ page }) => {
-  await page.goto("/logs");
+  await page.goto("/settings?section=logs");
   await page.waitForSelector(".loading", {
     state: "detached",
     timeout: 15_000,
@@ -57,7 +57,7 @@ test("logs cycle history with expanded cycle", async ({ page }) => {
 });
 
 test("logs cycle temp-sample chart modal", async ({ page }) => {
-  await page.goto("/logs");
+  await page.goto("/settings?section=logs");
   await page.waitForSelector(".loading", {
     state: "detached",
     timeout: 15_000,
@@ -83,7 +83,7 @@ test("logs cycle temp-sample chart modal", async ({ page }) => {
 });
 
 test("logs clear-confirm modal", async ({ page }) => {
-  await page.goto("/logs");
+  await page.goto("/settings?section=logs");
   await page.waitForSelector(".loading", {
     state: "detached",
     timeout: 15_000,
@@ -103,7 +103,7 @@ test("logs clear-confirm modal", async ({ page }) => {
 });
 
 test("logs retention settings tab", async ({ page }) => {
-  await page.goto("/logs");
+  await page.goto("/settings?section=logs");
   await page.waitForSelector(".loading", {
     state: "detached",
     timeout: 15_000,

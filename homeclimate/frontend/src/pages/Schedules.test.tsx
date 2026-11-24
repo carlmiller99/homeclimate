@@ -952,10 +952,6 @@ describe("Schedules Page — temporary holds (#576)", () => {
     expect(card).toHaveTextContent("75.0°F");
     expect(card).toHaveTextContent("ends in 1h 30m");
     expect(card).toHaveTextContent("ignores Eco");
-    expect(within(card).getByRole("button", { name: "Manage hold" })).toBeInTheDocument();
-    expect(within(card).getByRole("button", { name: "Cancel hold" })).toBeInTheDocument();
-    // While a hold is live the footer entry point gives way to the card.
-    expect(screen.queryByText(/Set temporary hold/)).not.toBeInTheDocument();
   });
 
   it("labels an Eco-opted-in hold as relaxable", async () => {
@@ -968,67 +964,25 @@ describe("Schedules Page — temporary holds (#576)", () => {
     expect(card).not.toHaveTextContent("ignores Eco");
   });
 
-  it("cancels the hold from the card and refetches the holds", async () => {
-    // First fetch carries the hold; the post-cancel refetch comes back empty.
-    vi.mocked(api.getOverrides).mockResolvedValueOnce([makeHold()]).mockResolvedValue([]);
-    vi.mocked(api.clearOverride).mockResolvedValue({});
+  it("is a notice only: holds are set, changed and cancelled on the Dashboard", async () => {
     render(<Schedules />);
     fireEvent.click(await screen.findByText("Living Room"));
 
     const card = await screen.findByTestId("hold-card-room-1");
-    fireEvent.click(within(card).getByRole("button", { name: "Cancel hold" }));
-
-    await waitFor(() => {
-      expect(api.clearOverride).toHaveBeenCalledWith("room-1");
-    });
-    // The refetch clears the card and the footer entry point returns.
-    await waitFor(() => {
-      expect(screen.queryByTestId("hold-card-room-1")).not.toBeInTheDocument();
-    });
-    expect(api.getOverrides).toHaveBeenCalledTimes(2);
-    expect(screen.getByText(/Set temporary hold/)).toBeInTheDocument();
+    expect(card).toHaveTextContent("Change or cancel it from the Dashboard.");
+    expect(within(card).queryByRole("button")).toBeNull();
+    expect(screen.queryByText(/Set temporary hold/)).not.toBeInTheDocument();
+    expect(api.clearOverride).not.toHaveBeenCalled();
   });
 
-  it("surfaces a cancel failure without dropping the card", async () => {
-    vi.mocked(api.clearOverride).mockRejectedValue(new Error("Room not found"));
-    render(<Schedules />);
-    fireEvent.click(await screen.findByText("Living Room"));
-
-    const card = await screen.findByTestId("hold-card-room-1");
-    fireEvent.click(within(card).getByRole("button", { name: "Cancel hold" }));
-
-    expect(await screen.findByText("Room not found")).toBeInTheDocument();
-    expect(screen.getByTestId("hold-card-room-1")).toBeInTheDocument();
-  });
-
-  it("offers Set temporary hold in the footer when no hold exists and opens the modal", async () => {
+  it("shows no hold card, and no hold control, for a room without a hold", async () => {
     vi.mocked(api.getOverrides).mockResolvedValue([]);
     render(<Schedules />);
     fireEvent.click(await screen.findByText("Living Room"));
 
+    await screen.findByText(/Add schedule block/);
     expect(screen.queryByTestId("hold-card-room-1")).not.toBeInTheDocument();
-    fireEvent.click(await screen.findByText(/Set temporary hold/));
-
-    expect(screen.getByTestId("hold-modal")).toBeInTheDocument();
-    // Scoped to the room whose footer it was opened from.
-    expect(screen.getByLabelText("Room")).toHaveValue("room-1");
-
-    // Close puts the page back without any API call.
-    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByText(/Set temporary hold/)).not.toBeInTheDocument();
     expect(screen.queryByTestId("hold-modal")).not.toBeInTheDocument();
-    expect(api.setOverride).not.toHaveBeenCalled();
-  });
-
-  it("opens the modal in replace mode from Manage hold", async () => {
-    render(<Schedules />);
-    fireEvent.click(await screen.findByText("Living Room"));
-
-    const card = await screen.findByTestId("hold-card-room-1");
-    fireEvent.click(within(card).getByRole("button", { name: "Manage hold" }));
-
-    expect(screen.getByTestId("hold-modal")).toBeInTheDocument();
-    // The shared modal sees the live hold, so it offers replace + cancel.
-    expect(screen.getByText("Temporary hold active")).toBeInTheDocument();
-    expect(screen.getByTestId("hold-modal-cancel-hold")).toBeInTheDocument();
   });
 });

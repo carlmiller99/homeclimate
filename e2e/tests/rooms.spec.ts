@@ -1,20 +1,20 @@
 import { test, expect } from "./fixtures";
+import { openRoomSettings } from "./my-home";
 
-test("rooms list", async ({ page }) => {
-  await page.goto("/rooms");
+test("my home — buildings, zones and rooms", async ({ page }) => {
+  await page.goto("/my-home");
   await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
   await page.waitForLoadState("networkidle");
 
-  // No masks: the live countdown timers in the status row are frozen by the
-  // isCI flag under the CI build; live temps come from the fixed-value fake
-  // sensors so they're already stable. See issue #182.
+  // No masks: the room cards show hardware only, and their live values come
+  // from the fixed-value fake sensors, so they are already stable. See #182.
   await expect(page).toHaveScreenshot("rooms.png", {
     fullPage: true,
   });
 });
 
 test("room detail — Living Room", async ({ page }) => {
-  await page.goto("/rooms");
+  await page.goto("/my-home");
   await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
   await page.waitForLoadState("networkidle");
 
@@ -31,11 +31,13 @@ test("room detail — Living Room", async ({ page }) => {
 });
 
 test("room delete confirmation dialog", async ({ page }) => {
-  await page.goto("/rooms");
+  await page.goto("/my-home");
   await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
   await page.waitForLoadState("networkidle");
 
-  await page.getByRole("button", { name: "Delete" }).first().click();
+  // Delete lives on the Room Settings page, not on the card.
+  await openRoomSettings(page, "Living Room");
+  await page.getByRole("button", { name: "Delete Room" }).click();
   const dialog = page.getByTestId("confirm-dialog");
   await expect(dialog).toBeVisible();
   // Scope to the message <p>, not the whole dialog — the modal title

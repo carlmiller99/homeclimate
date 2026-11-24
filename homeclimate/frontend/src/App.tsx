@@ -1,19 +1,14 @@
 import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { NAV_ITEMS } from "./nav";
-import { Route, Routes, NavLink } from "react-router";
+import { Navigate, Route, Routes, NavLink } from "react-router";
 import Dashboard from "./pages/Dashboard";
-import Rooms from "./pages/Rooms";
-import Schedules from "./pages/Schedules";
-import Thermostats from "./pages/Thermostats";
-import Zones from "./pages/Zones";
+import MyHome from "./pages/Rooms";
 import ImportFromHA from "./pages/ImportFromHA";
 import SmartControl from "./pages/SmartControl";
 import Settings from "./pages/Settings";
-import Logs from "./pages/Logs";
 // Lazy-loaded so recharts (~400 KB) only ships when /metrics is opened.
 // (Issue #85 Phase 5e — keeps the dashboard / rooms / etc. pages snappy.)
 const Metrics = lazy(() => import("./pages/Metrics"));
-import DevMode from "./pages/DevMode";
 import Login from "./pages/Login";
 import {
   getSystemStatus,
@@ -276,8 +271,6 @@ function AppRoot({ children }: { children: React.ReactNode }) {
 // Nav + SettingsDropdown
 // ---------------------------------------------------------------------------
 
-type ConfirmKind = "system" | "devmode";
-
 const THEME_CYCLE: Record<Theme, Theme> = { system: "light", light: "dark", dark: "system" };
 const THEME_LABEL: Record<Theme, string> = {
   system: "🖥 Theme: System",
@@ -287,11 +280,10 @@ const THEME_LABEL: Record<Theme, string> = {
 
 function SettingsDropdown() {
   const { enabled, toggle } = useSystem();
-  const { devMode, toggleDevMode } = useDevMode();
   const { theme, setTheme } = useTheme();
   const { requireAuth, method, logout } = useAuth();
   const [open, setOpen] = useState(false);
-  const [confirm, setConfirm] = useState<ConfirmKind | null>(null);
+  const [confirm, setConfirm] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -307,21 +299,15 @@ function SettingsDropdown() {
 
   const handleSystemClick = () => {
     setOpen(false);
-    setConfirm("system");
-  };
-
-  const handleDevModeClick = () => {
-    setOpen(false);
-    setConfirm("devmode");
+    setConfirm(true);
   };
 
   const handleConfirm = () => {
-    if (confirm === "system") toggle();
-    else if (confirm === "devmode") toggleDevMode();
-    setConfirm(null);
+    toggle();
+    setConfirm(false);
   };
 
-  const handleCancel = () => setConfirm(null);
+  const handleCancel = () => setConfirm(false);
 
   return (
     <div className="settings-dropdown" ref={ref}>
@@ -342,9 +328,7 @@ function SettingsDropdown() {
             />
             {enabled ? "System On" : "System Off"}
           </button>
-          <button className="settings-menu-item" onClick={handleDevModeClick}>
-            🛠 {devMode ? "Dev On" : "Dev Off"}
-          </button>
+          {/* Dev Mode is switched from Settings → Dev Mode. */}
           <button
             className="settings-menu-item"
             title="Cycle the UI theme (System follows your browser/OS preference)"
@@ -388,7 +372,7 @@ function SettingsDropdown() {
         </div>
       )}
 
-      {confirm === "system" && (
+      {confirm && (
         <div
           className="modal-backdrop"
           onClick={(e) => e.target === e.currentTarget && handleCancel()}
@@ -399,30 +383,6 @@ function SettingsDropdown() {
               {enabled
                 ? "When system is disabled, all active cycles are terminated and all vents open."
                 : "When system is enabled, control will resume and cycles will restart based on current settings."}
-            </p>
-            <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={handleCancel}>
-                Cancel
-              </button>
-              <button className="btn btn-primary" onClick={handleConfirm}>
-                Confirm
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {confirm === "devmode" && (
-        <div
-          className="modal-backdrop"
-          onClick={(e) => e.target === e.currentTarget && handleCancel()}
-        >
-          <div className="modal">
-            <div className="modal-title">Developer Mode</div>
-            <p>
-              {devMode
-                ? "When disabled, the system will resume normal operation and control thermostats and vents directly."
-                : "When enabled, the system runs but logs all actions instead of actually controlling thermostats and vents. No Home Assistant changes will be made. This is useful for testing and simulation."}
             </p>
             <div className="modal-footer">
               <button className="btn btn-secondary" onClick={handleCancel}>
@@ -498,7 +458,7 @@ function Nav() {
 
       <div className="nav-right">
         {devMode && (
-          <NavLink to="/dev" onClick={close} className="nav-dev-pill">
+          <NavLink to="/settings?section=dev-mode" onClick={close} className="nav-dev-pill">
             Dev Mode On
           </NavLink>
         )}
@@ -533,12 +493,16 @@ export default function App() {
           <EcoSuspendBanner />
           <Routes>
             <Route path="/" element={<Dashboard />} />
-            <Route path="/rooms" element={<Rooms />} />
-            <Route path="/schedules" element={<Schedules />} />
-            <Route path="/thermostats" element={<Thermostats />} />
-            <Route path="/zones" element={<Zones />} />
+            <Route path="/my-home" element={<MyHome />} />
+            <Route path="/rooms" element={<Navigate to="/my-home" replace />} />
+            <Route path="/zones" element={<Navigate to="/my-home" replace />} />
+            <Route path="/thermostats" element={<Navigate to="/my-home" replace />} />
             <Route path="/import" element={<ImportFromHA />} />
             <Route path="/smart-control" element={<SmartControl />} />
+            <Route
+              path="/schedules"
+              element={<Navigate to="/smart-control?section=schedules" replace />}
+            />
             <Route
               path="/metrics"
               element={
@@ -553,9 +517,9 @@ export default function App() {
                 </Suspense>
               }
             />
-            <Route path="/logs" element={<Logs />} />
             <Route path="/settings" element={<Settings />} />
-            <Route path="/dev" element={<DevMode />} />
+            <Route path="/logs" element={<Navigate to="/settings?section=logs" replace />} />
+            <Route path="/dev" element={<Navigate to="/settings?section=dev-mode" replace />} />
           </Routes>
         </main>
       </AppRoot>

@@ -1,5 +1,6 @@
 import { HP_DEFAULTS } from "../zoneFixtures";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as api from "../api";
 import * as sc from "../smartControlApi";
@@ -11,8 +12,13 @@ vi.mock("../smartControlApi", async (orig) => ({
   getSmartControl: vi.fn(),
   updateOpeningSettings: vi.fn(),
   setOpeningOverride: vi.fn(),
-  saveContactSensor: vi.fn(),
-  deleteContactSensor: vi.fn(),
+}));
+// Both have their own suites; here they only need to show where they render.
+vi.mock("./Schedules", () => ({ default: () => <p>schedules page</p> }));
+vi.mock("./ShadesSection", () => ({
+  default: ({ rooms }: { rooms: { name: string }[] }) => (
+    <p>shades for {rooms.map((r) => r.name).join(", ")}</p>
+  ),
 }));
 vi.mock("../zonesApi", async (orig) => ({
   ...(await orig<typeof import("../zonesApi")>()),
@@ -22,7 +28,6 @@ vi.mock("../zonesApi", async (orig) => ({
 vi.mock("../api", async (orig) => ({
   ...(await orig<typeof import("../api")>()),
   getRooms: vi.fn(),
-  getHAEntities: vi.fn(),
 }));
 
 const NOW = Date.parse("2026-01-05T12:10:00Z");
@@ -62,6 +67,7 @@ function data(overrides: Partial<sc.SmartControl> = {}): sc.SmartControl {
         state: "open",
         open_since: "2026-01-05T12:04:00Z",
         pausing: true,
+        pauses: "room" as const,
       },
       {
         entity_id: "binary_sensor.porch_door",
@@ -71,6 +77,7 @@ function data(overrides: Partial<sc.SmartControl> = {}): sc.SmartControl {
         state: "closed",
         open_since: null,
         pausing: false,
+        pauses: "room" as const,
       },
       {
         entity_id: "binary_sensor.bunk_window",
@@ -80,6 +87,7 @@ function data(overrides: Partial<sc.SmartControl> = {}): sc.SmartControl {
         state: "offline",
         open_since: null,
         pausing: false,
+        pauses: "room" as const,
       },
     ],
     paused: [],
@@ -104,9 +112,6 @@ beforeEach(() => {
     room("r2", "Great Room", "climate.north"),
     room("r3", "Bunk Room", "climate.up"),
   ]);
-  vi.mocked(api.getHAEntities).mockResolvedValue([
-    { entity_id: "binary_sensor.side_door", friendly_name: "Side Door" } as api.HAEntity,
-  ]);
 });
 
 afterEach(() => {
@@ -114,53 +119,73 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+function renderAt(url: string) {
+  return render(
+    <MemoryRouter initialEntries={[url]}>
+      <SmartControl />
+    </MemoryRouter>
+  );
+}
+
+const DOORS = "/smart-control?section=doors-windows";
+
 async function ready() {
-  render(<SmartControl />);
-  await screen.findByText("Front Door");
+  renderAt(DOORS);
+  await screen.findByText("North Wing");
 }
 
 describe("Smart Control", () => {
-  it("shows a loading line, then the rules, planned sections and sensors", async () => {
-    render(<SmartControl />);
-    expect(screen.getByText("Loading…")).toBeInTheDocument();
-    await screen.findByText("Front Door");
-    for (const name of sc.PLANNED_SECTIONS) expect(screen.getByText(name)).toBeInTheDocument();
-    expect(screen.getByText(sc.OPENINGS_NOTE)).toBeInTheDocument();
-    expect(screen.getByText("Open 6 Min, Pausing")).toBeInTheDocument();
-    expect(screen.getByText("Closed")).toBeInTheDocument();
-    expect(screen.getByText("Offline")).toBeInTheDocument();
-    expect(screen.getByText("Main House, climate.north")).toBeInTheDocument();
-    expect(screen.getByText("climate.up")).toBeInTheDocument();
-    expect(screen.getByLabelText("What Porch Door pauses")).toHaveValue("room:r1");
-    expect(screen.getByLabelText("What Front Door pauses")).toHaveValue("zone:climate.north");
-    expect(screen.getAllByText("Uses Defaults")).toHaveLength(2);
+  it("opens on Schedules, with the other sections in the side menu", () => {
+    renderAt("/smart-control");
+    expect(screen.getByText("schedules page")).toBeInTheDocument();
+    const nav = screen.getByRole("navigation", { name: "Smart Control sections" });
+    const schedules = within(nav).getByRole("link", { name: "Schedules" });
+    expect(schedules).toHaveAttribute("aria-current", "page");
+    expect(schedules).toHaveAttribute("href", "/smart-control?section=schedules");
+    const doors = within(nav).getByRole("link", { name: "Doors & Windows" });
+    expect(doors).not.toHaveAttribute("aria-current");
+    expect(doors).toHaveAttribute("href", "/smart-control?section=doors-windows");
+    // Planned sections are listed but are not links.
+    for (const name of sc.PLANNED_SECTIONS) {
+      expect(within(nav).getByText(name)).toBeInTheDocument();
+      expect(within(nav).queryByRole("link", { name })).toBeNull();
+    }
+    expect(within(nav).getAllByText("Planned")).toHaveLength(sc.PLANNED_SECTIONS.length);
+    expect(sc.getSmartControl).not.toHaveBeenCalled();
   });
 
-  it("switches between Doors & Windows and Shades", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
-    await ready();
-    const doors = screen.getByRole("button", { name: "Doors & Windows" });
-    expect(doors).toHaveAttribute("aria-current", "true");
-    fireEvent.click(screen.getByRole("button", { name: "Shades" }));
-    expect(await screen.findByText("Could not load shades.")).toBeInTheDocument();
-    expect(screen.queryByText(sc.OPENINGS_NOTE)).toBeNull();
-    fireEvent.click(doors);
+  it("shows a loading line, then the rules, overrides and shades", async () => {
+    renderAt(DOORS);
+    expect(screen.getByText("Loading…")).toBeInTheDocument();
+    await screen.findByText("North Wing");
+    expect(screen.queryByText("schedules page")).toBeNull();
+    expect(screen.getByRole("link", { name: "Doors & Windows" })).toHaveAttribute(
+      "aria-current",
+      "page"
+    );
     expect(screen.getByText(sc.OPENINGS_NOTE)).toBeInTheDocument();
-    vi.unstubAllGlobals();
+    expect(
+      screen.getByText(/Add door and window sensors to rooms\s+in My Home/)
+    ).toBeInTheDocument();
+    expect(screen.getByText("climate.north")).toBeInTheDocument();
+    expect(screen.getAllByText("Uses Defaults")).toHaveLength(3);
+    // Sensors themselves are edited in My Home, not here.
+    expect(screen.queryByText("Front Door")).toBeNull();
+    expect(screen.getByText("shades for Kitchen, Great Room, Bunk Room")).toBeInTheDocument();
+  });
+
+  it("says where to add zones when there are none", async () => {
+    vi.mocked(zonesApi.getZones).mockResolvedValue([]);
+    renderAt(DOORS);
+    expect(await screen.findByText("No zones yet. Add them in My Home.")).toBeInTheDocument();
   });
 
   it("reports a failed load", async () => {
     vi.mocked(sc.getSmartControl).mockRejectedValueOnce(new Error("down"));
-    render(<SmartControl />);
+    renderAt(DOORS);
     expect(
       await screen.findByText("Could not load Smart Control. Check that HomeClimate is running.")
     ).toBeInTheDocument();
-  });
-
-  it("shows an empty state", async () => {
-    vi.mocked(sc.getSmartControl).mockResolvedValue(data({ sensors: [] }));
-    render(<SmartControl />);
-    expect(await screen.findByText(/No doors or windows yet/)).toBeInTheDocument();
   });
 
   it("saves house-wide toggles and minutes", async () => {
@@ -218,93 +243,6 @@ describe("Smart Control", () => {
     vi.mocked(sc.updateOpeningSettings).mockRejectedValueOnce("x");
     fireEvent.click(screen.getByLabelText("Pause Zone When a Door or Window Is Open For"));
     expect(await screen.findByText("Could not save the setting")).toBeInTheDocument();
-  });
-
-  it("adds a door or window", async () => {
-    vi.mocked(sc.saveContactSensor).mockResolvedValue(data());
-    await ready();
-    fireEvent.click(screen.getByRole("button", { name: "Add Door or Window" }));
-    const group = screen.getByRole("group", { name: "Add Door or Window" });
-    const add = within(group).getByRole("button", { name: "Add Sensor" });
-    expect(add).toBeDisabled();
-    fireEvent.focus(within(group).getByPlaceholderText("Search doors and windows…"));
-    fireEvent.mouseDown(await within(group).findByText("Side Door"));
-    expect(within(group).getByText("binary_sensor.side_door")).toBeInTheDocument();
-    fireEvent.click(within(group).getByRole("button", { name: "Change" }));
-    fireEvent.focus(within(group).getByPlaceholderText("Search doors and windows…"));
-    fireEvent.mouseDown(await within(group).findByText("Side Door"));
-    fireEvent.change(within(group).getByRole("combobox"), {
-      target: { value: "room:r2" },
-    });
-    fireEvent.click(add);
-    await waitFor(() =>
-      expect(sc.saveContactSensor).toHaveBeenCalledWith("binary_sensor.side_door", {
-        room_id: "r2",
-      })
-    );
-    expect(screen.queryByRole("group", { name: "Add Door or Window" })).toBeNull();
-
-    fireEvent.click(screen.getByRole("button", { name: "Add Door or Window" }));
-    const again = screen.getByRole("group", { name: "Add Door or Window" });
-    fireEvent.focus(within(again).getByPlaceholderText("Search doors and windows…"));
-    fireEvent.mouseDown(await within(again).findByText("Side Door"));
-    fireEvent.change(within(again).getByRole("combobox"), {
-      target: { value: "zone:climate.up" },
-    });
-    vi.mocked(sc.saveContactSensor).mockRejectedValueOnce(new Error("Choose a door"));
-    fireEvent.click(within(again).getByRole("button", { name: "Add Sensor" }));
-    expect(await within(again).findByText("Choose a door")).toBeInTheDocument();
-    expect(sc.saveContactSensor).toHaveBeenLastCalledWith("binary_sensor.side_door", {
-      thermostat_entity_id: "climate.up",
-    });
-    vi.mocked(sc.saveContactSensor).mockRejectedValueOnce(1);
-    fireEvent.click(within(again).getByRole("button", { name: "Add Sensor" }));
-    expect(await within(again).findByText("Could not add the sensor")).toBeInTheDocument();
-    fireEvent.click(within(again).getByRole("button", { name: "Cancel" }));
-    expect(screen.queryByRole("group", { name: "Add Door or Window" })).toBeNull();
-  });
-
-  it("moves and removes sensors", async () => {
-    vi.mocked(sc.saveContactSensor).mockResolvedValue(data());
-    vi.mocked(sc.deleteContactSensor).mockResolvedValue(data());
-    await ready();
-    fireEvent.change(screen.getByLabelText("What Front Door pauses"), {
-      target: { value: "room:r2" },
-    });
-    await waitFor(() =>
-      expect(sc.saveContactSensor).toHaveBeenCalledWith("binary_sensor.front_door", {
-        room_id: "r2",
-      })
-    );
-    fireEvent.change(screen.getByLabelText("What Porch Door pauses"), {
-      target: { value: "zone:climate.north" },
-    });
-    await waitFor(() =>
-      expect(sc.saveContactSensor).toHaveBeenCalledWith("binary_sensor.porch_door", {
-        thermostat_entity_id: "climate.north",
-      })
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Remove Porch Door" }));
-    await waitFor(() =>
-      expect(sc.deleteContactSensor).toHaveBeenCalledWith("binary_sensor.porch_door")
-    );
-
-    vi.mocked(sc.saveContactSensor).mockRejectedValueOnce(new Error("That room does not exist"));
-    fireEvent.change(screen.getByLabelText("What Front Door pauses"), {
-      target: { value: "room:r1" },
-    });
-    expect(await screen.findByText("That room does not exist")).toBeInTheDocument();
-    vi.mocked(sc.saveContactSensor).mockRejectedValueOnce(0);
-    fireEvent.change(screen.getByLabelText("What Front Door pauses"), {
-      target: { value: "room:r2" },
-    });
-    expect(await screen.findByText("Could not move the sensor")).toBeInTheDocument();
-    vi.mocked(sc.deleteContactSensor).mockRejectedValueOnce(new Error("Sensor not found"));
-    fireEvent.click(screen.getByRole("button", { name: "Remove Front Door" }));
-    expect(await screen.findByText("Sensor not found")).toBeInTheDocument();
-    vi.mocked(sc.deleteContactSensor).mockRejectedValueOnce(null);
-    fireEvent.click(screen.getByRole("button", { name: "Remove Front Door" }));
-    expect(await screen.findByText("Could not remove the sensor")).toBeInTheDocument();
   });
 
   it("edits zone and room overrides", async () => {
@@ -396,6 +334,7 @@ describe("Smart Control", () => {
             state: "open",
             open_since: null,
             pausing: false,
+            pauses: "room" as const,
           },
           {
             entity_id: "binary_sensor.lost",
@@ -405,51 +344,28 @@ describe("Smart Control", () => {
             state: "closed",
             open_since: null,
             pausing: false,
+            pauses: "room" as const,
           },
         ],
       })
     );
-    render(<SmartControl />);
+    renderAt(DOORS);
     expect(await screen.findByText("Zone Pause Off (Override)")).toBeInTheDocument();
     expect(screen.getAllByText("climate.empty")).toHaveLength(2);
-    expect(screen.getByText("Open")).toBeInTheDocument();
-    // A sensor whose room is unknown has no zone to show under.
-    expect(screen.queryByText("Lost Door")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Zone Pause Off (Override)" }));
     expect(screen.getByLabelText("Pause Zone for climate.empty")).not.toBeChecked();
-  });
-
-  it("refreshes open timers every 30 seconds and ignores refresh failures", async () => {
-    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
-    const { unmount } = render(<SmartControl />);
-    await act(async () => {
-      await Promise.resolve();
-    });
-    await screen.findByText("Front Door");
-    expect(sc.getSmartControl).toHaveBeenCalledTimes(1);
-    vi.mocked(sc.getSmartControl).mockRejectedValueOnce(new Error("blip"));
-    await act(async () => {
-      vi.advanceTimersByTime(30_000);
-    });
-    vi.mocked(Date.now).mockReturnValue(NOW + 60_000);
-    await act(async () => {
-      vi.advanceTimersByTime(30_000);
-    });
-    expect(sc.getSmartControl).toHaveBeenCalledTimes(3);
-    expect(await screen.findByText("Open 7 Min, Pausing")).toBeInTheDocument();
-    unmount();
   });
 
   it("ignores a load that finishes after unmount", async () => {
     let resolve: (d: sc.SmartControl) => void = () => {};
     vi.mocked(sc.getSmartControl).mockReturnValueOnce(new Promise((r) => (resolve = r)));
-    const { unmount } = render(<SmartControl />);
+    const { unmount } = renderAt(DOORS);
     unmount();
     resolve(data());
     await Promise.resolve();
     let reject: (e: Error) => void = () => {};
     vi.mocked(sc.getSmartControl).mockReturnValueOnce(new Promise((_, r) => (reject = r)));
-    const second = render(<SmartControl />);
+    const second = renderAt(DOORS);
     second.unmount();
     reject(new Error("late"));
     await Promise.resolve();

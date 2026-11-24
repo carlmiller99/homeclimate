@@ -6,8 +6,7 @@ import { test, expect, captureModal } from "./fixtures";
  * A hold pins one room at an exact temperature for 1–8 hours, taking
  * precedence over its schedules and presence, then deletes itself. Surfaces
  * covered:
- *   - the Rooms card status row (target via Override, the eco tag, the
- *     "Cancel hold" control, and the bottom-row "Manage hold" entry point),
+ *   - the Dashboard room row (the Hold badge and the "Cancel Hold" control),
  *   - the Dashboard page-level button + per-hold strip with its cancel,
  *   - the shared HoldModal in its "hold active" (replace/cancel) state.
  *
@@ -22,8 +21,8 @@ import { test, expect, captureModal } from "./fixtures";
  *
  * Kitchen is the room held here on purpose: it is the seeded idle baseline
  * (no schedule, no presence — see global-setup ROOM_DEFS), so the hold is the
- * only active state its card ever shows, and no other spec captures an
- * individual Kitchen-card golden that clearing the hold could churn.
+ * only active state its row ever shows, and no other spec captures an
+ * individual Kitchen-row golden that clearing the hold could churn.
  */
 
 const API = `${process.env.HOMECLIMATE_URL ?? "http://localhost:8099"}/api`;
@@ -74,26 +73,24 @@ test.describe.serial("Temporary hold (#576)", () => {
     }
   });
 
-  test("rooms card shows the held state with its eco tag and cancel control", async ({ page }) => {
-    await page.goto("/rooms");
+  test("dashboard room row shows the held state and its cancel control", async ({ page }) => {
+    await page.goto("/");
     await page.waitForSelector(".loading", {
       state: "detached",
       timeout: 15_000,
     });
     await page.waitForLoadState("networkidle");
 
-    const card = page.locator(".card").filter({ hasText: "Kitchen" }).first();
-    // Status row: target + source + the #576 eco tag and cancel control.
-    await expect(card).toContainText("via Override");
-    await expect(card).toContainText(HOLD_TARGET_LABEL);
-    await expect(card).toContainText("ignores Eco");
-    await expect(card.getByRole("button", { name: "Cancel hold" })).toBeVisible();
-    // The bottom-row entry point flips to manage mode while a hold is live.
-    await expect(card.getByRole("button", { name: "Manage hold" })).toBeVisible();
+    const row = page.getByTestId(`dash-room-${roomId}`);
+    await expect(row).toContainText("Kitchen");
+    // A held room carries the Hold badge and swaps Hold for Cancel Hold.
+    await expect(row.getByTitle(/temporary hold is driving this room/i)).toBeVisible();
+    await expect(row.getByRole("button", { name: "Cancel Hold" })).toBeVisible();
+    await expect(row.getByRole("button", { name: "Hold", exact: true })).toHaveCount(0);
 
-    // Element-scoped shot of just the held card. The "ends in" countdown is
-    // frozen under CI; live temp/vents come from the fixed fake sensors.
-    await expect(card).toHaveScreenshot("room-hold-card.png");
+    // Element-scoped shot of just the held row. Live temps come from the
+    // fixed fake sensors; cycle membership is frozen under CI.
+    await expect(row).toHaveScreenshot("room-hold-card.png");
   });
 
   test("dashboard lists the hold in a strip with its own cancel", async ({ page }) => {

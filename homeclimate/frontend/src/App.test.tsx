@@ -7,6 +7,11 @@ import { ecoThermostatDefaults } from "./testFixtures";
 import { MemoryRouter } from "react-router";
 
 vi.mock("./api");
+vi.mock("./zonesApi", async (orig) => ({
+  ...(await orig<typeof import("./zonesApi")>()),
+  getZones: vi.fn().mockResolvedValue([]),
+  getBuildings: vi.fn().mockResolvedValue([]),
+}));
 
 describe("App Root", () => {
   beforeEach(() => {
@@ -42,6 +47,11 @@ describe("App Root", () => {
       last_error: null,
     });
     vi.mocked(api.connectWS).mockReturnValue(() => {});
+    // Room sensor lists and readings for the per-room temperatures.
+    vi.mocked(api.getRoom).mockImplementation(
+      async (id) => ({ id, sensors: [] }) as unknown as api.Room
+    );
+    vi.mocked(api.getEntityStates).mockResolvedValue({});
     vi.mocked(api.getStatus).mockResolvedValue([]);
     vi.mocked(api.getRooms).mockResolvedValue([]);
     vi.mocked(api.getThermostats).mockResolvedValue([]);
@@ -58,10 +68,9 @@ describe("App Root", () => {
 
     expect(await screen.findByText(/Dashboard/i, { selector: ".page-title" })).toBeInTheDocument();
 
-    // Navigate to Rooms
-    const roomsLink = screen.getAllByText(/Rooms/i)[0]; // Link in nav
-    fireEvent.click(roomsLink);
-    expect(await screen.findByText(/Rooms/i, { selector: ".page-title" })).toBeInTheDocument();
+    // Navigate to My Home
+    fireEvent.click(screen.getAllByRole("link", { name: "My Home" })[0]);
+    expect(await screen.findByText("My Home", { selector: ".page-title" })).toBeInTheDocument();
   });
 
   it("memoizes the unit context so a system toggle does not rebuild it (Issue #293)", async () => {
@@ -137,49 +146,38 @@ describe("App Root", () => {
     expect(api.setSystemEnabled).not.toHaveBeenCalled();
   });
 
-  it("toggles dev mode via dropdown and confirmation", async () => {
-    vi.mocked(api.setDevModeApi).mockResolvedValue({ dev_mode: true });
+  it("turns dev mode on from Settings, then off after a confirmation", async () => {
+    vi.mocked(api.setDevModeApi).mockResolvedValueOnce({ dev_mode: true });
     render(
-      <MemoryRouter>
+      <MemoryRouter initialEntries={["/settings?section=dev-mode"]}>
         <App />
       </MemoryRouter>
     );
 
-    // Open settings dropdown
-    const gearBtn = await screen.findByLabelText(/Settings/i);
-    fireEvent.click(gearBtn);
+    // The gear menu no longer carries the switch.
+    fireEvent.click(await screen.findByLabelText("Settings"));
+    expect(await screen.findByText(/System On/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Dev O(n|ff)/)).toBeNull();
 
-    // Click the dev mode item in the dropdown
-    const devItem = await screen.findByText(/Dev Off/i);
-    fireEvent.click(devItem);
+    fireEvent.click(await screen.findByRole("button", { name: "Turn On Dev Mode" }));
+    await waitFor(() => expect(api.setDevModeApi).toHaveBeenCalledWith(true));
+    expect(await screen.findByRole("link", { name: "Dev Mode On" })).toBeInTheDocument();
 
-    // Confirmation dialog appears
-    expect(await screen.findByText(/Developer Mode/i)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Confirm/i }));
+    // Turning it off hands control back to the engine, so it asks first.
+    vi.mocked(api.setDevModeApi).mockResolvedValueOnce({ dev_mode: false });
+    fireEvent.click(await screen.findByRole("button", { name: "Turn Off Dev Mode" }));
+    expect(await screen.findByText("Turn off Dev Mode?")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(api.setDevModeApi).toHaveBeenCalledTimes(1);
 
-    await waitFor(() => {
-      expect(api.setDevModeApi).toHaveBeenCalledWith(true);
-    });
-
-    // Re-open dropdown to confirm state updated
-    fireEvent.click(gearBtn);
-    expect(await screen.findByText(/Dev On/i)).toBeInTheDocument();
-  });
-
-  it("cancels dev mode toggle when cancel is clicked", async () => {
-    render(
-      <MemoryRouter>
-        <App />
-      </MemoryRouter>
+    fireEvent.click(screen.getByRole("button", { name: "Turn Off Dev Mode" }));
+    fireEvent.click(
+      within(screen.getByTestId("confirm-dialog")).getByRole("button", {
+        name: "Turn Off Dev Mode",
+      })
     );
-
-    const gearBtn = await screen.findByLabelText(/Settings/i);
-    fireEvent.click(gearBtn);
-    fireEvent.click(await screen.findByText(/Dev Off/i));
-    expect(await screen.findByText(/Developer Mode/i)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Cancel/i }));
-
-    expect(api.setDevModeApi).not.toHaveBeenCalled();
+    await waitFor(() => expect(api.setDevModeApi).toHaveBeenCalledWith(false));
+    await waitFor(() => expect(screen.queryByRole("link", { name: "Dev Mode On" })).toBeNull());
   });
 
   it("toggles the MCP server from the Settings page and confirmation", async () => {
@@ -198,6 +196,7 @@ describe("App Root", () => {
     // The MCP toggle moved from the gear dropdown to the Settings page (#471).
     fireEvent.click(await screen.findByRole("link", { name: /Settings/i }));
     expect(await screen.findByText(/Settings/i, { selector: ".page-title" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("link", { name: "Integrations" }));
 
     // Enabling opens a short, readable confirmation modal.
     fireEvent.click(await screen.findByRole("button", { name: "Turn on" }));
@@ -271,6 +270,7 @@ describe("App Root", () => {
     );
 
     fireEvent.click(await screen.findByRole("link", { name: /Settings/i }));
+    fireEvent.click(await screen.findByRole("link", { name: "Integrations" }));
     fireEvent.click(await screen.findByRole("button", { name: "Turn on" }));
     expect(await screen.findByText(/Turn on MCP server\?/i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Cancel/i }));
@@ -310,7 +310,6 @@ describe("App Root", () => {
     await waitFor(() => expect(document.documentElement.dataset.theme).toBe("dark"));
     fireEvent.click(gearBtn);
     expect(await screen.findByText(/System Off/i)).toBeInTheDocument();
-    expect(screen.getByText(/Dev On/i)).toBeInTheDocument();
   });
 
   // --- Vacation / Eco Suspend banners stay in step (#678) ---
@@ -441,9 +440,9 @@ describe("App Root", () => {
     const mobileMenu = container.querySelector(".nav-mobile-menu");
     expect(mobileMenu).not.toBeNull();
     // Clicking a link inside the menu closes it.
-    fireEvent.click(within(mobileMenu as HTMLElement).getByText("Rooms"));
+    fireEvent.click(within(mobileMenu as HTMLElement).getByText("My Home"));
     await waitFor(() => expect(container.querySelector(".nav-mobile-menu")).toBeNull());
-    expect(await screen.findByText(/Rooms/i, { selector: ".page-title" })).toBeInTheDocument();
+    expect(await screen.findByText("My Home", { selector: ".page-title" })).toBeInTheDocument();
   });
 
   it("shows the ingress signed-in status without a Log out control", async () => {

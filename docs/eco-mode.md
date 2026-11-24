@@ -16,8 +16,8 @@ off, the engine behaves exactly as it did before this feature existed.
 ## Requires an outside-temperature sensor
 
 Eco Mode is entirely driven by the outdoor temperature, so **it cannot be turned
-on until the house-wide outside-temperature entity is configured** (set it at the
-top of the Thermostats page). The UI disables the Eco toggle until then, and the
+on until the house-wide outside-temperature entity is configured** (set it in
+**Settings → Sensors**). The UI disables the Eco toggle until then, and the
 API rejects enabling it without a sensor.
 
 If you do not have a physical outdoor thermometer in Home Assistant, add a free
@@ -242,8 +242,8 @@ you pick, then resumes automatically. Modeled on
   table (never clobbered by a config save) and a scheduler sweep clears it
   when the resume time passes.
 
-**Where:** the 🍃 buttons on the Dashboard (page level + per zone card) and the
-Thermostats page (page level + per card header), and a green 🍃 banner shown on
+**Where:** the 🍃 buttons on the Dashboard (page level + per zone card), and a
+green 🍃 banner shown on
 every page while any thermostat is suspended — click it to edit or resume
 early. The buttons only appear when Eco is actually in play: a thermostat has
 Eco enabled, a room carries an explicit per-room Eco opt-in, or a suspension

@@ -44,7 +44,7 @@ The band resolves most specific first:
 |---|---|---|
 | **Schedule block** | *Temperature drift* in the block editor | Set on the block, **and** that block is what has the room active |
 | **Room** | *Deadband override* in Room settings | The block sets none, or no block is active |
-| **Thermostat** | *Deadband* on the Thermostats page | Neither override is set |
+| **Thermostat** | *Deadband* in the zone's Thermostat Settings (My Home → Edit Zone) | Neither override is set |
 
 Unset at a level means "inherit the next one down", so a room with no override and a block with no override behave exactly as they did before either field existed. The Schedules table marks a block that carries one with a `±3°F drift` badge, so wide-band blocks are visible without opening the editor.
 

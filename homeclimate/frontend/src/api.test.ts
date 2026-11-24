@@ -268,6 +268,15 @@ describe("API Client", () => {
     );
   });
 
+  it("deleteThermostat asks for the zone's rooms to go too when told to", async () => {
+    mockJsonResponse({});
+    await api.deleteThermostat("climate.test", true);
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/thermostats/climate.test?with_rooms=true",
+      expect.objectContaining({ method: "DELETE" })
+    );
+  });
+
   it("deleteThermostat sends a DELETE request", async () => {
     mockJsonResponse({});
     await api.deleteThermostat("climate.test");

@@ -1,6 +1,6 @@
 # Shades
 
-Smart Control can move shades so the sun helps: open when a zone is heating, closed when it is cooling. Add each shade in **Smart Control → Shades → Add Shade** with its room and the direction its window faces. A shade is a `cover` that is not one of the room's vents; a cover can't be both.
+Smart Control can move shades so the sun helps: open when a zone is heating, closed when it is cooling. Add each shade in **Smart Control → Doors & Windows → Shades → Add Shade** with its room and the direction its window faces. A shade is a `cover` that is not one of the room's vents; a cover can't be both.
 
 ## When a shade moves
 
@@ -29,7 +29,7 @@ The zone's direction is its running cycle, or else the thermostat's own mode.
 
 Per shade: Window Faces (N, NE, E, SE, S, SW, W, NW), Quiet Hours Apply, Never Control This Shade, and optional Open and Closed positions (0 to 100) for shades that support a position.
 
-Each move is logged under **Logs → shades** with its reason, for example "Bunk Shade: Sunlit and cooling, so closed." Dev Mode intercepts shade commands like vent commands.
+Each move is logged under **Settings → Logs**, in the `shades` category, with its reason, for example "Bunk Shade: Sunlit and cooling, so closed." Dev Mode intercepts shade commands like vent commands.
 
 ## API
 

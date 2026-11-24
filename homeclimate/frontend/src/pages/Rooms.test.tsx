@@ -1,12 +1,26 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"; // trigger CI
-import { ecoThermostatDefaults, ecoRoomDefaults, makeHold } from "../testFixtures";
+import { ecoThermostatDefaults, ecoRoomDefaults } from "../testFixtures";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import Rooms from "./Rooms";
 import * as api from "../api";
+import * as zonesApi from "../zonesApi";
+import * as sc from "../smartControlApi";
+import { zoneFor, smartControl } from "../zoneFixtures";
 import { SystemContext, UnitContext, buildUnitContext } from "../contexts";
 
 vi.mock("../api");
+vi.mock("../zonesApi", async (orig) => ({
+  ...(await orig<typeof import("../zonesApi")>()),
+  getZones: vi.fn(),
+  getBuildings: vi.fn(),
+}));
+vi.mock("../smartControlApi", async (orig) => ({
+  ...(await orig<typeof import("../smartControlApi")>()),
+  getSmartControl: vi.fn(),
+  saveContactSensor: vi.fn(),
+  deleteContactSensor: vi.fn(),
+}));
 
 const mockThermostats: api.ThermostatConfig[] = [
   {
@@ -86,6 +100,27 @@ beforeEach(() => {
   vi.mocked(api.getHAEntities).mockResolvedValue([]);
   vi.mocked(api.getOverrides).mockResolvedValue([]);
 });
+
+// My Home reads the zone list, buildings and door/window sensors too. A zone
+// exists for every registered thermostat, as the backend guarantees.
+beforeEach(() => {
+  vi.mocked(zonesApi.getBuildings).mockResolvedValue([]);
+  vi.mocked(zonesApi.getZones).mockImplementation(async () =>
+    ((await api.getThermostats()) ?? []).map((t) => zoneFor(t.thermostat_entity_id, t.name))
+  );
+  vi.mocked(sc.getSmartControl).mockResolvedValue(smartControl() as sc.SmartControl);
+  vi.mocked(api.getSensorHealth).mockResolvedValue({ stale_after_min: 30, rooms: [] });
+});
+
+function renderPage() {
+  return render(
+    <SystemContext.Provider value={mockSystem}>
+      <MemoryRouter>
+        <Rooms />
+      </MemoryRouter>
+    </SystemContext.Provider>
+  );
+}
 
 describe("Rooms Page", () => {
   beforeEach(() => {
@@ -324,46 +359,71 @@ describe("Rooms Page", () => {
     });
   });
 
-  it("handles room deletion", async () => {
+  it("deletes a room from Room Settings after a confirmation", async () => {
     vi.mocked(api.deleteRoom).mockResolvedValue({ deleted: "room-1" });
+    renderPage();
 
-    render(
-      <SystemContext.Provider value={mockSystem}>
-        <MemoryRouter>
-          <Rooms />
-        </MemoryRouter>
-      </SystemContext.Provider>
-    );
+    // The card itself no longer carries a Delete button.
+    await screen.findByText("Living Room");
+    expect(screen.queryByRole("button", { name: /Delete/i })).toBeNull();
 
-    const deleteBtn = await screen.findByRole("button", { name: /Delete/i });
-    fireEvent.click(deleteBtn);
-
+    fireEvent.click(screen.getByRole("button", { name: "Room Settings" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Delete Room" }));
     const dialog = await screen.findByTestId("confirm-dialog");
     expect(within(dialog).getByText(/Living Room/)).toBeInTheDocument();
+    expect(api.deleteRoom).not.toHaveBeenCalled();
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
 
-    await waitFor(() => {
-      expect(api.deleteRoom).toHaveBeenCalledWith("room-1");
-    });
+    await waitFor(() => expect(api.deleteRoom).toHaveBeenCalledWith("room-1"));
+    // Back on the list, reloaded.
+    expect(await screen.findByRole("heading", { name: "My Home" })).toBeInTheDocument();
+    await waitFor(() => expect(api.getRooms).toHaveBeenCalledTimes(2));
   });
 
   it("does not delete a room when the confirmation dialog is cancelled", async () => {
-    render(
-      <SystemContext.Provider value={mockSystem}>
-        <MemoryRouter>
-          <Rooms />
-        </MemoryRouter>
-      </SystemContext.Provider>
-    );
-
-    const deleteBtn = await screen.findByRole("button", { name: /Delete/i });
-    fireEvent.click(deleteBtn);
-
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Room Settings" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Delete Room" }));
     const dialog = await screen.findByTestId("confirm-dialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
 
     expect(screen.queryByTestId("confirm-dialog")).not.toBeInTheDocument();
     expect(api.deleteRoom).not.toHaveBeenCalled();
+  });
+
+  it("explains why a zone's last room cannot be deleted", async () => {
+    vi.mocked(api.deleteRoom).mockRejectedValueOnce(
+      new Error(
+        "A zone needs at least one room. Add another room first, or delete the zone instead."
+      )
+    );
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Room Settings" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Delete Room" }));
+    fireEvent.click(
+      within(await screen.findByTestId("confirm-dialog")).getByRole("button", { name: "Delete" })
+    );
+    expect(
+      await screen.findByText(
+        "A zone needs at least one room. Add another room first, or delete the zone instead."
+      )
+    ).toBeInTheDocument();
+    // Still on the settings page, with the room intact.
+    expect(screen.getByRole("button", { name: "Delete Room" })).toBeInTheDocument();
+
+    vi.mocked(api.deleteRoom).mockRejectedValueOnce("nope");
+    fireEvent.click(screen.getByRole("button", { name: "Delete Room" }));
+    fireEvent.click(
+      within(await screen.findByTestId("confirm-dialog")).getByRole("button", { name: "Delete" })
+    );
+    expect(await screen.findByText("Could not delete the room")).toBeInTheDocument();
+  });
+
+  it("offers no Delete Room button while creating a room", async () => {
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Add Room" }));
+    expect(await screen.findByRole("button", { name: "Create room" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete Room" })).toBeNull();
   });
 
   it("navigates to configure view and manages entities", async () => {
@@ -375,7 +435,7 @@ describe("Rooms Page", () => {
       </SystemContext.Provider>
     );
 
-    const configBtn = await screen.findByRole("button", { name: /Configure sensors/i });
+    const configBtn = await screen.findByRole("button", { name: "Edit Devices" });
     fireEvent.click(configBtn);
 
     expect(await screen.findByText("Temperature Sensors")).toBeInTheDocument();
@@ -408,7 +468,7 @@ describe("Rooms Page", () => {
     expect(api.testVent).toHaveBeenCalledWith("cover.vent", "open_close", "open");
 
     // Remove vent — requires confirmation naming the entity
-    const ventSection = screen.getByText("Vents").closest("div")?.parentElement;
+    const ventSection = screen.getByText("Smart Vents").closest("div")?.parentElement;
     const removeVentBtn = within(ventSection!).getAllByTitle("Remove")[0];
     fireEvent.click(removeVentBtn);
     dialog = await screen.findByTestId("confirm-dialog");
@@ -419,9 +479,7 @@ describe("Rooms Page", () => {
     });
 
     // Remove a presence sensor — requires confirmation naming the entity
-    const presenceSection = screen
-      .getByText("Presence / Motion Sensors")
-      .closest("div")?.parentElement;
+    const presenceSection = screen.getByText("Occupancy Sensors").closest("div")?.parentElement;
     const removePresenceBtn = within(presenceSection!).getAllByTitle("Remove")[0];
     fireEvent.click(removePresenceBtn);
     dialog = await screen.findByTestId("confirm-dialog");
@@ -441,7 +499,7 @@ describe("Rooms Page", () => {
       </SystemContext.Provider>
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: /Configure sensors/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Devices" }));
     expect(await screen.findByText("Temperature Sensors")).toBeInTheDocument();
 
     const sensorSection = screen.getByText("Temperature Sensors").closest("div")?.parentElement;
@@ -450,15 +508,13 @@ describe("Rooms Page", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(screen.queryByTestId("confirm-dialog")).not.toBeInTheDocument());
 
-    const ventSection = screen.getByText("Vents").closest("div")?.parentElement;
+    const ventSection = screen.getByText("Smart Vents").closest("div")?.parentElement;
     fireEvent.click(within(ventSection!).getAllByTitle("Remove")[0]);
     dialog = await screen.findByTestId("confirm-dialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(screen.queryByTestId("confirm-dialog")).not.toBeInTheDocument());
 
-    const presenceSection = screen
-      .getByText("Presence / Motion Sensors")
-      .closest("div")?.parentElement;
+    const presenceSection = screen.getByText("Occupancy Sensors").closest("div")?.parentElement;
     fireEvent.click(within(presenceSection!).getAllByTitle("Remove")[0]);
     dialog = await screen.findByTestId("confirm-dialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
@@ -481,8 +537,8 @@ describe("Rooms Page", () => {
       </SystemContext.Provider>
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: /Configure sensors/i }));
-    await screen.findByText("Vents");
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Devices" }));
+    await screen.findByText("Smart Vents");
 
     const methodSelect = screen.getByDisplayValue(/Open \/ close/i);
     fireEvent.change(methodSelect, { target: { value: "set_position" } });
@@ -506,8 +562,8 @@ describe("Rooms Page", () => {
       </SystemContext.Provider>
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: /Configure sensors/i }));
-    await screen.findByText("Vents");
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Devices" }));
+    await screen.findByText("Smart Vents");
 
     const methodSelect = screen.getByDisplayValue(/Open \/ close/i) as HTMLSelectElement;
     fireEvent.change(methodSelect, { target: { value: "toggle" } });
@@ -528,7 +584,7 @@ describe("Rooms Page", () => {
       </SystemContext.Provider>
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: /Configure sensors/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Devices" }));
     fireEvent.click(await screen.findByText("Test close"));
 
     expect(api.testVent).toHaveBeenCalledWith("cover.vent", "open_close", "close");
@@ -549,8 +605,8 @@ describe("Rooms Page", () => {
       </SystemContext.Provider>
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: /Configure sensors/i }));
-    const picker = await screen.findByPlaceholderText(/Search motion\/presence sensors/i);
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Devices" }));
+    const picker = await screen.findByPlaceholderText(/Search occupancy and motion sensors/i);
     fireEvent.focus(picker);
     fireEvent.change(picker, { target: { value: "Motion" } });
     fireEvent.mouseDown(await screen.findByText("Motion"));
@@ -570,8 +626,8 @@ describe("Rooms Page", () => {
       </SystemContext.Provider>
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: /Configure sensors/i }));
-    fireEvent.click(await screen.findByRole("button", { name: /Edit settings/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Devices" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Room Settings" }));
 
     fireEvent.change(screen.getByLabelText(/Room name/i), { target: { value: "Renamed" } });
     fireEvent.change(screen.getByLabelText(/Presence holdover/i), { target: { value: "3" } });
@@ -606,8 +662,8 @@ describe("Rooms Page", () => {
       </SystemContext.Provider>
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: /Configure sensors/i }));
-    fireEvent.click(await screen.findByRole("button", { name: /Edit settings/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Devices" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Room Settings" }));
 
     // mockRooms[0] has no deadband_override → the field renders blank and the
     // payload carries null so the room keeps inheriting the thermostat deadband.
@@ -636,8 +692,8 @@ describe("Rooms Page", () => {
       </SystemContext.Provider>
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: /Configure sensors/i }));
-    fireEvent.click(await screen.findByRole("button", { name: /Edit settings/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Devices" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Room Settings" }));
 
     // Field initialises with the stored override (1.5°F → "1.5" in °F mode).
     const overrideInput = screen.getByLabelText(/Deadband override/i) as HTMLInputElement;
@@ -664,8 +720,8 @@ describe("Rooms Page", () => {
       </SystemContext.Provider>
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: /Configure sensors/i }));
-    fireEvent.click(await screen.findByRole("button", { name: /All rooms/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Devices" }));
+    fireEvent.click(await screen.findByRole("button", { name: /My Home/i }));
 
     // Back on the list view: the "Add Room" button is present again
     expect(await screen.findByText("Add Room")).toBeInTheDocument();
@@ -904,385 +960,6 @@ describe("Rooms Page — Celsius mode", () => {
     expect(payload.ambient_suppression_min_differential).not.toBe(3.6);
     expect(payload.ambient_suppression_deadband).toBe(2);
     expect(payload.ambient_suppression_deadband).not.toBe(3.6);
-  });
-});
-
-describe("Rooms Page — Clear presence button", () => {
-  const activePresenceStatus: api.RoomActiveStatus = {
-    room_id: "room-1",
-    source: "presence",
-    target_temp: 72,
-    ends_in_seconds: 3600,
-    override_respect_eco: null,
-    presence_holdover_active: true,
-    presence_suppressed: false,
-    next_schedule_in_seconds: null,
-    next_schedule_target: null,
-    next_schedule_label: null,
-  };
-
-  const idleStatus: api.RoomActiveStatus = {
-    room_id: "room-1",
-    source: "idle",
-    target_temp: null,
-    ends_in_seconds: null,
-    override_respect_eco: null,
-    presence_holdover_active: false,
-    presence_suppressed: false,
-    next_schedule_in_seconds: null,
-    next_schedule_target: null,
-    next_schedule_label: null,
-  };
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    vi.mocked(api.getRooms).mockResolvedValue(mockRooms);
-    vi.mocked(api.getThermostats).mockResolvedValue(mockThermostats);
-    vi.mocked(api.getRoom).mockImplementation((id: string) =>
-      Promise.resolve(mockRooms.find((r) => r.id === id) as api.Room)
-    );
-    vi.mocked(api.getEntityStates).mockResolvedValue({});
-    vi.mocked(api.getHAEntities).mockResolvedValue([]);
-  });
-
-  it("shows Clear presence button when presence_holdover_active is true", async () => {
-    vi.mocked(api.getRoomActiveStatuses).mockResolvedValue({ "room-1": activePresenceStatus });
-
-    render(
-      <SystemContext.Provider value={mockSystem}>
-        <MemoryRouter>
-          <Rooms />
-        </MemoryRouter>
-      </SystemContext.Provider>
-    );
-
-    expect(await screen.findByRole("button", { name: /Clear presence/i })).toBeInTheDocument();
-  });
-
-  it("does not show Clear presence button when presence_holdover_active is false", async () => {
-    vi.mocked(api.getRoomActiveStatuses).mockResolvedValue({ "room-1": idleStatus });
-
-    render(
-      <SystemContext.Provider value={mockSystem}>
-        <MemoryRouter>
-          <Rooms />
-        </MemoryRouter>
-      </SystemContext.Provider>
-    );
-
-    await screen.findByText("Living Room");
-    expect(screen.queryByRole("button", { name: /Clear presence/i })).not.toBeInTheDocument();
-  });
-
-  it("explains a cleared-but-still-occupied room via the suppression hint (#439)", async () => {
-    // Presence was cleared while the occupancy sensor still reads on: no
-    // presence demand (source idle, no Clear button), but the hint tells the
-    // user why instead of the page looking self-contradictory.
-    vi.mocked(api.getRoomActiveStatuses).mockResolvedValue({
-      "room-1": { ...idleStatus, presence_suppressed: true },
-    });
-
-    render(
-      <SystemContext.Provider value={mockSystem}>
-        <MemoryRouter>
-          <Rooms />
-        </MemoryRouter>
-      </SystemContext.Provider>
-    );
-
-    expect(
-      await screen.findByText(/presence cleared — ignored until the room empties/i)
-    ).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Clear presence/i })).not.toBeInTheDocument();
-  });
-
-  it("does not show the suppression hint when presence is not suppressed", async () => {
-    vi.mocked(api.getRoomActiveStatuses).mockResolvedValue({ "room-1": idleStatus });
-
-    render(
-      <SystemContext.Provider value={mockSystem}>
-        <MemoryRouter>
-          <Rooms />
-        </MemoryRouter>
-      </SystemContext.Provider>
-    );
-
-    await screen.findByText("Living Room");
-    expect(screen.queryByText(/ignored until the room empties/i)).not.toBeInTheDocument();
-  });
-
-  it("calls clearPresenceHoldover and refreshes statuses on click", async () => {
-    vi.mocked(api.getRoomActiveStatuses).mockResolvedValue({ "room-1": activePresenceStatus });
-    vi.mocked(api.clearPresenceHoldover).mockResolvedValue(undefined);
-
-    render(
-      <SystemContext.Provider value={mockSystem}>
-        <MemoryRouter>
-          <Rooms />
-        </MemoryRouter>
-      </SystemContext.Provider>
-    );
-
-    const btn = await screen.findByRole("button", { name: /Clear presence/i });
-    fireEvent.click(btn);
-
-    await waitFor(() => {
-      expect(api.clearPresenceHoldover).toHaveBeenCalledWith("room-1");
-    });
-    // Status refresh triggered — getRoomActiveStatuses called a second time
-    await waitFor(() => {
-      expect(api.getRoomActiveStatuses).toHaveBeenCalledTimes(2);
-    });
-  });
-
-  it("shows a stale-sensor badge on the room card when the API reports one (Issue #211)", async () => {
-    vi.mocked(api.getSensorHealth).mockResolvedValue({
-      stale_after_min: 30,
-      rooms: [
-        {
-          room_id: "room-1",
-          room_name: "Living Room",
-          thermostat_entity_id: "climate.test",
-          stale_sensors: [{ entity_id: "sensor.dead_battery", age_seconds: 7200, reason: "stale" }],
-        },
-      ],
-    });
-    render(
-      <SystemContext.Provider value={mockSystem}>
-        <MemoryRouter>
-          <Rooms />
-        </MemoryRouter>
-      </SystemContext.Provider>
-    );
-    const badge = await screen.findByTestId("stale-badge-room-1");
-    expect(badge).toHaveTextContent("1 stale sensor");
-    // Title attribute carries the per-sensor detail used by browsers as a tooltip.
-    expect(badge.getAttribute("title")).toContain("sensor.dead_battery");
-  });
-
-  // -------------------------------------------------------------------------
-  // Ambient-aware presence suppression / pre-cool (Issue #248, Phase 4)
-  // -------------------------------------------------------------------------
-
-  const openNewRoom = async () => {
-    fireEvent.click(await screen.findByText("Add Room"));
-    await screen.findByText("New Room", { selector: ".page-title" });
-  };
-
-  it("reveals pre-cool/pre-heat controls with worked examples when enabled", async () => {
-    vi.mocked(api.getOutsideTempEntity).mockResolvedValue({
-      entity_id: "sensor.outdoor",
-      current_value: 80,
-    });
-    render(
-      <SystemContext.Provider value={mockSystem}>
-        <MemoryRouter>
-          <Rooms />
-        </MemoryRouter>
-      </SystemContext.Provider>
-    );
-    await openNewRoom();
-
-    const toggle = await screen.findByLabelText(/pre-cool \/ pre-heat/i);
-    await waitFor(() => expect(toggle).not.toBeDisabled());
-    fireEvent.click(toggle);
-
-    // The minimum-differential field carries a concrete worked example.
-    expect(screen.getByText(/only skips heating when it is at least/i)).toBeInTheDocument();
-    // The widened-deadband control and mode select are revealed.
-    expect(screen.getByLabelText(/Widened deadband/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/When to apply/i)).toBeInTheDocument();
-  });
-
-  it("disables pre-cool/pre-heat without an outside sensor", async () => {
-    vi.mocked(api.getOutsideTempEntity).mockResolvedValue({
-      entity_id: null,
-      current_value: null,
-    });
-    render(
-      <SystemContext.Provider value={mockSystem}>
-        <MemoryRouter>
-          <Rooms />
-        </MemoryRouter>
-      </SystemContext.Provider>
-    );
-    await openNewRoom();
-
-    const toggle = await screen.findByLabelText(/pre-cool \/ pre-heat/i);
-    await waitFor(() => expect(toggle).toBeDisabled());
-    expect(screen.getByText(/Add an outside temperature sensor/i)).toBeInTheDocument();
-  });
-
-  it("blocks a widened deadband below the thermostat deadband", async () => {
-    vi.mocked(api.getOutsideTempEntity).mockResolvedValue({
-      entity_id: "sensor.outdoor",
-      current_value: 80,
-    });
-    render(
-      <SystemContext.Provider value={mockSystem}>
-        <MemoryRouter>
-          <Rooms />
-        </MemoryRouter>
-      </SystemContext.Provider>
-    );
-    await openNewRoom();
-
-    fireEvent.change(screen.getByLabelText(/Room name/i), { target: { value: "X" } });
-    fireEvent.change(screen.getByRole("combobox", { name: /Thermostat/i }), {
-      target: { value: "climate.test" },
-    });
-
-    const toggle = await screen.findByLabelText(/pre-cool \/ pre-heat/i);
-    await waitFor(() => expect(toggle).not.toBeDisabled());
-    fireEvent.click(toggle);
-
-    // Thermostat deadband is 0.5°F; 0.1 is below it -> blocked before any POST.
-    fireEvent.change(screen.getByLabelText(/Widened deadband/i), { target: { value: "0.1" } });
-    fireEvent.click(screen.getByRole("button", { name: /Create room/i }));
-
-    expect(
-      await screen.findByText(/widened deadband must be at least the thermostat's deadband/i)
-    ).toBeInTheDocument();
-    expect(api.createRoom).not.toHaveBeenCalled();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Temporary holds on the room card (Issue #576)
-// ---------------------------------------------------------------------------
-describe("Rooms Page — temporary holds (#576)", () => {
-  const overrideStatus: api.RoomActiveStatus = {
-    room_id: "room-1",
-    source: "override",
-    target_temp: 75,
-    ends_in_seconds: 5400,
-    override_respect_eco: false,
-    presence_holdover_active: false,
-    presence_suppressed: false,
-    next_schedule_in_seconds: null,
-    next_schedule_target: null,
-    next_schedule_label: null,
-  };
-
-  const idleStatus: api.RoomActiveStatus = {
-    ...overrideStatus,
-    source: "idle",
-    target_temp: null,
-    ends_in_seconds: null,
-    override_respect_eco: null,
-  };
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    vi.mocked(api.getRooms).mockResolvedValue(mockRooms);
-    vi.mocked(api.getThermostats).mockResolvedValue(mockThermostats);
-    vi.mocked(api.getRoom).mockImplementation((id: string) =>
-      Promise.resolve(mockRooms.find((r) => r.id === id) as api.Room)
-    );
-    vi.mocked(api.getRoomActiveStatuses).mockResolvedValue({ "room-1": overrideStatus });
-    vi.mocked(api.getOverrides).mockResolvedValue([makeHold()]);
-    vi.mocked(api.getEntityStates).mockResolvedValue({});
-    vi.mocked(api.getHAEntities).mockResolvedValue([]);
-  });
-
-  it("shows via Override with the Eco tag and the hold controls", async () => {
-    render(
-      <SystemContext.Provider value={mockSystem}>
-        <MemoryRouter>
-          <Rooms />
-        </MemoryRouter>
-      </SystemContext.Provider>
-    );
-
-    expect(await screen.findByText("via Override")).toBeInTheDocument();
-    // The default hold runs to its exact target — Eco never adjusts it (#419).
-    expect(screen.getByText("ignores Eco")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Cancel hold/i })).toBeInTheDocument();
-    // The bottom-row button flips from "Hold" to "Manage hold" for a held room.
-    expect(screen.getByRole("button", { name: "Manage hold" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Hold" })).not.toBeInTheDocument();
-  });
-
-  it("labels an Eco-opted-in hold as relaxable", async () => {
-    vi.mocked(api.getRoomActiveStatuses).mockResolvedValue({
-      "room-1": { ...overrideStatus, override_respect_eco: true },
-    });
-
-    render(
-      <SystemContext.Provider value={mockSystem}>
-        <MemoryRouter>
-          <Rooms />
-        </MemoryRouter>
-      </SystemContext.Provider>
-    );
-
-    expect(await screen.findByText("Eco may relax")).toBeInTheDocument();
-    expect(screen.queryByText("ignores Eco")).not.toBeInTheDocument();
-  });
-
-  it("cancels the hold from the status row and refetches statuses + holds", async () => {
-    vi.mocked(api.clearOverride).mockResolvedValue({});
-
-    render(
-      <SystemContext.Provider value={mockSystem}>
-        <MemoryRouter>
-          <Rooms />
-        </MemoryRouter>
-      </SystemContext.Provider>
-    );
-
-    fireEvent.click(await screen.findByRole("button", { name: /Cancel hold/i }));
-
-    await waitFor(() => {
-      expect(api.clearOverride).toHaveBeenCalledWith("room-1");
-    });
-    // Both the active statuses and the holds list refresh after cancelling.
-    await waitFor(() => {
-      expect(api.getRoomActiveStatuses).toHaveBeenCalledTimes(2);
-      expect(api.getOverrides).toHaveBeenCalledTimes(2);
-    });
-  });
-
-  it("offers the Hold button on an idle room and opens the modal scoped to it", async () => {
-    vi.mocked(api.getRoomActiveStatuses).mockResolvedValue({ "room-1": idleStatus });
-    vi.mocked(api.getOverrides).mockResolvedValue([]);
-
-    render(
-      <SystemContext.Provider value={mockSystem}>
-        <MemoryRouter>
-          <Rooms />
-        </MemoryRouter>
-      </SystemContext.Provider>
-    );
-
-    fireEvent.click(await screen.findByRole("button", { name: "Hold" }));
-
-    expect(screen.getByTestId("hold-modal")).toBeInTheDocument();
-    expect(screen.getByText("Set temporary hold")).toBeInTheDocument();
-    // Scoped to the card it was opened from.
-    expect(screen.getByLabelText("Room")).toHaveValue("room-1");
-
-    // Close puts the page back without any API call.
-    fireEvent.click(screen.getByRole("button", { name: "Close" }));
-    expect(screen.queryByTestId("hold-modal")).not.toBeInTheDocument();
-    expect(api.setOverride).not.toHaveBeenCalled();
-  });
-
-  it("opens the modal in replace mode from Manage hold", async () => {
-    render(
-      <SystemContext.Provider value={mockSystem}>
-        <MemoryRouter>
-          <Rooms />
-        </MemoryRouter>
-      </SystemContext.Provider>
-    );
-
-    fireEvent.click(await screen.findByRole("button", { name: "Manage hold" }));
-
-    expect(screen.getByTestId("hold-modal")).toBeInTheDocument();
-    // The modal knows about the live hold, so it offers replace + cancel.
-    expect(screen.getByText("Temporary hold active")).toBeInTheDocument();
-    expect(screen.getByTestId("hold-modal-cancel-hold")).toBeInTheDocument();
   });
 });
 

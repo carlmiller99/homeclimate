@@ -61,7 +61,7 @@ Per-room safety cycles below log separately, through normal cycle history.
 
 ## Per-room safety cycles
 
-**Applies to `single` mode only. Default: on.** Toggle: **Run per-room safety cycles during vacation** on the Thermostats page.
+**Applies to `single` mode only. Default: on.** Toggle: **Run per-room safety cycles during vacation** in the zone's Thermostat Settings (My Home → Edit Zone).
 
 The single-setpoint hold above watches the *thermostat's* ambient reading. That leaves a gap: one room can bake or freeze well past its limits while the thermostat's own probe — often in a hallway — sits comfortably inside the band and reports nothing wrong.
 

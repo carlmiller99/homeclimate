@@ -2,6 +2,7 @@ import { HP_DEFAULTS } from "../zoneFixtures";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import * as api from "../api";
 import * as zonesApi from "../zonesApi";
 import { UnitContext, buildUnitContext } from "../contexts";
 import Zones, { AUX_HEAT_EXPLAINER, HEAT_KIT_WARNING } from "./Zones";
@@ -18,6 +19,32 @@ vi.mock("../zonesApi", async (orig) => {
     updateZone: vi.fn(),
   };
 });
+
+vi.mock("../api");
+
+// The thermostat card has its own suite; here it only needs to hand the zone
+// panel its two callbacks.
+vi.mock("./Thermostats", () => ({
+  ThermostatCard: ({
+    config,
+    onSaved,
+    onDeleted,
+  }: {
+    config: { thermostat_entity_id: string; name: string };
+    onSaved: (c: unknown) => void;
+    onDeleted: () => void;
+  }) => (
+    <div>
+      <span>card {config.name}</span>
+      <button type="button" onClick={() => onSaved({ ...config, name: "Renamed" })}>
+        stub save
+      </button>
+      <button type="button" onClick={onDeleted}>
+        stub delete
+      </button>
+    </div>
+  ),
+}));
 
 vi.mock("../components/EntityPicker", () => ({
   default: ({ onSelect, placeholder }: { onSelect: (id: string) => void; placeholder: string }) => (
@@ -61,6 +88,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(zonesApi.getZones).mockResolvedValue([WING, LOOSE]);
   vi.mocked(zonesApi.getBuildings).mockResolvedValue([MAIN, DEN]);
+  vi.mocked(api.getThermostats).mockResolvedValue([]);
 });
 
 describe("Zones page", () => {
@@ -172,7 +200,7 @@ describe("Zones page", () => {
     vi.mocked(zonesApi.updateZone).mockResolvedValueOnce(saved);
     renderPage();
     await screen.findByText("South Wing");
-    fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: "Edit Zone" })[0]);
     const editor = screen.getByRole("region", { name: "Edit South Wing" });
 
     fireEvent.click(within(editor).getByRole("radio", { name: "Heat Pump" }));
@@ -238,7 +266,7 @@ describe("Zones page", () => {
       "title",
       expect.stringContaining("below the compressor lockout")
     );
-    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit Zone" }));
     const editor = screen.getByRole("region", { name: "Edit South Wing" });
     expect(within(editor).getByText("Heat Pump Protection")).toBeInTheDocument();
     expect(within(editor).getByLabelText("Max Setpoint Step")).toHaveValue(1);
@@ -288,7 +316,7 @@ describe("Zones page", () => {
   it("switches back to conventional, unassigns, cancels and reports save errors", async () => {
     renderPage();
     await screen.findByText("South Wing");
-    fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[1]);
+    fireEvent.click(screen.getAllByRole("button", { name: "Edit Zone" })[1]);
     const editor = screen.getByRole("region", { name: "Edit climate.loose" });
     fireEvent.click(within(editor).getByRole("radio", { name: "Heat Pump" }));
     fireEvent.click(within(editor).getByRole("radio", { name: "Conventional" }));
@@ -303,5 +331,170 @@ describe("Zones page", () => {
 
     fireEvent.click(within(editor).getByRole("button", { name: "Cancel" }));
     expect(screen.queryByRole("region", { name: "Edit climate.loose" })).toBeNull();
+  });
+
+  it("adds a zone with its thermostat, building and first room", async () => {
+    vi.mocked(api.createThermostat).mockResolvedValue({} as api.ThermostatConfig);
+    vi.mocked(api.createRoom).mockResolvedValue({} as api.Room);
+    vi.mocked(zonesApi.updateZone).mockResolvedValue(WING);
+    const onChanged = vi.fn();
+    render(
+      <MemoryRouter>
+        <Zones onChanged={onChanged} />
+      </MemoryRouter>
+    );
+    await screen.findByText("South Wing");
+    fireEvent.click(screen.getByRole("button", { name: "Add Zone" }));
+    const form = screen.getByRole("group", { name: "Add Zone" });
+    const submit = within(form).getByRole("button", { name: "Add Zone" });
+    expect(submit).toBeDisabled();
+
+    fireEvent.click(within(form).getByRole("button", { name: "pick Search thermostats…" }));
+    expect(within(form).getByText("climate.wing_cloud")).toBeInTheDocument();
+    fireEvent.click(within(form).getByRole("button", { name: "Change" }));
+    fireEvent.click(within(form).getByRole("button", { name: "pick Search thermostats…" }));
+    fireEvent.change(within(form).getByLabelText("Zone Name"), { target: { value: " Shop " } });
+    expect(submit).toBeDisabled();
+    fireEvent.change(within(form).getByLabelText("First Room"), { target: { value: "Bay" } });
+    fireEvent.change(within(form).getByLabelText("Building"), { target: { value: "b2" } });
+    // The vent count is required, and must be a whole number of at least one.
+    expect(submit).toBeDisabled();
+    for (const bad of ["0", "2.5", "-3", "abc"]) {
+      fireEvent.change(within(form).getByLabelText("Total Vent Count"), { target: { value: bad } });
+      expect(submit).toBeDisabled();
+    }
+    fireEvent.change(within(form).getByLabelText("Total Vent Count"), { target: { value: "8" } });
+    expect(
+      within(form).getByText(/Count every register this thermostat serves/)
+    ).toBeInTheDocument();
+    fireEvent.click(submit);
+
+    await waitFor(() =>
+      expect(api.createThermostat).toHaveBeenCalledWith({
+        thermostat_entity_id: "climate.wing_cloud",
+        name: "Shop",
+        total_vents_count: 8,
+      })
+    );
+    await waitFor(() =>
+      expect(api.createRoom).toHaveBeenCalledWith({
+        name: "Bay",
+        thermostat_entity_id: "climate.wing_cloud",
+      })
+    );
+    await waitFor(() =>
+      expect(zonesApi.updateZone).toHaveBeenCalledWith("climate.wing_cloud", {
+        building_id: "b2",
+      })
+    );
+    await waitFor(() => expect(onChanged).toHaveBeenCalled());
+    expect(screen.queryByRole("group", { name: "Add Zone" })).toBeNull();
+  });
+
+  it("undoes a new zone whose first room is rejected, and reports failures", async () => {
+    vi.mocked(api.createThermostat).mockResolvedValue({} as api.ThermostatConfig);
+    vi.mocked(api.createRoom).mockRejectedValueOnce(new Error("A room with that name exists"));
+    vi.mocked(api.deleteThermostat).mockRejectedValueOnce(new Error("gone"));
+    renderPage();
+    await screen.findByText("South Wing");
+    fireEvent.click(screen.getByRole("button", { name: "Add Zone" }));
+    const form = screen.getByRole("group", { name: "Add Zone" });
+    fireEvent.click(within(form).getByRole("button", { name: "pick Search thermostats…" }));
+    fireEvent.change(within(form).getByLabelText("Zone Name"), { target: { value: "Shop" } });
+    fireEvent.change(within(form).getByLabelText("First Room"), { target: { value: "Bay" } });
+    fireEvent.change(within(form).getByLabelText("Total Vent Count"), { target: { value: "6" } });
+    fireEvent.click(within(form).getByRole("button", { name: "Add Zone" }));
+    expect(await within(form).findByText("A room with that name exists")).toBeInTheDocument();
+    // The zone is removed again; a failure of that cleanup is not shown.
+    expect(api.deleteThermostat).toHaveBeenCalledWith("climate.wing_cloud");
+    // No building chosen, so the zone is never assigned to one.
+    expect(zonesApi.updateZone).not.toHaveBeenCalled();
+
+    vi.mocked(api.createThermostat).mockRejectedValueOnce("nope");
+    fireEvent.click(within(form).getByRole("button", { name: "Add Zone" }));
+    expect(await within(form).findByText("Could not add the zone")).toBeInTheDocument();
+
+    // With no building chosen the zone is added unassigned.
+    fireEvent.click(within(form).getByRole("button", { name: "Add Zone" }));
+    await waitFor(() => expect(screen.queryByRole("group", { name: "Add Zone" })).toBeNull());
+    expect(zonesApi.updateZone).not.toHaveBeenCalled();
+  });
+
+  it("cancels adding a zone", async () => {
+    renderPage();
+    await screen.findByText("South Wing");
+    fireEvent.click(screen.getByRole("button", { name: "Add Zone" }));
+    const form = screen.getByRole("group", { name: "Add Zone" });
+
+    fireEvent.click(within(form).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("group", { name: "Add Zone" })).toBeNull();
+  });
+
+  it("puts thermostat settings inside the zone being edited", async () => {
+    const onChanged = vi.fn();
+    vi.mocked(api.getThermostats).mockResolvedValue([
+      { thermostat_entity_id: "climate.wing", name: "Wing Stat" } as api.ThermostatConfig,
+      { thermostat_entity_id: "climate.loose", name: "Loose Stat" } as api.ThermostatConfig,
+    ]);
+    render(
+      <MemoryRouter>
+        <Zones onChanged={onChanged} />
+      </MemoryRouter>
+    );
+    await screen.findByText("South Wing");
+    expect(screen.queryByRole("heading", { name: "Thermostat Settings" })).toBeNull();
+    fireEvent.click(screen.getAllByRole("button", { name: "Edit Zone" })[0]);
+    expect(screen.getByRole("heading", { name: "Thermostat Settings" })).toBeInTheDocument();
+    expect(screen.getByText("card Wing Stat")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "stub save" }));
+    expect(screen.getByText("card Renamed")).toBeInTheDocument();
+
+    // Deleting the zone closes its editor and tells the page to reload.
+    fireEvent.click(screen.getByRole("button", { name: "stub delete" }));
+    await waitFor(() => expect(onChanged).toHaveBeenCalled());
+    expect(screen.queryByRole("heading", { name: "Thermostat Settings" })).toBeNull();
+    expect(zonesApi.getZones).toHaveBeenCalledTimes(2);
+
+    // The other zone's settings were untouched by the save above.
+    fireEvent.click(screen.getAllByRole("button", { name: "Edit Zone" })[1]);
+    expect(screen.getByRole("region", { name: "Edit climate.loose" })).toBeInTheDocument();
+    expect(screen.getByText("card Loose Stat")).toBeInTheDocument();
+  });
+
+  it("shows only the equipment for a zone whose thermostat settings did not load", async () => {
+    renderPage();
+    await screen.findByText("South Wing");
+    fireEvent.click(screen.getAllByRole("button", { name: "Edit Zone" })[0]);
+    expect(screen.getByRole("region", { name: "Edit South Wing" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Thermostat Settings" })).toBeNull();
+  });
+
+  it("renders each zone's rooms, extra actions, a custom title, and reloads on demand", async () => {
+    const view = render(
+      <MemoryRouter>
+        <Zones
+          title="Structure"
+          subtitle="Everything in the house."
+          extraActions={<button type="button">Add Room</button>}
+          renderRooms={(id) => <p>rooms of {id}</p>}
+          reloadKey={0}
+        />
+      </MemoryRouter>
+    );
+    expect(await screen.findByText("rooms of climate.wing")).toBeInTheDocument();
+    expect(screen.getByText("rooms of climate.loose")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Structure" })).toBeInTheDocument();
+    expect(screen.getByText("Everything in the house.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add Room" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "South Wing" })).toBeInTheDocument();
+
+    view.rerender(
+      <MemoryRouter>
+        <Zones renderRooms={(id) => <p>rooms of {id}</p>} reloadKey={1} />
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(zonesApi.getZones).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole("heading", { name: "My Home" })).toBeInTheDocument();
   });
 });

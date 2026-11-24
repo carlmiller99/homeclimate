@@ -9,7 +9,7 @@
  * reach.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { ecoRoomDefaults, makeHold } from "../testFixtures";
+import { ecoRoomDefaults } from "../testFixtures";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import Schedules from "./Schedules";
 import * as api from "../api";
@@ -392,22 +392,6 @@ describe("Schedules — copy modal", () => {
     fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
     expect(screen.queryByText("Copy results")).toBeNull();
     expect(screen.getByText("Edit")).toBeInTheDocument();
-  });
-});
-
-describe("Schedules — cancelling a temporary hold (#576)", () => {
-  it("falls back to a generic message when the cancel rejects with a non-Error", async () => {
-    vi.mocked(api.getOverrides).mockResolvedValue([makeHold()]);
-    vi.mocked(api.clearOverride).mockRejectedValue("gateway timeout");
-    render(<Schedules />);
-    fireEvent.click(await screen.findByText("Living Room"));
-
-    const card = await screen.findByTestId("hold-card-room-1");
-    fireEvent.click(within(card).getByRole("button", { name: "Cancel hold" }));
-
-    expect(await screen.findByText("Could not cancel the hold")).toBeInTheDocument();
-    // The hold card survives the failure — nothing was optimistically dropped.
-    expect(screen.getByTestId("hold-card-room-1")).toBeInTheDocument();
   });
 });
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { ecoRoomDefaults } from "../testFixtures";
-import { render, screen } from "@testing-library/react";
+import { within, render, screen } from "@testing-library/react";
 
 // The live active-rooms list is frozen out of the golden under CI (engine-driven,
 // non-deterministic). To keep the requesting-temp line and the Clear-presence
@@ -10,6 +10,11 @@ import { render, screen } from "@testing-library/react";
 // re-import with a fresh module registry (same approach as ci.test.tsx).
 
 vi.mock("../api");
+vi.mock("../zonesApi", async (orig) => ({
+  ...(await orig<typeof import("../zonesApi")>()),
+  getZones: vi.fn().mockResolvedValue([]),
+  getBuildings: vi.fn().mockResolvedValue([]),
+}));
 
 const mockStatus = [
   {
@@ -49,8 +54,19 @@ describe("Dashboard — CI build", () => {
     vi.mocked(api.getThermostatHealth).mockResolvedValue({ thermostats: [] });
     vi.mocked(api.getStatus).mockResolvedValue(mockStatus);
     vi.mocked(api.connectWS).mockReturnValue(() => {});
+    // Room sensor lists and readings for the per-room temperatures.
+    vi.mocked(api.getRoom).mockImplementation(async (id) => ({ id, sensors: [] }) as never);
+    vi.mocked(api.getEntityStates).mockResolvedValue({});
     vi.mocked(api.getVacationMode).mockResolvedValue({ enabled: false, return_at: null });
-    vi.mocked(api.getOverrides).mockResolvedValue([]);
+    vi.mocked(api.getOverrides).mockResolvedValue([
+      {
+        room_id: "room-1",
+        target_temp: 75,
+        expires_at: "2099-01-01T12:00:00",
+        respect_eco: false,
+        ends_in_seconds: 5400,
+      },
+    ]);
     vi.mocked(api.getRooms).mockResolvedValue([
       {
         id: "room-1",
@@ -76,14 +92,48 @@ describe("Dashboard — CI build", () => {
 
     render(<Dashboard />);
 
-    // The frozen sample renders two rooms, each with its own requesting-temp
-    // line and Clear-presence button — proving both surfaces are per-room.
+    // The frozen sample is laid over the zone's own room, with its
+    // requesting-temp line and Clear-presence button.
+    const row = await screen.findByTestId("dash-room-room-1");
+    expect(row).toHaveTextContent("Living Room");
+    expect(row).toHaveTextContent("71.4°F");
+    expect(row).toHaveTextContent(/requesting 68.0°F/);
+    expect(screen.getAllByRole("button", { name: "Clear Presence" })).toHaveLength(1);
+    // A hold is user-set state, not engine-driven, so it still shows.
+    expect(within(row).getByRole("button", { name: "Cancel Hold" })).toBeInTheDocument();
+    expect(within(row).queryByRole("button", { name: "Hold" })).toBeNull();
+    // The real, engine-driven reading for that room is frozen out under CI.
+    expect(screen.queryByText("76.1°F")).not.toBeInTheDocument();
+    expect(screen.queryByText(/requesting 72.0°F/)).not.toBeInTheDocument();
+  });
+
+  it("shows the sample by id for a zone with no rooms, and nothing for later zones", async () => {
+    vi.resetModules();
+    vi.stubEnv("VITE_APP_VERSION", "CI");
+
+    const api = await import("../api");
+    vi.mocked(api.getSensorHealth).mockResolvedValue({ stale_after_min: 30, rooms: [] });
+    vi.mocked(api.getSensorStaleness).mockResolvedValue({ stale_after_min: 30 });
+    vi.mocked(api.getThermostatHealth).mockResolvedValue({ thermostats: [] });
+    vi.mocked(api.getStatus).mockResolvedValue([
+      mockStatus[0],
+      { ...mockStatus[0], thermostat_entity_id: "climate.other" },
+    ]);
+    vi.mocked(api.connectWS).mockReturnValue(() => {});
+    vi.mocked(api.getVacationMode).mockResolvedValue({ enabled: false, return_at: null });
+    vi.mocked(api.getOverrides).mockResolvedValue([]);
+    vi.mocked(api.getRooms).mockResolvedValue([]);
+    vi.mocked(api.getThermostats).mockResolvedValue([]);
+
+    const { default: Dashboard } = await import("./Dashboard");
+    render(<Dashboard />);
+
     expect(await screen.findByText("Bedroom")).toBeInTheDocument();
     expect(screen.getByText("Office")).toBeInTheDocument();
     expect(screen.getByText(/requesting 68.0°F/)).toBeInTheDocument();
     expect(screen.getByText(/requesting 70.0°F/)).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: /Clear presence/i })).toHaveLength(2);
-    // The real, engine-driven active room is frozen out under CI.
-    expect(screen.queryByText("Living Room")).not.toBeInTheDocument();
+    // Only the first zone carries the sample; the second renders no rooms.
+    expect(screen.getAllByRole("button", { name: "Clear Presence" })).toHaveLength(2);
+    expect(screen.queryByText("room-1")).not.toBeInTheDocument();
   });
 });

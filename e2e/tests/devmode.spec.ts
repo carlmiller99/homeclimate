@@ -1,9 +1,9 @@
 import { test, expect } from "./fixtures";
 
-// Dev mode is enabled by global-setup.ts, so /dev is reachable and the nav
-// link is visible.
+// Dev mode is enabled by global-setup.ts. Its page, with the on/off switch,
+// is the Dev Mode section of Settings.
 test("devmode", async ({ page }) => {
-  await page.goto("/dev");
+  await page.goto("/settings?section=dev-mode");
   await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
   await page.waitForLoadState("networkidle");
 

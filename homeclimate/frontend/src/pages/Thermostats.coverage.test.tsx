@@ -243,7 +243,7 @@ describe("Thermostats — card failure paths", () => {
     render(<Thermostats />);
     await cardsSettled("(unnamed)");
 
-    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete Zone" }));
     const dialog = await screen.findByTestId("confirm-dialog");
     // With no friendly name the confirmation falls back to the entity id, so
     // the prompt still says which thermostat is about to go.
@@ -278,9 +278,9 @@ describe("Thermostats — card failure paths", () => {
     render(<Thermostats />);
     await cardsSettled();
 
-    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete Zone" }));
     const dialog = await screen.findByTestId("confirm-dialog");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Remove" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete Zone" }));
 
     expect(await screen.findByText("Thermostat is in use")).toBeInTheDocument();
     expect(screen.getByText("Main HVAC")).toBeInTheDocument();
@@ -291,9 +291,9 @@ describe("Thermostats — card failure paths", () => {
     render(<Thermostats />);
     await cardsSettled();
 
-    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete Zone" }));
     const dialog = await screen.findByTestId("confirm-dialog");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Remove" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete Zone" }));
 
     expect(await screen.findByText("Delete failed")).toBeInTheDocument();
   });

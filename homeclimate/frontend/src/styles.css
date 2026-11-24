@@ -1990,7 +1990,8 @@ tr:hover td {
   font-weight: 600;
   text-decoration: none;
 }
-.sc-nav-item[aria-current="true"] {
+.sc-nav-item[aria-current="true"],
+.sc-nav-item.is-current {
   background: var(--surface);
   color: var(--text);
 }
@@ -2365,4 +2366,176 @@ button.sc-nav-item {
 .aux-policy .field-help {
   margin: 0;
   max-width: 44rem;
+}
+
+/* ── Pages embedded in a section layout ── */
+.embedded-page > div > .page-header .page-title,
+.embedded-page .page-header .page-title {
+  font-size: 1.375rem;
+}
+.embedded-page .page-header {
+  margin-bottom: 1rem;
+}
+
+/* ── My Home room cards ── */
+.room-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+.room-card-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+.room-card-title {
+  margin: 0;
+}
+.device-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem;
+}
+.device-section {
+  background: var(--gray-50);
+  border-radius: 12px;
+  padding: 0.65rem 0.75rem;
+  min-width: 0;
+}
+.device-section-title {
+  margin: 0 0 0.35rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--gray-600);
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.device-count {
+  font-weight: 600;
+  font-size: 0.72rem;
+  color: var(--gray-600);
+  background: var(--surface);
+  border-radius: 999px;
+  padding: 0 0.45rem;
+}
+.device-empty {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--gray-400);
+}
+.device-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.device-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  min-width: 0;
+}
+.device-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.device-value {
+  flex: none;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.device-warn {
+  color: var(--orange-text);
+}
+.device-open {
+  color: var(--state-paused-text);
+}
+.device-occupied {
+  color: var(--state-idle-text);
+}
+.room-card-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: auto;
+}
+.room-card-actions .btn-primary {
+  flex: 1;
+}
+.zone-thermostat-settings {
+  padding: 0 1rem 1rem;
+}
+@media (max-width: 520px) {
+  .device-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.device-tag {
+  margin-left: 0.35rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: var(--state-paused-bg);
+  color: var(--state-paused-text);
+}
+.dash-building {
+  margin-bottom: 1.5rem;
+}
+.dash-building-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--gray-900);
+  margin-bottom: 0.6rem;
+}
+.dash-rooms {
+  margin-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--gray-200);
+}
+.dash-room {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.6rem 0;
+  border-bottom: 1px solid var(--gray-100);
+}
+.dash-room:last-child {
+  border-bottom: none;
+}
+.dash-room-main {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+.dash-room-name {
+  font-weight: 600;
+  color: var(--gray-900);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+.dash-room-temp {
+  text-align: right;
+}
+.dash-room-target {
+  display: block;
+  font-weight: 500;
+}
+.dash-room-actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+.dash-room-actions .btn {
+  padding: 0.1rem 0.6rem;
+  font-size: 0.78rem;
 }

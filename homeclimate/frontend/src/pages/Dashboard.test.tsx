@@ -7,6 +7,11 @@ import { SystemContext, DevModeContext } from "../contexts";
 import { notifyStateChanged } from "../stateEvents";
 
 vi.mock("../api");
+vi.mock("../zonesApi", async (orig) => ({
+  ...(await orig<typeof import("../zonesApi")>()),
+  getZones: vi.fn().mockResolvedValue([]),
+  getBuildings: vi.fn().mockResolvedValue([]),
+}));
 
 const mockSystem = { enabled: true, toggle: vi.fn().mockResolvedValue(undefined) };
 const mockDevMode = { devMode: false, toggleDevMode: vi.fn().mockResolvedValue(undefined) };
@@ -41,6 +46,11 @@ describe("Dashboard Page", () => {
     vi.mocked(api.getThermostatHealth).mockResolvedValue({ thermostats: [] });
     vi.mocked(api.getStatus).mockResolvedValue(mockStatus);
     vi.mocked(api.connectWS).mockReturnValue(() => {});
+    // Room sensor lists and readings for the per-room temperatures.
+    vi.mocked(api.getRoom).mockImplementation(
+      async (id) => ({ id, sensors: [] }) as unknown as api.Room
+    );
+    vi.mocked(api.getEntityStates).mockResolvedValue({});
     vi.mocked(api.getVacationMode).mockResolvedValue({ enabled: false, return_at: null });
     vi.mocked(api.getOverrides).mockResolvedValue([]);
     vi.mocked(api.getRooms).mockResolvedValue([
@@ -363,7 +373,7 @@ describe("Dashboard Page", () => {
         </DevModeContext.Provider>
       </SystemContext.Provider>
     );
-    expect(await screen.findByText(/No thermostat zones configured yet/i)).toBeInTheDocument();
+    expect(await screen.findByText("No zones set up yet.")).toBeInTheDocument();
     // Singular room count must not read "1 rooms" (#497).
     expect(screen.getByText(/0 zones · 1 room\b/)).toBeInTheDocument();
     expect(screen.queryByText(/1 rooms/)).toBeNull();

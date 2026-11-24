@@ -138,7 +138,7 @@ function welcomeHomeError(form: Partial<ThermostatConfig>): string {
   return "";
 }
 
-function AddThermostatModal({
+export function AddThermostatModal({
   onClose,
   onSave,
 }: {
@@ -331,7 +331,7 @@ function sameDerivedForm(a: ThermostatConfig, b: ThermostatConfig): boolean {
   return true;
 }
 
-function ThermostatCard({
+export function ThermostatCard({
   config,
   onDeleted,
   onSaved,
@@ -499,7 +499,7 @@ function ThermostatCard({
   const remove = async () => {
     setConfirmRemove(false);
     try {
-      await deleteThermostat(config.thermostat_entity_id);
+      await deleteThermostat(config.thermostat_entity_id, true);
       onDeleted();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Delete failed");
@@ -536,7 +536,7 @@ function ThermostatCard({
               </button>
             )}
           <button className="btn btn-danger btn-sm" onClick={() => setConfirmRemove(true)}>
-            Remove
+            Delete Zone
           </button>
         </div>
       </div>
@@ -1237,9 +1237,9 @@ function ThermostatCard({
 
       {confirmRemove && (
         <ConfirmDialog
-          title="Remove thermostat?"
-          message={`Remove thermostat "${form.name || config.thermostat_entity_id}"?\n\nRooms already using this thermostat will keep their entity ID but the thermostat will no longer appear in the picker.`}
-          confirmLabel="Remove"
+          title="Delete zone?"
+          message={`Delete the zone "${form.name || config.thermostat_entity_id}" and all of its rooms? This cannot be undone.`}
+          confirmLabel="Delete Zone"
           onConfirm={() => void remove()}
           onCancel={() => setConfirmRemove(false)}
         />
@@ -1259,7 +1259,7 @@ function ThermostatCard({
 // divergence would not fail any test.
 const SENSOR_STALE_DEFAULT_MIN = 30;
 
-function SensorStalenessCard() {
+export function SensorStalenessCard() {
   // Seeded with the backend's own default so the input never renders from
   // `null`, and gated on the mount fetch so a late resolve cannot land on top
   // of what the operator is typing (#600). This is CLAUDE.md pitfall #9's

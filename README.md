@@ -16,15 +16,15 @@ A Home Assistant add-on that provides HVAC zoning control for your home. HomeCli
 
 ## Screenshots
 
-The Dashboard shows each thermostat zone at a glance: ambient temperature, setpoint, HVAC mode, cycle state, and active room count.
+The Dashboard shows each zone at a glance, grouped by building: ambient temperature, setpoint, HVAC mode, cycle state, and every room with its temperature. Manual controls live here: hold a room, clear presence, suspend Eco, start vacation mode.
 
 ![Dashboard](screenshots/01_Dashboard.png)
 
-The Rooms page lists every room with its current temperature, presence state, and vent status. Click **Configure sensors & vents** to attach HA entities to each room.
+My Home holds the structure: buildings, zones (one thermostat each) and rooms. Each room card lists its smart vents, temperature sensors, doors and windows, and occupancy sensors. Click **Edit Devices** to attach HA entities to a room.
 
 ![Rooms](screenshots/02_Rooms.png)
 
-The Schedules page defines per-room time blocks (days, start/end time, target temperature). Rooms activate automatically when the current time falls inside a matching block.
+Smart Control → Schedules defines per-room time blocks (days, start/end time, target temperature). Rooms activate automatically when the current time falls inside a matching block.
 
 ![Schedules](screenshots/03_Schedules.png)
 
@@ -228,36 +228,42 @@ The same zone drives the UI: every time HomeClimate shows or accepts — vacatio
 
 Once the UI is open, follow these steps in order:
 
-### 1. Register your thermostats
+### 1. Add your zones
 
-Go to **Thermostats → + Register thermostat**
+A zone is one thermostat and the rooms it serves. Go to **My Home → Add Zone** (or use **Set Up from Home Assistant** to build everything from your HA areas).
 
-- Pick the HA climate entity for each of your HVAC systems
-- Give it a friendly name (e.g. "Upstairs HVAC", "Downstairs HVAC")
+- Pick the HA climate entity for the zone's thermostat
+- Give the zone a name (e.g. "Upstairs", "Downstairs")
+- Name its first room, and enter the total vent count on that thermostat
+
+Then open **Edit Zone** to tune its Thermostat Settings:
+
 - Set a **Default presence temp** — this is the fallback temperature used when a room is activated by motion and has no room-level presence temp configured
 - Adjust safety limits if needed (min/max setpoint, deadband, overshoot delta)
 
 ### 2. Create rooms
 
-Go to **Rooms → + Add room**
+Go to **My Home → Add Room**
 
 - Give the room a name
-- Select which registered thermostat controls this zone
+- Select the zone it belongs to
 - Optionally set a room-level presence temperature (overrides the thermostat default)
 
 ### 3. Configure sensors and vents
 
-Click **Configure sensors & vents →** on any room card.
+Click **Edit Devices** on any room card.
 
 **Temperature Sensors** — add all `sensor.*` entities in the room. The engine averages them. Add as many as you want.
 
-**Vents** — add the `cover.*` entities for each vent in the room. These are what gets opened and closed during cycles.
+**Smart Vents** — add the `cover.*` entities for each vent in the room. These are what gets opened and closed during cycles.
 
-**Presence / Motion Sensors** — add `binary_sensor.*` entities. When any fires, the room activates at the presence temperature and stays active for the holdover period (default 2 hours, reset on each detection).
+**Doors & Windows** — add door and window `binary_sensor.*` entities, and choose whether each pauses this room or the whole zone while it is open.
+
+**Occupancy Sensors** — add `binary_sensor.*` entities. When any fires, the room activates at the presence temperature and stays active for the holdover period (default 2 hours, reset on each detection).
 
 ### 4. Add schedules
 
-Go to **Schedules**, select a room, and add time blocks. Each block has:
+Go to **Smart Control → Schedules**, select a room, and add time blocks. Each block has:
 - Days of week
 - Start and end time
 - Target temperature (°F)

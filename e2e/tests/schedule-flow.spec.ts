@@ -74,7 +74,7 @@ test.describe.serial("Scheduling flow (#359)", () => {
   test.afterAll(resetRooms);
 
   test("scheduling UI flow", async ({ page }) => {
-    await page.goto("/schedules");
+    await page.goto("/smart-control?section=schedules");
     await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
     await page.waitForLoadState("networkidle");
 

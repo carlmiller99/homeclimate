@@ -1,10 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 import Settings from "./Settings";
 import * as api from "../api";
 import { McpContext, AuthContext, type AuthContextValue } from "../contexts";
 
 vi.mock("../api");
+// Each of these has its own suite; here they only show which section they are in.
+vi.mock("./Logs", () => ({ default: () => <p>logs page</p> }));
+vi.mock("./DevMode", () => ({ default: () => <p>dev mode page</p> }));
+vi.mock("../components/OutsideTempPicker", () => ({ default: () => <p>outside sensor</p> }));
+vi.mock("./Thermostats", () => ({ SensorStalenessCard: () => <p>staleness card</p> }));
 
 const authValue = (over: Partial<AuthContextValue> = {}): AuthContextValue => ({
   requireAuth: false,
@@ -19,7 +25,9 @@ function renderSettings() {
       <McpContext.Provider
         value={{ mcpEnabled: false, toggleMcp: vi.fn().mockResolvedValue(undefined) }}
       >
-        <Settings />
+        <MemoryRouter>
+          <Settings />
+        </MemoryRouter>
       </McpContext.Provider>
     </AuthContext.Provider>
   );

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import { within, render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import DevMode from "./DevMode";
 import * as api from "../api";
 
@@ -240,18 +240,19 @@ describe("DevMode Page", () => {
     expect(await screen.findByText(/No dev actions logged yet/i)).toBeInTheDocument();
   });
 
-  it("calls toggleDevMode when enabling from the off state", async () => {
+  it("turns dev mode on straight away from the off state", async () => {
     const toggle = vi.fn(async () => {});
     render(
       <DevModeContext.Provider value={{ devMode: false, toggleDevMode: toggle }}>
         <DevMode />
       </DevModeContext.Provider>
     );
-    fireEvent.click(screen.getByRole("button", { name: /Enable Developer Mode/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Turn On Dev Mode" }));
     expect(toggle).toHaveBeenCalled();
+    expect(screen.queryByTestId("confirm-dialog")).toBeNull();
   });
 
-  it("calls toggleDevMode from the Disable button when active", async () => {
+  it("asks before turning dev mode off, because that resumes real control", async () => {
     const toggle = vi.fn(async () => {});
     render(
       <DevModeContext.Provider value={{ devMode: true, toggleDevMode: toggle }}>
@@ -259,8 +260,23 @@ describe("DevMode Page", () => {
       </DevModeContext.Provider>
     );
     await screen.findByText(/🛠 Developer Mode/i);
-    fireEvent.click(screen.getByRole("button", { name: /Disable Dev Mode/i }));
-    expect(toggle).toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Turn Off Dev Mode" }));
+    const dialog = screen.getByTestId("confirm-dialog");
+    expect(dialog).toHaveTextContent(
+      "HomeClimate will start controlling your thermostats and vents directly. Turn off any other automation that controls them first."
+    );
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByTestId("confirm-dialog")).toBeNull();
+    expect(toggle).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Turn Off Dev Mode" }));
+    fireEvent.click(
+      within(screen.getByTestId("confirm-dialog")).getByRole("button", {
+        name: "Turn Off Dev Mode",
+      })
+    );
+    expect(toggle).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId("confirm-dialog")).toBeNull();
   });
 
   it("ignores errors from the polling fetchers", async () => {

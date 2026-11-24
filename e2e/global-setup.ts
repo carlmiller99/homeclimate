@@ -160,32 +160,18 @@ async function setupViaUI(): Promise<void> {
   page.setDefaultTimeout(30_000);
 
   try {
-    // ── Step 1: Register thermostats ─────────────────────────────────────────
-    await page.goto(`${BASE_URL}/thermostats`);
-    await page.waitForSelector(".loading", { state: "detached", timeout: 20_000 });
-    await page.waitForLoadState("networkidle");
-
+    // ── Step 1: Register the zones' thermostats ─────────────────────────────
+    // Over REST: in the UI a zone is added together with its first room, and
+    // the rooms below are created one by one through the Add Room form.
     for (const tc of THERMOSTATS) {
-      await page.getByRole("button", { name: /Register thermostat/i }).click();
-      await page.waitForSelector(".modal");
-
-      // Type the short name to narrow the EntityPicker dropdown.
-      // Scope to the modal — the Thermostats page itself now mounts an
-      // EntityPicker via OutsideTempPicker, so `.entity-picker input`
-      // alone is ambiguous (strict-mode violation in Playwright).
-      const search = tc.entityId.split(".")[1].split("_")[0]; // "downstairs"|"upstairs"
-      await page.locator(".modal .entity-picker input").fill(search);
-      // Dropdown requires a live HA connection; this will time out without Docker
-      await page.waitForSelector(".modal .entity-dropdown", { timeout: 20_000 });
-      await page.locator(".modal .entity-option").filter({ hasText: tc.entityId }).click();
-
-      await page.locator("#add-thermo-name").fill(tc.name);
-      // Airflow-floor (#213): total vent count is required at registration.
-      // Use a constant — the value only matters for engine behaviour, not
-      // for the round-trip / golden screenshots these e2e tests exist for.
-      await page.locator("#add-thermo-total-vents").fill("8");
-      await page.getByRole("button", { name: "Register", exact: true }).click();
-      await page.waitForSelector(".modal", { state: "detached" });
+      await post("/thermostats", {
+        thermostat_entity_id: tc.entityId,
+        name: tc.name,
+        // Airflow-floor (#213): total vent count is required at registration.
+        // Use a constant — the value only matters for engine behaviour, not
+        // for the round-trip / golden screenshots these e2e tests exist for.
+        total_vents_count: 8,
+      });
     }
 
     // ── Step 2: Create rooms and configure sensors / vents ───────────────────
@@ -196,7 +182,7 @@ async function setupViaUI(): Promise<void> {
       // "Add room" button mid-click ("element is not stable / detached from the
       // DOM"). A fresh navigation + load-state wait guarantees a stable button
       // before we click it. (#329)
-      await page.goto(`${BASE_URL}/rooms`);
+      await page.goto(`${BASE_URL}/my-home`);
       await page.waitForSelector(".loading", { state: "detached", timeout: 20_000 });
       await page.waitForLoadState("networkidle");
       const addRoomBtn = page.getByRole("button", { name: /Add room/i });
@@ -236,8 +222,8 @@ async function setupViaUI(): Promise<void> {
       // Wait for any loading state to clear before clicking Back (same pattern as after room creation)
       await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
 
-      // Now click Back button (labeled "← All rooms")
-      await page.getByRole("button", { name: /All rooms/i }).click();
+      // Now click Back button (labeled "← My Home")
+      await page.getByRole("button", { name: /My Home/i }).click();
       await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
       console.log(`[e2e] ✓ Room "${def.name}" configured and back to room list`);
     }

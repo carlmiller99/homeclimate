@@ -113,7 +113,7 @@ The equipment-protection settings — short-cycle protection
 airflow floor (`min_open_vents_fraction`, `max_vent_closed_min`),
 `unavailable_abort_after_min`, `overflow_during_min_runtime`, and
 `reconciliation_interval_min` — are **not** on MQTT and are reachable only from
-the Settings and Thermostats pages.
+a zone's Thermostat Settings (My Home → Edit Zone) and Settings.
 
 This is deliberate. MQTT's trust boundary is the broker's ACLs, which is a
 weaker gate than the [authentication](./auth.md) in front of the web UI and MCP.
@@ -122,7 +122,7 @@ stronger boundary. Install-time hardware facts (`total_vents_count`,
 `has_bypass_damper`), free-text notes, and display names are excluded too — they
 are not automation targets. So are the three [welcome home](./vacation-mode.md#welcome-home)
 settings (`welcome_home_enabled`, `welcome_home_lead_min`, `welcome_home_hours`):
-they are install-time preferences, set once on the Thermostats page.
+they are install-time preferences, set once in a zone's Thermostat Settings.
 
 ---
 
@@ -226,7 +226,7 @@ The name form is the sanitised name — lower-cased, with anything outside
 Both forms carry retained state, and a result echoes back on whichever form the
 command used. Because the sanitised name has to be unambiguous, **room names
 must be unique once sanitised** — "Office" and "office" now collide, and the
-Rooms page will say so. On upgrade, any existing collisions are renamed
+Room Settings form will say so. On upgrade, any existing collisions are renamed
 automatically (`"Office"` → `"Office (2)"`) and each rename is recorded in the
 event log.
 
@@ -353,7 +353,7 @@ automation:
   connected, `offline` on a clean shutdown *or* an ungraceful one. Discovered
   entities go unavailable rather than showing stale values if HomeClimate dies.
 - **Successful MQTT commands are logged** to the event log, exactly like a UI
-  or API change — the Logs page shows what changed and when. A *rejected*
+  or API change — Settings → Logs shows what changed and when. A *rejected*
   command reports only on its result topic, the same way a rejected UI edit
   shows an inline error rather than a log entry.
 - **No rate limiting.** Commands go through the same validation as REST; there is

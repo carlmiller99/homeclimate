@@ -1,13 +1,11 @@
-import { Link } from "react-router";
+import { useEffect, useState } from "react";
 import {
-  equipmentSummary,
-  getBuildings,
-  getZones,
-  groupByBuilding,
-  type Building,
-  type ZoneProfile,
-} from "../zonesApi";
-import { useEffect, useRef, useState } from "react";
+  deleteContactSensor,
+  getSmartControl,
+  saveContactSensor,
+  type ContactSensor,
+} from "../smartControlApi";
+import Zones from "./Zones";
 import {
   getRooms,
   getRoom,
@@ -22,34 +20,24 @@ import {
   testVent,
   addPresence,
   removePresence,
-  clearPresenceHoldover,
   getThermostats,
   getEntityStates,
   getOutsideTempEntity,
-  getRoomActiveStatuses,
-  getOverrides,
-  clearOverride,
   getSensorHealth,
   type StaleSensor,
   CONTROL_METHOD_LABELS,
   type ControlMethod,
   type Room,
   type RoomVent,
-  type RoomOverrideHold,
   type ThermostatConfig,
   type EntityState,
-  type RoomActiveStatus,
 } from "../api";
-import { useSystem, useUnit } from "../contexts";
-import { Frozen } from "../ci";
+import { useUnit } from "../contexts";
 import EntityPicker from "../components/EntityPicker";
 import ConfirmDialog from "../components/ConfirmDialog";
-import HoldModal from "../components/HoldModal";
 import { EcoWorkedExample } from "../components/EcoMode";
 import { ECO_NUMERIC_FIELDS, type EcoNumericKey } from "../eco";
 import { sanitizeRoomName } from "../roomNames";
-import { formatCountdown } from "../countdown";
-import { HouseTime } from "../components/Time";
 
 // ---------------------------------------------------------------------------
 // Room create / edit settings — a full-page view (not a modal). The form is
@@ -63,6 +51,7 @@ function RoomSettings({
   thermostats,
   onCancel,
   onSaved,
+  onDeleted,
 }: {
   room: Room | null;
   // Every other room, so the sanitized-name uniqueness rule (#519) can be
@@ -71,7 +60,20 @@ function RoomSettings({
   thermostats: ThermostatConfig[];
   onCancel: () => void;
   onSaved: (saved: Room) => void;
+  onDeleted?: () => void;
 }) {
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const doDelete = async () => {
+    setConfirmDelete(false);
+    setDeleteError(null);
+    try {
+      await deleteRoom(room!.id);
+      onDeleted?.();
+    } catch (e) {
+      setDeleteError(e instanceof Error ? e.message : "Could not delete the room");
+    }
+  };
   const { toDisplay, toDisplayDelta, displayBound, unitLabel } = useUnit();
   const [name, setName] = useState(room?.name ?? "");
   const [thermostat, setThermostat] = useState(room?.thermostat_entity_id ?? "");
@@ -306,7 +308,7 @@ function RoomSettings({
           onClick={onCancel}
           style={{ marginBottom: ".75rem" }}
         >
-          ← {room ? "Back" : "All rooms"}
+          ← {room ? "Back" : "My Home"}
         </button>
         <div className="page-title">{room ? "Edit Room" : "New Room"}</div>
       </div>
@@ -703,6 +705,15 @@ function RoomSettings({
       </div>
 
       <div className="flex gap-sm" style={{ marginTop: "1.25rem", justifyContent: "flex-end" }}>
+        {room && (
+          <button
+            className="btn btn-danger"
+            style={{ marginRight: "auto" }}
+            onClick={() => setConfirmDelete(true)}
+          >
+            Delete Room
+          </button>
+        )}
         <button className="btn btn-secondary" onClick={onCancel}>
           Cancel
         </button>
@@ -710,6 +721,16 @@ function RoomSettings({
           {saving ? "Saving…" : room ? "Save changes" : "Create room"}
         </button>
       </div>
+      {deleteError && <p className="form-error">{deleteError}</p>}
+      {confirmDelete && room && (
+        <ConfirmDialog
+          title="Delete room?"
+          message={`Delete room "${room.name}"? This cannot be undone.`}
+          confirmLabel="Delete"
+          onConfirm={() => void doDelete()}
+          onCancel={() => setConfirmDelete(false)}
+        />
+      )}
     </div>
   );
 }
@@ -717,6 +738,98 @@ function RoomSettings({
 // ---------------------------------------------------------------------------
 // Entity section inside the configure view
 // ---------------------------------------------------------------------------
+/** Doors and windows in a room, each pausing the room or its whole zone. */
+function DoorsWindowsEditor({
+  roomId,
+  contacts,
+  onChanged,
+}: {
+  roomId: string;
+  contacts: ContactSensor[];
+  onChanged: (all: ContactSensor[]) => void;
+}) {
+  const [err, setErr] = useState<string | null>(null);
+  const run = async (action: () => Promise<{ sensors: ContactSensor[] }>, fallback: string) => {
+    setErr(null);
+    try {
+      onChanged((await action()).sensors);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : fallback);
+    }
+  };
+  return (
+    <div className="entity-section">
+      <div style={{ display: "flex", alignItems: "center", gap: ".5rem", marginBottom: ".3rem" }}>
+        <span style={{ fontSize: "1.2rem" }}>🚪</span>
+        <span style={{ fontWeight: 700, fontSize: "1rem" }}>Doors &amp; Windows</span>
+        {contacts.length > 0 && <span className="badge badge-blue">{contacts.length}</span>}
+      </div>
+      <p className="text-sm text-muted" style={{ marginBottom: ".75rem" }}>
+        An open door or window pauses this room, or its whole zone, after the delay set in Smart
+        Control.
+      </p>
+      <EntityPicker
+        domain="binary_sensor"
+        placeholder="Search door and window sensors (binary_sensor.*)…"
+        onSelect={(id) =>
+          void run(
+            () => saveContactSensor(id, { room_id: roomId, pauses: "room" }),
+            "Could not add the sensor"
+          )
+        }
+      />
+      {contacts.length === 0 ? (
+        <p className="text-sm text-muted" style={{ marginTop: ".5rem" }}>
+          No doors or windows in this room.
+        </p>
+      ) : (
+        <ul className="entity-list">
+          {contacts.map((c) => (
+            <li key={c.entity_id} className="entity-row">
+              <span className="entity-row-name">
+                {c.name}
+                <span className="font-mono text-sm text-muted"> {c.entity_id}</span>
+              </span>
+              <label className="sensor-scope">
+                Pauses
+                <select
+                  className="form-control"
+                  value={c.pauses}
+                  aria-label={`What ${c.name} pauses`}
+                  onChange={(e) =>
+                    void run(
+                      () =>
+                        saveContactSensor(c.entity_id, {
+                          room_id: roomId,
+                          pauses: e.target.value as "room" | "zone",
+                        }),
+                      "Could not save the sensor"
+                    )
+                  }
+                >
+                  <option value="room">This Room</option>
+                  <option value="zone">Whole Zone</option>
+                </select>
+              </label>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                aria-label={`Remove ${c.name}`}
+                onClick={() =>
+                  void run(() => deleteContactSensor(c.entity_id), "Could not remove the sensor")
+                }
+              >
+                Remove
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {err && <p className="form-error">{err}</p>}
+    </div>
+  );
+}
+
 function EntitySection({
   title,
   description,
@@ -795,7 +908,7 @@ function VentTable({
     <div style={{ marginBottom: "1.5rem" }}>
       <div style={{ display: "flex", alignItems: "center", gap: ".5rem", marginBottom: ".3rem" }}>
         <span style={{ fontSize: "1.2rem" }}>💨</span>
-        <span style={{ fontWeight: 700, fontSize: "1rem" }}>Vents</span>
+        <span style={{ fontWeight: 700, fontSize: "1rem" }}>Smart Vents</span>
         {vents.length > 0 && <span className="badge badge-blue">{vents.length}</span>}
       </div>
       <p className="text-sm text-muted" style={{ marginBottom: ".75rem" }}>
@@ -958,12 +1071,16 @@ function VentRow({ vent, onChanged }: { vent: RoomVent; onChanged: () => Promise
 function RoomConfigure({
   room,
   thermostats,
+  contacts = [],
+  onContactsChanged,
   onBack,
   onEditSettings,
   onRoomUpdated,
 }: {
   room: Room;
   thermostats: ThermostatConfig[];
+  contacts?: ContactSensor[];
+  onContactsChanged?: (all: ContactSensor[]) => void;
   onBack: () => void;
   onEditSettings: () => void;
   onRoomUpdated: (r: Room) => void;
@@ -1018,7 +1135,7 @@ function RoomConfigure({
           onClick={onBack}
           style={{ marginBottom: ".75rem" }}
         >
-          ← All rooms
+          ← My Home
         </button>
         <div className="flex-between">
           <div>
@@ -1032,7 +1149,7 @@ function RoomConfigure({
             </div>
           </div>
           <button className="btn btn-secondary btn-sm" onClick={onEditSettings}>
-            Edit settings
+            Room Settings
           </button>
         </div>
       </div>
@@ -1118,9 +1235,13 @@ function RoomConfigure({
 
       {/* Entity sections */}
       <div className="card">
+        <VentTable roomId={room.id} vents={room.vents ?? []} onChanged={refresh} />
+
+        <hr className="divider" />
+
         <EntitySection
           title="Temperature Sensors"
-          description="Used to calculate the room's average temperature. Add all sensors in this room. The thermostat's own sensor can optionally be included via Edit settings."
+          description="Used to calculate the room's average temperature. Add all sensors in this room. The thermostat's own sensor can optionally be included in Room Settings."
           icon="🌡"
           items={sensors}
           domain="sensor"
@@ -1132,18 +1253,22 @@ function RoomConfigure({
 
         <hr className="divider" />
 
-        <VentTable roomId={room.id} vents={room.vents ?? []} onChanged={refresh} />
+        <DoorsWindowsEditor
+          roomId={room.id}
+          contacts={contacts}
+          onChanged={(all) => onContactsChanged?.(all)}
+        />
 
         <hr className="divider" />
 
         <EntitySection
-          title="Presence / Motion Sensors"
+          title="Occupancy Sensors"
           description="When any sensor here detects motion, the room activates at the presence-triggered temperature and stays active for the configured holdover period (reset on each detection)."
           icon="🚶"
           items={presence}
           domain="binary_sensor"
-          pickerPlaceholder="Search motion/presence sensors (binary_sensor.*)…"
-          emptyHint="No presence sensors added — the room will only activate via schedules."
+          pickerPlaceholder="Search occupancy and motion sensors (binary_sensor.*)…"
+          emptyHint="No occupancy sensors added — the room will only activate via schedules."
           onAdd={wrap("Adding sensor…", (id: string) => addPresence(room.id, id))}
           onRemove={askToRemove("presence")}
         />
@@ -1175,19 +1300,6 @@ function formatStaleAge(s: StaleSensor): string {
   return `${Math.round(hours / 24)} d ago`;
 }
 
-function sourceLabel(source: RoomActiveStatus["source"]): string {
-  switch (source) {
-    case "schedule":
-      return "Schedule";
-    case "presence":
-      return "Presence";
-    case "override":
-      return "Override";
-    default:
-      return "—";
-  }
-}
-
 function ventLabel(state: EntityState): string {
   // Flair vents report current_tilt_position; standard covers use current_position
   const pos = (state.attributes.current_tilt_position ?? state.attributes.current_position) as
@@ -1207,355 +1319,152 @@ function ventLabel(state: EntityState): string {
 // ---------------------------------------------------------------------------
 // Room list card
 // ---------------------------------------------------------------------------
+function DeviceSection({
+  title,
+  empty,
+  items,
+}: {
+  title: string;
+  empty: string;
+  items: { id: string; name: string; value: string; tone?: string; tag?: string }[];
+}) {
+  return (
+    <section className="device-section" aria-label={title}>
+      <h3 className="device-section-title">
+        {title}
+        <span className="device-count">{items.length}</span>
+      </h3>
+      {items.length === 0 ? (
+        <p className="device-empty">{empty}</p>
+      ) : (
+        <ul className="device-list">
+          {items.map((d) => (
+            <li key={d.id} className="device-item" title={d.id}>
+              <span className="device-name">{d.name}</span>
+              <span className={`device-value${d.tone ? ` device-${d.tone}` : ""}`}>
+                {d.value}
+                {d.tag && <span className="device-tag">{d.tag}</span>}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function friendly(state: EntityState | null | undefined, id: string): string {
+  const name = state?.attributes?.friendly_name;
+  return typeof name === "string" && name ? name : id;
+}
+
+/** A room's hardware: four equal sections, one per kind of device. */
 function RoomCard({
   room,
-  thermostats,
-  status,
-  statusFetchedAt,
+  contacts,
   staleSensors,
   onConfigure,
   onEdit,
-  onDelete,
-  onClearPresence,
-  onSetHold,
-  onHoldChanged,
 }: {
   room: Room;
-  thermostats: ThermostatConfig[];
-  status: RoomActiveStatus | null;
-  statusFetchedAt: number; // Date.now() when status was fetched
+  contacts: ContactSensor[];
   staleSensors: StaleSensor[];
   onConfigure: () => void;
   onEdit: () => void;
-  onDelete: () => void;
-  onClearPresence: () => void;
-  // Temporary holds (#576): open the hold modal scoped to this room / refetch
-  // after this card cancelled the room's hold.
-  onSetHold: () => void;
-  onHoldChanged: () => void;
 }) {
-  const { enabled: systemEnabled } = useSystem();
-  const { fmtTemp, toDisplayDelta, unitLabel } = useUnit();
+  const { fmtTemp } = useUnit();
   const sensorIds = room.sensors?.map((s) => s.entity_id) ?? [];
   const ventIds = room.vents?.map((v) => v.entity_id) ?? [];
   const presenceIds = room.presence_sensors?.map((p) => p.entity_id) ?? [];
-  const tc = thermostats.find((t) => t.thermostat_entity_id === room.thermostat_entity_id);
-  const missing = sensorIds.length === 0 || ventIds.length === 0;
 
   const [states, setStates] = useState<Record<string, EntityState | null>>({});
-  // Tick every second for live countdown
-  const [, setTick] = useState(0);
-  useEffect(() => {
-    const t = setInterval(() => setTick((n) => n + 1), 1000);
-    return () => clearInterval(t);
-  }, []);
-
   useEffect(() => {
     const allIds = [...sensorIds, ...ventIds, ...presenceIds];
     if (allIds.length === 0) return;
     getEntityStates(allIds)
       .then(setStates)
       .catch(() => {});
-    // Intentionally scoped to room.id: refetching on every sensor/vent/presence
-    // mutation would thrash HA during inline edits.
+    // Entity ids are re-read when the room changes (by id).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [room.id]);
 
-  // Derived live values
-  const temps = sensorIds
-    .map((id) => states[id]?.numeric)
-    .filter((v): v is number => v !== null && v !== undefined);
-  const avgTemp =
-    temps.length > 0 ? (temps.reduce((a, b) => a + b, 0) / temps.length).toFixed(1) : null;
-
-  const occupied = presenceIds.some((id) => states[id]?.state === "on");
-  const hasPresenceData =
-    presenceIds.length > 0 && presenceIds.some((id) => states[id] !== undefined);
-
-  // Countdown: compute elapsed since status was fetched
-  const elapsedSeconds = Math.floor((Date.now() - statusFetchedAt) / 1000);
-  const endsIn =
-    status?.ends_in_seconds != null ? Math.max(0, status.ends_in_seconds - elapsedSeconds) : null;
-  const nextIn =
-    status?.next_schedule_in_seconds != null
-      ? Math.max(0, status.next_schedule_in_seconds - elapsedSeconds)
-      : null;
-
-  const isActive = status && status.source !== "idle";
-  const isDisabled = !systemEnabled;
+  const stale = new Set(staleSensors.map((s) => s.entity_id));
+  const vents = ventIds.map((id) => ({
+    id,
+    name: friendly(states[id], id),
+    value: states[id] ? ventLabel(states[id]!) : "…",
+  }));
+  const temps = sensorIds.map((id) => {
+    const n = states[id]?.numeric;
+    return {
+      id,
+      name: friendly(states[id], id),
+      value: stale.has(id) ? "Stale" : n == null ? "…" : fmtTemp(n),
+      tone: stale.has(id) ? "warn" : undefined,
+    };
+  });
+  const doors = contacts.map((c) => ({
+    id: c.entity_id,
+    name: c.name,
+    value: c.state === "open" ? "Open" : c.state === "closed" ? "Closed" : "Offline",
+    tag: c.pauses === "zone" ? "Zone" : undefined,
+    tone: c.state === "open" ? "open" : undefined,
+  }));
+  const occupancy = presenceIds.map((id) => {
+    const st = states[id]?.state;
+    return {
+      id,
+      name: friendly(states[id], id),
+      value: st === undefined ? "…" : st === "on" ? "Occupied" : st === "off" ? "Clear" : "Offline",
+      tone: st === "on" ? "occupied" : undefined,
+    };
+  });
 
   return (
-    <div className={`card ${isDisabled ? "room-card-disabled" : ""}`}>
-      <div className="flex-between" style={{ marginBottom: ".5rem" }}>
-        <div className="card-title" style={{ marginBottom: 0 }}>
-          {room.name}
-          {staleSensors.length > 0 && (
-            <span
-              className="badge badge-orange"
-              data-testid={`stale-badge-${room.id}`}
-              title={staleSensors.map((s) => `${s.entity_id} — ${formatStaleAge(s)}`).join("\n")}
-              style={{ marginLeft: ".5rem", verticalAlign: "middle", fontSize: ".75rem" }}
-            >
-              ⚠ {staleSensors.length} stale sensor{staleSensors.length === 1 ? "" : "s"}
-            </span>
-          )}
-        </div>
-        <button className="btn btn-danger btn-sm" onClick={onDelete}>
-          Delete
-        </button>
-      </div>
-
-      <div className="text-muted" style={{ marginBottom: ".875rem", fontSize: ".82rem" }}>
-        {tc?.name ? (
-          <>
-            {tc.name}{" "}
-            <span className="font-mono" style={{ fontSize: ".75rem" }}>
-              ({room.thermostat_entity_id})
-            </span>
-          </>
-        ) : (
-          <span className="font-mono">{room.thermostat_entity_id}</span>
-        )}
-      </div>
-
-      {/* Active status row */}
-      <div className="room-status-row">
-        {/* Global Off badge — shown alongside schedule info, not instead of it */}
-        {isDisabled && <span className="room-status-disabled">⏸ Global Off</span>}
-
-        {status == null ? (
-          <span className="room-status-loading">…</span>
-        ) : (
-          <>
-            {/* Target temp — grayed out when system disabled */}
-            <span
-              className={`room-status-target ${isActive && !isDisabled ? "room-status-active" : "room-status-idle"}`}
-            >
-              {isActive ? `🎯 ${fmtTemp(status.target_temp!)}` : "Not active"}
-            </span>
-
-            {/* Active via */}
-            {isActive && <span className="room-status-via">via {sourceLabel(status.source)}</span>}
-
-            {/* #576: whether Eco Mode may relax the active hold */}
-            {status.source === "override" && (
-              <span
-                className="room-status-via"
-                title={
-                  status.override_respect_eco
-                    ? "This hold opted in to Eco Mode: its target may be relaxed on extreme days."
-                    : "This hold runs to its exact target — Eco Mode never adjusts it."
-                }
-              >
-                {status.override_respect_eco ? "Eco may relax" : "ignores Eco"}
-              </span>
-            )}
-
-            {/* Ends in countdown */}
-            {isActive && endsIn != null && (
-              <span className="room-status-ends">
-                ends in <Frozen>{formatCountdown(endsIn)}</Frozen>
-              </span>
-            )}
-
-            {/* #576: cancel the active hold from the card */}
-            {status.source === "override" && (
-              <button
-                className="btn btn-sm btn-outline-danger"
-                style={{ marginLeft: "auto", padding: "0 .5rem", fontSize: ".75rem" }}
-                title="End the temporary hold now — the room returns to its schedules and presence."
-                onClick={async () => {
-                  await clearOverride(room.id);
-                  onHoldChanged();
-                }}
-              >
-                Cancel hold
-              </button>
-            )}
-
-            {/* Clear presence button — shown whenever a holdover timer is running */}
-            {status.presence_holdover_active && (
-              <button
-                className="btn btn-sm btn-outline-danger"
-                style={{ marginLeft: "auto", padding: "0 .5rem", fontSize: ".75rem" }}
-                title="Stop conditioning this room for presence. Occupancy sensors that still read on are ignored until the room empties; the next time someone enters, presence works normally again."
-                onClick={async () => {
-                  await clearPresenceHoldover(room.id);
-                  onClearPresence();
-                }}
-              >
-                Clear presence
-              </button>
-            )}
-
-            {/* #439: presence cleared while the room is still occupied — the
-                sensors may read on, but no presence demand is generated until
-                the room empties and re-arms. Without this hint the page looks
-                self-contradictory (occupied, yet no presence and no button). */}
-            {status.presence_suppressed && (
-              <span
-                className="room-status-via"
-                title="Presence was cleared. Occupancy sensors are ignored until the room empties; the next entry activates presence normally."
-              >
-                presence cleared — ignored until the room empties
-              </span>
-            )}
-
-            {/* Next schedule */}
-            {status.next_schedule_label && nextIn != null && (
-              <span className="room-status-next">
-                {isActive ? "then" : "next"}{" "}
-                <strong>{fmtTemp(status.next_schedule_target!)}</strong>{" "}
-                <HouseTime>{status.next_schedule_label}</HouseTime>
-                {nextIn > 0 && (
-                  <span className="room-status-next-timer">
-                    {" ("}
-                    <Frozen>{formatCountdown(nextIn)}</Frozen>
-                    {")"}
-                  </span>
-                )}
-              </span>
-            )}
-          </>
-        )}
-      </div>
-
-      {/* Live state strip */}
-      <div className="room-live-strip">
-        {/* Temperature */}
-        <div className="room-live-item">
-          <span className="room-live-label">🌡 Temp</span>
-          <span className="room-live-value">
-            {avgTemp !== null ? fmtTemp(Number(avgTemp)) : sensorIds.length === 0 ? "—" : "…"}
-          </span>
-        </div>
-
-        {/* Presence */}
-        {presenceIds.length > 0 && (
-          <div className="room-live-item">
-            <span className="room-live-label">🚶 Presence</span>
-            <span
-              className={`room-live-value ${hasPresenceData ? (occupied ? "live-occupied" : "live-unoccupied") : ""}`}
-            >
-              {!hasPresenceData ? "…" : occupied ? "Occupied" : "Unoccupied"}
-              {/* Holdover countdown when presence is the active source */}
-              {occupied && status?.source === "presence" && endsIn != null && (
-                <span className="room-status-next-timer" style={{ marginLeft: ".35rem" }}>
-                  (resets in <Frozen>{formatCountdown(endsIn)}</Frozen>)
-                </span>
-              )}
-            </span>
-          </div>
-        )}
-
-        {/* Vents */}
-        {ventIds.length > 0 && (
-          <div className="room-live-item">
-            <span className="room-live-label">💨 Vents</span>
-            <div className="room-live-vents">
-              {ventIds.map((id) => {
-                const s = states[id];
-                return (
-                  <span key={id} className="room-vent-pill" title={id}>
-                    {s ? ventLabel(s) : "…"}
-                  </span>
-                );
-              })}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Entity counts */}
-      <div style={{ display: "flex", gap: ".5rem", flexWrap: "wrap", marginBottom: ".875rem" }}>
-        <span className={`badge ${sensorIds.length > 0 ? "badge-green" : "badge-red"}`}>
-          🌡 {sensorIds.length} sensor{sensorIds.length !== 1 ? "s" : ""}
-        </span>
-        <span className={`badge ${ventIds.length > 0 ? "badge-blue" : "badge-gray"}`}>
-          💨 {ventIds.length} vent{ventIds.length !== 1 ? "s" : ""}
-        </span>
-        <span className={`badge ${presenceIds.length > 0 ? "badge-green" : "badge-gray"}`}>
-          🚶 {presenceIds.length} presence
-        </span>
-        {room.temp_offset !== 0 && (
-          <span className="badge badge-orange" title="Temperature offset active">
-            offset {room.temp_offset > 0 ? "+" : ""}
-            {toDisplayDelta(room.temp_offset)}
-            {unitLabel}
+    <div className="card room-card">
+      <div className="room-card-head">
+        <h3 className="card-title room-card-title">{room.name}</h3>
+        {staleSensors.length > 0 && (
+          <span
+            className="badge badge-orange"
+            data-testid={`stale-badge-${room.id}`}
+            title={staleSensors.map((s) => `${s.entity_id} — ${formatStaleAge(s)}`).join("\n")}
+          >
+            {staleSensors.length} stale sensor{staleSensors.length === 1 ? "" : "s"}
           </span>
         )}
       </div>
-
-      {missing && (
-        <p className="text-sm" style={{ color: "var(--orange-text)", marginBottom: ".75rem" }}>
-          ⚠ {sensorIds.length === 0 ? "No temperature sensors" : "No vents"} — configure below.
-        </p>
-      )}
-
-      <div className="flex gap-sm">
-        <button className="btn btn-primary btn-sm" style={{ flex: 1 }} onClick={onConfigure}>
-          Configure sensors &amp; vents →
-        </button>
-        <button
-          className="btn btn-secondary btn-sm"
-          onClick={onSetHold}
-          title="Hold this room at an exact temperature for 1–8 hours, overriding schedules and presence."
-        >
-          {status?.source === "override" ? "Manage hold" : "Hold"}
+      <div className="device-grid">
+        <DeviceSection title="Smart Vents" empty="No vents" items={vents} />
+        <DeviceSection title="Temperature Sensors" empty="No sensors" items={temps} />
+        <DeviceSection title="Doors & Windows" empty="None" items={doors} />
+        <DeviceSection title="Occupancy Sensors" empty="None" items={occupancy} />
+      </div>
+      <div className="room-card-actions">
+        <button className="btn btn-primary btn-sm" onClick={onConfigure}>
+          Edit Devices
         </button>
         <button className="btn btn-secondary btn-sm" onClick={onEdit}>
-          Settings
+          Room Settings
         </button>
       </div>
     </div>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Main page
-// ---------------------------------------------------------------------------
-export default function Rooms() {
+export default function MyHome() {
   const [rooms, setRooms] = useState<Room[]>([]);
-  const [zoneList, setZoneList] = useState<ZoneProfile[]>([]);
-  const [buildingList, setBuildingList] = useState<Building[]>([]);
-  // Zones and buildings only shape the grouping; if either fails to load the
-  // page falls back to one flat grid rather than hiding rooms.
-  const loadZones = async () => {
-    const [z, b] = await Promise.all([
-      Promise.resolve()
-        .then(getZones)
-        .then((v) => v ?? [])
-        .catch(() => [] as ZoneProfile[]),
-      Promise.resolve()
-        .then(getBuildings)
-        .then((v) => v ?? [])
-        .catch(() => [] as Building[]),
-    ]);
-    setZoneList(z);
-    setBuildingList(b);
-  };
+  const [zoneIds, setZoneIds] = useState<Set<string>>(new Set());
+  const [contacts, setContacts] = useState<ContactSensor[]>([]);
   const [thermostats, setThermostats] = useState<ThermostatConfig[]>([]);
   const [loading, setLoading] = useState(true);
+  const [reloadKey, setReloadKey] = useState(0);
   const [configRoom, setConfigRoom] = useState<Room | null>(null);
-  // Full-page settings view (create / edit a room). null = hidden; otherwise
-  // `room` is the room being edited (null = create a new one) and `returnTo`
-  // records whether to fall back to the room list or the configure view when
-  // the user saves or cancels — so nested "Edit settings" navigation from the
-  // configure view lands back on it.
   const [settings, setSettings] = useState<{
     room: Room | null;
     returnTo: "list" | "configure";
   } | null>(null);
-  const [statuses, setStatuses] = useState<Record<string, RoomActiveStatus>>({});
-  const [statusFetchedAt, setStatusFetchedAt] = useState<number>(Date.now());
-  // room_id → live temporary hold (#576). Feeds the hold modal.
-  const [holds, setHolds] = useState<Record<string, RoomOverrideHold>>({});
-  // null = closed; { room } = open, optionally scoped to one room.
-  const [holdModalFor, setHoldModalFor] = useState<{ room?: string } | null>(null);
-  // room_id → stale sensors. Drives the per-card badge (Issue #211).
   const [staleByRoom, setStaleByRoom] = useState<Record<string, StaleSensor[]>>({});
-  const [confirmDeleteRoom, setConfirmDeleteRoom] = useState<Room | null>(null);
-  const roomsRef = useRef<Room[]>([]);
 
   const refreshSensorHealth = async () => {
     try {
@@ -1564,66 +1473,36 @@ export default function Rooms() {
       for (const r of h.rooms) map[r.room_id] = r.stale_sensors;
       setStaleByRoom(map);
     } catch {
-      // ignore — banner-style information, not critical for the page to render
+      // Sensor health is advisory; a failure just hides the stale badges.
     }
   };
 
-  const fetchStatuses = async (roomList: Room[]) => {
-    if (roomList.length === 0) return;
+  const loadContacts = async () => {
     try {
-      const s = await getRoomActiveStatuses(roomList.map((r) => r.id));
-      setStatuses(s);
-      setStatusFetchedAt(Date.now());
+      setContacts((await getSmartControl()).sensors);
     } catch {
-      // ignore
+      setContacts([]);
     }
-  };
-
-  const fetchHolds = async () => {
-    try {
-      const list = await getOverrides();
-      setHolds(Object.fromEntries(list.map((h) => [h.room_id, h])));
-    } catch {
-      // ignore — hold info is supplementary; the card still renders
-    }
-  };
-
-  const refreshHoldState = () => {
-    fetchStatuses(roomsRef.current);
-    fetchHolds();
   };
 
   const load = async () => {
-    void loadZones();
     const [list, tcs] = await Promise.all([getRooms(), getThermostats()]);
     const detailed = await Promise.all(list.map((r) => getRoom(r.id)));
     setRooms(detailed);
-    roomsRef.current = detailed;
     setThermostats(tcs);
+    setZoneIds(new Set(tcs.map((t) => t.thermostat_entity_id)));
     setLoading(false);
-    await Promise.all([fetchStatuses(detailed), fetchHolds(), refreshSensorHealth()]);
-  };
-
-  const doDeleteRoom = async () => {
-    if (!confirmDeleteRoom) return;
-    const room = confirmDeleteRoom;
-    setConfirmDeleteRoom(null);
-    await deleteRoom(room.id);
-    load();
+    await Promise.all([refreshSensorHealth(), loadContacts()]);
   };
 
   useEffect(() => {
     load();
-    // Mount-only.
+    // Mount-only fetch; later loads are triggered by the user's edits.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Re-fetch statuses every 30s. Mount-only — uses ref to read latest rooms
-  // without re-subscribing.
   useEffect(() => {
     const interval = setInterval(() => {
-      fetchStatuses(roomsRef.current);
-      fetchHolds();
       refreshSensorHealth();
     }, 30_000);
     return () => clearInterval(interval);
@@ -1632,12 +1511,10 @@ export default function Rooms() {
   if (loading)
     return (
       <div className="loading">
-        <div className="spinner" /> Loading rooms…
+        <div className="spinner" /> Loading My Home…
       </div>
     );
 
-  // Settings view (create / edit a room). Checked before the configure view so
-  // an "Edit settings" launched from configure returns to it on save/cancel.
   if (settings) {
     const { room: editing, returnTo } = settings;
     return (
@@ -1646,12 +1523,16 @@ export default function Rooms() {
         rooms={rooms}
         thermostats={thermostats}
         onCancel={() => setSettings(null)}
+        onDeleted={async () => {
+          setSettings(null);
+          setConfigRoom(null);
+          setReloadKey((k) => k + 1);
+          await load();
+        }}
         onSaved={async (saved) => {
           setSettings(null);
+          setReloadKey((k) => k + 1);
           await load();
-          // Editing from the configure view returns there with the fresh room;
-          // creating a new room from the list jumps straight into its configure
-          // view so the user can add sensors and vents next.
           if (returnTo === "configure" || editing == null) {
             const full = await getRoom(saved.id);
             setConfigRoom(full);
@@ -1661,12 +1542,13 @@ export default function Rooms() {
     );
   }
 
-  // Configure view
   if (configRoom) {
     return (
       <RoomConfigure
         room={configRoom}
         thermostats={thermostats}
+        contacts={contacts.filter((c) => c.room_id === configRoom.id)}
+        onContactsChanged={(all) => setContacts(all)}
         onBack={() => {
           setConfigRoom(null);
           load();
@@ -1677,133 +1559,53 @@ export default function Rooms() {
     );
   }
 
+  const card = (room: Room) => (
+    <RoomCard
+      key={room.id}
+      room={room}
+      contacts={contacts.filter((c) => c.room_id === room.id)}
+      staleSensors={staleByRoom[room.id] ?? []}
+      onConfigure={() => setConfigRoom(room)}
+      onEdit={() => setSettings({ room, returnTo: "list" })}
+    />
+  );
+  const loose = rooms.filter((r) => !zoneIds.has(r.thermostat_entity_id));
+
   return (
     <div>
-      <div className="page-header">
-        <div>
-          <div className="page-title">Rooms</div>
-          <div className="page-subtitle">
-            Rooms are grouped by building and by the thermostat that serves them.
-          </div>
-        </div>
-        <div className="page-actions">
-          <Link className="btn btn-secondary" to="/import">
-            Set Up from Home Assistant
-          </Link>
+      <Zones
+        reloadKey={reloadKey}
+        onChanged={() => void load()}
+        extraActions={
           <button
             className="btn btn-primary"
             onClick={() => setSettings({ room: null, returnTo: "list" })}
           >
             Add Room
           </button>
-        </div>
-      </div>
-
-      {rooms.length === 0 ? (
-        <div className="card">
-          <div className="empty-state">
-            <p>No rooms yet.</p>
-            <p style={{ marginTop: ".5rem" }}>
-              Click <strong>Add Room</strong>, pick a thermostat, then configure its sensors and
-              vents.
-            </p>
+        }
+        renderRooms={(zoneId) => {
+          const zoneRooms = rooms.filter((r) => r.thermostat_entity_id === zoneId);
+          return zoneRooms.length === 0 ? (
+            <div className="empty-panel">
+              This zone has no rooms. Add one — every zone needs at least one room.
+            </div>
+          ) : (
+            <div className="card-grid">{zoneRooms.map(card)}</div>
+          );
+        }}
+      />
+      {loose.length > 0 && (
+        <section className="building-group">
+          <div className="group-header">
+            <h2 className="group-header-title">Rooms Without a Zone</h2>
+            <span className="group-header-rule" />
           </div>
-        </div>
-      ) : (
-        (() => {
-          const card = (room: Room) => (
-            <RoomCard
-              key={room.id}
-              room={room}
-              thermostats={thermostats}
-              status={statuses[room.id] ?? null}
-              statusFetchedAt={statusFetchedAt}
-              staleSensors={staleByRoom[room.id] ?? []}
-              onConfigure={() => setConfigRoom(room)}
-              onEdit={() => setSettings({ room, returnTo: "list" })}
-              onDelete={() => setConfirmDeleteRoom(room)}
-              onClearPresence={() => fetchStatuses(roomsRef.current)}
-              onSetHold={() => setHoldModalFor({ room: room.id })}
-              onHoldChanged={refreshHoldState}
-            />
-          );
-          const zoned = new Set(zoneList.map((z) => z.thermostat_entity_id));
-          const loose = rooms.filter((r) => !zoned.has(r.thermostat_entity_id));
-          if (zoneList.length === 0) {
-            return <div className="card-grid">{rooms.map(card)}</div>;
-          }
-          return (
-            <>
-              {groupByBuilding(buildingList, zoneList, (z) => z.building_id).map((g) => (
-                <section key={g.building?.id ?? "unassigned"} className="building-group">
-                  <div className="group-header">
-                    <h2 className="group-header-title">{g.building?.name ?? "Unassigned"}</h2>
-                    <span className="group-header-rule" />
-                  </div>
-                  {g.items.length === 0 && (
-                    <div className="empty-panel">
-                      No zones in this building yet. Assign one on the Zones page.
-                    </div>
-                  )}
-                  {g.items.map((z) => {
-                    const zoneRooms = rooms.filter(
-                      (r) => r.thermostat_entity_id === z.thermostat_entity_id
-                    );
-                    return (
-                      <section
-                        key={z.thermostat_entity_id}
-                        className="zone-panel"
-                        aria-label={z.name || z.thermostat_entity_id}
-                      >
-                        <div className="zone-panel-head">
-                          <div className="zone-row-title">
-                            <div className="zone-name">{z.name || z.thermostat_entity_id}</div>
-                            <div className="zone-entity">{z.thermostat_entity_id}</div>
-                          </div>
-                          <span className="pill">{equipmentSummary(z)}</span>
-                        </div>
-                        {zoneRooms.length === 0 ? (
-                          <div className="empty-panel">No rooms in this zone yet.</div>
-                        ) : (
-                          <div className="card-grid">{zoneRooms.map(card)}</div>
-                        )}
-                      </section>
-                    );
-                  })}
-                </section>
-              ))}
-              {loose.length > 0 && (
-                <section className="building-group">
-                  <div className="group-header">
-                    <h2 className="group-header-title">Other Rooms</h2>
-                    <span className="group-header-rule" />
-                  </div>
-                  <div className="card-grid">{loose.map(card)}</div>
-                </section>
-              )}
-            </>
-          );
-        })()
-      )}
-
-      {holdModalFor && (
-        <HoldModal
-          rooms={rooms}
-          initialRoom={holdModalFor.room}
-          holds={holds}
-          onClose={() => setHoldModalFor(null)}
-          onChanged={refreshHoldState}
-        />
-      )}
-
-      {confirmDeleteRoom && (
-        <ConfirmDialog
-          title="Delete room?"
-          message={`Delete room "${confirmDeleteRoom.name}"? This cannot be undone.`}
-          confirmLabel="Delete"
-          onConfirm={() => void doDeleteRoom()}
-          onCancel={() => setConfirmDeleteRoom(null)}
-        />
+          <p className="field-help">
+            Open Room Settings and choose a zone for each of these rooms.
+          </p>
+          <div className="card-grid">{loose.map(card)}</div>
+        </section>
       )}
     </div>
   );

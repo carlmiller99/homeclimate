@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import ConfirmDialog from "../components/ConfirmDialog";
 import {
   getDevLogs,
   getStatus,
@@ -181,12 +182,19 @@ function ZonePanel({ zones }: { zones: ZoneStatus[] }) {
 // ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
+const DEV_MODE_OFF_WARNING =
+  "HomeClimate will start controlling your thermostats and vents directly. " +
+  "Turn off any other automation that controls them first.";
+
 export default function DevModePage() {
   const { devMode, toggleDevMode } = useDevMode();
   const [entries, setEntries] = useState<EventLogEntry[]>([]);
   const [zones, setZones] = useState<ZoneStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [seedResult, setSeedResult] = useState("");
+  // Turning Dev Mode off hands real control of thermostats and vents back to
+  // the engine, so it asks first. Turning it on is always safe.
+  const [confirmOff, setConfirmOff] = useState(false);
   // "Cleared" watermark: rows with id <= this are hidden so the 3s poll can't
   // repopulate a feed the user cleared. Genuinely new events have higher ids
   // and still appear. (Issue #303)
@@ -272,7 +280,7 @@ export default function DevModePage() {
             vents. All actions are logged here instead.
           </p>
           <button className="btn btn-primary" onClick={toggleDevMode}>
-            Enable Developer Mode
+            Turn On Dev Mode
           </button>
         </div>
       </div>
@@ -310,10 +318,22 @@ export default function DevModePage() {
             Engine is running. All thermostat and vent actions are intercepted and logged below.
           </div>
         </div>
-        <button className="btn btn-secondary" onClick={toggleDevMode}>
-          Disable Dev Mode
+        <button className="btn btn-secondary" onClick={() => setConfirmOff(true)}>
+          Turn Off Dev Mode
         </button>
       </div>
+      {confirmOff && (
+        <ConfirmDialog
+          title="Turn off Dev Mode?"
+          message={DEV_MODE_OFF_WARNING}
+          confirmLabel="Turn Off Dev Mode"
+          onCancel={() => setConfirmOff(false)}
+          onConfirm={() => {
+            setConfirmOff(false);
+            void toggleDevMode();
+          }}
+        />
+      )}
 
       {/* Demo metrics seeding (Issue #442) — deterministic fixture week for
           the Metrics page. Reseeding replaces only the demo rows. */}
