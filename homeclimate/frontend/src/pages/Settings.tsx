@@ -1,4 +1,5 @@
 import { useRef, useState, type ReactNode } from "react";
+import NotificationsSection from "./NotificationsSection";
 import { useSearchParams } from "react-router";
 import { downloadBackup, restoreBackup } from "../api";
 import { useAuth, useTimeZone } from "../contexts";
@@ -155,6 +156,8 @@ export default function Settings() {
         <MqttBridgeCard />
       </>
     );
+  } else if (section === "notifications") {
+    body = <NotificationsSection />;
   } else if (section === "logs") {
     body = (
       <div className="embedded-page">

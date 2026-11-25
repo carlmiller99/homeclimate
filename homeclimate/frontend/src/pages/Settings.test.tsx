@@ -15,6 +15,7 @@ vi.mock("../api");
 // Each of these has its own suite; here they only show which section they are in.
 vi.mock("./Logs", () => ({ default: () => <p>logs page</p> }));
 vi.mock("./DevMode", () => ({ default: () => <p>dev mode page</p> }));
+vi.mock("./NotificationsSection", () => ({ default: () => <p>notifications section</p> }));
 vi.mock("../components/OutsideTempPicker", () => ({ default: () => <p>outside sensor</p> }));
 vi.mock("./Thermostats", () => ({ SensorStalenessCard: () => <p>staleness card</p> }));
 
@@ -114,6 +115,15 @@ describe("Settings page", () => {
     renderSettings({ section: "dev-mode" });
     expect(screen.getByText("dev mode page")).toBeInTheDocument();
     expect(screen.queryByText("logs page")).toBeNull();
+  });
+
+  it("has a Notifications section", () => {
+    renderSettings({ section: "notifications" });
+    expect(screen.getByText("notifications section")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Notifications" })).toHaveAttribute(
+      "aria-current",
+      "page"
+    );
   });
 
   it("renders the MCP server card and inline setup guidance under Integrations", () => {

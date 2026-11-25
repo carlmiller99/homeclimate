@@ -11,8 +11,9 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Callable, Coroutine
+from collections.abc import Awaitable, Callable, Coroutine
 from datetime import UTC, datetime
+from typing import Any
 
 import aiosqlite
 
@@ -27,6 +28,11 @@ class EventLogger:
     def __init__(self, broadcast: BroadcastFn | None = None) -> None:
         self._broadcast = broadcast
         self._conn: aiosqlite.Connection | None = None
+        self._listener: Callable[[str, str, str], Awaitable[Any]] | None = None
+
+    def set_listener(self, listener: Callable[[str, str, str], Awaitable[Any]] | None) -> None:
+        """Be told (level, category, message) of every event after it is logged."""
+        self._listener = listener
 
     def set_conn(self, conn: aiosqlite.Connection) -> None:
         self._conn = conn
@@ -65,6 +71,12 @@ class EventLogger:
                 await self._broadcast("log_event", payload)
         except Exception as exc:
             log.debug("EventLogger broadcast failed: %s", exc)
+
+        try:
+            if self._listener:
+                await self._listener(level, category, message)
+        except Exception as exc:
+            log.debug("EventLogger listener failed: %s", exc)
 
         # Also emit to Python log so the server console is useful
         py_log = getattr(log, level if level in ("info", "warning", "error") else "info")

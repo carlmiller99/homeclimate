@@ -53,6 +53,7 @@ A side menu of sections:
 - **General** — the house time zone, and backup and restore.
 - **Sensors** — the outside temperature sensor and the sensor-staleness threshold.
 - **Integrations** — the MCP server and its access tokens, and the MQTT bridge.
+- **Notifications** — which warnings are sent to your phone, through which Home Assistant notify service, and the daily summary. See [Notifications](./notifications.md).
 - **Logs** — the live feed, cycle history and log retention.
 - **Dev Mode** — the Dev Mode switch and its action log. See [System modes](./system-modes.md).
 

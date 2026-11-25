@@ -1050,6 +1050,27 @@ class LearningSettingsSchema(Schema):
     sample_retention_days = fields.Int()
 
 
+class NotifySettingsSchema(Schema):
+    enabled = fields.Bool()
+    service = fields.Str(metadata={"description": "A notify service, e.g. notify.mobile_app_x"})
+    level = fields.Str(metadata={"description": "warning (and errors), or error only"})
+    categories = fields.List(fields.Str())
+    daily_summary = fields.Bool()
+    summary_hour = fields.Int(metadata={"description": "Hour of the day, house time, 0 to 23"})
+    in_dev_mode = fields.Bool()
+
+
+class NotifyCategorySchema(Schema):
+    id = fields.Str()
+    label = fields.Str()
+
+
+class NotificationsSchema(Schema):
+    settings = fields.Nested(NotifySettingsSchema)
+    categories = fields.List(fields.Nested(NotifyCategorySchema))
+    last_send_failed = fields.Bool()
+
+
 class RoomModelLearnedSchema(Schema):
     loss = fields.Bool()
     heat = fields.Bool()

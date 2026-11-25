@@ -22,6 +22,7 @@ from .. import (
     heat_pump,
     house,
     learning,
+    notify,
     openings,
     room_model,
     shades,
@@ -451,6 +452,50 @@ async def fit_learning(request: web.Request) -> web.Response:
         log.exception("Could not fit the room models on request")
         return error("Could not work out the room models", status=500)
     return json_response(await _learning_snapshot(request))
+
+
+async def _notifications_snapshot(request: web.Request) -> dict:
+    conn = await get_conn(request)
+    return {
+        "settings": await notify.get_settings(conn),
+        "categories": [{"id": c, "label": label} for c, label in notify.CATEGORIES.items()],
+        "last_send_failed": request.app["scheduler"].notifier.last_error,
+    }
+
+
+@docs(tags=["notifications"], summary="Notification settings and what can be chosen")
+@response_schema(schemas.NotificationsSchema)
+@routes.get("/api/notifications")
+async def get_notifications(request: web.Request) -> web.Response:
+    return json_response(await _notifications_snapshot(request))
+
+
+@docs(tags=["notifications"], summary="Update notification settings")
+@request_schema(schemas.NotifySettingsSchema)
+@response_schema(schemas.NotificationsSchema)
+@routes.put("/api/notifications/settings")
+async def update_notifications(request: web.Request) -> web.Response:
+    body = await _json_object(request)
+    conn = await get_conn(request)
+    try:
+        await notify.update_settings(conn, body)
+    except UserError as exc:
+        return error(safe_text(exc))
+    await emit(request, "info", "api", "Notification settings updated", body)
+    return json_response(await _notifications_snapshot(request))
+
+
+@docs(tags=["notifications"], summary="Send a test notification now")
+@response_schema(schemas.NotificationsSchema)
+@routes.post("/api/notifications/test")
+async def test_notification(request: web.Request) -> web.Response:
+    conn = await get_conn(request)
+    scheduler = request.app["scheduler"]
+    try:
+        await scheduler.notifier.test(conn, scheduler._ha)
+    except UserError as exc:
+        return error(safe_text(exc))
+    return json_response(await _notifications_snapshot(request))
 
 
 async def _building_modes_snapshot(request: web.Request) -> dict:

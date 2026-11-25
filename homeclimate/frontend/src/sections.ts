@@ -15,6 +15,7 @@ export const SETTINGS_SECTIONS: Section[] = [
   { id: "general", label: "General" },
   { id: "sensors", label: "Sensors" },
   { id: "integrations", label: "Integrations" },
+  { id: "notifications", label: "Notifications" },
   { id: "logs", label: "Logs" },
   { id: "dev-mode", label: "Dev Mode" },
 ];

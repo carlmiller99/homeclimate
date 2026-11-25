@@ -2805,3 +2805,17 @@ button.sc-nav-item {
   gap: 0.75rem;
   margin-top: 0.75rem;
 }
+
+/* Settings → Notifications */
+.notify-categories {
+  border: 0;
+  margin: 0.75rem 0;
+  padding: 0 0 0 3.25rem;
+  display: grid;
+  gap: 0.4rem;
+}
+.notify-category {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}

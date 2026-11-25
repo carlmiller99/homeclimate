@@ -29,6 +29,7 @@ from . import (
     heat_pump,
     house,
     learning,
+    notify,
     openings,
     room_model,
     shades,
@@ -115,6 +116,9 @@ class Scheduler:
         self._db_path = db_path
         self._broadcast = broadcast
         self._event_logger = event_logger
+        self._notifier = notify.Notifier()
+        if event_logger is not None:
+            event_logger.set_listener(self._on_logged_event)
         self._vent_ctrl: VentController | None = None
         self._engines: dict[str, CycleEngine] = {}
         # Serializes _sync_engines against concurrent invocation (#434).
@@ -1345,7 +1349,28 @@ class Scheduler:
     # Tick
     # ------------------------------------------------------------------
 
+    @property
+    def notifier(self) -> notify.Notifier:
+        return self._notifier
+
+    async def _on_logged_event(self, level: str, category: str, message: str) -> None:
+        """Pass a logged event to the notifier, which decides whether to send it."""
+        if self._db_conn is None:
+            return
+        await self._notifier.on_event(
+            self._db_conn,
+            self._ha,
+            level=level,
+            category=category,
+            message=message,
+            dev_mode=self._dev_mode,
+            now=datetime.now(UTC),
+        )
+
     async def _tick_all(self) -> None:
+        await self._notifier.daily(
+            self._db_conn, self._ha, dev_mode=self._dev_mode, now=datetime.now(UTC)
+        )
         await self._check_vacation_start()
         await self._check_welcome_home()
         await self._check_vacation_expiry()
