@@ -297,18 +297,6 @@ describe("Thermostats — card failure paths", () => {
 
     expect(await screen.findByText("Delete failed")).toBeInTheDocument();
   });
-
-  it("ignores a failed outside-temperature lookup, leaving Eco gated", async () => {
-    // The GET is best-effort; a rejection must not blank the page. It must
-    // also not be mistaken for "a sensor is configured".
-    vi.mocked(api.getOutsideTempEntity).mockRejectedValue(new Error("HA unreachable"));
-    render(<Thermostats />);
-    await cardsSettled();
-
-    const ecoToggle = screen.getByLabelText(/Enable Eco Mode for this thermostat/i);
-    expect(ecoToggle).toBeDisabled();
-    expect(screen.getByText(/Add a free weather integration such as/i)).toBeInTheDocument();
-  });
 });
 
 // ---------------------------------------------------------------------------

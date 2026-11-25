@@ -308,15 +308,19 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
     page,
   }) => {
     // @covers: eco_cooling_outdoor_threshold, eco_cooling_full_drift_temp, eco_cooling_max_drift, eco_heating_outdoor_threshold, eco_heating_full_drift_temp, eco_heating_max_drift, eco_hysteresis_band
-    await gotoMyHome(page);
-    await openZoneEditor(page, TC_ID);
-
-    // The Eco numeric inputs are always editable (only the enable toggle needs
-    // an outside sensor). Fill each via its unique input id, save, reload, and
-    // assert the values survived the °C↔°F round-trip unchanged.
-    const idSel = (suffix: string) => `[id="thermo-${TC_ID}-${suffix}"]`;
+    // Eco Mode is tuned per zone in Smart Control.
+    const openEco = async () => {
+      await page.goto("/smart-control?section=eco-mode");
+      await page.waitForLoadState("networkidle");
+      await page.locator(idSel("eco_hysteresis_band")).waitFor();
+    };
+    // Fill each field via its unique input id, save, reload, and assert the
+    // values survived the °C↔°F round-trip unchanged. [id="…"] rather than
+    // `#…` because the entity id embeds a dot.
+    const idSel = (suffix: string) => `[id="eco-${TC_ID}-${suffix}"]`;
+    await openEco();
     const card = page
-      .locator(idSel("name"))
+      .locator(idSel("eco_hysteresis_band"))
       .locator("xpath=ancestor::*[contains(@class,'card')][1]");
 
     for (const [key, value] of Object.entries(ECO_VALUES)) {
@@ -327,7 +331,7 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
       (r) =>
         r.url().includes(`/api/thermostats/${TC_ID}`) && r.request().method() === "PUT",
     );
-    await card.getByRole("button", { name: "Save changes" }).click();
+    await card.getByRole("button", { name: "Save" }).click();
     const response = await putResponse;
     const responseText = await response.text();
     expect(
@@ -335,10 +339,7 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
       `PUT /api/thermostats/${TC_ID} failed: ${responseText}`,
     ).toBeLessThan(400);
 
-    await page.reload();
-    await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
-    await page.waitForLoadState("networkidle");
-    await openZoneEditor(page, TC_ID);
+    await openEco();
 
     for (const [key, value] of Object.entries(ECO_VALUES)) {
       const readBack = parseFloat(await page.locator(idSel(key)).inputValue());

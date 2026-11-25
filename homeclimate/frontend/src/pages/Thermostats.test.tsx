@@ -973,12 +973,9 @@ describe("Thermostats Page — Celsius mode", () => {
     expect(payload.deadband).not.toBe(0.54);
   });
 
-  it("sends the user's raw °C eco override fields when saving thermostat settings (#231, #417)", async () => {
-    // eco_cooling_outdoor_threshold is absolute (a pre-converted payload would
-    // wrongly carry 86); eco_heating_max_drift is a delta (would wrongly carry
-    // 3.6). Both must arrive as the raw °C number the user typed — the eco
-    // fields render regardless of the Eco Mode toggle, so no outside sensor is
-    // needed to exercise this write path.
+  it("leaves the Eco fields out of the card's save (they belong to Smart Control)", async () => {
+    // The card still holds the Eco numbers in storage units (°F). Sending them
+    // back from a Celsius house would have the backend convert them again (#231).
     vi.mocked(api.updateThermostat).mockResolvedValue({} as api.ThermostatConfig);
     renderInCelsius();
     await cardsSettled();
@@ -986,17 +983,7 @@ describe("Thermostats Page — Celsius mode", () => {
     const nameInput = await screen.findByLabelText(/Friendly name/i, {
       selector: "#thermo-climate\\.test-name",
     });
-
-    fireEvent.change(screen.getByLabelText(/Cooling.*outdoor threshold/i), {
-      target: { value: "30" },
-    });
-    fireEvent.change(screen.getByLabelText(/Heating.*max drift/i), {
-      target: { value: "2" },
-    });
-    // Fail where the damage happens, not later as a confusing POST body (#597).
-    expect(screen.getByLabelText(/Cooling.*outdoor threshold/i)).toHaveDisplayValue("30");
-    expect(screen.getByLabelText(/Heating.*max drift/i)).toHaveDisplayValue("2");
-
+    expect(screen.queryByLabelText(/Cooling.*outdoor threshold/i)).not.toBeInTheDocument();
     const card = nameInput.closest(".card") as HTMLElement;
     fireEvent.click(within(card).getByText("Save changes"));
 
@@ -1004,10 +991,8 @@ describe("Thermostats Page — Celsius mode", () => {
       expect(api.updateThermostat).toHaveBeenCalled();
     });
     const [, payload] = vi.mocked(api.updateThermostat).mock.calls[0];
-    expect(payload.eco_cooling_outdoor_threshold).toBe(30);
-    expect(payload.eco_cooling_outdoor_threshold).not.toBe(86);
-    expect(payload.eco_heating_max_drift).toBe(2);
-    expect(payload.eco_heating_max_drift).not.toBe(3.6);
+    expect(Object.keys(payload).filter((k) => k.startsWith("eco_"))).toEqual([]);
+    expect(payload.name).toBe(mockThermostats[0].name);
   });
 });
 
@@ -1252,127 +1237,6 @@ describe("Thermostats Page — Eco Mode (#404)", () => {
     vi.mocked(api.getThermostats).mockResolvedValue(mockThermostats);
     vi.mocked(api.getHAEntities).mockResolvedValue([]);
     vi.mocked(api.downloadBackup).mockReturnValue(undefined);
-  });
-
-  it("enables the Eco toggle and saves eco settings once an outside sensor is configured", async () => {
-    vi.mocked(api.getOutsideTempEntity).mockResolvedValue({
-      entity_id: "sensor.out",
-      current_value: 80,
-    });
-    vi.mocked(api.updateThermostat).mockResolvedValue({} as api.ThermostatConfig);
-    render(<Thermostats />);
-
-    const ecoToggle = (await screen.findByLabelText(
-      /Enable Eco Mode for this thermostat/i
-    )) as HTMLInputElement;
-    await waitFor(() => expect(ecoToggle).not.toBeDisabled());
-    fireEvent.click(ecoToggle);
-    expect(ecoToggle.checked).toBe(true);
-
-    // Edit an eco numeric field — exercises the onChange handler.
-    const threshInput = screen.getByLabelText(/Cooling.*outdoor threshold/i) as HTMLInputElement;
-    fireEvent.change(threshInput, { target: { value: "92" } });
-    // Blanking a numeric eco field coerces to 0 (the `|| 0` path).
-    const driftInput = screen.getByLabelText(/Cooling.*max drift/i) as HTMLInputElement;
-    fireEvent.change(driftInput, { target: { value: "" } });
-
-    const card = ecoToggle.closest(".card") as HTMLElement;
-    fireEvent.click(within(card).getByText("Save changes"));
-
-    await waitFor(() => {
-      expect(api.updateThermostat).toHaveBeenCalledWith(
-        "climate.test",
-        expect.objectContaining({
-          eco_mode_enabled: true,
-          eco_cooling_outdoor_threshold: 92,
-          eco_cooling_max_drift: 0,
-        })
-      );
-    });
-  });
-
-  it("hides the PirateWeather gating hint when an outside sensor exists", async () => {
-    vi.mocked(api.getOutsideTempEntity).mockResolvedValue({
-      entity_id: "sensor.out",
-      current_value: 80,
-    });
-    render(<Thermostats />);
-    await screen.findByText("Main HVAC");
-    await waitFor(() => {
-      expect(screen.queryByText(/Add a free weather integration such as/i)).not.toBeInTheDocument();
-    });
-  });
-
-  it("disables the Eco toggle and shows the PirateWeather hint without a sensor", async () => {
-    vi.mocked(api.getOutsideTempEntity).mockResolvedValue({
-      entity_id: null,
-      current_value: null,
-    });
-    render(<Thermostats />);
-
-    const ecoToggle = (await screen.findByLabelText(
-      /Enable Eco Mode for this thermostat/i
-    )) as HTMLInputElement;
-    await waitFor(() => expect(ecoToggle).toBeDisabled());
-    expect(screen.getByText(/Add a free weather integration such as/i)).toBeInTheDocument();
-    expect(screen.getAllByText(/PirateWeather/i).length).toBeGreaterThan(0);
-  });
-
-  it("blocks saving when Eco is on but no outside sensor is configured", async () => {
-    vi.mocked(api.getOutsideTempEntity).mockResolvedValue({
-      entity_id: null,
-      current_value: null,
-    });
-    // Config already has Eco on, so the toggle stays enabled even without a
-    // sensor — the guard lives in the save handler.
-    vi.mocked(api.getThermostats).mockResolvedValue([
-      { ...mockThermostats[0], eco_mode_enabled: true },
-    ]);
-    vi.mocked(api.updateThermostat).mockResolvedValue({} as api.ThermostatConfig);
-    render(<Thermostats />);
-
-    const ecoToggle = (await screen.findByLabelText(
-      /Enable Eco Mode for this thermostat/i
-    )) as HTMLInputElement;
-    expect(ecoToggle.checked).toBe(true);
-
-    const card = ecoToggle.closest(".card") as HTMLElement;
-    fireEvent.click(within(card).getByText("Save changes"));
-
-    expect(await screen.findByText(/before enabling Eco Mode/i)).toBeInTheDocument();
-    expect(api.updateThermostat).not.toHaveBeenCalled();
-  });
-
-  it("renders unchecked with blank eco inputs when the config carries no eco values", async () => {
-    // Defensive path (e.g. an older DB row predating Eco Mode): the boolean and
-    // numeric eco fields arrive null, so the checkbox falls back to unchecked
-    // and each numeric input renders blank rather than "null".
-    vi.mocked(api.getOutsideTempEntity).mockResolvedValue({
-      entity_id: null,
-      current_value: null,
-    });
-    vi.mocked(api.getThermostats).mockResolvedValue([
-      {
-        ...mockThermostats[0],
-        eco_mode_enabled: null,
-        eco_cooling_outdoor_threshold: null,
-        eco_cooling_full_drift_temp: null,
-        eco_cooling_max_drift: null,
-        eco_heating_outdoor_threshold: null,
-        eco_heating_full_drift_temp: null,
-        eco_heating_max_drift: null,
-        eco_hysteresis_band: null,
-      } as unknown as api.ThermostatConfig,
-    ]);
-    render(<Thermostats />);
-
-    const ecoToggle = (await screen.findByLabelText(
-      /Enable Eco Mode for this thermostat/i
-    )) as HTMLInputElement;
-    expect(ecoToggle.checked).toBe(false);
-
-    const threshInput = screen.getByLabelText(/Cooling.*outdoor threshold/i) as HTMLInputElement;
-    expect(threshInput.value).toBe("");
   });
 
   // ── Eco Suspend (Issue #500) ──────────────────────────────────────────────

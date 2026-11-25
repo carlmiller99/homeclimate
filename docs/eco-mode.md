@@ -13,6 +13,10 @@ off, the engine behaves exactly as it did before this feature existed.
 > cooling setpoint is roughly 3–5 % less cooling energy. Heating is the mirror
 > image on cold days. Background analysis: issues #402 and #404.
 
+## Where it is set
+
+Eco Mode is tuned for each zone in **Smart Control → Eco Mode**: the switch, the outdoor thresholds and the drift limits, with a worked example that follows what you type. A single room can be given its own Eco settings in its room settings under **My Home**. Suspending Eco for a while is done from the **Dashboard**.
+
 ## Requires an outside-temperature sensor
 
 Eco Mode is entirely driven by the outdoor temperature, so **it cannot be turned
