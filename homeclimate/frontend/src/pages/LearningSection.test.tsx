@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as la from "../learningApi";
 import { buildUnitContext } from "../contexts";
@@ -44,7 +44,13 @@ const ROOM: la.LearningRoom = {
 
 function data(over: Partial<la.Learning> = {}): la.Learning {
   return {
-    settings: { sampling_enabled: true, sample_retention_days: 60, early_start_level: 0 },
+    settings: {
+      sampling_enabled: true,
+      sample_retention_days: 60,
+      early_start_level: 0,
+      coast_level: 0,
+    },
+    coasting: { level: 0, misses_this_week: 0, misses_to_watch_only: 3, switched_back_at: null },
     samples: 3600,
     collecting_since: "2026-01-01T00:00:00+00:00",
     last_sample_at: "2026-01-13T12:00:00+00:00",
@@ -213,7 +219,12 @@ describe("Smart Learning section", () => {
     expect(la.updateLearningSettings).toHaveBeenCalledTimes(1);
     finish(
       data({
-        settings: { sampling_enabled: false, sample_retention_days: 60, early_start_level: 0 },
+        settings: {
+          sampling_enabled: false,
+          sample_retention_days: 60,
+          early_start_level: 0,
+          coast_level: 0,
+        },
       })
     );
     await waitFor(() => expect(input).not.toBeDisabled());
@@ -282,6 +293,50 @@ describe("Smart Learning section", () => {
       expect(la.updateLearningSettings).toHaveBeenCalledWith({ early_start_level: 1 })
     );
     await waitFor(() => expect(level).toHaveValue("1"));
+  });
+
+  it("sets whether rooms may coast, and says how the week has gone", async () => {
+    vi.mocked(la.getLearning).mockResolvedValue(
+      data({
+        coasting: {
+          level: 2,
+          misses_this_week: 2,
+          misses_to_watch_only: 3,
+          switched_back_at: null,
+        },
+      })
+    );
+    render(<LearningSection />);
+    const level = await screen.findByLabelText("Let Rooms Coast");
+    expect(
+      screen.getByText(/2 waits this week ended with the room well short\. At 3 it goes back/)
+    ).toBeInTheDocument();
+    fireEvent.change(level, { target: { value: "2" } });
+    await waitFor(() => expect(la.updateLearningSettings).toHaveBeenCalledWith({ coast_level: 2 }));
+    cleanup();
+    vi.mocked(la.getLearning).mockResolvedValue(
+      data({
+        coasting: {
+          level: 1,
+          misses_this_week: 0,
+          misses_to_watch_only: 3,
+          switched_back_at: "2026-01-13T09:00:00+00:00",
+        },
+      })
+    );
+    render(<LearningSection />);
+    expect(
+      await screen.findByText(/It switched itself back to Watch Only on .*(2026|Jan)/)
+    ).toBeInTheDocument();
+    const none = { level: 2, misses_this_week: 0, misses_to_watch_only: 3, switched_back_at: null };
+    expect(la.describeCoasting(none)).toBe("No room has been left waiting too long this week.");
+    expect(la.describeCoasting({ ...none, misses_this_week: 1 })).toMatch(/^One wait this week/);
+    // After it has switched itself back, it says so (in the house's time, when given a formatter).
+    const back = { ...none, level: 1, switched_back_at: "2026-01-13T09:00:00+00:00" };
+    expect(la.describeCoasting(back)).toBe(
+      "It switched itself back to Watch Only on 2026-01-13T09:00:00+00:00, after 3 waits in a week ended with the room well short."
+    );
+    expect(la.describeCoasting(back, () => "Jan 13")).toMatch(/Watch Only on Jan 13,/);
   });
 
   it("describes a model in the house's unit, as differences", () => {

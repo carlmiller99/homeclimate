@@ -291,6 +291,14 @@ CREATE TABLE IF NOT EXISTS target_bands (
     PRIMARY KEY (kind, ref_id)
 );
 
+-- Zone Balance (backend/zone_balance.py): per building, whether zones are kept
+-- within a gap of each other, and the gap (°F).
+CREATE TABLE IF NOT EXISTS zone_balance (
+    building_id TEXT PRIMARY KEY,
+    level TEXT NOT NULL DEFAULT 'off',
+    gap REAL NOT NULL DEFAULT 3.0
+);
+
 -- Building mode (backend/building_mode.py): each building's mode, and for
 -- Auto the side it is on and when it last switched (Unix seconds).
 CREATE TABLE IF NOT EXISTS building_modes (

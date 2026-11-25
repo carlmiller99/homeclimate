@@ -22,7 +22,19 @@ from typing import Any
 
 import aiosqlite
 
-from .. import db, eco, house, learning, room_model, tz
+from .. import (
+    coasting,
+    db,
+    eco,
+    forecast,
+    forecast_bias,
+    house,
+    learning,
+    room_model,
+    tz,
+    zone_balance,
+    zones,
+)
 from .. import heat_pump as hp_rules
 from ..event_logger import EventLogger
 from ..ha_client import HAClient
@@ -182,6 +194,7 @@ class CycleEngine:
         get_building_side: Callable[[], tuple[str | None, bool]] | None = None,
         claim_building_side: Callable[[str], str | None] | None = None,
         get_heat_pump: Callable[[], HeatPumpGuards | None] | None = None,
+        get_balance: Callable[[], zone_balance.Call | None] | None = None,
     ) -> None:
         self.thermostat_entity_id = thermostat_entity_id
         self._ha = ha
@@ -224,6 +237,21 @@ class CycleEngine:
         # (block start, target[, mode]). Without this a room that warms faster
         # than expected would drop out and come back, short-cycling the equipment.
         self._hp_latch: dict[str, tuple[datetime, float]] = {}
+        # Coasting (``backend/coasting.py``). Calls that are waiting for the
+        # room to drift to its target by itself: room id → (since, mode,
+        # target). Calls that have had their wait, or that Watch Only has
+        # spoken about, and are not to be considered again until they end:
+        # room id → (mode, target).
+        # Zone Balance (``backend/zone_balance.py``): this zone's balancing
+        # call, if its building has one for it, and the rooms answering it
+        # (room id → target), kept to the end of the run they started.
+        self._get_balance = get_balance
+        self._balance_latch: dict[str, float] = {}
+        self._coast_wait: dict[str, tuple[datetime, str, float]] = {}
+        self._coast_done: dict[str, tuple[str, float]] = {}
+        # When each room's last wait ended, and when coasting was last looked at.
+        self._coast_ended: dict[str, datetime] = {}
+        self._coast_seen: datetime | None = None
         self._early_latch: dict[str, tuple[datetime, float, str]] = {}
 
         self._state = CycleState.IDLE
@@ -566,6 +594,13 @@ class CycleEngine:
             cycle_id=self.current_cycle_id,
             cycle_started_at=self._cycle_log.started_at if self._cycle_log else None,
             rooms=room_states,
+            # Not while coasting has stopped being looked at (Vacation Mode,
+            # the system off): a wait from before is not a wait now.
+            balance_rooms=self.balance_rooms,
+            coasting_rooms=sorted(self._coast_wait)
+            if self._coast_seen is not None
+            and datetime.now(UTC) - self._coast_seen <= coasting.STALE_AFTER
+            else [],
         )
 
     # ------------------------------------------------------------------
@@ -6231,12 +6266,12 @@ class CycleEngine:
     async def _ahead_of_schedule(
         self, conn: aiosqlite.Connection, active: list[ActiveRoom], now: datetime
     ) -> list[ActiveRoom]:
-        """Early warm-ups and early starts. Neither may stop the tick.
+        """Early warm-ups, early starts, coasting and zone balance. None may stop the tick.
 
-        Both are conveniences that run before safety protection is added, so a
-        fault in either is logged and the tick goes on without it.
+        All are conveniences that run before safety protection is added, so a
+        fault in one is logged and the tick goes on without it.
         """
-        for step in (self._heat_pump_warmups, self._early_starts):
+        for step in (self._heat_pump_warmups, self._early_starts, self._coast, self._balance):
             try:
                 active = await step(conn, active, now)
             except Exception:
@@ -6471,6 +6506,285 @@ class CycleEngine:
                 )
         self._early_latch = latched
         return out
+
+    async def _balance(
+        self, conn: aiosqlite.Connection, active: list[ActiveRoom], now: datetime | None = None
+    ) -> list[ActiveRoom]:
+        """Answer this zone's balancing call, if its building has one for it.
+
+        Rooms that are in use and follow nothing more specific than the house
+        band are asked to the call's target when they are short of it. A room
+        with a hold, a schedule or occupancy is left alone, waiting to coast or
+        not; so is a room whose house band already asks for as much, or whose
+        band the target would break. Pauses and the fireplace apply after
+        this, as to any room.
+
+        A room that has started a run is kept in it, at the target it started
+        with, until the run ends: the call comes and goes with the other
+        zone's temperature, and a run dropped the minute the call lapsed would
+        be stopped short of its minimum runtime and started again.
+        """
+        call = self._get_balance() if self._get_balance is not None else None
+        side, obey = (
+            self._get_building_side() if self._get_building_side is not None else (None, False)
+        )
+        if call is not None and obey and side is not None and side != call.mode:
+            call = None  # never a reason to ask the building for its other side
+        held: dict[str, float] = {}
+        if self._state != CycleState.IDLE:
+            # Kept from the last tick; after a restart, read back from the run itself.
+            held = self._balance_latch or {
+                # The target asked for, not one Eco has since relaxed.
+                rid: ar.target_temp if ar.requested_target is None else ar.requested_target
+                for rid, ar in self._active_rooms.items()
+                if ar.source == "balance"
+            }
+        if call is None and not held:
+            self._balance_latch = {}
+            return active
+        the_house = await house.load(conn)
+        tc = await self._load_tc(conn)
+        following = {ar.room.id: ar for ar in active}
+        out = list(active)
+        latched: dict[str, float] = {}
+        for room in await db.get_rooms_for_thermostat(conn, self.thermostat_entity_id):
+            ar = following.get(room.id)
+            if (
+                not the_house.switches(room.id).in_use
+                or (ar is not None and ar.source != "house")
+                # A schedule or presence call that is waiting to coast.
+                or room.id in self._coast_wait
+            ):
+                continue
+            if room.id in held:
+                target = held[room.id]
+            elif call is None:
+                continue
+            else:
+                heating = call.mode == "heating"
+                target = min(max(call.target, tc.min_setpoint), tc.max_setpoint)
+                avg = self._get_avg_temp(room)
+                if avg is None:
+                    continue
+                temp = avg + room.temp_offset
+                short = target - temp if heating else temp - target
+                if short <= _effective_deadband(room, tc.deadband):
+                    continue
+                # Following the house band: only inside it, and only when
+                # the band is not already asking for as much.
+                if (
+                    ar is not None
+                    and ar.heat_to is not None
+                    and ar.cool_to is not None
+                    and not (
+                        ar.heat_to < target <= ar.cool_to
+                        if heating
+                        else ar.heat_to <= target < ar.cool_to
+                    )
+                ):
+                    continue
+            latched[room.id] = target
+            out = [a for a in out if a.room.id != room.id]
+            out.append(ActiveRoom(room=room, target_temp=target, source="balance"))
+        self._balance_latch = latched
+        return out
+
+    @property
+    def balance_rooms(self) -> list[str]:
+        """Rooms being heated or cooled for a balancing call right now.
+
+        The rooms in the running cycle, not the ones asked: a paused zone, a
+        lockout or Vacation Mode can leave a room asked with nothing running.
+        """
+        if self._state == CycleState.IDLE:
+            return []
+        return sorted(rid for rid, ar in self._active_rooms.items() if ar.source == "balance")
+
+    @property
+    def coasting_rooms(self) -> dict[str, dict[str, Any]]:
+        """Rooms whose call is waiting for them to drift to their target."""
+        return {
+            rid: {"since": since.isoformat(), "mode": mode, "target": target}
+            for rid, (since, mode, target) in self._coast_wait.items()
+        }
+
+    async def _coast(
+        self, conn: aiosqlite.Connection, active: list[ActiveRoom], now: datetime | None = None
+    ) -> list[ActiveRoom]:
+        """Let a call wait when the room will reach its target on its own.
+
+        Only while nothing is running (a running cycle serves every room that
+        asks), only for a schedule or presence call with one target, and only
+        inside the bounds in ``backend/coasting.py``: never 2 °F or more from
+        the target, and for 45 minutes at most (three times that on strip
+        heat). A call gets one wait. A wait that ends with the room 1.5 °F or
+        more away is a miss; the third in a week switches this back to Watch
+        Only. Safety protection is added after this and is never delayed.
+        """
+        level = coasting.LEVELS[(await learning.get_settings(conn))["coast_level"]]
+        now = now or datetime.now(UTC)
+        seen, self._coast_seen = self._coast_seen, now
+        if level == "off":
+            self._coast_wait, self._coast_done = {}, {}
+            return active
+        if seen is None or now - seen > coasting.STALE_AFTER:
+            # Coasting has not been looked at for a while (Vacation Mode, the
+            # system switched off, the thermostat away): a wait from before
+            # says nothing about now, and must not be counted as a miss.
+            self._drop_waits(now)
+        if level != "on" or self._state != CycleState.IDLE:
+            # Released, not ended: the call has had its wait all the same.
+            self._drop_waits(now)
+        if self._state != CycleState.IDLE:
+            return active
+        calls: list[tuple[ActiveRoom, str, float, float, float]] = []
+        resting: dict[str, float] = {}
+        tc = await self._load_tc(conn)
+        for ar in active:
+            avg = self._get_avg_temp(ar.room)
+            if (
+                ar.source not in ("schedule", "presence")
+                or ar.heat_to is not None
+                or ar.cool_to is not None
+                # A room started early is being got ready: it is not left to wait.
+                or ar.room.id in self._early_latch
+                or ar.room.id in self._hp_latch
+                or avg is None
+            ):
+                continue
+            gap = ar.target_temp - (avg + ar.room.temp_offset)
+            deadband = _effective_deadband(ar.room, tc.deadband, ar.deadband_override)
+            if abs(gap) > deadband:
+                calls.append((ar, "heating" if gap > 0 else "cooling", abs(gap), deadband, avg))
+            else:
+                resting[ar.room.id] = ar.target_temp
+        calling = {c[0].room.id: (c[1], c[0].target_temp) for c in calls}
+        names = {ar.room.id: ar.room.name for ar in active}
+        for rid, (since, _mode, target) in self._coast_wait.items():
+            if resting.get(rid) == target:
+                self._coast_ended[rid] = now
+                await self._say_coast(
+                    f"{names[rid]} reached {target:g}°F by coasting after "
+                    f"{(now - since).total_seconds() / 60:.0f} min: a start avoided",
+                    rid,
+                )
+        self._coast_ended = {
+            r: t for r, t in self._coast_ended.items() if now - t < coasting.COOL_OFF
+        }
+        # A call that has ended, or changed, is forgotten: the next one is new.
+        # But a room whose wait goes this way (its target nudged, a reading
+        # missed for a tick) does not begin another straight away.
+        for rid, wait in self._coast_wait.items():
+            if calling.get(rid) != (wait[1], wait[2]):
+                self._coast_ended[rid] = now
+        self._coast_done = {r: c for r, c in self._coast_done.items() if calling.get(r) == c}
+        self._coast_wait = {
+            r: w for r, w in self._coast_wait.items() if calling.get(r) == (w[1], w[2])
+        }
+        if not calls:
+            return active
+        outside = await self._read_outside_temp(conn)
+        models = await room_model.load(conn) if outside is not None else {}
+        if not models or outside is None:
+            self._drop_waits(now)
+            return active
+        hours, _fetched = await forecast.load(conn, now=now)
+        if (await forecast.get_settings(conn))["correct"]:
+            hours = (await forecast_bias.load(conn)).correct(hours)
+        outlook = coasting.Outlook(now, outside, [(h.at, h.temp) for h in hours])
+        profile = await zones.get_zone_profile(conn, self.thermostat_entity_id)
+        # Strip heat is the dear kind: a conventional zone with electric heat,
+        # or a heat pump below its compressor lockout.
+        costly = self._hp_strips or (
+            profile is not None and not profile.is_heat_pump and profile.backup_heat == "electric"
+        )
+        waiting: set[str] = set()
+        for ar, mode, gap, deadband, avg in calls:
+            room = ar.room
+            call = (mode, ar.target_temp)
+            held = self._coast_wait.get(room.id)
+            if self._coast_done.get(room.id) == call or (
+                # A reading hovering at the edge of the deadband would otherwise
+                # begin a new wait, and say so, every time it crossed.
+                held is None and room.id in self._coast_ended
+            ):
+                continue
+            limit = coasting.wait_limit_min(mode, costly)
+            waited = 0.0 if held is None else (now - held[0]).total_seconds() / 60
+            model = models.get(room.id)
+            arrives = None
+            if (
+                model is not None
+                and gap < coasting.MAX_GAP_F
+                and waited < limit
+                and coasting.usable(model, now)
+            ):
+                edge = ar.target_temp - deadband if mode == "heating" else ar.target_temp + deadband
+                arrives = coasting.minutes_alone(
+                    model,
+                    # The model was fitted on raw readings, so it is asked in those.
+                    temp=avg,
+                    goal=edge - room.temp_offset,
+                    outlook=outlook,
+                    within_min=int(limit - waited),
+                    zone=self._thermo_ambient_f(),
+                    # Not begun, or carried on, if the model expects a miss.
+                    floor=ar.target_temp
+                    - room.temp_offset
+                    - (coasting.MISS_F if mode == "heating" else -coasting.MISS_F),
+                )
+            if arrives is not None:
+                if level == "on":
+                    waiting.add(room.id)
+                    if held is None:
+                        self._coast_wait[room.id] = (now, mode, ar.target_temp)
+                else:
+                    # Said once; nothing is held back, and not said again for a while.
+                    self._coast_done[room.id] = call
+                    self._coast_ended[room.id] = now
+                if held is None:
+                    await self._say_coast(
+                        f"{'Letting' if level == 'on' else 'Would let (watching only)'} "
+                        f"{room.name} coast: it should be within reach of {ar.target_temp:g}°F "
+                        f"on its own in about {arrives} min (waiting up to {limit})",
+                        room.id,
+                    )
+                continue
+            if held is None:
+                continue  # nothing says it will get there: the call goes ahead as usual
+            # The wait is over and the room did not arrive.
+            del self._coast_wait[room.id]
+            self._coast_done[room.id] = call
+            self._coast_ended[room.id] = now
+            await self._say_coast(
+                f"{room.name} did not reach {ar.target_temp:g}°F by coasting "
+                f"({waited:.0f} min); starting {mode}",
+                room.id,
+            )
+            if gap >= coasting.MISS_F and await coasting.record_miss(conn, now=now):
+                level = "watch"
+                self._drop_waits(now)
+                waiting = set()
+                await self._say_coast(
+                    "Let Rooms Coast has gone back to Watch Only: three waits this week ended "
+                    f"with a room {coasting.MISS_F:g}°F or more from its target",
+                    room.id,
+                    "warning",
+                )
+        return [ar for ar in active if ar.room.id not in waiting]
+
+    def _drop_waits(self, now: datetime) -> None:
+        """Let every waiting room go. Each has had its wait: it does not get another."""
+        for rid, (_since, mode, target) in self._coast_wait.items():
+            self._coast_done[rid] = (mode, target)
+            self._coast_ended[rid] = now
+        self._coast_wait = {}
+
+    async def _say_coast(self, message: str, room_id: str, level: str = "info") -> None:
+        if self._logger:
+            await self._logger.log(
+                level, "engine", message, {"thermostat": self.thermostat_entity_id, "room": room_id}
+            )
 
     async def heat_pump_backoff(self, conn: aiosqlite.Connection) -> None:
         """Re-send a heating setpoint at once after backup heat starts."""

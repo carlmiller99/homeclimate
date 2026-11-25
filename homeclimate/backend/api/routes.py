@@ -515,6 +515,8 @@ TEMPERATURE_FIELDS: dict[str, str] = {
     "eco_hysteresis_band": "delta_nullable",
     # Schedules / overrides
     "target_temp": "absolute",
+    # Zone Balance (backend/zone_balance.py) — PUT /api/zone-balance/{building_id}
+    "zone_gap": "delta",
     # Zone heat pump protection — PUT /api/zones/{id} (HomeClimate)
     "hp_max_step_f": "delta",
     "hp_recovery_f_per_hr": "delta",

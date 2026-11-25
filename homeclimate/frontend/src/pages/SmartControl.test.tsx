@@ -20,6 +20,8 @@ vi.mock("./LearningSection", () => ({ default: () => <p>learning section</p> }))
 vi.mock("./ForecastSection", () => ({ default: () => <p>forecast section</p> }));
 vi.mock("./BuildingAutoCard", () => ({ default: () => <p>building auto</p> }));
 vi.mock("./EcoSection", () => ({ default: () => <p>eco section</p> }));
+vi.mock("./SuggestionsCard", () => ({ default: () => <p>suggestions card</p> }));
+vi.mock("./ZoneBalanceSection", () => ({ default: () => <p>zone balance section</p> }));
 vi.mock("./FireplaceSection", () => ({ default: () => <p>fireplace section</p> }));
 vi.mock("./ShadesSection", () => ({
   default: ({ rooms }: { rooms: { name: string }[] }) => (
@@ -154,8 +156,13 @@ describe("Smart Control", () => {
     // Nothing is waiting to be built: every section is a link.
     expect(sc.PLANNED_SECTIONS).toEqual([]);
     expect(within(nav).queryByText("Planned")).toBeNull();
-    expect(within(nav).getAllByRole("link")).toHaveLength(6);
+    expect(within(nav).getAllByRole("link")).toHaveLength(7);
     expect(sc.getSmartControl).not.toHaveBeenCalled();
+  });
+
+  it("opens the Zone Balance section", () => {
+    renderAt("/smart-control?section=zone-balance");
+    expect(screen.getByText("zone balance section")).toBeInTheDocument();
   });
 
   it("opens the Eco Mode section", () => {

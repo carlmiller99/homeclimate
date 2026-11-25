@@ -709,4 +709,33 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
       });
     }
   });
+
+  test("zone balance gap limit persists exactly as chosen", async ({ page }) => {
+    // @covers: zone_gap
+    // A difference, not a temperature: 2.5°C ≡ 4.5°F, with no 32° offset.
+    const GAP = isCelsius ? "2.5" : "5";
+    const made = await page.request.post("/api/buildings", {
+      data: { name: "Gap Test House" },
+    });
+    const building = (await made.json()).id as string;
+    try {
+      await page.goto("/smart-control?section=zone-balance");
+      const gap = page.getByLabel("Gap limit for Gap Test House");
+      await gap.waitFor({ state: "visible", timeout: 15_000 });
+      const saved = page.waitForResponse(
+        (r) =>
+          r.url().includes(`/api/zone-balance/${building}`) &&
+          r.request().method() === "PUT",
+      );
+      await gap.selectOption(GAP);
+      await saved;
+
+      await page.reload();
+      await expect(
+        page.getByLabel("Gap limit for Gap Test House"),
+      ).toHaveValue(GAP);
+    } finally {
+      await page.request.delete(`/api/buildings/${building}`);
+    }
+  });
 });

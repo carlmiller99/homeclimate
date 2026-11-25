@@ -8,6 +8,7 @@ export const SMART_CONTROL_SECTIONS: Section[] = [
   { id: "forecasts", label: "Forecasts" },
   { id: "fireplace", label: "Fireplace" },
   { id: "eco-mode", label: "Eco Mode" },
+  { id: "zone-balance", label: "Zone Balance" },
   ...PLANNED_SECTIONS.map((label) => ({ id: label, label, planned: true })),
 ];
 

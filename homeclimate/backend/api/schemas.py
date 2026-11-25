@@ -924,6 +924,44 @@ class BuildingModesSchema(Schema):
     buildings = fields.List(fields.Nested(BuildingModeSchema))
 
 
+class ZoneBalanceWriteSchema(Schema):
+    level = fields.Str(metadata={"description": "off, watch or on"})
+    zone_gap = fields.Float(
+        metadata={
+            "description": "How far apart zones may be. A difference: display unit in, °F out."
+        }
+    )
+
+
+class ZoneBalanceZoneSchema(Schema):
+    thermostat_entity_id = fields.Str()
+    name = fields.Str()
+    temp = fields.Float(allow_none=True, metadata={"description": "°F; null with no reading"})
+    occupied = fields.Bool(metadata={"description": "A hold, schedule or occupancy asks for it"})
+    target = fields.Float(
+        allow_none=True, metadata={"description": "°F it is being balanced to, or null"}
+    )
+    toward = fields.Str(allow_none=True)
+    obeyed = fields.Bool(metadata={"description": "False when only being watched"})
+    answering = fields.Bool(
+        metadata={"description": "Rooms in the zone are being heated or cooled for it now"}
+    )
+
+
+class ZoneBalanceBuildingSchema(ZoneBalanceWriteSchema):
+    building_id = fields.Str()
+    name = fields.Str()
+    direction = fields.Str(allow_none=True, metadata={"description": "heating, cooling or null"})
+    spread = fields.Float(allow_none=True, metadata={"description": "Warmest less coolest, °F"})
+    zones = fields.List(fields.Nested(ZoneBalanceZoneSchema))
+
+
+class ZoneBalanceSchema(Schema):
+    buildings = fields.List(fields.Nested(ZoneBalanceBuildingSchema))
+    min_gap = fields.Float()
+    max_gap = fields.Float()
+
+
 class HouseBandSchema(Schema):
     house_heat_to = fields.Float(
         allow_none=True, metadata={"description": "Heat rooms below this. Display unit in, °F out."}
@@ -1051,6 +1089,12 @@ class LearningSettingsSchema(Schema):
     early_start_level = fields.Int(
         metadata={"description": "Start rooms early from the model: 0 off, 1 watch only, 2 on"}
     )
+    coast_level = fields.Int(
+        metadata={
+            "description": "Let a call wait when the room will get there on its own: "
+            "0 off, 1 watch only, 2 on"
+        }
+    )
 
 
 class NotifySettingsSchema(Schema):
@@ -1113,6 +1157,51 @@ class LearningRoomSchema(Schema):
     model = fields.Nested(RoomModelSchema, allow_none=True)
 
 
+class SuggestionBlockSchema(Schema):
+    days = fields.List(fields.Int(), metadata={"description": "0 is Monday"})
+    start = fields.Str(metadata={"description": "House-local HH:MM"})
+    end = fields.Str(metadata={"description": "House-local HH:MM; 00:00 is midnight"})
+
+
+class ZoneSuggestionSchema(Schema):
+    kind = fields.Str(metadata={"description": "deadband"})
+    thermostat_entity_id = fields.Str()
+    name = fields.Str()
+    current = fields.Float(metadata={"description": "°F difference"})
+    suggested = fields.Float(metadata={"description": "°F difference"})
+    runs_a_day = fields.Float()
+    typical_run_min = fields.Float()
+    days = fields.Int(metadata={"description": "Days of history it rests on"})
+
+
+class RoomSuggestionSchema(Schema):
+    kind = fields.Str(metadata={"description": "schedule"})
+    room_id = fields.Str()
+    name = fields.Str()
+    days = fields.Int()
+    hours_a_week = fields.Int()
+    blocks = fields.List(fields.Nested(SuggestionBlockSchema))
+
+
+class SuggestionsSchema(Schema):
+    min_days = fields.Int()
+    window_days = fields.Int()
+    zones = fields.List(fields.Nested(ZoneSuggestionSchema))
+    rooms = fields.List(fields.Nested(RoomSuggestionSchema))
+
+
+class CoastingSchema(Schema):
+    level = fields.Int()
+    misses_this_week = fields.Int(
+        metadata={"description": "Waits that ended 1.5 °F or more from the target, last 7 days"}
+    )
+    misses_to_watch_only = fields.Int()
+    switched_back_at = fields.Str(
+        allow_none=True,
+        metadata={"description": "When it last switched itself back to Watch Only, if it is there"},
+    )
+
+
 class LearningSchema(Schema):
     settings = fields.Nested(LearningSettingsSchema)
     samples = fields.Int()
@@ -1121,6 +1210,7 @@ class LearningSchema(Schema):
     sample_every_min = fields.Int()
     checked_at = fields.Str()
     rooms = fields.List(fields.Nested(LearningRoomSchema))
+    coasting = fields.Nested(CoastingSchema)
 
 
 class AuxSummarySchema(Schema):

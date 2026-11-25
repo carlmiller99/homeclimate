@@ -5,6 +5,8 @@ export interface LearningSettings {
   sample_retention_days: number;
   /** Start rooms early from what their model has learned: 0 off, 1 watch only, 2 on. */
   early_start_level: 0 | 1 | 2;
+  /** Let a call wait when the room will get there on its own: 0 off, 1 watch only, 2 on. */
+  coast_level: 0 | 1 | 2;
 }
 
 export const EARLY_START_LABELS = ["Off", "Watch Only", "On"] as const;
@@ -50,6 +52,25 @@ export interface Learning {
   sample_every_min: number;
   checked_at: string;
   rooms: LearningRoom[];
+  coasting: {
+    level: number;
+    misses_this_week: number;
+    misses_to_watch_only: number;
+    /** When it last switched itself back to Watch Only, while it is still there. */
+    switched_back_at: string | null;
+  };
+}
+
+/** What stands beside the coasting setting: how close it is to switching itself back. */
+export function describeCoasting(
+  c: Learning["coasting"],
+  fmt: (iso: string) => string = (iso) => iso
+): string {
+  if (c.switched_back_at)
+    return `It switched itself back to Watch Only on ${fmt(c.switched_back_at)}, after ${c.misses_to_watch_only} waits in a week ended with the room well short.`;
+  if (c.misses_this_week === 0) return "No room has been left waiting too long this week.";
+  const rooms = c.misses_this_week === 1 ? "One wait" : `${c.misses_this_week} waits`;
+  return `${rooms} this week ended with the room well short. At ${c.misses_to_watch_only} it goes back to Watch Only.`;
 }
 
 export const RETENTION_MIN_DAYS = 30;

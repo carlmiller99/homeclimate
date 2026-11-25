@@ -88,6 +88,36 @@ The fit takes well under a second per room, and stores one row per room (`room_m
 
 Each early start is logged once under Engine.
 
+## Let Rooms Coast
+
+**Smart Control → Smart Learning → Let Rooms Coast** lets a call wait when the room is only a little short of its target and will drift there by itself soon: a room at 68.4 °F asked for 70 °F on a morning that is already 80 °F outside does not need the equipment started for it.
+
+- **Off** (the default), **Watch Only** (logs what it would do and holds nothing back) or **On**.
+- Whether a room will get there comes from its own model and the forecast for the next hour or two, shifted to agree with the outside sensor now. It needs a model fitted within the last week that has learned the room's heat loss, and an outside reading.
+- Only a schedule or presence call with a single target waits. A hold never waits. Neither does a room following a band, or one being started early for a coming block.
+- Only while nothing is running in the zone. If the equipment starts for another room, a waiting room is served with it.
+- A room 2 °F or more from its target is never kept waiting.
+- A wait lasts 45 minutes at most. Where heating is electric strip heat (a conventional zone with electric heat, or a heat pump below its compressor lockout) it is three times that, because a start avoided there saves the most.
+- A call gets one wait. If the room has not arrived when it ends, or the model stops expecting it to, the equipment starts as usual. A wait is not begun if the model expects the room to slip 1.5 °F from its target on the way. After a wait, the same room does not wait again for half an hour.
+- A wait ends without counting if the equipment starts for another room, the setting changes, or the outside reading is lost. A wait left over from before Vacation Mode or the system being switched off is forgotten.
+- Changing the room's target starts a new call, which can wait in its turn once half an hour has passed since the last wait. A restart of HomeClimate forgets the waits, so a room may wait again after one.
+- With a deadband wider than 1.5 °F a room is already that far off when it calls, so it never waits.
+- A wait that ends with the room 1.5 °F or more from its target is a miss. Three in a week switch the setting back to Watch Only, with a warning in the log (which Notifications can send). The section shows how many there have been this week, and says when it has switched itself back.
+- Safety protection is never delayed. Paused rooms, the fireplace, Vacation Mode and Eco Mode work as before.
+
+A waiting room shows **Coasting** on the Dashboard. Each wait is logged under Engine when it begins and when it ends: reached by coasting, or not.
+
+The limits are 2 °F and 1.5 °F (1.1 °C and 0.8 °C). A zone whose equipment has not been set in My Home counts as electric strip heat, which is the default; set a gas furnace there to get the shorter wait.
+
+## Suggestions
+
+Below the section, **Suggestions** gives advice from what has been recorded. It changes nothing: each suggestion says what it rests on and where to make the change if you agree. Nothing is suggested until there are 14 days of history, and it looks back 30 days.
+
+- **A wider deadband**, per zone. When a zone ran eight or more times a day and half of its runs were under 8 minutes, a deadband 0.5 °F (0.3 °C) wider is suggested, never past 2 °F (1.1 °C). Fewer, longer runs are easier on the equipment and hold rooms nearly as closely. Runs that were cut off (the thermostat away, a door opened, the system switched off) are not counted. A zone whose rooms all have a deadband of their own gets no such advice, since the zone's would change nothing; a minimum run time is the other way to lengthen runs.
+- **When a room is usually in use**, per room with occupancy sensors. Each hour of the week in which the room was occupied at least 60 % of the time, and occupied in at least two separate weeks, joined into blocks with matching days grouped. These are the blocks a schedule for the room might have; add them under Schedules if they look right. They are not compared with the schedules the room already has. An evening that runs past midnight comes out as two blocks. Occupancy is read as the sensor stands every five minutes, so this works best with presence sensors that stay on while someone is there, not motion sensors that clear in seconds.
+
+`GET /api/learning/suggestions` returns the same.
+
 ### API
 
 - `GET /api/learning` includes each room's `model` (or null before the first fit).

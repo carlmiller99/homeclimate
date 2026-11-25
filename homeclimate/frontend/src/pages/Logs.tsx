@@ -168,6 +168,9 @@ function triggerSummary(
   if (source === "house") {
     return "house band";
   }
+  if (source === "balance") {
+    return "zone balance";
+  }
   return source ?? "";
 }
 

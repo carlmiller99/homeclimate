@@ -118,6 +118,8 @@ function RoomRow({
   held,
   paused,
   fireplace,
+  coasting = false,
+  balancing = false,
   onHold,
   onCancelHold,
   onClearPresence,
@@ -130,6 +132,10 @@ function RoomRow({
   paused: string[] | null;
   /** Name of the lit fireplace keeping this room out of demand, or null. */
   fireplace: string | null;
+  /** The room's call is waiting for it to drift to its target by itself. */
+  coasting?: boolean;
+  /** Heated or cooled to keep its zone near another (Zone Balance). */
+  balancing?: boolean;
   onHold: () => void;
   onCancelHold: () => void;
   onClearPresence: () => void;
@@ -182,6 +188,24 @@ function RoomRow({
               title="This room is not in use: only a hold or its safety limits will heat or cool it"
             >
               Not In Use
+            </span>
+          )}
+          {balancing && (
+            <span
+              className="badge badge-gray"
+              role="status"
+              title="Zone Balance is heating or cooling this room to keep its zone within the gap limit of another"
+            >
+              Zone Balance
+            </span>
+          )}
+          {coasting && (
+            <span
+              className="badge badge-gray"
+              role="status"
+              title="This room is a little short of its target and is expected to get there by itself, so nothing has been started for it yet"
+            >
+              Coasting
             </span>
           )}
           {fireplace && (
@@ -291,7 +315,9 @@ function roomsBlock(
     onHold: (roomId: string) => void;
     onCancelHold: (roomId: string) => void;
     onClearPresence: () => void;
-  }
+  },
+  coasting: string[] = [],
+  balancing: string[] = []
 ) {
   // A room the cycle reports but the room list does not know yet (it was
   // added a moment ago) still gets a row, named by its id.
@@ -313,6 +339,8 @@ function roomsBlock(
           held={heldRoomIds.has(room.id)}
           paused={pausedRooms[room.id] ?? null}
           fireplace={fireplaceRooms[room.id] ?? null}
+          coasting={coasting.includes(room.id)}
+          balancing={balancing.includes(room.id)}
           onHold={() => controls.onHold(room.id)}
           onCancelHold={() => controls.onCancelHold(room.id)}
           onClearPresence={controls.onClearPresence}
@@ -482,11 +510,17 @@ function ZoneCard({
           { onHold, onCancelHold, onClearPresence }
         )}
       >
-        {roomsBlock(zoneRooms, zone.rooms, temps, heldRoomIds, pausedRooms, fireplaceRooms, {
-          onHold,
-          onCancelHold,
-          onClearPresence,
-        })}
+        {roomsBlock(
+          zoneRooms,
+          zone.rooms,
+          temps,
+          heldRoomIds,
+          pausedRooms,
+          fireplaceRooms,
+          { onHold, onCancelHold, onClearPresence },
+          zone.coasting_rooms,
+          zone.balance_rooms
+        )}
       </Frozen>
 
       {/* Eco Suspend (Issue #500): per-zone control, shown only when Eco is in
