@@ -282,6 +282,67 @@ async def test_banking_never_outvotes_a_hold(client, fake_ha, tick, monkeypatch,
     assert [ar.source for ar in eng._active_rooms.values()] == ["override"]
 
 
+async def test_a_banking_run_neither_sets_nor_holds_the_buildings_side(
+    client, fake_ha, tick, monkeypatch
+):
+    """Another zone of the building that wants the other side waits one minimum runtime at most."""
+    _ids, eng = await _peak_site(client, fake_ha, monkeypatch, {"den": 75.5})
+    other = "climate.peak_other"
+    fake_ha.seed_state(
+        other,
+        "heat_cool",
+        {"current_temperature": 70.0, "temperature": 70.0, "hvac_action": "idle"},
+    )
+    fake_ha.seed_state("sensor.peak_study", "70.0", {"unit_of_measurement": "°F"})
+    fake_ha.seed_state("cover.peak_study", "open", {})
+    resp = await client.post("/api/rooms", json={"name": "study", "thermostat_entity_id": other})
+    study = (await resp.json())["id"]
+    await client.post(f"/api/rooms/{study}/sensors", json={"entity_id": "sensor.peak_study"})
+    await client.post(
+        f"/api/rooms/{study}/vents",
+        json={"entity_id": "cover.peak_study", "control_method": "open_close"},
+    )
+    main = (await (await client.post("/api/buildings", json={"name": "Main House"})).json())["id"]
+    for tid in (T, other):
+        await client.put(f"/api/zones/{tid}", json={"building_id": main})
+    resp = await client.put(
+        f"/api/building-modes/{main}", json={"mode": "auto", "auto_level": "on"}
+    )
+    assert resp.status == 200, await resp.text()
+    scheduler = client.app["scheduler"]
+    await tick()
+    await tick()
+    assert eng.cycle_mode == "cooling" and eng.optional_only
+    # The banking run is the building's only cycle, and has not put it on a side.
+    assert scheduler.building_plan.side_for(T) == (None, True)
+    assert scheduler._building_side(T) == (None, True)
+    await client.post(f"/api/rooms/{study}/override", json={"target_temp": 73, "duration_hours": 2})
+    await tick()
+    await tick()
+    waiting = scheduler._engines[other]
+    assert waiting.building_wait is not None and waiting.cycle_state.value == "idle"
+    # The banking zone is told what the building wants, and keeps its minimum runtime.
+    assert scheduler._building_side(T) == (None, True)
+    assert scheduler._building_waiting(T) == "heating"
+    assert scheduler._building_waiting(other) is None
+    assert eng._side_for_optional() == ("heating", True) and eng.cycle_mode == "cooling"
+    eng._cycle_log.started_at -= timedelta(minutes=16)
+    for _ in range(4):
+        await tick()
+    assert eng.cycle_state.value == "idle" and eng.bank_rooms == []
+    assert waiting.cycle_mode == "heating"
+    assert scheduler.building_plan.side_for(T) == ("heating", True)
+    # And the banking is not started again against it.
+    for _ in range(3):
+        await tick()
+    assert eng.cycle_state.value == "idle" and waiting.cycle_mode == "heating"
+    conn = await scheduler.get_db()
+    async with conn.execute(
+        "SELECT COUNT(*) AS n FROM cycle_logs WHERE thermostat_entity_id = ?", (T,)
+    ) as cur:
+        assert (await cur.fetchone())["n"] == 1
+
+
 async def test_a_banking_room_past_a_safety_limit_is_still_protected(
     client, fake_ha, tick, monkeypatch
 ):

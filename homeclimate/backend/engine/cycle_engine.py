@@ -200,6 +200,7 @@ class CycleEngine:
         get_building_side: Callable[[], tuple[str | None, bool]] | None = None,
         claim_building_side: Callable[[str], str | None] | None = None,
         get_side_fixed: Callable[[], bool] | None = None,
+        get_building_waiting: Callable[[], str | None] | None = None,
         get_heat_pump: Callable[[], HeatPumpGuards | None] | None = None,
         get_balance: Callable[[], zone_balance.Call | None] | None = None,
     ) -> None:
@@ -220,6 +221,7 @@ class CycleEngine:
         self._get_building_side = get_building_side
         self._claim_building_side = claim_building_side
         self._get_side_fixed = get_side_fixed
+        self._get_building_waiting = get_building_waiting
         # When this zone began waiting for its building's other side, and when
         # that was last confirmed: (direction, obeyed, since, seen).
         self._wait_started: tuple[str, bool, datetime, datetime] | None = None
@@ -848,8 +850,9 @@ class CycleEngine:
         # vacation this is the sole source of demand, `new_active_map` having
         # been seeded empty just above.
         await self._add_safety_rooms(conn, new_active_map)
+        optional_side, optional_obey = self._side_for_optional()
         self._optional_rooms_yield(
-            new_active_map, await self._load_tc(conn), side if obey_side else None
+            new_active_map, await self._load_tc(conn), optional_side if optional_obey else None
         )
         against = obey_side and side in ("heating", "cooling", "hold")
         if (
@@ -5804,6 +5807,21 @@ class CycleEngine:
                 {"thermostat": self.thermostat_entity_id, "direction": direction},
             )
 
+    def _side_for_optional(self) -> tuple[str | None, bool]:
+        """The building's side as convenience rooms must see it: (side, obey).
+
+        The side itself, and, while an obeyed building is on no side yet, the
+        direction another of its zones is waiting to go. That zone is what the
+        building wants, so no convenience run is started or kept going
+        against it.
+        """
+        side, obey = (
+            self._get_building_side() if self._get_building_side is not None else (None, False)
+        )
+        if obey and side is None and self._get_building_waiting is not None:
+            side = self._get_building_waiting()
+        return side, obey
+
     @property
     def optional_only(self) -> bool:
         """A cycle is running for nothing but convenience rooms (``OPTIONAL_SOURCES``).
@@ -6683,9 +6701,7 @@ class CycleEngine:
         be stopped short of its minimum runtime and started again.
         """
         call = self._get_balance() if self._get_balance is not None else None
-        side, obey = (
-            self._get_building_side() if self._get_building_side is not None else (None, False)
-        )
+        side, obey = self._side_for_optional()
         if call is not None and obey and side is not None and side != call.mode:
             call = None  # never a reason to ask the building for its other side
         held: dict[str, float] = {}
@@ -6799,9 +6815,7 @@ class CycleEngine:
             if (await forecast.get_settings(conn))["correct"]:
                 hours = (await forecast_bias.load(conn)).correct(hours)
             ahead = [(h.at, h.temp) for h in hours]
-        side, obey = (
-            self._get_building_side() if self._get_building_side is not None else (None, False)
-        )
+        side, obey = self._side_for_optional()
         out = list(active)
         latched: dict[str, float] = {}
         for ar in active:
@@ -6819,7 +6833,13 @@ class CycleEngine:
                 )
                 if reading is not None:
                     target = reading + room.temp_offset
-            elif not banking or win is None:
+            elif (
+                not banking
+                or win is None
+                # A call in this zone is waiting to coast: starting a run to
+                # bank would end that wait for it.
+                or (self._state == CycleState.IDLE and self._coast_wait)
+            ):
                 continue
             else:
                 way = peak.direction(win, ar.heat_to, ar.cool_to, outside, ahead)
