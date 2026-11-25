@@ -206,6 +206,8 @@ export interface ZoneStatus {
   setpoint: number | null;
   cycle_id: string | null;
   cycle_started_at: string | null;
+  /** Rooms whose call is waiting for them to drift to their target by themselves. */
+  coasting_rooms?: string[];
   rooms: RoomLiveStatus[];
 }
 

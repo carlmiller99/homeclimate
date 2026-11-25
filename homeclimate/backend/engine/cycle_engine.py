@@ -242,6 +242,9 @@ class CycleEngine:
         # room id → (mode, target).
         self._coast_wait: dict[str, tuple[datetime, str, float]] = {}
         self._coast_done: dict[str, tuple[str, float]] = {}
+        # When each room's last wait ended, and when coasting was last looked at.
+        self._coast_ended: dict[str, datetime] = {}
+        self._coast_seen: datetime | None = None
         self._early_latch: dict[str, tuple[datetime, float, str]] = {}
 
         self._state = CycleState.IDLE
@@ -584,6 +587,7 @@ class CycleEngine:
             cycle_id=self.current_cycle_id,
             cycle_started_at=self._cycle_log.started_at if self._cycle_log else None,
             rooms=room_states,
+            coasting_rooms=sorted(self._coast_wait),
         )
 
     # ------------------------------------------------------------------
@@ -6512,12 +6516,21 @@ class CycleEngine:
         Only. Safety protection is added after this and is never delayed.
         """
         level = coasting.LEVELS[(await learning.get_settings(conn))["coast_level"]]
-        if level == "off" or self._state != CycleState.IDLE:
-            self._coast_wait = {}
-            if level == "off":
-                self._coast_done = {}
-            return active
         now = now or datetime.now(UTC)
+        seen, self._coast_seen = self._coast_seen, now
+        if level == "off":
+            self._coast_wait, self._coast_done = {}, {}
+            return active
+        if seen is None or now - seen > coasting.STALE_AFTER:
+            # Coasting has not been looked at for a while (Vacation Mode, the
+            # system switched off, the thermostat away): a wait from before
+            # says nothing about now, and must not be counted as a miss.
+            self._coast_wait = {}
+        if level != "on" or self._state != CycleState.IDLE:
+            # Released, not ended: the call has had its wait all the same.
+            self._drop_waits(now)
+        if self._state != CycleState.IDLE:
+            return active
         calls: list[tuple[ActiveRoom, str, float, float, float]] = []
         resting: dict[str, float] = {}
         tc = await self._load_tc(conn)
@@ -6540,13 +6553,18 @@ class CycleEngine:
             else:
                 resting[ar.room.id] = ar.target_temp
         calling = {c[0].room.id: (c[1], c[0].target_temp) for c in calls}
+        names = {ar.room.id: ar.room.name for ar in active}
         for rid, (since, _mode, target) in self._coast_wait.items():
             if resting.get(rid) == target:
+                self._coast_ended[rid] = now
                 await self._say_coast(
-                    f"A room reached {target:g}°F by coasting after "
+                    f"{names[rid]} reached {target:g}°F by coasting after "
                     f"{(now - since).total_seconds() / 60:.0f} min: a start avoided",
                     rid,
                 )
+        self._coast_ended = {
+            r: t for r, t in self._coast_ended.items() if now - t < coasting.COOL_OFF
+        }
         # A call that has ended, or changed, is forgotten: the next one is new.
         self._coast_done = {r: c for r, c in self._coast_done.items() if calling.get(r) == c}
         self._coast_wait = {
@@ -6557,7 +6575,7 @@ class CycleEngine:
         outside = await self._read_outside_temp(conn)
         models = await room_model.load(conn) if outside is not None else {}
         if not models or outside is None:
-            self._coast_wait = {}
+            self._drop_waits(now)
             return active
         hours, _fetched = await forecast.load(conn, now=now)
         if (await forecast.get_settings(conn))["correct"]:
@@ -6574,7 +6592,11 @@ class CycleEngine:
             room = ar.room
             call = (mode, ar.target_temp)
             held = self._coast_wait.get(room.id)
-            if self._coast_done.get(room.id) == call:
+            if self._coast_done.get(room.id) == call or (
+                # A reading hovering at the edge of the deadband would otherwise
+                # begin a new wait, and say so, every time it crossed.
+                held is None and room.id in self._coast_ended
+            ):
                 continue
             limit = coasting.wait_limit_min(mode, costly)
             waited = 0.0 if held is None else (now - held[0]).total_seconds() / 60
@@ -6595,6 +6617,10 @@ class CycleEngine:
                     outlook=outlook,
                     within_min=int(limit - waited),
                     zone=self._thermo_ambient_f(),
+                    # Not begun, or carried on, if the model expects a miss.
+                    floor=ar.target_temp
+                    - room.temp_offset
+                    - (coasting.MISS_F if mode == "heating" else -coasting.MISS_F),
                 )
             if arrives is not None:
                 if level == "on":
@@ -6616,6 +6642,7 @@ class CycleEngine:
             # The wait is over and the room did not arrive.
             del self._coast_wait[room.id]
             self._coast_done[room.id] = call
+            self._coast_ended[room.id] = now
             await self._say_coast(
                 f"{room.name} did not reach {ar.target_temp:g}°F by coasting "
                 f"({waited:.0f} min); starting {mode}",
@@ -6623,7 +6650,7 @@ class CycleEngine:
             )
             if gap >= coasting.MISS_F and await coasting.record_miss(conn, now=now):
                 level = "watch"
-                self._coast_wait = {}
+                self._drop_waits(now)
                 waiting = set()
                 await self._say_coast(
                     "Let Rooms Coast has gone back to Watch Only: three waits this week ended "
@@ -6632,6 +6659,13 @@ class CycleEngine:
                     "warning",
                 )
         return [ar for ar in active if ar.room.id not in waiting]
+
+    def _drop_waits(self, now: datetime) -> None:
+        """Let every waiting room go. Each has had its wait: it does not get another."""
+        for rid, (_since, mode, target) in self._coast_wait.items():
+            self._coast_done[rid] = (mode, target)
+            self._coast_ended[rid] = now
+        self._coast_wait = {}
 
     async def _say_coast(self, message: str, room_id: str, level: str = "info") -> None:
         if self._logger:

@@ -1992,6 +1992,7 @@ class Scheduler:
             "setpoint": s.setpoint,
             "cycle_id": s.cycle_id,
             "cycle_started_at": s.cycle_started_at.isoformat() if s.cycle_started_at else None,
+            "coasting_rooms": s.coasting_rooms,
             "rooms": [
                 {
                     "room_id": r.room_id,

@@ -106,11 +106,20 @@ async def test_three_misses_in_a_week_send_it_back_to_watch_only():
     assert (await learning.get_settings(conn))["coast_level"] == 1
     # The count starts again, so switching it back On is a fresh start.
     assert await coasting.misses(conn, now=NOW) == 0
-    assert coasting.describe(1, 0) == {
+    # It says that it did so, for as long as it is still there (and for a week).
+    when = await coasting.demoted_at(conn, now=NOW)
+    assert when == NOW
+    assert coasting.describe(1, 0, when) == {
         "level": 1,
         "misses_this_week": 0,
         "misses_to_watch_only": 3,
+        "switched_back_at": NOW.isoformat(),
     }
+    assert coasting.describe(2, 0, when)["switched_back_at"] is None
+    assert coasting.describe(1, 0)["switched_back_at"] is None
+    assert await coasting.demoted_at(conn, now=NOW + timedelta(days=8)) is None
+    await db.set_system_setting(conn, coasting.DEMOTED_KEY, "soon")
+    assert await coasting.demoted_at(conn, now=NOW) is None
     # A damaged record reads as none.
     for bad in ("not json", '{"a": 1}', '["x", 5]'):
         await db.set_system_setting(conn, coasting.MISSES_KEY, bad)

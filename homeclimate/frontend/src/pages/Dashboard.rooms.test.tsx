@@ -420,6 +420,23 @@ describe("Dashboard rooms and zones", () => {
     expect(loft).toHaveAttribute("title", "Paused: door or window open");
   });
 
+  it("marks a room whose call is waiting for it to coast to its target", async () => {
+    vi.mocked(api.getStatus).mockResolvedValue([
+      { ...status("climate.up"), coasting_rooms: ["bunk"] },
+      status("climate.den"),
+      status("climate.north"),
+    ]);
+    render(<Dashboard />);
+    const badge = await waitFor(() =>
+      within(screen.getByTestId("dash-room-bunk")).getByText("Coasting")
+    );
+    expect(badge).toHaveAttribute(
+      "title",
+      expect.stringMatching(/expected to get there by itself/)
+    );
+    expect(within(screen.getByTestId("dash-room-kitchen")).queryByText("Coasting")).toBeNull();
+  });
+
   it("marks a room a lit fireplace is keeping out of demand", async () => {
     vi.mocked(sc.getSmartControl).mockResolvedValue({
       ...smartControl([]),

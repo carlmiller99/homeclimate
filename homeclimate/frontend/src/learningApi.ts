@@ -52,11 +52,22 @@ export interface Learning {
   sample_every_min: number;
   checked_at: string;
   rooms: LearningRoom[];
-  coasting: { level: number; misses_this_week: number; misses_to_watch_only: number };
+  coasting: {
+    level: number;
+    misses_this_week: number;
+    misses_to_watch_only: number;
+    /** When it last switched itself back to Watch Only, while it is still there. */
+    switched_back_at: string | null;
+  };
 }
 
 /** What stands beside the coasting setting: how close it is to switching itself back. */
-export function describeCoasting(c: Learning["coasting"]): string {
+export function describeCoasting(
+  c: Learning["coasting"],
+  fmt: (iso: string) => string = (iso) => iso
+): string {
+  if (c.switched_back_at)
+    return `It switched itself back to Watch Only on ${fmt(c.switched_back_at)}, after ${c.misses_to_watch_only} waits in a week ended with the room well short.`;
   if (c.misses_this_week === 0) return "No room has been left waiting too long this week.";
   const rooms = c.misses_this_week === 1 ? "One wait" : `${c.misses_this_week} waits`;
   return `${rooms} this week ended with the room well short. At ${c.misses_to_watch_only} it goes back to Watch Only.`;

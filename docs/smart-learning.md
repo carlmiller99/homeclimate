@@ -98,11 +98,15 @@ Each early start is logged once under Engine.
 - Only while nothing is running in the zone. If the equipment starts for another room, a waiting room is served with it.
 - A room 2 °F or more from its target is never kept waiting.
 - A wait lasts 45 minutes at most. Where heating is electric strip heat (a conventional zone with electric heat, or a heat pump below its compressor lockout) it is three times that, because a start avoided there saves the most.
-- A call gets one wait. If the room has not arrived when it ends, or the model stops expecting it to, the equipment starts as usual.
-- A wait that ends with the room 1.5 °F or more from its target is a miss. Three in a week switch the setting back to Watch Only, with a warning in the log (which Notifications can send). The section shows how many there have been this week.
+- A call gets one wait. If the room has not arrived when it ends, or the model stops expecting it to, the equipment starts as usual. A wait is not begun if the model expects the room to slip 1.5 °F from its target on the way. After a wait, the same room does not wait again for half an hour.
+- A wait ends without counting if the equipment starts for another room, the setting changes, or the outside reading is lost. A wait left over from before Vacation Mode or the system being switched off is forgotten.
+- Changing the room's target starts a new call, and so does a restart of HomeClimate; either can begin a new wait.
+- A wait that ends with the room 1.5 °F or more from its target is a miss. Three in a week switch the setting back to Watch Only, with a warning in the log (which Notifications can send). The section shows how many there have been this week, and says when it has switched itself back.
 - Safety protection is never delayed. Paused rooms, the fireplace, Vacation Mode and Eco Mode work as before.
 
-Each wait is logged under Engine when it begins and when it ends: reached by coasting, or not.
+A waiting room shows **Coasting** on the Dashboard. Each wait is logged under Engine when it begins and when it ends: reached by coasting, or not.
+
+The limits are 2 °F and 1.5 °F (1.1 °C and 0.8 °C). A zone whose equipment has not been set in My Home counts as electric strip heat, which is the default; set a gas furnace there to get the shorter wait.
 
 ### API
 

@@ -1125,6 +1125,10 @@ class CoastingSchema(Schema):
         metadata={"description": "Waits that ended 1.5 °F or more from the target, last 7 days"}
     )
     misses_to_watch_only = fields.Int()
+    switched_back_at = fields.Str(
+        allow_none=True,
+        metadata={"description": "When it last switched itself back to Watch Only, if it is there"},
+    )
 
 
 class LearningSchema(Schema):

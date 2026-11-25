@@ -22,7 +22,7 @@ from __future__ import annotations
 import json
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import aiosqlite
@@ -39,7 +39,11 @@ MISSES_TO_DEMOTE = 3
 MISS_WINDOW = timedelta(days=7)
 STALE_DAYS = room_model.EARLY_START_STALE_DAYS
 
+COOL_OFF = timedelta(minutes=30)  # after a wait, before the same room may wait again
+STALE_AFTER = timedelta(minutes=5)  # a wait not looked at for this long is dropped
+
 MISSES_KEY = "learn_coast_misses"
+DEMOTED_KEY = "learn_coast_demoted_at"
 
 
 def wait_limit_min(mode: str, costly_heat: bool) -> int:
@@ -88,10 +92,13 @@ def minutes_alone(
     outlook: Outlook,
     within_min: int,
     zone: float | None = None,
+    floor: float | None = None,
 ) -> int | None:
     """Minutes for the room to drift from ``temp`` to ``goal`` with nothing running.
 
-    None when the model says it will not get there within ``within_min``.
+    None when the model says it will not get there within ``within_min``, or
+    that it would first slip to ``floor`` (below it when warming, above it
+    when cooling): a wait the model itself expects to end badly is not begun.
     Stepped five minutes at a time, with the outside temperature following the
     forecast.
     """
@@ -103,6 +110,8 @@ def minutes_alone(
     for step in range(1, within_min // step_min + 1):
         # It may slip a little first and still arrive, on a morning that is warming up.
         now += model.rate(now, outlook.at((step - 1) * step_min), zone) * step_min / 60
+        if floor is not None and ((now <= floor) if rising else (now >= floor)):
+            return None
         if (now >= goal) if rising else (now <= goal):
             return step * step_min
     return None
@@ -147,9 +156,27 @@ async def record_miss(conn: aiosqlite.Connection, *, now: datetime) -> bool:
     await db.set_system_setting(conn, MISSES_KEY, "[]" if demote else json.dumps(kept))
     if demote:
         await learning.update_settings(conn, {"coast_level": LEVELS.index("watch")})
+        await db.set_system_setting(conn, DEMOTED_KEY, str(int(now.timestamp())))
     return demote
 
 
-def describe(level: int, missed: int) -> dict[str, Any]:
+async def demoted_at(conn: aiosqlite.Connection, *, now: datetime) -> datetime | None:
+    """When it last switched itself back to Watch Only, if within the last week."""
+    raw = await db.get_system_setting(conn, DEMOTED_KEY, "")
+    if not raw.isdigit():
+        return None
+    when = datetime.fromtimestamp(int(raw), UTC)
+    return when if now - when <= MISS_WINDOW else None
+
+
+def describe(level: int, missed: int, demoted: datetime | None = None) -> dict[str, Any]:
     """What the Smart Learning section shows beside the setting."""
-    return {"level": level, "misses_this_week": missed, "misses_to_watch_only": MISSES_TO_DEMOTE}
+    return {
+        "level": level,
+        "misses_this_week": missed,
+        "misses_to_watch_only": MISSES_TO_DEMOTE,
+        # Only while it is still where it put itself.
+        "switched_back_at": demoted.isoformat()
+        if demoted is not None and level == LEVELS.index("watch")
+        else None,
+    }

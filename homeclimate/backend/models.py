@@ -483,3 +483,5 @@ class ZoneStatus:
     cycle_id: str | None
     cycle_started_at: datetime | None
     rooms: list[RoomLiveState] = field(default_factory=list)
+    # Rooms whose call is waiting for them to drift to their target (coasting).
+    coasting_rooms: list[str] = field(default_factory=list)

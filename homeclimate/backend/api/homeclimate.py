@@ -418,8 +418,11 @@ async def _learning_snapshot(request: web.Request) -> dict:
     for room in snap["rooms"]:
         found = models.get(room["room_id"])
         room["model"] = room_model.describe(found) if found is not None else None
+    now = datetime.now(tz.UTC)
     snap["coasting"] = coasting.describe(
-        snap["settings"]["coast_level"], await coasting.misses(conn, now=datetime.now(tz.UTC))
+        snap["settings"]["coast_level"],
+        await coasting.misses(conn, now=now),
+        await coasting.demoted_at(conn, now=now),
     )
     return snap
 
