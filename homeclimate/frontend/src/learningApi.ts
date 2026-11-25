@@ -30,7 +30,11 @@ export interface RoomModel {
   cool_hours: number;
   out_spread: number;
   rmse: number | null;
-  learned: { loss: boolean; heat: boolean; cool: boolean };
+  /** °F an hour in full sun on the room's windows; 0 for a room with no known windows. */
+  sun?: number;
+  /** Hours of readings with sun on the room's windows. */
+  sun_hours?: number;
+  learned: { loss: boolean; heat: boolean; cool: boolean; sun?: boolean };
   /** Terms the fit got backwards and held at a starting value. */
   pinned: string[];
   grade: "none" | "learning" | "ready";
@@ -133,5 +137,11 @@ export function describeModel(
       ? `Drifts about ${per(m.loss * across)} toward outside for every ${celsius ? 5 : 10}${unitLabel} of difference`
       : "Heat loss not learned yet (needs more varied weather)"
   );
+  // Only for a room whose windows are known (it has a shade in My Home).
+  if (m.learned.sun) {
+    out.push(`Gains about ${per(m.sun ?? 0)} in full sun on its windows`);
+  } else if ((m.sun_hours ?? 0) > 0) {
+    out.push("Sun on its windows not learned yet (needs about 10 sunlit hours)");
+  }
   return out;
 }

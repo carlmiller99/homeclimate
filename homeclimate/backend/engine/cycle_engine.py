@@ -34,6 +34,7 @@ from .. import (
     learning,
     peak,
     room_model,
+    solar,
     suggestions,
     tz,
     zone_balance,
@@ -7088,6 +7089,7 @@ class CycleEngine:
         outside: float | None = None
         ahead: list[tuple[datetime, float]] = []
         models: dict[str, room_model.RoomModel] = {}
+        suns: dict[str, Callable[[datetime], float]] = {}
         if level != "off" and (self._state == CycleState.IDLE or self._cycle_mode == "cooling"):
             outside = await self._read_outside_temp(conn)
             hours, _fetched = await forecast.load(conn, now=now)
@@ -7095,6 +7097,7 @@ class CycleEngine:
                 hours = (await forecast_bias.load(conn)).correct(hours)
             ahead = [(h.at, h.temp) for h in hours]
             models = await room_model.load(conn)
+            suns = await solar.for_rooms(conn)
         side, obey = self._side_for_optional()
         state = (self._ha.get_state(self.thermostat_entity_id) or {}).get("state")
         quiet = timedelta(minutes=early_cooling.LOOK_AHEAD_MIN)
@@ -7140,7 +7143,7 @@ class CycleEngine:
                     model,
                     temp=avg,
                     cool_to=ar.cool_to - room.temp_offset,
-                    outlook=coasting.Outlook(now, outside, ahead),
+                    outlook=coasting.Outlook(now, outside, ahead, suns.get(room.id)),
                     zone=self._thermo_ambient_f(),
                 )
                 if minutes is None:
@@ -7298,7 +7301,8 @@ class CycleEngine:
         hours, _fetched = await forecast.load(conn, now=now)
         if (await forecast.get_settings(conn))["correct"]:
             hours = (await forecast_bias.load(conn)).correct(hours)
-        outlook = coasting.Outlook(now, outside, [(h.at, h.temp) for h in hours])
+        ahead = [(h.at, h.temp) for h in hours]
+        suns = await solar.for_rooms(conn)
         profile = await zones.get_zone_profile(conn, self.thermostat_entity_id)
         # Strip heat is the dear kind: a conventional zone with electric heat,
         # or a heat pump below its compressor lockout.
@@ -7332,7 +7336,7 @@ class CycleEngine:
                     # The model was fitted on raw readings, so it is asked in those.
                     temp=avg,
                     goal=edge - room.temp_offset,
-                    outlook=outlook,
+                    outlook=coasting.Outlook(now, outside, ahead, suns.get(room.id)),
                     within_min=int(limit - waited),
                     zone=self._thermo_ambient_f(),
                     # Not begun, or carried on, if the model expects a miss.

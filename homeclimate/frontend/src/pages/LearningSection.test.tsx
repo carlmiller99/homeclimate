@@ -369,6 +369,21 @@ describe("Smart Learning section", () => {
       "Cools about 2.7°F an hour",
       "Heat loss not learned yet (needs more varied weather)",
     ]);
+    // A room with a window of known direction says what the sun does to it.
+    const sunny = { ...MODEL, sun: 1.8, sun_hours: 40, learned: { ...MODEL.learned, sun: true } };
+    expect(la.describeModel(sunny, f.toDisplayDelta, f.unitLabel)[3]).toBe(
+      "Gains about 1.8°F an hour in full sun on its windows"
+    );
+    expect(la.describeModel(sunny, c.toDisplayDelta, c.unitLabel)[3]).toBe(
+      "Gains about 1.0°C an hour in full sun on its windows"
+    );
+    expect(la.describeModel({ ...sunny, sun: undefined }, f.toDisplayDelta, f.unitLabel)[3]).toBe(
+      "Gains about 0.0°F an hour in full sun on its windows"
+    );
+    const dawning = { ...MODEL, sun_hours: 4, learned: { ...MODEL.learned, sun: false } };
+    expect(la.describeModel(dawning, f.toDisplayDelta, f.unitLabel)[3]).toBe(
+      "Sun on its windows not learned yet (needs about 10 sunlit hours)"
+    );
     expect(la.describeModel({ ...MODEL, grade: "none" }, f.toDisplayDelta, f.unitLabel)).toEqual([
       "Needs about a day of readings with nothing open and no fire lit.",
     ]);

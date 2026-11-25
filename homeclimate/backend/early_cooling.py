@@ -13,7 +13,7 @@ itself, and it never goes outside the band. All temperatures are °F.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import datetime, timedelta
 
 from . import coasting, room_model
@@ -58,6 +58,7 @@ def warm_ahead(
     ahead: Sequence[tuple[datetime, float]],
     now: datetime,
     zone: float | None = None,
+    sun: Callable[[datetime], float] | None = None,
 ) -> bool:
     """Whether a room is about to be too warm: what a sunlit shade is closed ahead of.
 
@@ -76,7 +77,7 @@ def warm_ahead(
         or warming(outside, ahead, now, cool_to) is None
     ):
         return False
-    outlook = coasting.Outlook(now, outside, ahead)
+    outlook = coasting.Outlook(now, outside, ahead, sun)
     return breach_in(model, temp=temp, cool_to=cool_to, outlook=outlook, zone=zone) is not None
 
 

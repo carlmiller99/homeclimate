@@ -1164,6 +1164,7 @@ class RoomModelLearnedSchema(Schema):
     loss = fields.Bool()
     heat = fields.Bool()
     cool = fields.Bool()
+    sun = fields.Bool()
 
 
 class RoomModelSchema(Schema):
@@ -1179,6 +1180,8 @@ class RoomModelSchema(Schema):
     heat_hours = fields.Float(metadata={"description": "Hours of sustained heating seen"})
     cool_hours = fields.Float(metadata={"description": "Hours of sustained cooling seen"})
     out_spread = fields.Float(metadata={"description": "°F delta, standard deviation"})
+    sun = fields.Float(metadata={"description": "°F per hour in full sun on the room's windows"})
+    sun_hours = fields.Float(metadata={"description": "Hours with sun on the windows seen"})
     pinned = fields.List(
         fields.Str(), metadata={"description": "Terms the fit got backwards, held at a start value"}
     )

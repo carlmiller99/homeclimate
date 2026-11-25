@@ -138,7 +138,7 @@ async def test_the_third_miss_in_a_week_goes_back_to_watch_only(monkeypatch):
     await db.upsert_room(conn, other)
     await conn.execute(
         "INSERT INTO room_models SELECT ?, fitted_at, windows, loss, pull, heat, cool, drift,"
-        " heat_hours, cool_hours, out_spread, rmse, pinned FROM room_models",
+        " heat_hours, cool_hours, out_spread, rmse, pinned, sun, sun_hours FROM room_models",
         (other.id,),
     )
     await conn.commit()

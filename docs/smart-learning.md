@@ -50,11 +50,13 @@ The readings are grouped into half-hours, and for each one the model explains ho
 | Zone pull | Drift toward the thermostat's reading, from air mixing with the rest of the zone | 0.1 °F an hour per °F |
 | Heating rate | How fast the room warms while the zone heats, scaled by how far its vent is open | 3 °F an hour |
 | Cooling rate | The same for cooling | 3 °F an hour |
-| Everything else | People, appliances, sun | 0 |
+| Sun | How fast full sun on the room's windows warms it (rooms with a window of known direction only) | 0 |
+| Everything else | People, appliances | 0 |
 
 A term the readings can't speak to keeps its starting value and is shown as not learned yet:
 
 - The **heating rate** needs about 3 hours of half-hours in which heating ran at least three quarters of the time; the **cooling rate** the same for cooling. A room held steady by short bursts shows how loss and heating balance but not how fast either is, so it does not count however long it goes on. Morning recoveries from a night setback are what teach it.
+- The **sun** term needs about 10 hours of half-hours with sun on the room's windows. A room's windows are its shades in My Home (their Window Faces direction), whether or not the shades are automated; a room with none has no sun term. The sun's position comes from the house's location, read from Home Assistant's home zone at each fit.
 - **Heat loss** needs the difference between inside and outside to have varied (a standard deviation of at least 3 °F).
 - A fitted value that makes no physical sense (heating that cools, walls that gain heat from the cold) is held at its starting value, the other terms are fitted again around it, and it is shown as not learned.
 
@@ -64,7 +66,7 @@ Half-hours are left out when a door or window was open, a fireplace was lit or c
 
 Limits worth knowing:
 
-- Sun through windows is not modelled yet; it is part of "everything else".
+- The sun term is the clear-sky sun on the windows. Cloud cover, and whether a shade was down, are not recorded, so what is learned is the room's usual gain on days like those it has seen. It is used where a room is predicted to drift by itself (Let Rooms Coast, Early Cooling, shades closing ahead of a warm room), not in how long heating or cooling takes.
 - A sensor that reports in whole degrees, or that lags the room by several minutes, makes the rates come out low.
 - The model is fitted from snapshots every five minutes, so heating that runs in bursts shorter than that is under-counted.
 

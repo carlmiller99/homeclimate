@@ -34,6 +34,7 @@ from . import (
     openings,
     room_model,
     shades,
+    solar,
     tz,
     zone_balance,
     zones,
@@ -1661,6 +1662,7 @@ class Scheduler:
 
     async def fit_room_models_now(self) -> int:
         """Fit every room's model, letting a failure through to the caller."""
+        await solar.remember_location(self._db_conn, self._ha)
         models = await room_model.fit_all(self._db_conn, now=datetime.now(UTC))
         fitted = sum(1 for m in models if m.fitted_at is not None)
         if self._event_logger is not None:
@@ -1691,6 +1693,7 @@ class Scheduler:
             hours = (await forecast_bias.load(conn)).correct(hours)
         ahead = [(h.at, h.temp) for h in hours]
         models = await room_model.load(conn)
+        suns = await solar.for_rooms(conn)
         the_house = await house.load(conn)
         by_room: dict[str, list] = {}
         for sched in await db.get_all_schedules(conn):
@@ -1713,6 +1716,7 @@ class Scheduler:
                 ahead=ahead,
                 now=now,
                 zone=engine._thermo_ambient_f(),
+                sun=suns.get(room.id),
             ):
                 out.add(room.id)
         return frozenset(out)
