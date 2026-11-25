@@ -208,6 +208,8 @@ export interface ZoneStatus {
   cycle_started_at: string | null;
   /** Rooms whose call is waiting for them to drift to their target by themselves. */
   coasting_rooms?: string[];
+  /** Rooms being heated or cooled to keep this zone near another (Zone Balance). */
+  balance_rooms?: string[];
   rooms: RoomLiveStatus[];
 }
 

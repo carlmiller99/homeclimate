@@ -1754,7 +1754,8 @@ class Scheduler:
 
     def building_direction(self, tids: list[str]) -> str | None:
         """The way a building is working: its side, or the way its zones are running."""
-        sides = {self._building_side(tid)[0] for tid in tids}
+        # A side that is only being watched is not the way the building is working.
+        sides = {side for side, obey in map(self._building_side, tids) if obey}
         if "off" in sides:
             return None
         for side in ("heating", "cooling"):
@@ -1763,8 +1764,12 @@ class Scheduler:
         running = {m for tid in tids if (m := self._engines[tid].cycle_mode)}
         return running.pop() if len(running) == 1 else None
 
-    async def zone_states(self) -> dict[str, zone_balance.ZoneState]:
-        """Each zone's temperature and whether anyone is using it."""
+    async def zone_states(self, *, refresh: bool = True) -> dict[str, zone_balance.ZoneState]:
+        """Each zone's temperature and whether anyone is using it.
+
+        ``refresh=False`` for a read from the API, which must not move the
+        engines' sensor bookkeeping along (as for ``get_zone_status``).
+        """
         the_house = await house.load(self._db_conn)
         set_aside = self._fireplaces.set_aside_rooms()
         states = {}
@@ -1774,7 +1779,7 @@ class Scheduler:
                 for room in await db.get_rooms_for_thermostat(self._db_conn, tid)
                 if the_house.switches(room.id).in_use
                 and room.id not in set_aside
-                and (temp := engine._get_avg_temp(room)) is not None
+                and (temp := engine._get_avg_temp(room, refresh=refresh)) is not None
             ]
             asked = await get_active_rooms(self._db_conn, tid)
             states[tid] = zone_balance.ZoneState(
@@ -1810,12 +1815,12 @@ class Scheduler:
                         return self._zone_profiles[t].name or t
 
                     way = "colder" if call.mode == "heating" else "warmer"
-                    does = "it is" if obey else "it would be (watching only)"
+                    does = "it is asked" if obey else "it would be asked (watching only)"
                     await self._event_logger.log(
                         "info",
                         "engine",
                         f"Zone Balance: {name(tid)} is {call.behind:g}°F {way} than "
-                        f"{name(call.toward)}; {does} {call.mode[:4]}ed to {call.target:g}°F",
+                        f"{name(call.toward)}; {does} to {call.mode[:4]} to {call.target:g}°F",
                         {"thermostat": tid, "toward": call.toward, "target": call.target},
                     )
             self._balance_said = {tid: (c.mode, obey) for tid, (c, obey) in calls.items()}
@@ -1823,6 +1828,11 @@ class Scheduler:
         except Exception:
             log.exception("Zone Balance could not be worked out")
             self._balance_calls = {}
+
+    def balance_answering(self, thermostat_entity_id: str) -> bool:
+        """Whether rooms in the zone are being heated or cooled for balance right now."""
+        engine = self._engines.get(thermostat_entity_id)
+        return engine is not None and bool(engine.balance_rooms)
 
     @property
     def balance_calls(self) -> dict[str, tuple[zone_balance.Call, bool]]:
@@ -2082,6 +2092,7 @@ class Scheduler:
             "cycle_id": s.cycle_id,
             "cycle_started_at": s.cycle_started_at.isoformat() if s.cycle_started_at else None,
             "coasting_rooms": s.coasting_rooms,
+            "balance_rooms": s.balance_rooms,
             "rooms": [
                 {
                     "room_id": r.room_id,

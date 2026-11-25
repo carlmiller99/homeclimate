@@ -38,6 +38,8 @@ def _targets(active) -> list[tuple[float, str]]:
 async def test_a_room_short_of_the_call_answers_it_and_is_kept_to_the_end_of_the_run():
     conn, engine, room, temps = await _setup()
     assert _targets(await engine._balance(conn, [])) == [(67.0, "balance")]
+    assert engine.balance_rooms == [room.id]
+    assert engine.get_zone_status().balance_rooms == [room.id]
     # Close enough: with nothing running it asks for nothing.
     temps["now"] = 66.8
     assert await engine._balance(conn, []) == []
@@ -50,13 +52,78 @@ async def test_a_room_short_of_the_call_answers_it_and_is_kept_to_the_end_of_the
     assert _targets(await engine._balance(conn, [])) == [(67.0, "balance")]
     temps["now"] = None  # nor for a reading that goes missing
     assert _targets(await engine._balance(conn, [])) == [(67.0, "balance")]
-    # A run the other way keeps nobody.
-    engine._cycle_mode = "cooling"
-    assert await engine._balance(conn, []) == []
-    # No call, or none for this zone: nothing, and nothing is remembered.
+    await conn.close()
+
+
+async def test_a_call_that_lapses_mid_run_does_not_cut_the_run_short():
+    """The call comes and goes with the other zone's temperature; the run must end by itself."""
+    conn, engine, room, temps = await _setup()
+    await engine._balance(conn, [])
+    engine._state, engine._cycle_mode = CycleState.RUNNING, "heating"
+    # The zones are back within the limit, or the other zone's hold has ended.
     engine._get_balance = lambda: None
+    assert _targets(await engine._balance(conn, [])) == [(67.0, "balance")]
+    # The call comes back with another target: the run keeps the one it started with.
+    engine._get_balance = lambda: Call("heating", 68.5, "climate.other", 7.0)
+    assert _targets(await engine._balance(conn, [])) == [(67.0, "balance")]
+    # A call the other way changes nothing for the run either.
+    engine._get_balance = lambda: Call("cooling", 60.0, "climate.other", 7.0)
+    assert _targets(await engine._balance(conn, [])) == [(67.0, "balance")]
+    # A room that gains a target of its own, or goes out of use, leaves it.
+    own = [ActiveRoom(room=room, target_temp=70.0, source="override")]
+    assert await engine._balance(conn, own) == own
+    assert engine.balance_rooms == []
+    # Once the run is over, a lapsed call asks for nothing.
+    engine._get_balance = lambda: None
+    engine._state = CycleState.IDLE
     assert await engine._balance(conn, []) == [] and engine._balance_latch == {}
     engine._get_balance = None
+    assert await engine._balance(conn, []) == []
+    await conn.close()
+
+
+async def test_a_lapsed_call_keeps_the_rooms_in_the_run_and_adds_no_others():
+    conn, engine, room, temps = await _setup()
+    await engine._balance(conn, [])
+    other = Room.create(name="Craft Room", thermostat_entity_id=THERMO_ID)
+    await db.upsert_room(conn, other)
+    engine._state, engine._cycle_mode = CycleState.RUNNING, "heating"
+    engine._get_balance = lambda: None
+    assert [ar.room.id for ar in await engine._balance(conn, [])] == [room.id]
+    # With a call, a room with no reading cannot be judged and is left out.
+    engine._state = CycleState.IDLE
+    engine._get_balance = lambda: HEAT
+    temps["now"] = None
+    assert await engine._balance(conn, []) == []
+    await conn.close()
+
+
+async def test_after_a_restart_a_balancing_run_is_carried_on():
+    conn, engine, room, temps = await _setup()
+    engine._state, engine._cycle_mode = CycleState.RUNNING, "heating"
+    engine._active_rooms = {room.id: ActiveRoom(room=room, target_temp=67.0, source="balance")}
+    temps["now"] = 66.8  # inside the deadband: a fresh look would drop it
+    engine._get_balance = lambda: None
+    assert _targets(await engine._balance(conn, [])) == [(67.0, "balance")]
+    await conn.close()
+
+
+async def test_never_a_reason_to_ask_the_building_for_its_other_side():
+    conn, engine, _room, _temps = await _setup()
+    engine._get_building_side = lambda: ("cooling", True)
+    assert await engine._balance(conn, []) == []
+    engine._get_building_side = lambda: ("cooling", False)  # only watched
+    assert await engine._balance(conn, []) != []
+    engine._balance_latch = {}
+    engine._get_building_side = lambda: ("heating", True)
+    assert await engine._balance(conn, []) != []
+    await conn.close()
+
+
+async def test_a_schedule_room_waiting_to_coast_is_not_taken_over():
+    conn, engine, room, _temps = await _setup()
+    # Coasting took it out of this tick's rooms; it still has its schedule.
+    engine._coast_wait = {room.id: (None, "heating", 66.0)}
     assert await engine._balance(conn, []) == []
     await conn.close()
 

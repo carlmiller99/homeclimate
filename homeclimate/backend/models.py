@@ -485,3 +485,5 @@ class ZoneStatus:
     rooms: list[RoomLiveState] = field(default_factory=list)
     # Rooms whose call is waiting for them to drift to their target (coasting).
     coasting_rooms: list[str] = field(default_factory=list)
+    # Rooms being heated or cooled to keep this zone near another (Zone Balance).
+    balance_rooms: list[str] = field(default_factory=list)

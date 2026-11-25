@@ -943,6 +943,9 @@ class ZoneBalanceZoneSchema(Schema):
     )
     toward = fields.Str(allow_none=True)
     obeyed = fields.Bool(metadata={"description": "False when only being watched"})
+    answering = fields.Bool(
+        metadata={"description": "Rooms in the zone are being heated or cooled for it now"}
+    )
 
 
 class ZoneBalanceBuildingSchema(ZoneBalanceWriteSchema):

@@ -18,6 +18,8 @@ export interface BalanceZone {
   target: number | null;
   toward: string | null;
   obeyed: boolean;
+  /** Rooms in the zone are being heated or cooled for it right now. */
+  answering: boolean;
 }
 
 export interface BalanceBuilding {
@@ -66,9 +68,10 @@ export function describeBalance(
   if (called.length > 0) {
     const names = called.map((z) => `${z.name} to ${fmtTemp(z.target as number)}`).join(", ");
     const verb = b.direction === "cooling" ? "cooling" : "heating";
-    return called[0].obeyed
+    if (!called[0].obeyed) return `${apart} Would be ${verb} ${names} (watching only).`;
+    return called.some((z) => z.answering)
       ? `${apart} Now ${verb} ${names}.`
-      : `${apart} Would be ${verb} ${names} (watching only).`;
+      : `${apart} Asking for ${names}, but no room there can answer: each has its own target, is paused, or is close enough already.`;
   }
   if (b.level === "off") return apart;
   if (b.direction === null)

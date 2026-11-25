@@ -11,6 +11,8 @@ import {
   type BalanceLevel,
 } from "../zoneBalanceApi";
 
+const REFRESH_MS = 30_000;
+
 const LEVEL_HELP: Record<BalanceLevel, string> = {
   off: "Zones are left to drift apart.",
   watch: "Logs what it would heat or cool, and does nothing.",
@@ -27,15 +29,21 @@ export default function ZoneBalanceSection() {
 
   useEffect(() => {
     let cancelled = false;
-    getZoneBalance()
-      .then((d) => {
-        if (!cancelled) setBuildings(d.buildings);
-      })
-      .catch(() => {
-        if (!cancelled) setLoadFailed(true);
-      });
+    const load = () =>
+      getZoneBalance()
+        .then((d) => {
+          if (!cancelled) setBuildings(d.buildings);
+        })
+        .catch(() => {
+          // A failed refresh keeps what is shown; only a failed first load says so.
+          if (!cancelled) setLoadFailed(true);
+        });
+    void load();
+    // The gap moves with the house: look again every half minute.
+    const timer = setInterval(() => void load(), REFRESH_MS);
     return () => {
       cancelled = true;
+      clearInterval(timer);
     };
   }, []);
 
@@ -63,7 +71,7 @@ export default function ZoneBalanceSection() {
         in the direction the building is already working, and only while another zone is in use.
         Rooms with a hold, a schedule or occupancy are left alone, and so are paused zones.
       </p>
-      {loadFailed && <p className="form-error">Could not load the buildings.</p>}
+      {loadFailed && !buildings && <p className="form-error">Could not load the buildings.</p>}
       {!loadFailed && !buildings && <p className="page-subtitle">Loading the buildings…</p>}
       {buildings && buildings.length === 0 && (
         <p className="page-subtitle">Add a building in My Home and put zones in it to use this.</p>

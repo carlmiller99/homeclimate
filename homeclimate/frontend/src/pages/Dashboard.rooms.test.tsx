@@ -423,7 +423,7 @@ describe("Dashboard rooms and zones", () => {
   it("marks a room whose call is waiting for it to coast to its target", async () => {
     vi.mocked(api.getStatus).mockResolvedValue([
       { ...status("climate.up"), coasting_rooms: ["bunk"] },
-      status("climate.den"),
+      { ...status("climate.den"), balance_rooms: ["loft"] },
       status("climate.north"),
     ]);
     render(<Dashboard />);
@@ -435,6 +435,12 @@ describe("Dashboard rooms and zones", () => {
       expect.stringMatching(/expected to get there by itself/)
     );
     expect(within(screen.getByTestId("dash-room-kitchen")).queryByText("Coasting")).toBeNull();
+    // And one being heated or cooled for Zone Balance.
+    expect(within(screen.getByTestId("dash-room-loft")).getByText("Zone Balance")).toHaveAttribute(
+      "title",
+      expect.stringMatching(/within the gap limit of another/)
+    );
+    expect(within(screen.getByTestId("dash-room-bunk")).queryByText("Zone Balance")).toBeNull();
   });
 
   it("marks a room a lit fireplace is keeping out of demand", async () => {

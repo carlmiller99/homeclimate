@@ -44,7 +44,7 @@ class ZoneBalanceError(UserError):
 BUILDING_UNKNOWN = fixed("building_id does not match a building")
 UNKNOWN_FIELD = fixed("Only level and zone_gap can be set")
 BAD_LEVEL = fixed("level must be off, watch or on")
-BAD_GAP = fixed("The gap limit must be between 2 and 10 °F (1.1 and 5.6 °C)")
+BAD_GAP = fixed("The gap limit must be between 2 and 10 °F (1.2 and 5.5 °C)")
 
 
 @dataclass

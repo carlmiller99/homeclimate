@@ -19,6 +19,7 @@ const zone = (name: string, temp: number | null, over: Partial<zb.BalanceZone> =
   target: null,
   toward: null,
   obeyed: false,
+  answering: false,
   ...over,
 });
 
@@ -96,7 +97,11 @@ describe("Zone Balance", () => {
     expect(text({ level: "on", direction: "heating", zones: [used, zone("South", 68)] })).toBe(
       "Zones are 6.0°F apart. Inside the limit."
     );
-    const called = zone("South", 64, { target: 67, toward: "climate.north", obeyed: true });
+    const asked = zone("South", 64, { target: 67, toward: "climate.north", obeyed: true });
+    expect(text({ level: "on", direction: "heating", zones: [used, asked] })).toBe(
+      "Zones are 6.0°F apart. Asking for South to 67.0°F, but no room there can answer: each has its own target, is paused, or is close enough already."
+    );
+    const called = { ...asked, answering: true };
     expect(text({ level: "on", direction: "heating", zones: [used, called] })).toBe(
       "Zones are 6.0°F apart. Now heating South to 67.0°F."
     );
@@ -126,6 +131,23 @@ describe("Zone Balance", () => {
     vi.mocked(zb.getZoneBalance).mockRejectedValue(new Error("down"));
     render(<ZoneBalanceSection />);
     expect(await screen.findByText("Could not load the buildings.")).toBeInTheDocument();
+  });
+
+  it("looks again every half minute, and keeps what it shows if a refresh fails", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      render(<ZoneBalanceSection />);
+      expect(await screen.findByText("Zones are 6.0°F apart.")).toBeInTheDocument();
+      vi.mocked(zb.getZoneBalance).mockResolvedValueOnce(wrap([{ ...MAIN, spread: 4 }]));
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(await screen.findByText("Zones are 4.0°F apart.")).toBeInTheDocument();
+      vi.mocked(zb.getZoneBalance).mockRejectedValueOnce(new Error("blip"));
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(screen.getByText("Zones are 4.0°F apart.")).toBeInTheDocument();
+      expect(screen.queryByText("Could not load the buildings.")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("ignores a load that finishes after it has gone", async () => {

@@ -100,6 +100,7 @@ async def test_off_by_default_and_the_section_shows_how_far_apart_the_zones_are(
                 "target": None,
                 "toward": None,
                 "obeyed": False,
+                "answering": False,
             }
             for tid, temp in ((T1, 70.0), (T2, 64.0))
         ],
@@ -123,7 +124,11 @@ async def test_an_occupied_zone_brings_a_lagging_one_to_within_the_limit(client,
     assert scheduler.balance_calls == {T2: (zb.Call("heating", 67.0, T1, 6.0), True)}
     assert scheduler._balance_call(T2) == zb.Call("heating", 67.0, T1, 6.0)
     assert scheduler._balance_call(T1) is None
+    scheduler._engines[T2]._balance_latch = {rooms[T2]: 67.0}
+    assert scheduler.balance_answering(T2) and not scheduler.balance_answering("climate.nope")
     snap = (await (await client.get("/api/zone-balance")).json())["buildings"][0]
+    assert [z["answering"] for z in snap["zones"]] == [False, True]
+    scheduler._engines[T2]._balance_latch = {}
     assert snap["direction"] == "heating"
     assert [(z["occupied"], z["target"], z["toward"], z["obeyed"]) for z in snap["zones"]] == [
         (True, None, None, False),
@@ -132,7 +137,7 @@ async def test_an_occupied_zone_brings_a_lagging_one_to_within_the_limit(client,
     # Said once, however many minutes it lasts.
     await scheduler._plan_zone_balance()
     assert await _events(client) == [
-        f"Zone Balance: {T2} is 6°F colder than {T1}; it is heated to 67°F"
+        f"Zone Balance: {T2} is 6°F colder than {T1}; it is asked to heat to 67°F"
     ]
     # Caught up: the call ends, and the next one is said again.
     temps[T2] = 67.5
@@ -155,7 +160,7 @@ async def test_watching_only_says_what_it_would_do_and_gives_the_zone_nothing(cl
     assert scheduler.balance_calls == {T2: (zb.Call("heating", 66.0, T1, 6.0), False)}
     assert scheduler._balance_call(T2) is None
     assert await _events(client) == [
-        f"Zone Balance: {T2} is 6°F colder than {T1}; it would be (watching only) heated to 66°F"
+        f"Zone Balance: {T2} is 6°F colder than {T1}; it would be asked (watching only) to heat to 66°F"
     ]
 
 
@@ -171,6 +176,13 @@ async def test_the_direction_comes_from_running_zones_when_the_building_has_no_s
     assert scheduler.building_direction(tids) == "cooling"
     two._state, two._cycle_mode = CycleState.RUNNING, "heating"
     assert scheduler.building_direction(tids) is None  # they disagree
+    # A side that is only being watched is not the way the building is working.
+    two._state = CycleState.IDLE
+    scheduler._building_side = lambda _tid: ("heating", False)
+    assert scheduler.building_direction(tids) == "cooling"
+    scheduler._building_side = lambda _tid: ("heating", True)
+    assert scheduler.building_direction(tids) == "heating"
+    del scheduler._building_side
     one._state = two._state = CycleState.IDLE
     await client.put(f"/api/building-modes/{main}", json={"mode": "off"})
     assert scheduler.building_direction(tids) is None

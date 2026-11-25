@@ -579,7 +579,7 @@ async def _zone_balance_snapshot(request: web.Request) -> dict:
     conn = await get_conn(request)
     scheduler = request.app["scheduler"]
     settings = await zone_balance.load(conn)
-    states = await scheduler.zone_states()
+    states = await scheduler.zone_states(refresh=False)
     calls = scheduler.balance_calls
     profiles = {z.thermostat_entity_id: z for z in await zones.list_zone_profiles(conn)}
     out = []
@@ -597,6 +597,7 @@ async def _zone_balance_snapshot(request: web.Request) -> dict:
                     "target": call.target if call else None,
                     "toward": call.toward if call else None,
                     "obeyed": obeyed,
+                    "answering": scheduler.balance_answering(tid),
                 }
             )
         setting = settings[building.id]

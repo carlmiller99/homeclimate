@@ -596,6 +596,7 @@ class CycleEngine:
             rooms=room_states,
             # Not while coasting has stopped being looked at (Vacation Mode,
             # the system off): a wait from before is not a wait now.
+            balance_rooms=self.balance_rooms,
             coasting_rooms=sorted(self._coast_wait)
             if self._coast_seen is not None
             and datetime.now(UTC) - self._coast_seen <= coasting.STALE_AFTER
@@ -6513,18 +6514,33 @@ class CycleEngine:
 
         Rooms that are in use and follow nothing more specific than the house
         band are asked to the call's target when they are short of it. A room
-        with a hold, a schedule or occupancy is left alone; so is a room whose
-        house band already asks for as much, or whose band the target would
-        break. Once a room has started a run it is kept to the end of it, so
-        the equipment is not stopped the moment the room is inside its
-        deadband. Pauses and the fireplace apply after this, as to any room.
+        with a hold, a schedule or occupancy is left alone, waiting to coast or
+        not; so is a room whose house band already asks for as much, or whose
+        band the target would break. Pauses and the fireplace apply after
+        this, as to any room.
+
+        A room that has started a run is kept in it, at the target it started
+        with, until the run ends: the call comes and goes with the other
+        zone's temperature, and a run dropped the minute the call lapsed would
+        be stopped short of its minimum runtime and started again.
         """
         call = self._get_balance() if self._get_balance is not None else None
-        if call is None:
+        side, obey = (
+            self._get_building_side() if self._get_building_side is not None else (None, False)
+        )
+        if call is not None and obey and side is not None and side != call.mode:
+            call = None  # never a reason to ask the building for its other side
+        held: dict[str, float] = {}
+        if self._state != CycleState.IDLE:
+            # Kept from the last tick; after a restart, read back from the run itself.
+            held = self._balance_latch or {
+                rid: ar.target_temp
+                for rid, ar in self._active_rooms.items()
+                if ar.source == "balance"
+            }
+        if call is None and not held:
             self._balance_latch = {}
             return active
-        heating = call.mode == "heating"
-        running = self._state != CycleState.IDLE and self._cycle_mode == call.mode
         the_house = await house.load(conn)
         tc = await self._load_tc(conn)
         following = {ar.room.id: ar for ar in active}
@@ -6532,12 +6548,19 @@ class CycleEngine:
         latched: dict[str, float] = {}
         for room in await db.get_rooms_for_thermostat(conn, self.thermostat_entity_id):
             ar = following.get(room.id)
-            if not the_house.switches(room.id).in_use or (ar is not None and ar.source != "house"):
+            if (
+                not the_house.switches(room.id).in_use
+                or (ar is not None and ar.source != "house")
+                # A schedule or presence call that is waiting to coast.
+                or room.id in self._coast_wait
+            ):
                 continue
-            held = self._balance_latch.get(room.id)
-            if held is not None and running:
-                target = held
+            if room.id in held:
+                target = held[room.id]
+            elif call is None:
+                continue
             else:
+                heating = call.mode == "heating"
                 target = min(max(call.target, tc.min_setpoint), tc.max_setpoint)
                 avg = self._get_avg_temp(room)
                 if avg is None:
@@ -6564,6 +6587,11 @@ class CycleEngine:
             out.append(ActiveRoom(room=room, target_temp=target, source="balance"))
         self._balance_latch = latched
         return out
+
+    @property
+    def balance_rooms(self) -> list[str]:
+        """Rooms answering a balancing call."""
+        return sorted(self._balance_latch)
 
     @property
     def coasting_rooms(self) -> dict[str, dict[str, Any]]:
