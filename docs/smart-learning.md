@@ -50,11 +50,13 @@ The readings are grouped into half-hours, and for each one the model explains ho
 | Zone pull | Drift toward the thermostat's reading, from air mixing with the rest of the zone | 0.1 °F an hour per °F |
 | Heating rate | How fast the room warms while the zone heats, scaled by how far its vent is open | 3 °F an hour |
 | Cooling rate | The same for cooling | 3 °F an hour |
-| Everything else | People, appliances, sun | 0 |
+| Sun | How fast full sun on the room's windows warms it (rooms with a window of known direction only) | 0 |
+| Everything else | People, appliances | 0 |
 
 A term the readings can't speak to keeps its starting value and is shown as not learned yet:
 
 - The **heating rate** needs about 3 hours of half-hours in which heating ran at least three quarters of the time; the **cooling rate** the same for cooling. A room held steady by short bursts shows how loss and heating balance but not how fast either is, so it does not count however long it goes on. Morning recoveries from a night setback are what teach it.
+- The **sun** term needs about 10 hours of half-hours with sun on the room's windows. A room's windows are its shades in My Home (their Window Faces direction), whether or not the shades are automated; a room with none has no sun term. The sun's position comes from the house's location, read from Home Assistant's home zone at each fit.
 - **Heat loss** needs the difference between inside and outside to have varied (a standard deviation of at least 3 °F).
 - A fitted value that makes no physical sense (heating that cools, walls that gain heat from the cold) is held at its starting value, the other terms are fitted again around it, and it is shown as not learned.
 
@@ -64,7 +66,7 @@ Half-hours are left out when a door or window was open, a fireplace was lit or c
 
 Limits worth knowing:
 
-- Sun through windows is not modelled yet; it is part of "everything else".
+- The sun term is the clear-sky sun on the windows. Cloud cover, and whether a shade was down, are not recorded, so what is learned is the room's usual gain on days like those it has seen. It is used wherever the model predicts: where a room is expected to drift by itself (Let Rooms Coast, Early Cooling, shades closing ahead of a warm room) and in how long a warm-up or cool-down will take (Start Rooms Early, Get Rooms Ready for Usual Arrivals). The Smart Learning summary shows the gain with the sun full on the windows, which is about four tenths of the fitted figure.
 - A sensor that reports in whole degrees, or that lags the room by several minutes, makes the rates come out low.
 - The model is fitted from snapshots every five minutes, so heating that runs in bursts shorter than that is under-counted.
 
@@ -108,6 +110,58 @@ Each early start is logged once under Engine.
 A waiting room shows **Coasting** on the Dashboard. Each wait is logged under Engine when it begins and when it ends: reached by coasting, or not.
 
 The limits are 2 °F and 1.5 °F (1.1 °C and 0.8 °C). A zone whose equipment has not been set in My Home counts as electric strip heat, which is the default; set a gas furnace there to get the shorter wait.
+
+## Get Rooms Ready for Usual Arrivals
+
+**Smart Control → Smart Learning → Get Rooms Ready for Usual Arrivals** brings a room to its occupied temperature shortly before the time of week it is usually used, so it is comfortable when someone walks in rather than half an hour later.
+
+| Level | What it does |
+|---|---|
+| **Off** (default) | Nothing. |
+| **Watch Only** | Writes "Would get … ready" to the Engine log at the moment it would have started, and starts nothing. |
+| **On** | Starts the room. |
+
+How it decides:
+
+- **Usual hours** come from the room's occupancy sensors: an hour of the week counts once the room has been occupied for most of it on at least two separate weeks, from two weeks or more of history. These are the same hours the schedule suggestion shows. They are read again every six hours.
+- **An arrival** is the first of a run of usual hours. Monday 14:00 to 16:00 gives one arrival, at 14:00.
+- **The lead** is 30 minutes until the room's model has learned how fast it warms or cools; after that it is the time the model says the room needs in this weather, never less than 15 minutes or more than 90.
+- **The temperature** is the one occupancy would give the room: its own occupied temperature (or the top of its occupied band when it is too warm), else the zone's default. A room with neither is never started.
+
+What it will not do:
+
+- Take a room that has a hold, a schedule block or occupancy already, or a schedule for the arrival hour (Start Rooms Early covers that), or a room switched out of use or set not to follow occupancy.
+- Go against the weather (heating toward a temperature it is already warmer than outdoors, or the reverse; with no outside sensor this check is skipped), against the thermostat's mode, against the side the building is held to, or onto a heat pump's strips.
+- Get in the way. A room being got ready gives way to any room that asks for itself, exactly as Zone Balance and Peak Hours rooms do: the zone chooses its direction as if this were off, and a run that is only getting rooms ready ends for a room that calls the other way once it has had its minimum runtime.
+- Keep going for nobody. Thirty minutes into the hour with nobody there, the room is no longer asked, and a run already going for it is wound up: once it has had its minimum runtime the run ends normally, wherever the room has got to. The same happens if you switch this off mid-run.
+- Start a run the thermostat would refuse. If the thermostat's own reading is already past the temperature the room is being brought to, nothing is started.
+
+The Dashboard marks such a room **Getting Ready**, and the cycle detail in Logs says "getting ready for a usual arrival".
+
+Known limits: on the two days a year the clocks change, an arrival in the changed hour can be an hour out. A room that is got ready and then not used has run the equipment for nothing; Watch Only for a week or two shows how often that would happen before you turn it on.
+
+## Early Cooling
+
+**Smart Control → Smart Learning → Early Cooling** cools a room a little before a warm afternoon makes it necessary. A room following a band is normally left alone until it passes its Cool To, which on a hot day happens when the equipment is at its least efficient and every room wants it at once.
+
+| Level | What it does |
+|---|---|
+| **Off** (default) | Nothing. |
+| **Watch Only** | Writes "Would cool … early" to the Engine log when it would have started, and starts nothing. |
+| **On** | Cools the room. |
+
+A room is cooled early only when all of these hold:
+
+- It follows a band (the house band, or a schedule or occupancy band), not a hold, and is inside it.
+- The forecast for the next three hours is warmer than the room's Cool To and at least 3 °F (1.7 °C) warmer than now. A day that has already peaked is left alone.
+- The room's own model, fitted in the last week with its heat loss learned, says the room would pass its Cool To within those three hours if nothing ran.
+- The thermostat is not in heat mode and the building is not held to heating.
+
+While those hold, its Cool To is in effect 1.5 °F (0.8 °C) lower: it is cooled to 1.5 °F (0.8 °C) below its Cool To, never closer than 1 °F and the room's deadband to its Heat To, and inside the zone's setpoint limits. Once it is there it is left until it drifts back past its deadband.
+
+Like the other conveniences it gives way to any room that asks for itself, never sets or holds a building's side, starts nothing while a call in the zone is waiting to coast, and a room that has started a run stays in it until the run ends. Peak Hours and Zone Balance take a room first when they want it. The Dashboard marks such a room **Cooling Early**; the cycle detail in Logs says "early cooling". The Engine log says it once per room every three hours.
+
+What to expect: cooling starts earlier, and the room is held slightly cooler through the warm-up, so this can use a little more cooling overall in exchange for doing it at a better time. Watch Only shows how often it would act before you decide.
 
 ## Suggestions
 

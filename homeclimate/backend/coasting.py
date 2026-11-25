@@ -20,7 +20,7 @@ All temperatures are °F.
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -58,6 +58,12 @@ class Outlook:
     now: datetime
     outside: float
     ahead: Sequence[tuple[datetime, float]] = ()  # forecast hours, any order
+    # The sun on this room's windows at a time (``solar.for_rooms``), if known.
+    sun: Callable[[datetime], float] | None = None
+
+    def sun_at(self, minutes: float) -> float:
+        """The sun on the room's windows ``minutes`` from now; 0 when not known."""
+        return 0.0 if self.sun is None else self.sun(self.now + timedelta(minutes=minutes))
 
     def at(self, minutes: float) -> float:
         """The outside temperature expected ``minutes`` from now.
@@ -100,7 +106,7 @@ def minutes_alone(
     that it would first slip to ``floor`` (below it when warming, above it
     when cooling): a wait the model itself expects to end badly is not begun.
     Stepped five minutes at a time, with the outside temperature following the
-    forecast.
+    forecast and the sun on the room's windows following the clock.
     """
     rising = goal > temp
     if goal == temp:
@@ -109,7 +115,8 @@ def minutes_alone(
     step_min = learning.SAMPLE_EVERY_MIN
     for step in range(1, within_min // step_min + 1):
         # It may slip a little first and still arrive, on a morning that is warming up.
-        now += model.rate(now, outlook.at((step - 1) * step_min), zone) * step_min / 60
+        ahead = (step - 1) * step_min
+        now += model.rate(now, outlook.at(ahead), zone, sun=outlook.sun_at(ahead)) * step_min / 60
         if floor is not None and ((now <= floor) if rising else (now >= floor)):
             return None
         if (now >= goal) if rising else (now <= goal):

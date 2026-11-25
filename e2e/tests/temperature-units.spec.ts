@@ -738,4 +738,28 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
       await page.request.delete(`/api/buildings/${building}`);
     }
   });
+
+  test("peak hours banking depth persists exactly as chosen", async ({ page }) => {
+    // @covers: peak_depth
+    // A difference, not a temperature: 1.5°C ≡ 2.7°F, with no 32° offset.
+    const DEPTH = isCelsius ? "1.5" : "3";
+    try {
+      await page.goto("/smart-control?section=peak-hours");
+      const depth = page.getByLabel("How far to bank");
+      await depth.waitFor({ state: "visible", timeout: 15_000 });
+      const saved = page.waitForResponse(
+        (r) =>
+          r.url().includes("/api/peak-hours") && r.request().method() === "PUT",
+      );
+      await depth.selectOption(DEPTH);
+      await saved;
+
+      await page.reload();
+      await expect(page.getByLabel("How far to bank")).toHaveValue(DEPTH);
+    } finally {
+      await page.request.put("/api/peak-hours", {
+        data: { peak_depth: isCelsius ? 1.1 : 2 },
+      });
+    }
+  });
 });

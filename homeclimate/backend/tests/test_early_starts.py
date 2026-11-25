@@ -484,3 +484,32 @@ async def test_through_the_engine_the_clock_is_read_once_for_the_whole_tick(monk
     await engine._do_tick(conn)
     assert len(seen) == 3 and seen[0] == seen[1] == seen[2]
     await conn.close()
+
+
+def _watch_warm_up_times(monkeypatch, room_id):
+    """Give the room a sun reader, and record the sun each warm-up time was worked out with."""
+    from backend import room_model, solar
+
+    seen = []
+    real = room_model.RoomModel.minutes_to
+
+    def spy(self, *args, sun_at=None, **kw):
+        seen.append(None if sun_at is None else (sun_at(0), sun_at(30)))
+        return real(self, *args, sun_at=sun_at, **kw)
+
+    def sun(when):
+        return when.minute / 100
+
+    monkeypatch.setattr(solar, "for_rooms", AsyncMock(return_value={room_id: sun}))
+    monkeypatch.setattr(room_model.RoomModel, "minutes_to", spy)
+    return seen
+
+
+@pytest.mark.asyncio
+async def test_the_sun_on_the_rooms_windows_reaches_the_warm_up_time(monkeypatch):
+    conn, engine, room = await _setup(monkeypatch, temp=66.0)
+    seen = _watch_warm_up_times(monkeypatch, room.id)
+    await engine._early_starts(conn, [], now=datetime(2026, 1, 5, 6, 10, tzinfo=UTC))
+    # The sun now, and half an hour on: the clock moves with the prediction.
+    assert seen == [(0.1, 0.4)]
+    await conn.close()

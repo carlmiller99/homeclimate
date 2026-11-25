@@ -28,6 +28,7 @@ import {
 import { bandText } from "../bands";
 import BuildingModeControl from "../components/BuildingModeControl";
 import { getBuildingModes, type BuildingMode } from "../buildingModeApi";
+import TodayCard from "../components/TodayCard";
 import ConfirmDialog from "../components/ConfirmDialog";
 import HouseBandCard from "../components/HouseBandCard";
 import RoomFollowDialog from "../components/RoomFollowDialog";
@@ -120,6 +121,9 @@ function RoomRow({
   fireplace,
   coasting = false,
   balancing = false,
+  banking = false,
+  arriving = false,
+  coolingEarly = false,
   onHold,
   onCancelHold,
   onClearPresence,
@@ -136,6 +140,12 @@ function RoomRow({
   coasting?: boolean;
   /** Heated or cooled to keep its zone near another (Zone Balance). */
   balancing?: boolean;
+  /** Worked into its band ahead of the peak hours (Peak Hours). */
+  banking?: boolean;
+  /** Got ready shortly before it is usually used (Get Rooms Ready for Usual Arrivals). */
+  arriving?: boolean;
+  /** Cooled a little into its band ahead of a warm afternoon (Early Cooling). */
+  coolingEarly?: boolean;
   onHold: () => void;
   onCancelHold: () => void;
   onClearPresence: () => void;
@@ -197,6 +207,33 @@ function RoomRow({
               title="Zone Balance is heating or cooling this room to keep its zone within the gap limit of another"
             >
               Zone Balance
+            </span>
+          )}
+          {banking && (
+            <span
+              className="badge badge-gray"
+              role="status"
+              title="This room is being heated or cooled a little into its band now, so less has to run during the peak hours"
+            >
+              Banking
+            </span>
+          )}
+          {arriving && (
+            <span
+              className="badge badge-gray"
+              role="status"
+              title="This room is usually used about now, so it is being brought to its occupied temperature ahead of time"
+            >
+              Getting Ready
+            </span>
+          )}
+          {coolingEarly && (
+            <span
+              className="badge badge-gray"
+              role="status"
+              title="This room is being cooled a little now, because it is expected to pass its Cool To later on a warming afternoon"
+            >
+              Cooling Early
             </span>
           )}
           {coasting && (
@@ -317,7 +354,10 @@ function roomsBlock(
     onClearPresence: () => void;
   },
   coasting: string[] = [],
-  balancing: string[] = []
+  balancing: string[] = [],
+  banking: string[] = [],
+  arriving: string[] = [],
+  coolingEarly: string[] = []
 ) {
   // A room the cycle reports but the room list does not know yet (it was
   // added a moment ago) still gets a row, named by its id.
@@ -341,6 +381,9 @@ function roomsBlock(
           fireplace={fireplaceRooms[room.id] ?? null}
           coasting={coasting.includes(room.id)}
           balancing={balancing.includes(room.id)}
+          banking={banking.includes(room.id)}
+          arriving={arriving.includes(room.id)}
+          coolingEarly={coolingEarly.includes(room.id)}
           onHold={() => controls.onHold(room.id)}
           onCancelHold={() => controls.onCancelHold(room.id)}
           onClearPresence={controls.onClearPresence}
@@ -519,7 +562,10 @@ function ZoneCard({
           fireplaceRooms,
           { onHold, onCancelHold, onClearPresence },
           zone.coasting_rooms,
-          zone.balance_rooms
+          zone.balance_rooms,
+          zone.bank_rooms,
+          zone.arrival_rooms,
+          zone.early_cool_rooms
         )}
       </Frozen>
 
@@ -793,6 +839,7 @@ export default function Dashboard() {
         <StaleSensorsBanner />
 
         {house && <HouseBandCard house={house} onSaved={setHouse} />}
+        <TodayCard />
 
         {/* Vacation mode + Eco Suspend buttons — sit above climate cards */}
         <div style={{ marginBottom: "1rem" }}>

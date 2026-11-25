@@ -8,11 +8,17 @@ temperature moved in each one:
                  + pull  x (thermostat - room)     air mixing with the rest of the zone
                  + heat  x (share of the window heating, by how far the vent was open)
                  + cool  x (the same for cooling)
+                 + sun   x (sun on the room's windows, 0 to about 1; ``backend/solar.py``)
                  + drift                            whatever is left (people, appliances)
 
 A term with nothing to learn from keeps a sensible starting value and is
 reported as not yet learned. Windows with an open door or window, a lit
 fireplace, auxiliary heat, or a missing reading are left out.
+
+The sun term is for rooms whose windows have a known direction (their shades,
+in My Home) once the house's location is known. It is the clear-sky sun on
+those windows; cloud and whether a shade was down are not recorded, so what is
+learned is the room's usual gain on a day like those it has seen.
 
 The model commands nothing. It is what later features (coasting, start
 times, suggestions) read.
@@ -22,13 +28,14 @@ from __future__ import annotations
 
 import asyncio
 import math
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
 import aiosqlite
 
-from . import db, learning
+from . import db, learning, solar
 
 FIT_DAYS = 30
 WINDOW_STEPS = 6  # half an hour of 5-minute readings
@@ -37,14 +44,23 @@ WINDOW_H = WINDOW_STEPS * STEP_S / 3600
 
 # Starting values: a house that loses 1 °F an hour for every 30 °F of
 # difference, and equipment that moves a room about 3 °F an hour.
-PRIOR = {"loss": 1 / 30, "pull": 0.1, "heat": 3.0, "cool": -3.0, "drift": 0.0}
+PRIOR = {"loss": 1 / 30, "pull": 0.1, "heat": 3.0, "cool": -3.0, "drift": 0.0, "sun": 0.0}
 # How firmly each starting value is held until the data says otherwise.
-PRIOR_WEIGHT = {"loss": 2000.0, "pull": 200.0, "heat": 2.0, "cool": 2.0, "drift": 20.0}
+PRIOR_WEIGHT = {
+    "loss": 2000.0,
+    "pull": 200.0,
+    "heat": 2.0,
+    "cool": 2.0,
+    "drift": 20.0,
+    "sun": 2.0,
+}
 TERMS = tuple(PRIOR)
 
 MIN_WINDOWS = 48  # a day of usable half-hours before anything is fitted
 READY_WINDOWS = 6 * 48  # six days of them before the room counts as ready
 MODE_HOURS = 3.0  # hours of sustained heating (or cooling) before that rate is learned
+SUN_HOURS = 10.0  # hours of sun on the windows before the sun term is learned
+SUNLIT = 0.1  # a half-hour counts as sunlit when the sun on the windows averaged this much
 SUSTAINED = 0.75  # a half-hour counts as sustained when the mode ran this much of it
 LOSS_SPREAD_F = 3.0  # the outside-inside difference must have varied this much (std dev)
 EARLY_START_MIN_MIN = 15  # a room is started at least this early, and
@@ -75,6 +91,7 @@ class Window:
     zone_diff: float  # thermostat minus room
     heat: float  # 0..1
     cool: float  # 0..1 (the fitted coefficient is negative)
+    sun: float = 0.0  # sun on the room's windows, 0 to about 1
 
 
 @dataclass(frozen=True)
@@ -92,6 +109,8 @@ class RoomModel:
     out_spread: float  # standard deviation of outside minus room, °F
     rmse: float | None
     pinned: tuple[str, ...] = ()  # terms the fit got backwards, held at their starting value
+    sun: float = 0.0  # °F per hour in full sun on the room's windows
+    sun_hours: float = 0.0  # hours of half-hours with sun on the windows
 
     @property
     def learned(self) -> dict[str, bool]:
@@ -110,6 +129,7 @@ class RoomModel:
             "loss": ok("loss", self.out_spread >= LOSS_SPREAD_F),
             "heat": ok("heat", self.heat_hours >= MODE_HOURS),
             "cool": ok("cool", self.cool_hours >= MODE_HOURS),
+            "sun": ok("sun", self.sun_hours >= SUN_HOURS),
         }
 
     @property
@@ -130,10 +150,21 @@ class RoomModel:
         return "ready" if ready else "learning"
 
     def rate(
-        self, room: float, outside: float, zone: float | None = None, mode: str | None = None
+        self,
+        room: float,
+        outside: float,
+        zone: float | None = None,
+        mode: str | None = None,
+        sun: float = 0.0,
     ) -> float:
-        """°F per hour the room would move at, with its vent open in ``mode``."""
+        """°F per hour the room would move at, with its vent open in ``mode``.
+
+        ``sun`` is the sun on the room's windows (``solar.gain``); it counts
+        only once the room's sun term has been learned.
+        """
         value = self.loss * (outside - room) + self.drift
+        if sun and self.learned["sun"]:
+            value += self.sun * sun
         if zone is not None:
             value += self.pull * (zone - room)
         if mode == "heating":
@@ -150,6 +181,7 @@ class RoomModel:
         mode: str | None,
         limit_min: int = 360,
         zone: float | None = None,
+        sun_at: Callable[[int], float] | None = None,
     ) -> int | None:
         """Minutes for the room to go from ``start`` to ``target``; None if it won't in time.
 
@@ -157,6 +189,9 @@ class RoomModel:
         below it when cooling, and for a room left alone, when the two are equal.
         Stepped five minutes at a time so the loss changes as the room moves.
         ``zone`` is the thermostat's reading, taken to stay where it is.
+        ``sun_at`` gives the sun on the room's windows a number of minutes
+        from now: a west room on a bright afternoon cools more slowly than the
+        equipment's own rate says.
         """
         if mode == "heating":
             rising = True
@@ -170,14 +205,21 @@ class RoomModel:
             return 0
         temp = start
         for step in range(1, limit_min // learning.SAMPLE_EVERY_MIN + 1):
-            temp += self.rate(temp, outside, zone, mode) * STEP_S / 3600
+            sun = 0.0 if sun_at is None else sun_at((step - 1) * learning.SAMPLE_EVERY_MIN)
+            temp += self.rate(temp, outside, zone, mode, sun) * STEP_S / 3600
             if (temp >= target) if rising else (temp <= target):
                 return step * learning.SAMPLE_EVERY_MIN
         return None
 
 
-def windows_from(samples: list[learning.RoomSample]) -> list[Window]:
-    """Non-overlapping half-hour windows from one room's readings, oldest first."""
+def windows_from(
+    samples: list[learning.RoomSample], sun_at: Callable[[datetime], float] | None = None
+) -> list[Window]:
+    """Non-overlapping half-hour windows from one room's readings, oldest first.
+
+    ``sun_at`` gives the sun on the room's windows at a time, for a room
+    whose windows are known.
+    """
     out: list[Window] = []
     i = 0
     while i + WINDOW_STEPS < len(samples):
@@ -228,7 +270,10 @@ def windows_from(samples: list[learning.RoomSample]) -> list[Window]:
             ) / len(body)
 
         if abs(rate) <= MAX_RATE_F_PER_H:
-            out.append(Window(rate, outside - room, zone_diff, share("heating"), share("cooling")))
+            sun = 0.0 if sun_at is None else sum(sun_at(s.ts) for s in body) / len(body)
+            out.append(
+                Window(rate, outside - room, zone_diff, share("heating"), share("cooling"), sun)
+            )
         i += WINDOW_STEPS
     return out
 
@@ -287,6 +332,8 @@ def _backwards(beta: dict[str, float]) -> str | None:
         return "cool"
     if beta["pull"] < 0:
         return "pull"
+    if beta["sun"] < 0:
+        return "sun"
     return None
 
 
@@ -300,6 +347,7 @@ def fit(room_id: str, windows: list[Window], *, now: datetime) -> RoomModel:
     heat_hours = sum(WINDOW_H for w in windows if w.heat >= SUSTAINED)
     cool_hours = sum(WINDOW_H for w in windows if w.cool >= SUSTAINED)
     spread = _std([w.out_diff for w in windows])
+    sun_hours = round(sum(WINDOW_H for w in windows if w.sun >= SUNLIT), 2)
     if len(windows) < MIN_WINDOWS:
         return RoomModel(
             room_id,
@@ -314,15 +362,16 @@ def fit(room_id: str, windows: list[Window], *, now: datetime) -> RoomModel:
             cool_hours=round(cool_hours, 2),
             out_spread=round(spread, 2),
             rmse=None,
+            sun_hours=sun_hours,
         )
     rows: list[tuple[float, ...]] = [
-        (w.out_diff, w.zone_diff, w.heat, w.cool, 1.0) for w in windows
+        (w.out_diff, w.zone_diff, w.heat, w.cool, 1.0, w.sun) for w in windows
     ]
     rates = [w.rate for w in windows]
     pinned: dict[str, float] = {}
     beta = _least_squares(rows, rates, pinned)
     while (wrong := _backwards(beta)) is not None:
-        pinned[wrong] = 0.0 if wrong == "pull" else PRIOR[wrong]
+        pinned[wrong] = 0.0 if wrong in ("pull", "sun") else PRIOR[wrong]
         beta = _least_squares(rows, rates, pinned)
     sq = sum(
         (rate - sum(beta[term] * x for term, x in zip(TERMS, r, strict=True))) ** 2
@@ -342,6 +391,8 @@ def fit(room_id: str, windows: list[Window], *, now: datetime) -> RoomModel:
         out_spread=round(spread, 2),
         rmse=round(math.sqrt(sq / len(windows)), 3),
         pinned=tuple(pinned),
+        sun=round(beta["sun"], 3),
+        sun_hours=sun_hours,
     )
 
 
@@ -353,14 +404,15 @@ async def fit_all(conn: aiosqlite.Connection, *, now: datetime) -> list[RoomMode
     async with _fitting:
         since = now - timedelta(days=FIT_DAYS)
         models = []
+        suns = await solar.for_rooms(conn)
         for room in await db.get_all_rooms(conn):
             samples = await learning.load(conn, room_id=room.id, since=since)
-            models.append(fit(room.id, windows_from(samples), now=now))
+            models.append(fit(room.id, windows_from(samples, suns.get(room.id)), now=now))
         # Replaced row by row, so a failure part-way leaves the old rows alone.
         await conn.executemany(
             "INSERT OR REPLACE INTO room_models(room_id, fitted_at, windows, loss, pull, heat,"
-            " cool, drift, heat_hours, cool_hours, out_spread, rmse, pinned)"
-            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            " cool, drift, heat_hours, cool_hours, out_spread, rmse, pinned, sun, sun_hours)"
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             [
                 (
                     m.room_id,
@@ -376,6 +428,8 @@ async def fit_all(conn: aiosqlite.Connection, *, now: datetime) -> list[RoomMode
                     m.out_spread,
                     m.rmse,
                     ",".join(m.pinned),
+                    m.sun,
+                    m.sun_hours,
                 )
                 for m in models
             ],
@@ -407,6 +461,8 @@ async def load(conn: aiosqlite.Connection) -> dict[str, RoomModel]:
             r["out_spread"],
             r["rmse"],
             tuple(t for t in r["pinned"].split(",") if t),
+            r["sun"],
+            r["sun_hours"],
         )
         for r in rows
     }

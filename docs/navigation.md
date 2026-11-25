@@ -14,6 +14,8 @@ HomeClimate has five tabs. One rule decides what goes where, and where new featu
 
 Zones are grouped by building, and every room is listed under its zone with its temperature, whether or not it is part of a running cycle.
 
+**Today's Plan**, under the House band, shows the next 24 forecast hours as a strip (heating where it is colder outside than the house band's Heat To, cooling where warmer than its Cool To, coasting between), the next schedule blocks and peak hours on the clock in house time, and yesterday in a sentence: how often and how long heating and cooling ran, and how many warnings were logged. It refreshes every five minutes and changes nothing. With no weather source chosen it shows only yesterday.
+
 Manual controls live here and nowhere else:
 
 - **System On / Off** at the top right: one switch for all of HomeClimate's control. It asks before switching.
@@ -44,6 +46,7 @@ A side menu of sections:
 - **Smart Learning** — records how each room heats and cools, and shows how much each room has collected. See [Smart Learning](./smart-learning.md).
 - **Forecasts** — the weather source, and the forecast HomeClimate has fetched. See [Forecasts](./forecasts.md).
 - **Fireplace** — which entity says a fire is lit, the rooms it warms, and what to do while it burns. Fireplaces are added here, not in My Home, because most rooms don't have one. See [Fireplace](./fireplace.md).
+- **Peak Hours** — bank heat or cool in banded rooms ahead of the hours when electricity costs most. See [Peak Hours](./peak-hours.md).
 - **Zone Balance** — per building: whether zones are kept within a gap of each other, and the gap. See [Zone Balance](./zone-balance.md).
 - **Eco Mode** — per zone: whether targets relax when it is very hot or cold outside, and by how much. A single room's own Eco settings stay with the room in My Home. See [Eco Mode](./eco-mode.md).
 

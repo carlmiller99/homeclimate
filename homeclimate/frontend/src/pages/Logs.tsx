@@ -171,6 +171,15 @@ function triggerSummary(
   if (source === "balance") {
     return "zone balance";
   }
+  if (source === "bank") {
+    return "banking for peak hours";
+  }
+  if (source === "arrival") {
+    return "getting ready for a usual arrival";
+  }
+  if (source === "precool") {
+    return "early cooling";
+  }
   return source ?? "";
 }
 

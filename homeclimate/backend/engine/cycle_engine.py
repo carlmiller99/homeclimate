@@ -23,14 +23,19 @@ from typing import Any
 import aiosqlite
 
 from .. import (
+    arrivals,
     coasting,
     db,
+    early_cooling,
     eco,
     forecast,
     forecast_bias,
     house,
     learning,
+    peak,
     room_model,
+    solar,
+    suggestions,
     tz,
     zone_balance,
     zones,
@@ -164,7 +169,7 @@ class CycleState(Enum):
 
 # Room sources added by a convenience rather than asked for by the house: they
 # never outvote the others when the zone chooses between heating and cooling.
-OPTIONAL_SOURCES = frozenset({"balance"})
+OPTIONAL_SOURCES = frozenset({"arrival", "balance", "bank", "precool"})
 
 
 def _block_start(now: datetime, secs: int) -> datetime:
@@ -198,6 +203,8 @@ class CycleEngine:
         get_fireplace_rooms: Callable[[], frozenset[str]] | None = None,
         get_building_side: Callable[[], tuple[str | None, bool]] | None = None,
         claim_building_side: Callable[[str], str | None] | None = None,
+        get_side_fixed: Callable[[], bool] | None = None,
+        get_building_waiting: Callable[[], str | None] | None = None,
         get_heat_pump: Callable[[], HeatPumpGuards | None] | None = None,
         get_balance: Callable[[], zone_balance.Call | None] | None = None,
     ) -> None:
@@ -217,6 +224,15 @@ class CycleEngine:
         # obey it or only note what obeying would have done.
         self._get_building_side = get_building_side
         self._claim_building_side = claim_building_side
+        self._get_side_fixed = get_side_fixed
+        self._get_building_waiting = get_building_waiting
+        # The zone's settings as of the last tick, for ``optional_only``,
+        # which is read between ticks.
+        self._tc_for_done: ThermostatConfig | None = None
+        # Rooms with a say of their own that have really called in the run
+        # going now (been past their deadband). A room merely swept into a
+        # convenience run while resting inside its deadband is not one.
+        self._run_called: set[str] = set()
         # When this zone began waiting for its building's other side, and when
         # that was last confirmed: (direction, obeyed, since, seen).
         self._wait_started: tuple[str, bool, datetime, datetime] | None = None
@@ -256,6 +272,19 @@ class CycleEngine:
         # house band entry, or None), so it can be put back: see
         # ``_optional_rooms_yield``.
         self._optional_replaced: dict[str, ActiveRoom | None] = {}
+        # Peak Hours (``backend/peak.py``): rooms being banked ahead of the
+        # peak (room id → target), kept to the end of the run they started.
+        self._bank_latch: dict[str, float] = {}
+        # Usual arrivals (``backend/arrivals.py``): each room's usual hours and
+        # when they were read, and the arrivals already written to the log.
+        self._usual_hours: tuple[datetime, dict[str, frozenset[tuple[int, int]]]] | None = None
+        self._arrivals_logged: set[tuple[str, str, str]] = set()
+        # When each room being got ready stops being worth it: half an hour
+        # into its hour with nobody there.
+        self._arrival_until: dict[str, datetime] = {}
+        # Early Cooling (``backend/early_cooling.py``): rooms it has spoken of
+        # in the log, and when, so a warm afternoon is one line and not sixty.
+        self._early_cool_logged: dict[tuple[str, str], datetime] = {}
         self._coast_wait: dict[str, tuple[datetime, str, float]] = {}
         self._coast_done: dict[str, tuple[str, float]] = {}
         # When each room's last wait ended, and when coasting was last looked at.
@@ -606,6 +635,9 @@ class CycleEngine:
             # Not while coasting has stopped being looked at (Vacation Mode,
             # the system off): a wait from before is not a wait now.
             balance_rooms=self.balance_rooms,
+            bank_rooms=self.bank_rooms,
+            arrival_rooms=self.arrival_rooms,
+            early_cool_rooms=self.early_cool_rooms,
             coasting_rooms=sorted(self._coast_wait)
             if self._coast_seen is not None
             and datetime.now(UTC) - self._coast_seen <= coasting.STALE_AFTER
@@ -841,7 +873,10 @@ class CycleEngine:
         # vacation this is the sole source of demand, `new_active_map` having
         # been seeded empty just above.
         await self._add_safety_rooms(conn, new_active_map)
-        self._optional_rooms_yield(new_active_map, await self._load_tc(conn))
+        optional_side, optional_obey = self._side_for_optional()
+        self._optional_rooms_yield(
+            new_active_map, await self._load_tc(conn), optional_side if optional_obey else None
+        )
         against = obey_side and side in ("heating", "cooling", "hold")
         if (
             self._protecting is None
@@ -2976,7 +3011,7 @@ class CycleEngine:
 
         needs_cool = 0
         needs_heat = 0
-        # Rooms asked for by a convenience (Zone Balance) count only when no
+        # Rooms asked for by a convenience (Zone Balance, Peak Hours) count only when no
         # other room has a say: they must never outvote a safety room, a hold
         # or a schedule and send the zone the other way.
         optional_cool = 0
@@ -4426,6 +4461,10 @@ class CycleEngine:
                 if fresh.source == source:
                     ar.heat_to, ar.cool_to = fresh.heat_to, fresh.cool_to
             self._active_rooms[room_id] = ar
+            if ar.source not in OPTIONAL_SOURCES:
+                # A run carried over a restart: its own rooms are taken to
+                # have called, as they must have for the run to be going.
+                self._run_called.add(room_id)
             self._room_vents[room_id] = await db.get_room_vents(conn, room_id)
 
         # Sanity check: verify the restored mode still makes sense given the
@@ -5533,7 +5572,7 @@ class CycleEngine:
             # A room following the house band is not "already conditioned": it
             # asks for nothing while inside its band, and the band may be wider
             # than this zone's safety limits. A breach replaces it below.
-            # Nor is a room a convenience added (Zone Balance): its target is
+            # Nor is a room a convenience added (Zone Balance, Peak Hours): its target is
             # not a protection, and a breach replaces that too.
             if (
                 current is not None
@@ -5794,6 +5833,59 @@ class CycleEngine:
                 " only until it is back inside its limits",
                 {"thermostat": self.thermostat_entity_id, "direction": direction},
             )
+
+    def _side_for_optional(self) -> tuple[str | None, bool]:
+        """The building's side as convenience rooms must see it: (side, obey).
+
+        The side itself, or, where the building chooses its own side, the
+        direction another of its zones is waiting to go. That zone is what
+        the building wants next, so no convenience run is started or kept
+        going against it. (Where the side is the building's own setting a
+        waiting zone changes nothing, and is not looked at.)
+        """
+        side, obey = (
+            self._get_building_side() if self._get_building_side is not None else (None, False)
+        )
+        fixed = self._get_side_fixed is not None and self._get_side_fixed()
+        if obey and not fixed and self._get_building_waiting is not None:
+            waiting = self._get_building_waiting()
+            if waiting is not None and waiting != side:
+                side = waiting
+        return side, obey
+
+    @property
+    def optional_only(self) -> bool:
+        """A cycle is running, and only convenience rooms (``OPTIONAL_SOURCES``) keep it going.
+
+        Every other room in it has finished: with the conveniences off the
+        run would have ended. Such a run says nothing about which side the
+        building wants, so it neither sets the side nor counts toward keeping
+        it.
+        """
+        if self._state == CycleState.IDLE:
+            return False
+        rooms = list(self._active_rooms.values())
+        if not any(ar.source in OPTIONAL_SOURCES for ar in rooms):
+            return False
+        tc = self._tc_for_done
+        if tc is None:  # before the first tick: only what can be told at a glance
+            return all(ar.source in OPTIONAL_SOURCES for ar in rooms)
+        return self._only_conveniences_keep_run(tc)
+
+    def _only_conveniences_keep_run(self, tc: ThermostatConfig) -> bool:
+        """No room with a say of its own is why the running cycle is still going.
+
+        Such a room keeps a run going only if it has called during it and is
+        not yet done. One that never called (it was resting inside its
+        deadband when a convenience run swept it in) would have had no run at
+        all with the conveniences off.
+        """
+        return all(
+            ar.source in OPTIONAL_SOURCES
+            or rid not in self._run_called
+            or self._done_in_this_run(ar, tc)
+            for rid, ar in self._active_rooms.items()
+        )
 
     @property
     def protecting_only(self) -> bool:
@@ -6298,7 +6390,15 @@ class CycleEngine:
         All are conveniences that run before safety protection is added, so a
         fault in one is logged and the tick goes on without it.
         """
-        for step in (self._heat_pump_warmups, self._early_starts, self._coast, self._balance):
+        for step in (
+            self._heat_pump_warmups,
+            self._early_starts,
+            self._coast,
+            self._arrive,
+            self._balance,
+            self._bank,
+            self._cool_early,
+        ):
             try:
                 active = await step(conn, active, now)
             except Exception:
@@ -6402,6 +6502,7 @@ class CycleEngine:
             return active
         now = now or datetime.now(UTC)
         models = await room_model.load(conn)
+        suns = await solar.for_rooms(conn)
         outside = await self._read_outside_temp(conn)
         if not models:
             self._early_latch = {}
@@ -6496,6 +6597,7 @@ class CycleEngine:
                     mode,
                     limit_min=room_model.EARLY_START_MAX_MIN,
                     zone=self._thermo_ambient_f(),
+                    sun_at=_sun_ahead(suns.get(room.id), now),
                 )
                 # A room the model says would not arrive within three hours gets all three.
                 lead = room_model.EARLY_START_MAX_MIN if found is None else found
@@ -6555,7 +6657,9 @@ class CycleEngine:
             return not _drifted_past_deadband(temp, state.target_temp, mode, band)
         return mode in ("heating", "cooling") and _is_at_target(temp, state.target_temp, mode)
 
-    def _optional_rooms_yield(self, active: dict[str, ActiveRoom], tc: ThermostatConfig) -> None:
+    def _optional_rooms_yield(
+        self, active: dict[str, ActiveRoom], tc: ThermostatConfig, side: str | None = None
+    ) -> None:
         """Rooms added by a convenience give way to any room that calls for itself.
 
         Before a cycle is chosen: if a room with a say of its own (a safety
@@ -6572,10 +6676,18 @@ class CycleEngine:
         way, rather than waiting out a run nobody asked for. A cycle still
         working for a room with a say of its own is left alone; the
         conveniences may join it if it suits them.
+
+        ``side`` is the building's side when it is being obeyed. Where that
+        side is the building's own setting (Heat Only, Cool Only), a call for
+        the other direction does not end a run, since no cycle could answer
+        it; a room past a safety limit is the exception, as it is for the side
+        itself. Where the building chooses its side, the call does end the
+        run: the zone has to be idle and waiting for the building to switch.
+        And a run for nothing but convenience rooms that finds itself against
+        the building's side ends once it has had its minimum runtime, so it
+        never keeps another zone waiting for the side.
         """
-        optional = [rid for rid, ar in active.items() if ar.source in OPTIONAL_SOURCES]
-        if not optional:
-            return
+        self._tc_for_done = tc
 
         def wants(ar: ActiveRoom) -> str | None:
             avg = self._get_avg_temp(ar.room, refresh=False)
@@ -6594,19 +6706,75 @@ class CycleEngine:
                 return "heating"
             return "cooling" if temp > high + deadband else None
 
+        # Which rooms with a say have really called: those calling when a
+        # cycle may be about to start, and any seen past its deadband since.
+        if self._state == CycleState.IDLE:
+            self._run_called = {
+                rid
+                for rid, ar in active.items()
+                if ar.source not in OPTIONAL_SOURCES and wants(ar) is not None
+            }
+        elif not (
+            side in ("heating", "cooling")
+            and side != self._cycle_mode
+            and self._only_conveniences_keep_run(tc)
+        ):
+            # (Not while the run is on its way out against the building's
+            # side: a room that starts to ask then, from inside the run or
+            # out, waits for it to end like any other and must not turn it
+            # into a run of its own that takes the side.)
+            mode = self._cycle_mode or ""
+            for rid, ar in self._active_rooms.items():
+                rcs = self._room_cycle_states.get(rid)
+                avg = self._get_avg_temp(ar.room, refresh=False)
+                if ar.source in OPTIONAL_SOURCES or rcs is None or avg is None:
+                    continue
+                band = _effective_deadband(ar.room, tc.deadband, ar.deadband_override)
+                if _drifted_past_deadband(avg + ar.room.temp_offset, rcs.target_temp, mode, band):
+                    self._run_called.add(rid)
+            # And a room that asks for the run's own direction is joining it.
+            self._run_called |= {
+                rid
+                for rid, ar in active.items()
+                if ar.source not in OPTIONAL_SOURCES and wants(ar) == mode
+            }
+        optional = [rid for rid, ar in active.items() if ar.source in OPTIONAL_SOURCES]
+        if not optional:
+            return
         calling = {wants(ar) for ar in active.values() if ar.source not in OPTIONAL_SOURCES}
         calling.discard(None)
         if self._state == CycleState.IDLE:
             give_way = bool(calling)
         else:
+            others = calling - {self._cycle_mode}
+            fixed = self._get_side_fixed is not None and self._get_side_fixed()
+            if others and fixed and side in ("heating", "cooling"):
+                with_a_say = {
+                    rid: ar for rid, ar in active.items() if ar.source not in OPTIONAL_SOURCES
+                }
+                breaches = self._safety_breaches(with_a_say, tc)
+                others = {way for way in others if way == side or way in breaches}
+            against_side = side in ("heating", "cooling") and side != self._cycle_mode
+            only_optional = self._only_conveniences_keep_run(tc)
             give_way = (
-                bool(calling - {self._cycle_mode})
-                and all(
-                    ar.source in OPTIONAL_SOURCES or self._done_in_this_run(ar, tc)
-                    for ar in self._active_rooms.values()
-                )
+                (bool(others) or against_side)
+                and only_optional
                 and self._cycle_runtime_satisfied(tc)
             )
+            if against_side and only_optional:
+                # The run is against the building's side and only conveniences
+                # keep it going: it is serving out its minimum runtime, or
+                # ending this very tick. A room with a say of its own that asks
+                # now must not join it and so keep it going: it waits, as it
+                # would with the conveniences off, for the run to end. A room
+                # past a safety limit is never held back, whatever it follows.
+                with_a_say = {
+                    rid: ar for rid, ar in active.items() if ar.source not in OPTIONAL_SOURCES
+                }
+                past_limit = set().union(*self._safety_breaches(with_a_say, tc).values())
+                for rid in with_a_say:
+                    if rid not in self._active_rooms and rid not in past_limit:
+                        del active[rid]
         if not give_way:
             return
         for rid in optional:
@@ -6615,6 +6783,24 @@ class CycleEngine:
                 del active[rid]
             else:
                 active[rid] = was
+        if self._state != CycleState.IDLE:
+            # A room with a say that was swept into the run without ever
+            # calling (it was resting inside its deadband) must not now be
+            # what the run carries on for: with the conveniences off it would
+            # have had no run. It is left out for this tick, so the run ends.
+            # Never a room past a safety limit.
+            with_a_say = {
+                rid: ar for rid, ar in active.items() if ar.source not in OPTIONAL_SOURCES
+            }
+            past_limit = set().union(*self._safety_breaches(with_a_say, tc).values())
+            for rid, ar in self._active_rooms.items():
+                if (
+                    ar.source not in OPTIONAL_SOURCES
+                    and rid not in self._run_called
+                    and rid in with_a_say
+                    and rid not in past_limit
+                ):
+                    del active[rid]
 
     async def _balance(
         self, conn: aiosqlite.Connection, active: list[ActiveRoom], now: datetime | None = None
@@ -6634,9 +6820,7 @@ class CycleEngine:
         be stopped short of its minimum runtime and started again.
         """
         call = self._get_balance() if self._get_balance is not None else None
-        side, obey = (
-            self._get_building_side() if self._get_building_side is not None else (None, False)
-        )
+        side, obey = self._side_for_optional()
         if call is not None and obey and side is not None and side != call.mode:
             call = None  # never a reason to ask the building for its other side
         held: dict[str, float] = {}
@@ -6669,10 +6853,14 @@ class CycleEngine:
                 continue
             if room.id in held:
                 target = held[room.id]
-            elif call is None or (
+            elif (
+                call is None
                 # A run going the other way for someone else: not asked this
                 # tick, rather than asked and turned away every minute.
-                self._state != CycleState.IDLE and self._cycle_mode != call.mode
+                or (self._state != CycleState.IDLE and self._cycle_mode != call.mode)
+                # A call in this zone is waiting to coast: starting a run for
+                # balance would end that wait for it.
+                or (self._state == CycleState.IDLE and self._coast_wait)
             ):
                 continue
             else:
@@ -6704,6 +6892,479 @@ class CycleEngine:
             out.append(ActiveRoom(room=room, target_temp=target, source="balance"))
         self._balance_latch = latched
         return out
+
+    async def _bank(
+        self, conn: aiosqlite.Connection, active: list[ActiveRoom], now: datetime | None = None
+    ) -> list[ActiveRoom]:
+        """Bank heat or cool in banded rooms ahead of the peak hours (``backend/peak.py``).
+
+        For the lead time before a peak, a room following a band is worked a
+        set depth into it: cooled toward its Heat To before hours that will be
+        hot, warmed toward its Cool To before hours that will be cold. Never
+        past the band, never a hold, never against the side the building is
+        held to, and not warmed while a heat pump expects its strips. A room
+        that has started a run is kept in it until the run ends.
+        """
+        settings = await peak.load(conn)
+        now = now or datetime.now(UTC)
+        held: dict[str, float] = {}
+        if self._state != CycleState.IDLE:
+            # Read from the run itself: only a room that really joined it is
+            # kept. The target is the one asked for, not one Eco has relaxed.
+            held = {
+                rid: ar.target_temp if ar.requested_target is None else ar.requested_target
+                for rid, ar in self._active_rooms.items()
+                if ar.source == "bank"
+            }
+        win = peak.window(settings, now) if settings.enabled else None
+        banking = win is not None and win.banking(now)
+        tc = await self._load_tc(conn)
+        # The peak has begun (or banking was switched off) and the run has had
+        # its minimum: banking is not worth peak-priced energy. Its rooms are
+        # taken to be where they should be, so the run ends by the usual rules.
+        wind_up = bool(held) and not banking and self._cycle_runtime_satisfied(tc)
+        if not banking and not held:
+            self._bank_latch = {}
+            return active
+        outside: float | None = None
+        ahead: list[tuple[datetime, float]] = []
+        if banking:
+            outside = await self._read_outside_temp(conn)
+            hours, _fetched = await forecast.load(conn, now=now)
+            if (await forecast.get_settings(conn))["correct"]:
+                hours = (await forecast_bias.load(conn)).correct(hours)
+            ahead = [(h.at, h.temp) for h in hours]
+        side, obey = self._side_for_optional()
+        out = list(active)
+        latched: dict[str, float] = {}
+        for ar in active:
+            room = ar.room
+            if ar.source == "override" or ar.heat_to is None or ar.cool_to is None:
+                continue
+            if room.id in held:
+                target = held[room.id]
+                state = self._room_cycle_states.get(room.id)
+                # Once: a room whose vent has closed is done, and following
+                # its reading further would only rewrite the run every minute.
+                still_going = state is None or state.vent_closed_at is None
+                reading = (
+                    self._get_avg_temp(room, refresh=False) if wind_up and still_going else None
+                )
+                if reading is not None:
+                    target = reading + room.temp_offset
+            elif (
+                not banking
+                or win is None
+                # A call in this zone is waiting to coast: starting a run to
+                # bank would end that wait for it.
+                or (self._state == CycleState.IDLE and self._coast_wait)
+            ):
+                continue
+            else:
+                way = peak.direction(win, ar.heat_to, ar.cool_to, outside, ahead)
+                if (
+                    way is None
+                    or (obey and side is not None and side != way)
+                    or (way == "heating" and self._hp_strips)
+                    # A run going the other way for someone else: not asked
+                    # this tick, rather than asked and turned away every minute.
+                    or (self._state != CycleState.IDLE and self._cycle_mode != way)
+                ):
+                    continue
+                deadband = _effective_deadband(room, tc.deadband, ar.deadband_override)
+                target = peak.banked_target(
+                    way, ar.heat_to, ar.cool_to, settings.peak_depth, deadband
+                )
+                target = min(max(target, tc.min_setpoint), tc.max_setpoint)
+                avg = self._get_avg_temp(room)
+                if avg is None:
+                    continue
+                temp = avg + room.temp_offset
+                short = target - temp if way == "heating" else temp - target
+                if short <= deadband:
+                    continue
+            latched[room.id] = target
+            self._optional_replaced[room.id] = ar
+            out = [a for a in out if a.room.id != room.id]
+            out.append(
+                ActiveRoom(
+                    room=room,
+                    target_temp=target,
+                    source="bank",
+                    deadband_override=ar.deadband_override,
+                )
+            )
+        self._bank_latch = latched
+        return out
+
+    async def _arrive(
+        self, conn: aiosqlite.Connection, active: list[ActiveRoom], now: datetime | None = None
+    ) -> list[ActiveRoom]:
+        """Get a room ready a little before it is usually used (``backend/arrivals.py``).
+
+        Shortly before the first of a room's usual hours it is asked to the
+        temperature occupancy would give it. Only a room that follows nothing
+        more specific than the house band, that uses occupancy and has no
+        schedule for that hour; only when the weather and the building's side
+        agree with the direction; never on a heat pump's strips. If nobody has
+        arrived half an hour into the hour it is no longer asked, and a run
+        already going for it is wound up: once the run has had its minimum
+        runtime the room is taken to be where it should be, so the run ends
+        by the usual rules rather than heating an empty room to the end. The
+        same when this is switched off mid-run. On Watch Only it is logged
+        and nothing is started.
+        """
+        level = arrivals.LEVELS[(await learning.get_settings(conn))["arrival_level"]]
+        held: dict[str, float] = {}
+        if self._state != CycleState.IDLE:
+            held = {
+                rid: ar.target_temp if ar.requested_target is None else ar.requested_target
+                for rid, ar in self._active_rooms.items()
+                if ar.source == "arrival"
+            }
+        self._arrival_until = {r: t for r, t in self._arrival_until.items() if r in held}
+        if level == "off" and not held:
+            self._usual_hours = None
+            return active
+        now = now or datetime.now(UTC)
+        rooms = await db.get_rooms_for_thermostat(conn, self.thermostat_entity_id)
+        usual: dict[str, frozenset[tuple[int, int]]] = {}
+        if level != "off":
+            if self._usual_hours is None or not (
+                timedelta(0) <= now - self._usual_hours[0] < arrivals.REFRESH
+            ):
+                found = await suggestions.usual_hours(conn, [r.id for r in rooms], now)
+                self._usual_hours = (now, found)
+            usual = self._usual_hours[1]
+        local_now = tz.to_local_naive(now)
+        passed = (local_now - timedelta(minutes=arrivals.GRACE_MIN)).isoformat()
+        self._arrivals_logged = {k for k in self._arrivals_logged if k[1] > passed}
+        the_house = await house.load(conn)
+        tc = await self._load_tc(conn)
+        side, obey = self._side_for_optional()
+        state = (self._ha.get_state(self.thermostat_entity_id) or {}).get("state")
+        models = await room_model.load(conn) if usual else {}
+        suns = await solar.for_rooms(conn) if usual else {}
+        outside = await self._read_outside_temp(conn) if usual else None
+        following = {ar.room.id: ar for ar in active}
+        ambient = self._thermo_ambient_f()
+        # What the other rooms of the zone count as asking for, as the mode
+        # check sees them: a single target, or for a room in a band its own
+        # temperature held inside the band (the edge if it has no reading).
+        others_heat: list[float] = []
+        others_cool: list[float] = []
+        for a in active:
+            if a.heat_to is None or a.cool_to is None:
+                others_heat.append(a.target_temp)
+                others_cool.append(a.target_temp)
+                continue
+            reading = self._get_avg_temp(a.room, refresh=False)
+            if reading is None:
+                others_heat.append(a.heat_to)
+                others_cool.append(a.cool_to)
+            else:
+                held_in = min(max(reading + a.room.temp_offset, a.heat_to), a.cool_to)
+                others_heat.append(held_in)
+                others_cool.append(held_in)
+        by_room: dict[str, list] = {}
+        if usual:
+            for sched in await db.get_all_schedules(conn):
+                by_room.setdefault(sched.room_id, []).append(sched)
+        out = list(active)
+        for room in rooms:
+            ar = following.get(room.id)
+            switches = the_house.switches(room.id)
+            if (
+                not switches.in_use
+                or (ar is not None and ar.source != "house")
+                or room.id in self._coast_wait
+            ):
+                continue
+            lead: int | None = None
+            mode = ""
+            start = local_now
+            grace_ends = now
+            if room.id in held:
+                target = held[room.id]
+                until = self._arrival_until.get(room.id)
+                if until is None and level == "on":
+                    # A restart lost track of the hour. If the room's arrival
+                    # is still coming or in its grace, that is the hour; if
+                    # not, there is nothing left to get ready for.
+                    again = arrivals.next_arrival(usual.get(room.id, frozenset()), local_now)
+                    until = (
+                        now
+                        if again is None
+                        else now + timedelta(seconds=again[1], minutes=arrivals.GRACE_MIN)
+                    )
+                    self._arrival_until[room.id] = until
+                rcs = self._room_cycle_states.get(room.id)
+                if (
+                    # Nobody came, or this was switched off: not worth running on for.
+                    (until is None or level != "on" or now >= until)
+                    and self._cycle_runtime_satisfied(tc)
+                    # Once: a room whose vent has closed is done already.
+                    and (rcs is None or rcs.vent_closed_at is None)
+                    and (reading := self._get_avg_temp(room, refresh=False)) is not None
+                ):
+                    target = reading + room.temp_offset
+            else:
+                coming = arrivals.next_arrival(usual.get(room.id, frozenset()), local_now)
+                presence_temp = (
+                    tc.default_temp if room.system_wide_temp is None else room.system_wide_temp
+                )
+                if (
+                    coming is None
+                    or presence_temp is None
+                    # A call in this zone is waiting to coast: a run started
+                    # for this would end that wait for it.
+                    or (self._state == CycleState.IDLE and self._coast_wait)
+                    or not switches.use_presence
+                    or room.presence_holdover_hours <= 0
+                ):
+                    continue
+                start, secs = coming
+                at = now + timedelta(seconds=max(secs, 0.0))
+                grace_ends = now + timedelta(seconds=secs, minutes=arrivals.GRACE_MIN)
+                if (
+                    switches.use_schedules
+                    and _find_matching_schedule(by_room.get(room.id, []), at) is not None
+                ):
+                    continue  # a schedule has that hour; Start Rooms Early covers it
+                cool_to = (
+                    the_house.cool_to("presence", room.id, presence_temp)
+                    if room.system_wide_temp is not None
+                    else None
+                )
+                avg = self._get_avg_temp(room)
+                if avg is None:
+                    continue
+                temp = avg + room.temp_offset
+                deadband = _effective_deadband(room, tc.deadband)
+                high = presence_temp if cool_to is None else cool_to
+                if temp < presence_temp - deadband:
+                    mode, target = "heating", presence_temp
+                elif temp > high + deadband:
+                    mode, target = "cooling", high
+                else:
+                    continue
+                heating = mode == "heating"
+                target = min(max(target, tc.min_setpoint), tc.max_setpoint)
+                if (
+                    # The house band already asks for as much.
+                    (
+                        ar is not None
+                        and ar.heat_to is not None
+                        and ar.cool_to is not None
+                        and (target <= ar.heat_to if heating else target >= ar.cool_to)
+                    )
+                    # The weather has to agree, and so does the thermostat.
+                    or (
+                        outside is not None
+                        and (outside >= target if heating else outside <= target)
+                    )
+                    or state == ("cool" if heating else "heat")
+                    or (heating and self._hp_strips)
+                    or (obey and side is not None and side != mode)
+                    # A run going the other way for someone else.
+                    or (self._state != CycleState.IDLE and self._cycle_mode != mode)
+                    # The thermostat's own reading says the zone is already
+                    # past every target in it: the mode check would refuse the
+                    # cycle every minute (it judges by the zone's deadband and
+                    # the furthest target asked for, so this does too).
+                    or (
+                        ambient is not None
+                        and (
+                            ambient > max([target, *others_heat]) + tc.deadband
+                            if heating
+                            else ambient < min([target, *others_cool]) - tc.deadband
+                        )
+                    )
+                ):
+                    continue
+                model = models.get(room.id)
+                learned: int | None = None
+                if (
+                    model is not None
+                    and outside is not None
+                    and model.fitted_at is not None
+                    and now - model.fitted_at <= timedelta(days=room_model.EARLY_START_STALE_DAYS)
+                    and model.learned["heat" if heating else "cool"]
+                ):
+                    learned = model.minutes_to(
+                        avg,
+                        target - room.temp_offset,
+                        outside,
+                        mode,
+                        limit_min=arrivals.MAX_LEAD_MIN,
+                        zone=self._thermo_ambient_f(),
+                        sun_at=_sun_ahead(suns.get(room.id), now),
+                    )
+                    if learned is None:
+                        learned = arrivals.MAX_LEAD_MIN
+                lead = arrivals.lead_minutes(learned)
+                if secs > lead * 60:
+                    continue
+            if level == "on" or room.id in held:
+                if room.id not in held:
+                    self._arrival_until[room.id] = grace_ends
+                self._optional_replaced[room.id] = ar
+                out = [a for a in out if a.room.id != room.id]
+                out.append(ActiveRoom(room=room, target_temp=target, source="arrival"))
+            key = (room.id, start.isoformat(), level)
+            if lead is not None and self._logger and key not in self._arrivals_logged:
+                self._arrivals_logged.add(key)
+                does = "Getting" if level == "on" else "Would get (watching only)"
+                await self._logger.log(
+                    "info",
+                    "engine",
+                    f"{does} {room.name} ready for {start:%H:%M}, when it is usually in use:"
+                    f" {mode} to {target:g}°F",
+                    {
+                        "thermostat": self.thermostat_entity_id,
+                        "room": room.id,
+                        "target": target,
+                        "lead_min": lead,
+                    },
+                )
+        return out
+
+    async def _cool_early(
+        self, conn: aiosqlite.Connection, active: list[ActiveRoom], now: datetime | None = None
+    ) -> list[ActiveRoom]:
+        """Cool a banded room a little before a warm afternoon (``backend/early_cooling.py``).
+
+        Only a room following a band (never a hold), inside it, whose model
+        says it will pass its Cool To within three hours if left alone on a day
+        the forecast says is still warming. Never past the band, never against
+        the side the building is held to or a thermostat in heat mode. A room
+        that has started a run is kept in it until the run ends. On Watch Only
+        it is logged and nothing is started.
+        """
+        level = early_cooling.LEVELS[(await learning.get_settings(conn))["early_cool_level"]]
+        held: dict[str, float] = {}
+        if self._state != CycleState.IDLE:
+            held = {
+                rid: ar.target_temp if ar.requested_target is None else ar.requested_target
+                for rid, ar in self._active_rooms.items()
+                if ar.source == "precool"
+            }
+        if level == "off" and not held:
+            return active
+        now = now or datetime.now(UTC)
+        tc = await self._load_tc(conn)
+        outside: float | None = None
+        ahead: list[tuple[datetime, float]] = []
+        models: dict[str, room_model.RoomModel] = {}
+        suns: dict[str, Callable[[datetime], float]] = {}
+        if level != "off" and (self._state == CycleState.IDLE or self._cycle_mode == "cooling"):
+            outside = await self._read_outside_temp(conn)
+            hours, _fetched = await forecast.load(conn, now=now)
+            if (await forecast.get_settings(conn))["correct"]:
+                hours = (await forecast_bias.load(conn)).correct(hours)
+            ahead = [(h.at, h.temp) for h in hours]
+            models = await room_model.load(conn)
+            suns = await solar.for_rooms(conn)
+        side, obey = self._side_for_optional()
+        state = (self._ha.get_state(self.thermostat_entity_id) or {}).get("state")
+        quiet = timedelta(minutes=early_cooling.LOOK_AHEAD_MIN)
+        self._early_cool_logged = {
+            k: at for k, at in self._early_cool_logged.items() if timedelta(0) <= now - at < quiet
+        }
+        out = list(active)
+        for ar in active:
+            room = ar.room
+            if ar.source == "override" or ar.heat_to is None or ar.cool_to is None:
+                continue
+            minutes: int | None = None
+            if room.id in held:
+                target = held[room.id]
+            else:
+                model = models.get(room.id)
+                avg = self._get_avg_temp(room)
+                if (
+                    outside is None
+                    or avg is None
+                    or model is None
+                    or (self._state == CycleState.IDLE and self._coast_wait)
+                    or not coasting.usable(model, now)
+                    or state == "heat"
+                    or (obey and side is not None and side != "cooling")
+                ):
+                    continue
+                temp = avg + room.temp_offset
+                deadband = _effective_deadband(room, tc.deadband, ar.deadband_override)
+                target = peak.banked_target(
+                    "cooling", ar.heat_to, ar.cool_to, early_cooling.DEPTH_F, deadband
+                )
+                target = min(max(target, tc.min_setpoint), tc.max_setpoint)
+                if (
+                    temp - target <= deadband
+                    # Past its Cool To already: the band itself is asking.
+                    or temp > ar.cool_to + deadband
+                    or early_cooling.warming(outside, ahead, now, ar.cool_to) is None
+                ):
+                    continue
+                # The model was fitted on the raw readings, so it is asked in those.
+                minutes = early_cooling.breach_in(
+                    model,
+                    temp=avg,
+                    cool_to=ar.cool_to - room.temp_offset,
+                    outlook=coasting.Outlook(now, outside, ahead, suns.get(room.id)),
+                    zone=self._thermo_ambient_f(),
+                )
+                if minutes is None:
+                    continue
+            if level == "on" or room.id in held:
+                self._optional_replaced[room.id] = ar
+                out = [a for a in out if a.room.id != room.id]
+                out.append(
+                    ActiveRoom(
+                        room=room,
+                        target_temp=target,
+                        source="precool",
+                        deadband_override=ar.deadband_override,
+                    )
+                )
+            key = (room.id, level)
+            if minutes is not None and self._logger and key not in self._early_cool_logged:
+                self._early_cool_logged[key] = now
+                does = "Cooling" if level == "on" else "Would cool (watching only)"
+                await self._logger.log(
+                    "info",
+                    "engine",
+                    f"{does} {room.name} early to {target:g}°F: left alone it is expected to"
+                    f" pass {ar.cool_to:g}°F in about {minutes} min, and the afternoon is"
+                    " forecast warmer",
+                    {
+                        "thermostat": self.thermostat_entity_id,
+                        "room": room.id,
+                        "target": target,
+                        "breach_in_min": minutes,
+                    },
+                )
+        return out
+
+    @property
+    def early_cool_rooms(self) -> list[str]:
+        """Rooms in a run that is cooling them ahead of a warm afternoon."""
+        if self._state == CycleState.IDLE:
+            return []
+        return sorted(rid for rid, ar in self._active_rooms.items() if ar.source == "precool")
+
+    @property
+    def arrival_rooms(self) -> list[str]:
+        """Rooms in a run that is getting them ready for a usual arrival."""
+        if self._state == CycleState.IDLE:
+            return []
+        return sorted(rid for rid, ar in self._active_rooms.items() if ar.source == "arrival")
+
+    @property
+    def bank_rooms(self) -> list[str]:
+        """Rooms in a run that is banking ahead of the peak hours."""
+        if self._state == CycleState.IDLE:
+            return []
+        return sorted(rid for rid, ar in self._active_rooms.items() if ar.source == "bank")
 
     @property
     def balance_rooms(self) -> list[str]:
@@ -6807,7 +7468,8 @@ class CycleEngine:
         hours, _fetched = await forecast.load(conn, now=now)
         if (await forecast.get_settings(conn))["correct"]:
             hours = (await forecast_bias.load(conn)).correct(hours)
-        outlook = coasting.Outlook(now, outside, [(h.at, h.temp) for h in hours])
+        ahead = [(h.at, h.temp) for h in hours]
+        suns = await solar.for_rooms(conn)
         profile = await zones.get_zone_profile(conn, self.thermostat_entity_id)
         # Strip heat is the dear kind: a conventional zone with electric heat,
         # or a heat pump below its compressor lockout.
@@ -6841,7 +7503,7 @@ class CycleEngine:
                     # The model was fitted on raw readings, so it is asked in those.
                     temp=avg,
                     goal=edge - room.temp_offset,
-                    outlook=outlook,
+                    outlook=coasting.Outlook(now, outside, ahead, suns.get(room.id)),
                     within_min=int(limit - waited),
                     zone=self._thermo_ambient_f(),
                     # Not begun, or carried on, if the model expects a miss.
@@ -7505,6 +8167,15 @@ def _is_at_target(avg_temp: float, target_temp: float, hvac_mode: str) -> bool:
     # rather than closing prematurely.  (Issue #48 Bug 6)
     log.warning("_is_at_target called with unexpected mode %r — returning False", hvac_mode)
     return False
+
+
+def _sun_ahead(
+    sun: Callable[[datetime], float] | None, now: datetime
+) -> Callable[[int], float] | None:
+    """A room's sun reader (``solar.for_rooms``) as minutes from ``now``, for the model."""
+    if sun is None:
+        return None
+    return lambda minutes: sun(now + timedelta(minutes=minutes))
 
 
 def _drifted_past_deadband(

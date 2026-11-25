@@ -6,6 +6,8 @@ import { SystemContext, DevModeContext, UnitContext, buildUnitContext } from "..
 import { ecoThermostatDefaults, ecoRoomDefaults, makeHold } from "../testFixtures";
 
 vi.mock("../api");
+// The plan card loads by itself and has its own tests.
+vi.mock("../components/TodayCard", () => ({ default: () => null }));
 // The house band has its own tests (Dashboard.house.test.tsx); here it never loads.
 vi.mock("../houseApi", async (orig) => ({
   ...(await orig<typeof import("../houseApi")>()),

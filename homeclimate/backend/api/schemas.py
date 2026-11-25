@@ -852,6 +852,7 @@ class ShadeSettingsSchema(Schema):
     skip_occupied = fields.Bool()
     daylight_only = fields.Bool()
     close_night_heat = fields.Bool()
+    predictive_close = fields.Bool()
     respect_manual = fields.Bool()
     manual_hold_min = fields.Int()
     min_move_min = fields.Int()
@@ -922,6 +923,35 @@ class BuildingModeSchema(BuildingModeWriteSchema):
 
 class BuildingModesSchema(Schema):
     buildings = fields.List(fields.Nested(BuildingModeSchema))
+
+
+class PeakHoursWriteSchema(Schema):
+    enabled = fields.Bool()
+    start = fields.Str(metadata={"description": "House-local HH:MM the peak begins"})
+    end = fields.Str(metadata={"description": "House-local HH:MM it ends; before start = next day"})
+    days = fields.List(fields.Int(), metadata={"description": "0 is Monday"})
+    lead_min = fields.Int(metadata={"description": "Minutes before the peak to bank for, 30-180"})
+    peak_depth = fields.Float(
+        metadata={
+            "description": "How far into the band to bank. A difference: display unit in, °F out."
+        }
+    )
+
+
+class PeakWindowSchema(Schema):
+    bank_from = fields.Str()
+    start = fields.Str()
+    end = fields.Str()
+    banking = fields.Bool()
+    under_way = fields.Bool()
+
+
+class PeakHoursSchema(PeakHoursWriteSchema):
+    window = fields.Nested(PeakWindowSchema, allow_none=True)
+    min_depth = fields.Float()
+    max_depth = fields.Float()
+    min_lead_min = fields.Int()
+    max_lead_min = fields.Int()
 
 
 class ZoneBalanceWriteSchema(Schema):
@@ -1059,6 +1089,33 @@ class ForecastDaySchema(Schema):
     hours = fields.Int()
 
 
+class TodayHourSchema(Schema):
+    at = fields.Str()
+    temp = fields.Float(metadata={"description": "°F, forecast outside"})
+    need = fields.Str(metadata={"description": "heat, cool or coast"})
+
+
+class TodayEventSchema(Schema):
+    at = fields.Str()
+    kind = fields.Str(metadata={"description": "schedule, peak_bank, peak_start or peak_end"})
+    room_id = fields.Str()
+    room = fields.Str()
+    target = fields.Float(metadata={"description": "°F; schedule events only"})
+    cool_to = fields.Float(allow_none=True, metadata={"description": "°F; banded blocks only"})
+
+
+class TodaySchema(Schema):
+    now = fields.Str()
+    heat_below = fields.Float(metadata={"description": "°F: colder than this outside needs heat"})
+    cool_above = fields.Float(
+        metadata={"description": "°F: warmer than this outside needs cooling"}
+    )
+    forecast_fetched_at = fields.Str(allow_none=True)
+    hours = fields.List(fields.Nested(TodayHourSchema))
+    events = fields.List(fields.Nested(TodayEventSchema))
+    yesterday = fields.Str()
+
+
 class ForecastHourSchema(Schema):
     at = fields.Str()
     temp = fields.Float(metadata={"description": "°F, corrected when the correction is in use"})
@@ -1095,6 +1152,18 @@ class LearningSettingsSchema(Schema):
             "0 off, 1 watch only, 2 on"
         }
     )
+    arrival_level = fields.Int(
+        metadata={
+            "description": "Get rooms ready a little before they are usually used: "
+            "0 off, 1 watch only, 2 on"
+        }
+    )
+    early_cool_level = fields.Int(
+        metadata={
+            "description": "Cool a banded room a little before a warm afternoon: "
+            "0 off, 1 watch only, 2 on"
+        }
+    )
 
 
 class NotifySettingsSchema(Schema):
@@ -1122,6 +1191,7 @@ class RoomModelLearnedSchema(Schema):
     loss = fields.Bool()
     heat = fields.Bool()
     cool = fields.Bool()
+    sun = fields.Bool()
 
 
 class RoomModelSchema(Schema):
@@ -1137,6 +1207,8 @@ class RoomModelSchema(Schema):
     heat_hours = fields.Float(metadata={"description": "Hours of sustained heating seen"})
     cool_hours = fields.Float(metadata={"description": "Hours of sustained cooling seen"})
     out_spread = fields.Float(metadata={"description": "°F delta, standard deviation"})
+    sun = fields.Float(metadata={"description": "°F per hour in full sun on the room's windows"})
+    sun_hours = fields.Float(metadata={"description": "Hours with sun on the windows seen"})
     pinned = fields.List(
         fields.Str(), metadata={"description": "Terms the fit got backwards, held at a start value"}
     )
