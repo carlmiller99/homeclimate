@@ -1651,7 +1651,9 @@ class Scheduler:
 
     def zones_now(self) -> list[building_mode.ZoneNow]:
         return [
-            building_mode.ZoneNow(tid, engine.cycle_mode, engine.building_wait)
+            building_mode.ZoneNow(
+                tid, engine.cycle_mode, engine.building_wait, engine.protecting_only
+            )
             for tid, engine in self._engines.items()
         ]
 

@@ -377,9 +377,43 @@ async def test_watching_follows_a_zone_that_runs_the_other_way(client, site):
     assert switched == [] and planner.side_for(T1) == ("heating", False)
     planner, switched = await _plan(client, [_zone(T2, "cooling")], now=NOW + timedelta(minutes=11))
     assert switched == [(site, "cooling")]
-    # Once nothing runs the other way, the watch starts over.
-    await _plan(client, [_zone(T2)], now=NOW + timedelta(minutes=12))
+    assert site not in planner._watched_since  # a switch starts the watch over
+
+
+async def test_a_watch_starts_over_whenever_it_is_interrupted(client, site):
+    await _on_heating(client, site)
+    await _mode(client, site, auto_level="watch")
+    planner = client.app["scheduler"].building_plan
+    await _plan(client, [_zone(T2, "cooling")])
+    assert site in planner._watched_since
+    # Nothing running the other way, a fixed mode, or Auto off: each ends it.
+    await _plan(client, [_zone(T2)], now=NOW + timedelta(minutes=1))
     assert site not in planner._watched_since
+    await _plan(client, [_zone(T2, "cooling")], now=NOW + timedelta(minutes=2))
+    await _mode(client, site, mode="heat_only")
+    assert site not in planner._watched_since
+    # A day later, back on Watch: the old sighting does not count.
+    await _mode(client, site, mode="auto")
+    _p, switched = await _plan(client, [_zone(T1, "heating")], now=NOW + timedelta(days=1))
+    assert switched == [(site, "heating")]
+    later = NOW + timedelta(days=1, hours=5)
+    _p, switched = await _plan(client, [_zone(T2, "cooling")], now=later)
+    assert switched == []
+
+
+async def test_a_protection_cycle_never_sets_or_switches_the_side(client, site):
+    await _mode(client, site, auto_level="watch")
+    safety = bm.ZoneNow(T2, "cooling", None, True)
+    planner, switched = await _plan(client, [safety])
+    assert switched == [] and planner.decisions()[site].note == "Not on a side yet"
+    await _on_heating(client, site)
+    await _plan(client, [safety])
+    planner, switched = await _plan(client, [safety], now=NOW + timedelta(minutes=30))
+    assert switched == [] and site not in planner._watched_since
+    # Others are still told it is running.
+    await _mode(client, site, mode="heat_only")
+    await _plan(client, [safety])
+    assert planner.decisions()[site].note == "Waiting for cooling to finish"
 
 
 async def test_auto_says_when_it_is_waiting_for_the_other_side_to_finish(client, site):

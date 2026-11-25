@@ -171,6 +171,9 @@ class ZoneNow:
     thermostat_entity_id: str
     running: str | None  # "heating" / "cooling" while a cycle runs
     wait: dict | None  # the engine's ``building_wait``
+    # The cycle only protects rooms past a safety limit. It says nothing about
+    # which side the building wants, so it never sets or switches the side.
+    protecting: bool = False
 
 
 @dataclass(frozen=True)
@@ -191,7 +194,7 @@ class Planner:
         # Zones whose claim came to nothing last time: they sit the next one out.
         self._sat_out: set[str] = set()
         # When a watched building was first seen running against its side.
-        self._watched_since: dict[str, datetime] = {}
+        self._watched_since: dict[str, tuple[str, datetime]] = {}
         self._lock = asyncio.Lock()
 
     def side_for(self, thermostat_entity_id: str) -> tuple[str | None, bool]:
@@ -305,11 +308,14 @@ class Planner:
         band: Any,
         now: datetime,
     ) -> Decision:
-        running = {z.running for z in its_zones if z.running}
+        every_cycle = {z.running for z in its_zones if z.running}
+        running = {z.running for z in its_zones if z.running and not z.protecting}
+        # Only kept from one plan to the next while the same thing is still seen.
+        watched = self._watched_since.pop(m.building_id, None)
         if m.mode in FIXED_SIDE:
             fixed_side = FIXED_SIDE[m.mode]
             against = {"heating": "cooling", "cooling": "heating"}.get(fixed_side)
-            note = f"Waiting for {against} to finish" if against in running else ""
+            note = f"Waiting for {against} to finish" if against in every_cycle else ""
             return Decision(fixed_side, True, note)
         if m.auto_level == "off":
             return Decision(None, False, "")
@@ -328,14 +334,12 @@ class Planner:
         if not obey and other in running:
             # Watching holds nothing, so a zone that wants the other side just
             # runs it. Count that as the wait it would have been.
-            since = self._watched_since.setdefault(m.building_id, now)
+            since = watched[1] if watched and watched[0] == other else now
+            self._watched_since[m.building_id] = (other, since)
             waits.append({"direction": other, "since": since, "excess": 0.0, "obeyed": False})
-            running = running - {other}
-        else:
-            self._watched_since.pop(m.building_id, None)
         if not waits:
             return Decision(
-                m.side, obey, f"Waiting for {other} to finish" if other in running else ""
+                m.side, obey, f"Waiting for {other} to finish" if other in every_cycle else ""
             )
         if m.side in running:
             return Decision(m.side, obey, f"Waiting for {m.side} to finish")
@@ -366,6 +370,7 @@ class Planner:
                 return Decision(
                     m.side, obey, f"A zone wants {other}; the forecast does not call for it"
                 )
+        self._watched_since.pop(m.building_id, None)
         m.side = other
         m.switched_at = now
         m.switch_day = today

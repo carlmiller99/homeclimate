@@ -337,3 +337,49 @@ async def test_a_zone_that_cannot_start_does_not_claim_the_side_and_a_held_claim
     assert asked == ["cooling"]
     started.assert_not_awaited()  # told to sit this one out
     await conn.close()
+
+
+async def test_a_protection_cycle_stays_cut_down_for_its_whole_life():
+    """With the real cycle start: the second tick must not bring the schedule back."""
+    from backend.engine.cycle_engine import CycleState
+
+    temps = {"r1": 59.0, "r2": 70.0}
+    conn = await _two_scheduled_rooms()
+    engine = _make_engine(_make_ha(ambient=65.0, hvac_mode="heat", hvac_action="heating"))
+    engine._get_avg_temp = lambda room, **_k: temps[room.id]
+    engine._get_building_side = lambda: ("cooling", True)
+    engine._logger = AsyncMock()
+    tc = await engine._load_tc(conn)
+    inset = tc.min_setpoint + tc.deadband
+
+    def now():
+        return {rid: (ar.source, ar.target_temp) for rid, ar in engine._active_rooms.items()}
+
+    await engine._do_tick(conn)
+    assert engine._state == CycleState.RUNNING and engine.protecting_only
+    assert now() == {"r1": ("safety", inset)}
+    said = [c.args[2] for c in engine._logger.log.await_args_list if "safety limit" in c.args[2]]
+    assert said == [
+        "Bunk Room is past a safety limit: heating against the building's side,"
+        " only until it is back inside its limits"
+    ]
+    # Later ticks, the room now back above the bare limit but short of the inset target.
+    temps["r1"] = 60.2
+    for _ in range(2):
+        await engine._do_tick(conn)
+        assert now() == {"r1": ("safety", inset)}
+    assert len([c for c in engine._logger.log.await_args_list if "safety limit" in c.args[2]]) == 1
+    # The building comes round to heating: the room's own schedule takes over.
+    engine._get_building_side = lambda: ("heating", True)
+    await engine._do_tick(conn)
+    assert engine._protecting is None
+    assert now()["r1"] == ("schedule", 72.0)
+    await conn.close()
+
+
+async def test_the_protection_latch_ends_with_its_cycle():
+    conn, engine, _s = await _scheduled({"r1": 72.0, "r2": 72.0}, "cooling")
+    engine._protecting = ("heating", frozenset({"r1"}))
+    await engine._do_tick(conn)  # idle: whatever cycle it belonged to is over
+    assert engine._protecting is None and not engine.protecting_only
+    await conn.close()

@@ -190,6 +190,10 @@ class CycleEngine:
         # When this zone began waiting for its building's other side, and when
         # that was last confirmed: (direction, obeyed, since, seen).
         self._wait_started: tuple[str, bool, datetime, datetime] | None = None
+        # A cycle running against the building's side to protect rooms past a
+        # safety limit: (direction, room ids). Kept for the life of that cycle
+        # so it stays cut down to those rooms on every tick, not just its first.
+        self._protecting: tuple[str, frozenset[str]] | None = None
         # Set while this zone has demand its building's side does not allow.
         self.building_wait: dict | None = None
         # Heat pump protection: guards for this zone, or None (conventional).
@@ -767,6 +771,14 @@ class CycleEngine:
         # vacation this is the sole source of demand, `new_active_map` having
         # been seeded empty just above.
         await self._add_safety_rooms(conn, new_active_map)
+        if self._protecting is not None:
+            against = obey_side and side in ("heating", "cooling", "hold")
+            if self._state == CycleState.IDLE or not against or side == self._protecting[0]:
+                # The cycle is over, or the building no longer disagrees.
+                self._protecting = None
+            else:
+                way, room_ids = self._protecting
+                self._protect_only(new_active_map, set(room_ids), way, await self._load_tc(conn))
         # Rooms following a band (the house band) get this tick's single
         # target: the edge the running cycle is working toward, or with no
         # cycle running, their own temperature held inside the band.
@@ -5626,11 +5638,11 @@ class CycleEngine:
         and does not go on to their comfort targets or serve other rooms.
         """
         for room_id in list(active_rooms):
-            if room_id not in room_ids:
-                del active_rooms[room_id]
-                continue
             ar = active_rooms[room_id]
             if ar.source == "safety":
+                continue  # found by the safety limits themselves: left as it is
+            if room_id not in room_ids:
+                del active_rooms[room_id]
                 continue
             deadband = _effective_deadband(ar.room, tc.deadband, ar.deadband_override)
             ar.target_temp = (
@@ -5640,6 +5652,38 @@ class CycleEngine:
             )
             ar.heat_to = ar.cool_to = None
             ar.source = "safety"
+
+    async def _protect_against_side(
+        self,
+        active_rooms: dict[str, ActiveRoom],
+        room_ids: set[str],
+        direction: str,
+        tc: ThermostatConfig,
+    ) -> None:
+        """Start a protection-only cycle against the building's side, and say so."""
+        self._protect_only(active_rooms, room_ids, direction, tc)
+        fresh = self._protecting is None
+        self._protecting = (direction, frozenset(room_ids))
+        if fresh and self._logger:
+            names = ", ".join(
+                sorted(active_rooms[r].room.name for r in room_ids if r in active_rooms)
+            )
+            await self._logger.log(
+                "warning",
+                "engine",
+                f"{names} is past a safety limit: {direction} against the building's side,"
+                " only until it is back inside its limits",
+                {"thermostat": self.thermostat_entity_id, "direction": direction},
+            )
+
+    @property
+    def protecting_only(self) -> bool:
+        """A cycle is running only to bring rooms back inside their safety limits."""
+        return (
+            self._state != CycleState.IDLE
+            and bool(self._active_rooms)
+            and all(ar.source == "safety" for ar in self._active_rooms.values())
+        )
 
     async def _could_start(
         self,
@@ -5708,7 +5752,7 @@ class CycleEngine:
         if inferred in breaches:
             self._wait_started = None
             if obey and side in ("heating", "cooling", "hold") and inferred != side:
-                self._protect_only(active_rooms, breaches[inferred], inferred, tc)
+                await self._protect_against_side(active_rooms, breaches[inferred], inferred, tc)
             return inferred
         claiming = side is None and obey and self._claim_building_side is not None
         can_start = True
@@ -5727,7 +5771,7 @@ class CycleEngine:
             if breaches:
                 # The vote went the other way, but a room is past a limit.
                 way = next(iter(breaches))
-                self._protect_only(active_rooms, breaches[way], way, tc)
+                await self._protect_against_side(active_rooms, breaches[way], way, tc)
                 return way
             return "off"
         wrong_side = side in ("heating", "cooling") and inferred != side
