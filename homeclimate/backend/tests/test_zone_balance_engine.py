@@ -31,6 +31,12 @@ async def _setup(temp=64.0, call=HEAT):
     return conn, engine, room, temps
 
 
+def _run(engine, started, mode="heating") -> None:
+    """The cycle started with these rooms and is running."""
+    engine._state, engine._cycle_mode = CycleState.RUNNING, mode
+    engine._active_rooms = {ar.room.id: ar for ar in started}
+
+
 def _targets(active) -> list[tuple[float, str]]:
     return [(ar.target_temp, ar.source) for ar in active]
 
@@ -46,8 +52,7 @@ async def test_a_room_short_of_the_call_answers_it_and_is_kept_to_the_end_of_the
     # But a room that started the run is kept until the run ends, so the
     # equipment is not stopped the moment it is inside its deadband.
     temps["now"] = 64.0
-    await engine._balance(conn, [])
-    engine._state, engine._cycle_mode = CycleState.RUNNING, "heating"
+    _run(engine, await engine._balance(conn, []))
     temps["now"] = 66.8
     assert _targets(await engine._balance(conn, [])) == [(67.0, "balance")]
     temps["now"] = None  # nor for a reading that goes missing
@@ -58,8 +63,7 @@ async def test_a_room_short_of_the_call_answers_it_and_is_kept_to_the_end_of_the
 async def test_a_call_that_lapses_mid_run_does_not_cut_the_run_short():
     """The call comes and goes with the other zone's temperature; the run must end by itself."""
     conn, engine, room, temps = await _setup()
-    await engine._balance(conn, [])
-    engine._state, engine._cycle_mode = CycleState.RUNNING, "heating"
+    _run(engine, await engine._balance(conn, []))
     # The zones are back within the limit, or the other zone's hold has ended.
     engine._get_balance = lambda: None
     assert _targets(await engine._balance(conn, [])) == [(67.0, "balance")]
@@ -84,10 +88,10 @@ async def test_a_call_that_lapses_mid_run_does_not_cut_the_run_short():
 
 async def test_a_lapsed_call_keeps_the_rooms_in_the_run_and_adds_no_others():
     conn, engine, room, temps = await _setup()
-    await engine._balance(conn, [])
+    started = await engine._balance(conn, [])
     other = Room.create(name="Craft Room", thermostat_entity_id=THERMO_ID)
     await db.upsert_room(conn, other)
-    engine._state, engine._cycle_mode = CycleState.RUNNING, "heating"
+    _run(engine, started)
     engine._get_balance = lambda: None
     assert [ar.room.id for ar in await engine._balance(conn, [])] == [room.id]
     # With a call, a room with no reading cannot be judged and is left out.
@@ -227,4 +231,88 @@ async def test_balancing_rooms_never_outvote_a_room_with_a_say_of_its_own():
     del active[rooms[2].id]
     assert await engine._infer_mode_from_room_temps(active, 0.5) == "heating"
     assert await engine._infer_mode_from_room_temps(active, 0.5, only="heating") == "heating"
+    await conn.close()
+
+
+async def test_a_room_asked_while_the_zone_ran_for_someone_else_is_not_held_to_it():
+    """Asked to heat, but the zone cooled for a hold: it never joined, so it is judged afresh."""
+    conn, engine, room, temps = await _setup()
+    await engine._balance(conn, [])  # asked, at 64 °F
+    other = Room.create(name="Craft Room", thermostat_entity_id=THERMO_ID)
+    await db.upsert_room(conn, other)
+    hold = ActiveRoom(room=other, target_temp=74.0, source="override")
+    _run(engine, [hold], mode="cooling")
+    # The call lapses and the room is at 71.8 °F: nothing puts it into the cooling run.
+    engine._get_balance = lambda: None
+    temps["now"] = 71.8
+    assert await engine._balance(conn, [hold]) == [hold]
+    await conn.close()
+
+
+async def test_before_a_cycle_is_chosen_balancing_rooms_give_way_to_any_room_that_calls():
+    conn, engine, room, _temps = await _setup()
+    tc = await db.get_thermostat_config(conn, THERMO_ID)
+    other = Room.create(name="Craft Room", thermostat_entity_id=THERMO_ID)
+    third = Room.create(name="Loft", thermostat_entity_id=THERMO_ID)
+    temps = {room.id: 64.0, other.id: 80.0, third.id: 64.0}
+    engine._get_avg_temp = lambda r, **_k: temps[r.id]
+    was = ActiveRoom(room=room, target_temp=62.0, source="house", heat_to=62.0, cool_to=78.0)
+
+    def asked(*others):
+        engine._optional_replaced = {room.id: was, third.id: None}
+        found = {
+            room.id: ActiveRoom(room=room, target_temp=67.0, source="balance"),
+            third.id: ActiveRoom(room=third, target_temp=67.0, source="balance"),
+        }
+        found.update({ar.room.id: ar for ar in others})
+        return found
+
+    # A hold that wants cooling: the balancing rooms go back to what they were.
+    hold = ActiveRoom(room=other, target_temp=74.0, source="override")
+    active = asked(hold)
+    engine._optional_rooms_yield(active, tc)
+    assert active == {room.id: was, other.id: hold}
+    # So does a room outside its band, and one with no reading to judge by.
+    banded = ActiveRoom(room=other, target_temp=62.0, source="house", heat_to=62.0, cool_to=78.0)
+    active = asked(banded)
+    engine._optional_rooms_yield(active, tc)
+    assert set(active) == {room.id, other.id} and active[room.id] is was
+    temps[other.id] = None
+    active = asked(hold)
+    engine._optional_rooms_yield(active, tc)
+    assert active[room.id] is was
+    # A room resting at its target, or inside its band, asks for nothing: they stay.
+    temps[other.id] = 74.2
+    for resting in (hold, banded):
+        active = asked(resting)
+        engine._optional_rooms_yield(active, tc)
+        assert active[room.id].source == "balance" and third.id in active
+    # A cycle running for nothing but balancing rooms ends for a room that
+    # calls the other way, once it has had its minimum runtime.
+    temps[other.id] = 80.0
+    running = asked(hold)
+    engine._state, engine._cycle_mode = CycleState.RUNNING, "heating"
+    engine._active_rooms = {room.id: running[room.id], third.id: running[third.id]}
+    engine._cycle_runtime_satisfied = lambda _tc, now=None: False
+    engine._optional_rooms_yield(running, tc)
+    assert running[room.id].source == "balance"
+    engine._cycle_runtime_satisfied = lambda _tc, now=None: True
+    engine._optional_rooms_yield(running, tc)
+    assert running == {room.id: was, other.id: hold}
+    # A room that wants the same direction simply joins the run.
+    temps[other.id] = 70.0
+    running = asked(hold)
+    engine._optional_rooms_yield(running, tc)
+    assert running[room.id].source == "balance"
+    # And a run that is serving a room with a say of its own is left alone.
+    temps[other.id] = 80.0
+    running = asked(hold)
+    engine._active_rooms[other.id] = hold
+    engine._optional_rooms_yield(running, tc)
+    assert running[room.id].source == "balance"
+    engine._state, engine._active_rooms = CycleState.IDLE, {}
+    # And with no balancing rooms there is nothing to do.
+    active = {other.id: hold}
+    engine._optional_rooms_yield(active, tc)
+    assert active == {other.id: hold}
     await conn.close()

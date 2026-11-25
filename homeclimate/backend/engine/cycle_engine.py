@@ -252,6 +252,10 @@ class CycleEngine:
         # (room id → target), kept to the end of the run they started.
         self._get_balance = get_balance
         self._balance_latch: dict[str, float] = {}
+        # What each room added by a convenience this tick stood in for (its
+        # house band entry, or None), so it can be put back: see
+        # ``_optional_rooms_yield``.
+        self._optional_replaced: dict[str, ActiveRoom | None] = {}
         self._coast_wait: dict[str, tuple[datetime, str, float]] = {}
         self._coast_done: dict[str, tuple[str, float]] = {}
         # When each room's last wait ended, and when coasting was last looked at.
@@ -800,6 +804,7 @@ class CycleEngine:
         # straddles a block's start could find the room in neither the early
         # set nor the block's, and abort a running cycle for a minute.
         tick_now = datetime.now(UTC)
+        self._optional_replaced = {}
         new_active = (
             [] if in_vacation else await get_active_rooms(conn, self.thermostat_entity_id, tick_now)
         )
@@ -836,6 +841,7 @@ class CycleEngine:
         # vacation this is the sole source of demand, `new_active_map` having
         # been seeded empty just above.
         await self._add_safety_rooms(conn, new_active_map)
+        self._optional_rooms_yield(new_active_map, await self._load_tc(conn))
         against = obey_side and side in ("heating", "cooling", "hold")
         if (
             self._protecting is None
@@ -6522,6 +6528,58 @@ class CycleEngine:
         self._early_latch = latched
         return out
 
+    def _optional_rooms_yield(self, active: dict[str, ActiveRoom], tc: ThermostatConfig) -> None:
+        """Rooms added by a convenience give way to any room that calls for itself.
+
+        Before a cycle is chosen: if a room with a say of its own (a safety
+        limit, a hold, a schedule, occupancy, the house band) is asking for
+        heating or cooling, the conveniences sit this tick out and their rooms
+        go back to what they were. The zone then chooses its direction exactly
+        as it would with the conveniences off, so they can never send it the
+        other way or starve the room that called. A room with no reading
+        counts as calling.
+
+        While a cycle runs for nothing but convenience rooms: once it has had
+        its minimum runtime, a room that calls for the other direction ends
+        it the same way, rather than waiting out a run nobody asked for.
+        A cycle that is serving a room with a say of its own is left alone;
+        the conveniences may join it if it suits them.
+        """
+        optional = [rid for rid, ar in active.items() if ar.source in OPTIONAL_SOURCES]
+        if not optional:
+            return
+
+        def wants(ar: ActiveRoom) -> str | None:
+            avg = self._get_avg_temp(ar.room, refresh=False)
+            if avg is None:
+                return "either"
+            temp = avg + ar.room.temp_offset
+            deadband = _effective_deadband(ar.room, tc.deadband, ar.deadband_override)
+            low = ar.target_temp if ar.heat_to is None else ar.heat_to
+            high = ar.target_temp if ar.cool_to is None else ar.cool_to
+            if temp < low - deadband:
+                return "heating"
+            return "cooling" if temp > high + deadband else None
+
+        calling = {wants(ar) for ar in active.values() if ar.source not in OPTIONAL_SOURCES}
+        calling.discard(None)
+        if self._state == CycleState.IDLE:
+            give_way = bool(calling)
+        else:
+            give_way = (
+                bool(calling - {self._cycle_mode})
+                and all(ar.source in OPTIONAL_SOURCES for ar in self._active_rooms.values())
+                and self._cycle_runtime_satisfied(tc)
+            )
+        if not give_way:
+            return
+        for rid in optional:
+            was = self._optional_replaced.get(rid)
+            if was is None:
+                del active[rid]
+            else:
+                active[rid] = was
+
     async def _balance(
         self, conn: aiosqlite.Connection, active: list[ActiveRoom], now: datetime | None = None
     ) -> list[ActiveRoom]:
@@ -6547,9 +6605,11 @@ class CycleEngine:
             call = None  # never a reason to ask the building for its other side
         held: dict[str, float] = {}
         if self._state != CycleState.IDLE:
-            # Kept from the last tick; after a restart, read back from the run itself.
-            held = self._balance_latch or {
-                # The target asked for, not one Eco has since relaxed.
+            # Read from the run itself: only a room that really joined it is
+            # kept. (A room asked while the zone went another way for someone
+            # else never joined, and is judged afresh.) The target is the one
+            # asked for, not one Eco has since relaxed.
+            held = {
                 rid: ar.target_temp if ar.requested_target is None else ar.requested_target
                 for rid, ar in self._active_rooms.items()
                 if ar.source == "balance"
@@ -6599,6 +6659,7 @@ class CycleEngine:
                 ):
                     continue
             latched[room.id] = target
+            self._optional_replaced[room.id] = ar
             out = [a for a in out if a.room.id != room.id]
             out.append(ActiveRoom(room=room, target_temp=target, source="balance"))
         self._balance_latch = latched
