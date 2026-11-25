@@ -106,6 +106,24 @@ export const TEMPERATURE_FIELDS: TempField[] = [
     ui: true,
     endpoints: ["POST /api/rooms", "PUT /api/rooms/{id}"],
   },
+  // A cool-to that turns the room's occupancy target into a band.
+  {
+    field: "presence_cool_to",
+    kind: "absolute_nullable",
+    ui: true,
+    endpoints: ["PUT /api/rooms/{id}"],
+  },
+  // The same for a schedule block's target and a temporary hold's.
+  {
+    field: "cool_to",
+    kind: "absolute_nullable",
+    ui: true,
+    endpoints: [
+      "POST /api/rooms/{id}/schedules",
+      "PUT /api/rooms/{id}/schedules/{sid}",
+      "POST /api/rooms/{id}/override",
+    ],
+  },
   {
     field: "temp_offset",
     kind: "delta",

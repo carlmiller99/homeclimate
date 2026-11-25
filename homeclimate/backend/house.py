@@ -105,10 +105,39 @@ class RoomCalendar:
 
 
 @dataclass(frozen=True)
+class TargetBand:
+    """A cool-to added to a schedule's, an occupancy's or a hold's target."""
+
+    heat_to: float
+    cool_to: float
+    stamp: str = ""
+
+
+TARGET_KINDS = ("schedule", "presence", "hold")
+
+
+def hold_stamp(expires_at: datetime) -> str:
+    """Which hold a band belongs to: a later hold on the same room is a different one."""
+    return str(int(expires_at.timestamp()))
+
+
+@dataclass(frozen=True)
 class House:
     band: Band | None = None
     rooms: dict[str, RoomSwitches] = field(default_factory=dict)
     calendars: dict[str, RoomCalendar] = field(default_factory=dict)
+    targets: dict[tuple[str, str], TargetBand] = field(default_factory=dict)
+
+    def cool_to(self, kind: str, ref_id: str, target: float, stamp: str = "") -> float | None:
+        """The cool-to that makes ``target`` a band, or None for a single target.
+
+        Only when the band was set for exactly this target (and, for a hold,
+        this hold): one changed by another route is a single target again.
+        """
+        found = self.targets.get((kind, ref_id))
+        if found is None or abs(found.heat_to - target) > 0.01 or found.stamp != stamp:
+            return None
+        return found.cool_to
 
     def switches(self, room_id: str) -> RoomSwitches:
         """A room's switches, with "in use" taken from its calendar if it follows one."""
@@ -144,7 +173,43 @@ async def load(conn: aiosqlite.Connection) -> House:
             )
             for r in await cur.fetchall()
         }
-    return House(band, rooms, calendars)
+    async with conn.execute("SELECT * FROM target_bands") as cur:
+        targets = {
+            (r["kind"], r["ref_id"]): TargetBand(r["heat_to"], r["cool_to"], r["stamp"])
+            for r in await cur.fetchall()
+        }
+    return House(band, rooms, calendars, targets)
+
+
+async def set_target_band(
+    conn: aiosqlite.Connection,
+    kind: str,
+    ref_id: str,
+    heat_to: float,
+    cool_to: float | None,
+    stamp: str = "",
+) -> None:
+    """Give a target a cool-to, or with None make it a single target again."""
+    if cool_to is None:
+        await conn.execute("DELETE FROM target_bands WHERE kind=? AND ref_id=?", (kind, ref_id))
+    else:
+        await conn.execute(
+            "INSERT INTO target_bands (kind, ref_id, heat_to, cool_to, stamp) VALUES (?,?,?,?,?)"
+            " ON CONFLICT(kind, ref_id) DO UPDATE SET heat_to=excluded.heat_to,"
+            " cool_to=excluded.cool_to, stamp=excluded.stamp",
+            (kind, ref_id, heat_to, cool_to, stamp),
+        )
+    await conn.commit()
+
+
+async def cool_to_problem(conn: aiosqlite.Connection, heat_to: float, cool_to: float) -> str | None:
+    """Which rule a heat-to / cool-to pair breaks: "range", "safety", or None."""
+    if not band_in_range(heat_to, cool_to):
+        return "range"
+    top, bottom = await safety_window(conn)
+    if heat_to > top or cool_to < bottom:
+        return "safety"
+    return None
 
 
 def check_band(body: dict[str, Any]) -> str | None:

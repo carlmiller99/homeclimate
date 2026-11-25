@@ -652,6 +652,42 @@ describe("Rooms Page", () => {
     });
   });
 
+  it("sends a Cool To for the occupancy target, and null to take it away", async () => {
+    const banded = { ...mockRooms[0], system_wide_temp: 68, presence_cool_to: 74 };
+    vi.mocked(api.updateRoom).mockResolvedValue(banded);
+    vi.mocked(api.getRooms).mockResolvedValue([banded]);
+    vi.mocked(api.getRoom).mockResolvedValue(banded);
+    render(
+      <SystemContext.Provider value={mockSystem}>
+        <MemoryRouter>
+          <Rooms />
+        </MemoryRouter>
+      </SystemContext.Provider>
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Devices" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Room Settings" }));
+    const coolTo = screen.getByLabelText(/Cool To/i);
+    expect(coolTo).toHaveValue(74);
+    fireEvent.change(coolTo, { target: { value: "75" } });
+    fireEvent.click(screen.getByRole("button", { name: /Save changes/i }));
+    await waitFor(() => {
+      expect(api.updateRoom).toHaveBeenCalledWith(
+        "room-1",
+        expect.objectContaining({ system_wide_temp: 68, presence_cool_to: 75 })
+      );
+    });
+    vi.mocked(api.updateRoom).mockClear();
+    fireEvent.click(await screen.findByRole("button", { name: "Room Settings" }));
+    fireEvent.change(screen.getByLabelText(/Cool To/i), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: /Save changes/i }));
+    await waitFor(() => {
+      expect(api.updateRoom).toHaveBeenCalledWith(
+        "room-1",
+        expect.objectContaining({ presence_cool_to: null })
+      );
+    });
+  });
+
   it("sends null deadband_override when the field is left blank (inherit)", async () => {
     vi.mocked(api.updateRoom).mockResolvedValue(mockRooms[0]);
     render(

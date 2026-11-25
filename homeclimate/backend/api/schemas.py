@@ -86,6 +86,10 @@ class VentTestSchema(Schema):
 
 class RoomOverrideRequestSchema(Schema):
     target_temp = fields.Float(required=True)
+    cool_to = fields.Float(
+        allow_none=True,
+        metadata={"description": "With it, the target is the heat-to and this the cool-to"},
+    )
     # Capped at 8 h (#576): a hold is temporary relief, not a standing setting.
     duration_hours = fields.Float(load_default=2.0)
     # Eco opt-IN (#576). False (the default every pre-#576 caller keeps)
@@ -98,6 +102,10 @@ class RoomOverrideStatusSchema(Schema):
 
     room_id = fields.Str()
     target_temp = fields.Float()  # raw °F; the frontend converts for display
+    cool_to = fields.Float(
+        allow_none=True,
+        metadata={"description": "With it, the target is the heat-to and this the cool-to"},
+    )
     expires_at = fields.Str()  # naive-UTC ISO string
     respect_eco = fields.Bool()
     ends_in_seconds = fields.Int()

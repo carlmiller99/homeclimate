@@ -277,6 +277,20 @@ CREATE TABLE IF NOT EXISTS room_calendars (
     in_use INTEGER NOT NULL DEFAULT 1
 );
 
+-- A band on a schedule, an occupancy target or a hold (backend/house.py). The
+-- row adds a cool-to to that target, which then acts as the heat-to. heat_to
+-- (and for a hold, stamp = its expiry) says which target the band was set
+-- for: a target changed by any other route no longer matches, and the band
+-- stops applying rather than being carried onto a target it was not set for.
+CREATE TABLE IF NOT EXISTS target_bands (
+    kind TEXT NOT NULL,      -- 'schedule' | 'presence' | 'hold'
+    ref_id TEXT NOT NULL,    -- schedule id, or room id
+    heat_to REAL NOT NULL,
+    cool_to REAL NOT NULL,
+    stamp TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (kind, ref_id)
+);
+
 -- Building mode (backend/building_mode.py): each building's mode, and for
 -- Auto the side it is on and when it last switched (Unix seconds).
 CREATE TABLE IF NOT EXISTS building_modes (

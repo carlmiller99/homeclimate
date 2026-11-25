@@ -472,6 +472,76 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
     expect(parseFloat(band)).toBeCloseTo(parseFloat(SCHEDULE_DRIFT), 1);
   });
 
+  test("schedule and occupancy Cool To persist exactly as entered", async ({
+    page,
+  }) => {
+    // @covers: cool_to, presence_cool_to
+    // A Cool To turns a target into a band. It is an absolute temperature
+    // like the target beside it, sent as typed and converted once.
+    const HEAT = isCelsius ? "20" : "68";
+    const COOL = isCelsius ? "24" : "76";
+
+    await page.goto("/schedules");
+    await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
+    await page.waitForLoadState("networkidle");
+    const card = () => page.locator(".card").filter({ hasText: "Living Room" }).first();
+    await card().getByText("Living Room").click();
+    await card().getByText("+ Add schedule block").click();
+    const modal = page.locator(".modal");
+    await modal.waitFor({ state: "visible", timeout: 10_000 });
+    // 05:00-06:00 is clear of the seeded blocks and of the block the test above adds.
+    await modal.getByLabel(/Start time/i).fill("05:00");
+    await modal.getByLabel(/End time/i).fill("06:00");
+    await modal.getByLabel(/Target temperature/i).fill(HEAT);
+    await modal.getByLabel(/Cool To/i).fill(COOL);
+    await modal.getByRole("button", { name: /^Save$/ }).click();
+    await modal.waitFor({ state: "detached", timeout: 5_000 });
+
+    await page.reload();
+    await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
+    await page.waitForLoadState("networkidle");
+    await card().getByText("Living Room").click();
+    const row = card().locator("tr").filter({ hasText: "05:00" });
+    await expect(row).toBeVisible();
+    const text = await row.innerText();
+    const band = text.match(/(\d+(?:\.\d+)?)\s*°[CF]\s+to\s+(\d+(?:\.\d+)?)\s*°[CF]/);
+    expect(band, `band not found in row: ${text}`).not.toBeNull();
+    expect(parseFloat(band![1])).toBeCloseTo(parseFloat(HEAT), 1);
+    expect(parseFloat(band![2])).toBeCloseTo(parseFloat(COOL), 1);
+    // Remove the block so nothing else sees a band on Living Room.
+    await row.getByRole("button", { name: "Delete" }).click();
+    const confirm = page.getByRole("button", { name: /^Delete$/ }).last();
+    if (await confirm.isVisible().catch(() => false)) await confirm.click();
+
+    // The occupancy target's Cool To, in the room's settings under My Home.
+    await page.goto("/my-home");
+    await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
+    await page.waitForLoadState("networkidle");
+    const openSettings = async () => {
+      await page
+        .locator(".card")
+        .filter({ hasText: "Living Room" })
+        .first()
+        .getByRole("button", { name: "Room Settings" })
+        .click();
+      const s = page.getByTestId("room-settings");
+      await s.waitFor({ state: "visible", timeout: 10_000 });
+      return s;
+    };
+    let settings = await openSettings();
+    await settings.getByLabel(/Presence-triggered temperature/i).fill(HEAT);
+    await settings.getByLabel(/Cool To/i).fill(COOL);
+    await settings.getByRole("button", { name: /Save changes/i }).click();
+    await settings.waitFor({ state: "detached", timeout: 5_000 });
+    settings = await openSettings();
+    const coolAfter = await settings.getByLabel(/Cool To/i).inputValue();
+    expect(parseFloat(coolAfter)).toBeCloseTo(parseFloat(COOL), 1);
+    // Back to a single target, as the other specs expect.
+    await settings.getByLabel(/Cool To/i).fill("");
+    await settings.getByRole("button", { name: /Save changes/i }).click();
+    await settings.waitFor({ state: "detached", timeout: 5_000 });
+  });
+
   test("temporary hold target persists exactly as entered (#576)", async ({
     page,
   }) => {

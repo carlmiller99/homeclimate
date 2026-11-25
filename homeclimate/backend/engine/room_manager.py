@@ -100,11 +100,16 @@ async def _resolve_room(
     # 1. Override
     override = await db.get_room_override(conn, room.id)
     if override and override.expires_at > now:
+        cool_to = the_house.cool_to(
+            "hold", room.id, override.target_temp, house.hold_stamp(override.expires_at)
+        )
         return ActiveRoom(
             room=room,
             target_temp=override.target_temp,
             source="override",
             respect_eco=override.respect_eco,
+            heat_to=override.target_temp if cool_to is not None else None,
+            cool_to=cool_to,
         )
 
     if not switches.in_use:
@@ -113,11 +118,14 @@ async def _resolve_room(
     # 2. Schedule
     match = _find_matching_schedule(schedules, now) if switches.use_schedules else None
     if match is not None:
+        cool_to = the_house.cool_to("schedule", match.id, match.target_temp)
         return ActiveRoom(
             room=room,
             target_temp=match.target_temp,
             source="schedule",
             deadband_override=match.deadband_override,
+            heat_to=match.target_temp if cool_to is not None else None,
+            cool_to=cool_to,
         )
 
     # 3. Presence holdover
@@ -130,7 +138,14 @@ async def _resolve_room(
                 tc = await db.get_thermostat_config(conn, room.thermostat_entity_id)
                 presence_temp = tc.default_temp
             if presence_temp is not None:
-                return ActiveRoom(room=room, target_temp=presence_temp, source="presence")
+                cool_to = the_house.cool_to("presence", room.id, presence_temp)
+                return ActiveRoom(
+                    room=room,
+                    target_temp=presence_temp,
+                    source="presence",
+                    heat_to=presence_temp if cool_to is not None else None,
+                    cool_to=cool_to,
+                )
             else:
                 log.debug(
                     "Room %s has presence holdover but no presence temp configured "
@@ -452,7 +467,10 @@ async def get_room_active_status(
     return {
         "room_id": room.id,
         "source": resolved.source,
-        "target_temp": (resolved.target_temp if resolved.source not in ("idle", "house") else None),
+        # A band has no single target: heat_to and cool_to say what it is.
+        "target_temp": (
+            resolved.target_temp if resolved.source != "idle" and resolved.heat_to is None else None
+        ),
         "heat_to": resolved.heat_to,
         "cool_to": resolved.cool_to,
         "ends_in_seconds": ends_in_seconds,

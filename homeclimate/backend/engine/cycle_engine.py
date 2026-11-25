@@ -43,6 +43,7 @@ from .room_manager import (
     _effective_deadband,
     _find_matching_schedule,
     _next_schedule_start,
+    _resolve_room,
     _seconds_since_schedule_end,
     expire_holdovers,
     get_active_rooms,
@@ -4336,6 +4337,13 @@ class CycleEngine:
                 live_hold = await db.get_room_override(conn, room_id)
                 if live_hold is not None:
                     ar.respect_eco = live_hold.respect_eco
+            if source in ("schedule", "override", "presence"):
+                # Nor is a band on the schedule, hold or occupancy target.
+                fresh = await _resolve_room(
+                    conn, room, await db.get_schedules_for_room(conn, room_id), datetime.now(UTC)
+                )
+                if fresh.source == source:
+                    ar.heat_to, ar.cool_to = fresh.heat_to, fresh.cool_to
             self._active_rooms[room_id] = ar
             self._room_vents[room_id] = await db.get_room_vents(conn, room_id)
 
@@ -5444,7 +5452,7 @@ class CycleEngine:
             # A room following the house band is not "already conditioned": it
             # asks for nothing while inside its band, and the band may be wider
             # than this zone's safety limits. A breach replaces it below.
-            if current is not None and current.source != "house":
+            if current is not None and current.heat_to is None:
                 continue  # already conditioned via override/schedule/presence
             avg = self._get_avg_temp(room)
             if avg is None:

@@ -37,6 +37,8 @@ import EntityPicker from "../components/EntityPicker";
 import ConfirmDialog from "../components/ConfirmDialog";
 import { EcoWorkedExample } from "../components/EcoMode";
 import { ECO_NUMERIC_FIELDS, type EcoNumericKey } from "../eco";
+import { coolToValue } from "../bands";
+import CoolToField from "../components/CoolToField";
 import { sanitizeRoomName } from "../roomNames";
 
 // ---------------------------------------------------------------------------
@@ -79,6 +81,10 @@ function RoomSettings({
   const [thermostat, setThermostat] = useState(room?.thermostat_entity_id ?? "");
   const [sysTemp, setSysTemp] = useState(
     room?.system_wide_temp != null ? String(toDisplay(room.system_wide_temp)) : ""
+  );
+  // An optional Cool To makes the occupancy target a band. Display units, sent as typed.
+  const [presenceCoolTo, setPresenceCoolTo] = useState(
+    room?.presence_cool_to != null ? String(toDisplay(room.presence_cool_to)) : ""
   );
   const [holdover, setHoldover] = useState(room?.presence_holdover_hours?.toString() ?? "2");
   const [includeThermoSensor, setIncludeThermoSensor] = useState(
@@ -259,6 +265,10 @@ function RoomSettings({
         name: name.trim(),
         thermostat_entity_id: thermostat.trim(),
         system_wide_temp: sysTemp ? parseFloat(sysTemp) : null,
+        // Sent when there is one, or when one is being taken away.
+        ...(room && (presenceCoolTo.trim() !== "" || room.presence_cool_to != null)
+          ? { presence_cool_to: sysTemp ? coolToValue(presenceCoolTo) : null }
+          : {}),
         presence_holdover_hours: parseFloat(holdover) || 0,
         include_thermostat_sensor: includeThermoSensor,
         temp_offset: parseFloat(tempOffset) || 0,
@@ -379,6 +389,10 @@ function RoomSettings({
             placeholder="e.g. 72"
           />
         </div>
+
+        {room && (
+          <CoolToField id="room-sys-cool-to" value={presenceCoolTo} onChange={setPresenceCoolTo} />
+        )}
 
         <div className="form-group">
           <label className="form-label" htmlFor="room-holdover">

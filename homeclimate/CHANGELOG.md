@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.7
+
+- A schedule block, a hold and a room's occupancy target can each be a band: add a Cool To and the target becomes its Heat To, with the room kept between the two. Leave Cool To blank and nothing changes. See docs/house-band.md.
+
 ## 0.5.6
 
 - Dashboard: each building has a mode, Auto, Heat Only, Cool Only or Off, with a line saying what the building is doing and which zones are waiting. Safety limits still act in every mode.

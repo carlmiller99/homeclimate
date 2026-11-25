@@ -15,6 +15,8 @@ import {
 import { useUnit } from "../contexts";
 import { Frozen } from "../ci";
 import ConfirmDialog from "../components/ConfirmDialog";
+import { bandText, coolToValue } from "../bands";
+import CoolToField from "../components/CoolToField";
 import { formatCountdown } from "../countdown";
 import { HouseTime, ZoneHint } from "../components/Time";
 
@@ -135,6 +137,10 @@ function ScheduleModal({
   const [temp, setTemp] = useState(
     schedule?.target_temp != null ? String(toDisplay(schedule.target_temp)) : String(toDisplay(72))
   );
+  // An optional Cool To makes the target a band. Display units, sent as typed.
+  const [coolTo, setCoolTo] = useState(
+    schedule?.cool_to != null ? String(toDisplay(schedule.cool_to)) : ""
+  );
   // Per-block deadband override (Issue #517). "inherit" (default) sends null;
   // "custom" sends the raw DISPLAY delta — the backend's _delta_to_f converts.
   const [deadbandMode, setDeadbandMode] = useState<"inherit" | "custom">(
@@ -238,6 +244,10 @@ function ScheduleModal({
         deadband_override: deadbandMode === "custom" ? parseFloat(deadband) : null,
         expires_at: expiryMode === "at" ? expiresAt : null,
         name: name.trim() || null,
+        // Sent when there is one, or when one is being taken away.
+        ...(coolTo.trim() !== "" || schedule?.cool_to != null
+          ? { cool_to: coolToValue(coolTo) }
+          : {}),
       };
       if (schedule) await updateSchedule(roomId, schedule.id, payload);
       else await createSchedule(roomId, payload);
@@ -320,7 +330,7 @@ function ScheduleModal({
 
         <div className="form-group">
           <label className="form-label" htmlFor="schedule-temp">
-            Target temperature ({unitLabel})
+            {coolTo.trim() === "" ? "Target temperature" : "Heat To"} ({unitLabel})
           </label>
           <input
             id="schedule-temp"
@@ -334,6 +344,8 @@ function ScheduleModal({
             placeholder={`e.g. ${Math.round(toDisplay(68))}`}
           />
         </div>
+
+        <CoolToField id="schedule-cool-to" value={coolTo} onChange={setCoolTo} />
 
         <div className="form-group">
           <label className="form-label">Temperature drift</label>
@@ -673,8 +685,8 @@ function RoomSchedules({
                 <span className="badge badge-purple" style={{ marginRight: ".5rem" }}>
                   Temporary hold
                 </span>
-                held at <strong>{fmtTemp(hold.target_temp)}</strong> · ends in{" "}
-                <Frozen>{formatCountdown(hold.ends_in_seconds)}</Frozen> ·{" "}
+                held at <strong>{bandText(fmtTemp, hold.target_temp, hold.cool_to)}</strong> · ends
+                in <Frozen>{formatCountdown(hold.ends_in_seconds)}</Frozen> ·{" "}
                 {hold.respect_eco ? "Eco may relax" : "ignores Eco"}
               </div>
               <div className="text-sm text-muted">
@@ -759,7 +771,7 @@ function RoomSchedules({
                         <HouseTime>{s.end_time}</HouseTime>
                       </td>
                       <td data-label="Target">
-                        <strong>{fmtTemp(s.target_temp)}</strong>
+                        <strong>{bandText(fmtTemp, s.target_temp, s.cool_to)}</strong>
                         {/* Wide-band blocks are identifiable without opening the
                             editor — no extra column, so the 7-col layout holds. */}
                         {s.deadband_override != null && (

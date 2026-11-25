@@ -73,7 +73,7 @@ describe("HoldModal (Issue #576)", () => {
     const onClose = vi.fn();
     render(<HoldModal rooms={ROOMS} holds={{}} onClose={onClose} onChanged={onChanged} />);
     fireEvent.click(screen.getByTestId("hold-modal-save"));
-    await waitFor(() => expect(api.setOverride).toHaveBeenCalledWith("room-1", 72, 2, false));
+    await waitFor(() => expect(api.setOverride).toHaveBeenCalledWith("room-1", 72, 2, false, null));
     expect(onChanged).toHaveBeenCalled();
     expect(onClose).toHaveBeenCalled();
   });
@@ -83,7 +83,7 @@ describe("HoldModal (Issue #576)", () => {
     render(<HoldModal rooms={ROOMS} holds={{}} onClose={() => {}} onChanged={() => {}} />);
     fireEvent.change(screen.getByLabelText(/Hold for/i), { target: { value: "4" } });
     fireEvent.click(screen.getByTestId("hold-modal-save"));
-    await waitFor(() => expect(api.setOverride).toHaveBeenCalledWith("room-1", 72, 4, false));
+    await waitFor(() => expect(api.setOverride).toHaveBeenCalledWith("room-1", 72, 4, false, null));
   });
 
   it("sends respect_eco:true when the Eco checkbox is ticked", async () => {
@@ -91,7 +91,34 @@ describe("HoldModal (Issue #576)", () => {
     render(<HoldModal rooms={ROOMS} holds={{}} onClose={() => {}} onChanged={() => {}} />);
     fireEvent.click(screen.getByLabelText(/Allow Eco Mode to relax this hold/i));
     fireEvent.click(screen.getByTestId("hold-modal-save"));
-    await waitFor(() => expect(api.setOverride).toHaveBeenCalledWith("room-1", 72, 2, true));
+    await waitFor(() => expect(api.setOverride).toHaveBeenCalledWith("room-1", 72, 2, true, null));
+  });
+
+  it("sends a Cool To when one is typed, making the hold a band", async () => {
+    vi.mocked(api.setOverride).mockResolvedValue(makeHold());
+    render(<HoldModal rooms={ROOMS} holds={{}} onClose={() => {}} onChanged={() => {}} />);
+    fireEvent.change(screen.getByLabelText(/Hold temperature/i), { target: { value: "66" } });
+    fireEvent.change(screen.getByLabelText(/Cool To/i), { target: { value: "72" } });
+    fireEvent.click(screen.getByTestId("hold-modal-save"));
+    await waitFor(() => expect(api.setOverride).toHaveBeenCalledWith("room-1", 66, 2, false, 72));
+  });
+
+  it("shows a held room's band and loads its Cool To when the room is picked", () => {
+    render(
+      <HoldModal
+        rooms={ROOMS}
+        holds={{
+          "room-1": makeHold({ room_id: "room-1", target_temp: 66, cool_to: 72 }),
+          "room-2": makeHold({ room_id: "room-2", target_temp: 68, cool_to: 75 }),
+        }}
+        onClose={() => {}}
+        onChanged={() => {}}
+      />
+    );
+    expect(screen.getByLabelText(/Cool To/i)).toHaveValue(72);
+    expect(screen.getByText("66.0°F to 72.0°F")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Room"), { target: { value: "room-2" } });
+    expect(screen.getByLabelText(/Cool To/i)).toHaveValue(75);
   });
 
   it("rejects an out-of-bounds temperature without calling the API", async () => {
@@ -171,6 +198,7 @@ describe("HoldModal (Issue #576)", () => {
     fireEvent.change(screen.getByLabelText("Room"), { target: { value: "room-2" } });
     expect(screen.getByLabelText(/Hold temperature/i)).toHaveValue(68);
     expect(screen.getByLabelText(/Allow Eco Mode/i)).toBeChecked();
+    expect(screen.getByLabelText(/Cool To/i)).toHaveValue(null); // a single target
     expect(screen.getByTestId("hold-modal-save")).toHaveTextContent("Replace hold");
   });
 
@@ -236,7 +264,7 @@ describe("HoldModal — Celsius mode (#231)", () => {
     fireEvent.click(screen.getByTestId("hold-modal-save"));
     // 22, NOT 71.6 (toStorage) — the backend's _to_f converts at the write
     // boundary; converting here would re-introduce the #231 double-conversion.
-    await waitFor(() => expect(api.setOverride).toHaveBeenCalledWith("room-1", 22, 2, false));
+    await waitFor(() => expect(api.setOverride).toHaveBeenCalledWith("room-1", 22, 2, false, null));
   });
 
   it("advertises °C bounds the backend accepts and rejects values outside them (#521)", async () => {

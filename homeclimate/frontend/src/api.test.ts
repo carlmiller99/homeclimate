@@ -166,6 +166,22 @@ describe("API Client", () => {
     );
   });
 
+  it("setOverride sends a Cool To only when the hold is a band", async () => {
+    mockJsonResponse({});
+    await api.setOverride("r1", 66, 2, false, 72);
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/rooms/r1/override",
+      expect.objectContaining({
+        body: JSON.stringify({
+          target_temp: 66,
+          duration_hours: 2,
+          respect_eco: false,
+          cool_to: 72,
+        }),
+      })
+    );
+  });
+
   it("setOverride passes the Eco opt-in through (#576)", async () => {
     mockJsonResponse({});
     await api.setOverride("r1", 75, 8, true);
