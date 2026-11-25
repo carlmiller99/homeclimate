@@ -4896,6 +4896,17 @@ class CycleEngine:
                     log.error(
                         "Vacation hold: failed to turn off %s: %s", self.thermostat_entity_id, exc
                     )
+                    await self._announce_vacation_hold(
+                        "fire:off-failed",
+                        "error",
+                        f"Vacation hold for {self.thermostat_entity_id} could not turn the "
+                        "equipment off while a lit fireplace is warming this zone — Home "
+                        "Assistant rejected the command. The hold retries every tick.",
+                        {"thermostat": self.thermostat_entity_id, "action": "off"},
+                    )
+                    return
+                else:
+                    self._note_hold_stopped_compressor(current_hvac_mode)
             await self._announce_vacation_hold(
                 "fire:no-cooling",
                 "info",
@@ -5008,7 +5019,12 @@ class CycleEngine:
             recovered_cycle = await db.get_last_completed_cycle_for_thermostat(
                 conn, self.thermostat_entity_id
             )
-            if recovered_cycle is not None:
+            if fire:
+                # Parked in cool, the fire's heat on the thermostat's own probe
+                # could start the compressor. Heat is the direction a fire
+                # cannot trip.
+                park_mode = "heat"
+            elif recovered_cycle is not None:
                 # CycleLog.mode ('heating'/'cooling') is exactly the
                 # `direction` `_parked_setpoint` already accepts — no
                 # translation needed, mirroring #637's own mapping. Checked

@@ -43,7 +43,15 @@ function CalendarRow({
     <div className="calendar-row" role="group" aria-label={room.name}>
       <div className="calendar-room">
         <span className="sensor-title">{room.name}</span>
-        {calendar && <span className="shade-why">{inUse ? "In use now" : "Not in use now"}</span>}
+        {calendar && (
+          <span className={calendar.unreadable ? "fireplace-note" : "shade-why"}>
+            {calendar.unreadable
+              ? "This calendar isn't answering, so the room is being treated as in use."
+              : inUse
+                ? "In use now"
+                : "Not in use now"}
+          </span>
+        )}
       </div>
       {calendar ? (
         <div className="calendar-fields">

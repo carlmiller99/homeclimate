@@ -27,6 +27,8 @@ export interface RoomCalendar {
   match_text: string;
   /** Minutes before an event starts that the room is already in use. */
   lead_min: number;
+  /** The calendar has not answered for 30 minutes, so the room is being treated as in use. */
+  unreadable?: boolean;
 }
 
 export const LEAD_MAX_MIN = 1440;

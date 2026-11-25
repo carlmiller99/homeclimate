@@ -437,6 +437,7 @@ async def _house_snapshot(request: web.Request) -> dict:
     conn = await get_conn(request)
     the_house = await house.load(conn)
     band = the_house.band
+    unreadable = request.app["scheduler"].calendars.unreadable()
     return {
         "house_heat_to": band.heat_to if band else None,
         "house_cool_to": band.cool_to if band else None,
@@ -454,6 +455,7 @@ async def _house_snapshot(request: web.Request) -> dict:
                         "entity_id": the_house.calendars[room.id].entity_id,
                         "match_text": the_house.calendars[room.id].match_text,
                         "lead_min": the_house.calendars[room.id].lead_min,
+                        "unreadable": room.id in unreadable,
                     }
                     if room.id in the_house.calendars
                     else None
@@ -571,7 +573,13 @@ async def update_room_calendar(request: web.Request) -> web.Response:
     except UserError as exc:
         text = safe_text(exc)
         return error(text, status=404 if text == house.ROOM_UNKNOWN else 400)
-    await emit(request, "info", "api", "Room calendar link changed", body)
+    await emit(
+        request,
+        "info",
+        "api",
+        "Room calendar link changed",
+        {"room": request.match_info["room_id"], **body},
+    )
     await request.app["scheduler"].refresh_room_calendars_now()
     return json_response(await _house_snapshot(request))
 
@@ -583,7 +591,13 @@ async def delete_room_calendar(request: web.Request) -> web.Response:
     conn = await get_conn(request)
     if not await house.clear_calendar(conn, request.match_info["room_id"]):
         return error("This room does not follow a calendar", status=404)
-    await emit(request, "info", "api", "Room calendar link removed", {})
+    await emit(
+        request,
+        "info",
+        "api",
+        "Room calendar link removed",
+        {"room": request.match_info["room_id"]},
+    )
     await _tick_everything(request)
     return json_response(await _house_snapshot(request))
 

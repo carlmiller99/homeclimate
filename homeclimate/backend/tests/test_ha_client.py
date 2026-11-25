@@ -838,3 +838,33 @@ class TestGetForecasts:
         for result in ({}, {"response": None}, {"response": {"weather.home": {"forecast": "x"}}}):
             client = _make_auto_resolving_client(result)
             assert await client.get_forecasts("weather.home", "daily") == []
+
+
+class TestGetCalendarEvents:
+    async def test_asks_for_the_window_and_unwraps_the_events(self):
+        from datetime import UTC, datetime
+
+        client = _make_auto_resolving_client(
+            {"response": {"calendar.custody": {"events": [{"summary": "Girls here"}]}}}
+        )
+        start, end = datetime(2026, 1, 5, 12, tzinfo=UTC), datetime(2026, 1, 5, 14, tzinfo=UTC)
+        assert await client.get_calendar_events("calendar.custody", start, end) == [
+            {"summary": "Girls here"}
+        ]
+        payload = client._ws.send_json.call_args[0][0]
+        assert payload["return_response"] is True
+        assert (payload["domain"], payload["service"]) == ("calendar", "get_events")
+        assert payload["service_data"] == {
+            "start_date_time": "2026-01-05T12:00:00+00:00",
+            "end_date_time": "2026-01-05T14:00:00+00:00",
+        }
+        assert payload["target"] == {"entity_id": "calendar.custody"}
+
+    async def test_a_reply_without_an_events_list_is_an_error_not_an_empty_calendar(self):
+        from datetime import UTC, datetime
+
+        now = datetime(2026, 1, 5, tzinfo=UTC)
+        for result in ({}, {"response": {}}, {"response": {"calendar.custody": {"events": "x"}}}):
+            client = _make_auto_resolving_client(result)
+            with pytest.raises(ValueError):
+                await client.get_calendar_events("calendar.custody", now, now)

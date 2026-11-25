@@ -152,6 +152,7 @@ class Scheduler:
         self._shades = shades.ShadeController()
         self._forecast = forecast.Forecast()
         self._fireplaces = fireplace.FireplaceMonitor()
+        self._calendars = house.CalendarWatch()
 
     def _spawn_bg(self, coro: Coroutine) -> asyncio.Task:
         """Create a background task and keep a strong reference until it
@@ -1624,15 +1625,23 @@ class Scheduler:
     async def _refresh_room_calendars(self) -> None:
         """Bring rooms that follow a calendar in and out of use, and say so."""
         try:
-            changes = await house.refresh_calendars(
-                self._db_conn,
-                self._ha.get_state,
-                datetime.now(UTC),
-                connected=self._ha.is_connected,
+            changes, given_up = await self._calendars.refresh(
+                self._db_conn, self._ha, datetime.now(UTC)
             )
+            if self._event_logger is None:
+                return
+            for room_id in given_up:
+                room = await db.get_room(self._db_conn, room_id)
+                await self._event_logger.log(
+                    "warning",
+                    "engine",
+                    f"The calendar {room.name if room else 'a room'} follows has not answered"
+                    " for 30 minutes; treating the room as in use until it does",
+                    {"room": room_id},
+                )
             for room_id, in_use in changes:
                 room = await db.get_room(self._db_conn, room_id)
-                if room is not None and self._event_logger is not None:
+                if room is not None:
                     await self._event_logger.log(
                         "info",
                         "engine",
@@ -1641,6 +1650,10 @@ class Scheduler:
                     )
         except Exception:
             log.exception("Could not read room calendars")
+
+    @property
+    def calendars(self) -> house.CalendarWatch:
+        return self._calendars
 
     async def refresh_room_calendars_now(self) -> None:
         """After a calendar link changes: read it and apply the result at once."""

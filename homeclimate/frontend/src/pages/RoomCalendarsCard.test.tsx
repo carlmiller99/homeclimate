@@ -77,6 +77,18 @@ describe("Rooms In Use by Calendar", () => {
     expect(within(bunk).getByText("In use now")).toBeInTheDocument();
   });
 
+  it("warns when a calendar has stopped answering", async () => {
+    vi.mocked(ha.getHouse).mockResolvedValue(house({ ...CAL, unreadable: true }, true));
+    render(<RoomCalendarsCard />);
+    const bunk = await screen.findByRole("group", { name: "Bunk Room" });
+    expect(
+      within(bunk).getByText(
+        "This calendar isn't answering, so the room is being treated as in use."
+      )
+    ).toBeInTheDocument();
+    expect(within(bunk).queryByText("In use now")).toBeNull();
+  });
+
   it("links a room to a calendar and changes how it follows it", async () => {
     render(<RoomCalendarsCard />);
     const den = await screen.findByRole("group", { name: "Den" });

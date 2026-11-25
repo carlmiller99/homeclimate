@@ -22,7 +22,7 @@ Find it under **Smart Control → Fireplace**. Fireplaces are added here rather 
 While a fireplace set to **On** is lit, and through its cool-down, the rooms it warms stop calling for heating or cooling, the same way a room does when its door or window is open:
 
 - the fire's heat can't satisfy the thermostat for rooms that are still cold, because the warm room isn't counted;
-- a room made hot by the fire can't call for cooling, so the air conditioning doesn't run against the fire. This holds even past the maximum safety temperature: the too-warm safety limit is not applied to a room a fire is warming, nor to the thermostat of a zone with such a room. Vacation Mode follows the same rule: while a fire is warming a zone, its hold turns the equipment off above the maximum instead of cooling, and does not hand the thermostat a heat-and-cool range.
+- a room made hot by the fire can't call for cooling, so the air conditioning doesn't run against the fire. This holds even past the maximum safety temperature: the too-warm safety limit is not applied to a room a fire is warming, nor to the thermostat of a zone with such a room. Vacation Mode follows the same rule: while a fire is warming a zone, its hold turns the equipment off above the maximum instead of cooling, rests in heat rather than cool in between, and does not hand the thermostat a heat-and-cool range.
 
 The too-cold safety limit still applies: a set-aside room that falls below its minimum safety temperature is heated regardless. The Dashboard marks each set-aside room with a **Fireplace** badge.
 

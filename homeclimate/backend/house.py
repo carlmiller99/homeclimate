@@ -222,7 +222,7 @@ async def set_calendar(conn: aiosqlite.Connection, room_id: str, body: dict[str,
             if not ok:
                 raise HouseError(BAD_CALENDAR)
         elif name == "match_text":
-            if not isinstance(value, str) or len(value) > MATCH_MAX:
+            if not isinstance(value, str) or len(value.strip()) > MATCH_MAX:
                 raise HouseError(BAD_MATCH)
         elif name == "lead_min":
             if (
@@ -272,51 +272,94 @@ async def clear_calendar(conn: aiosqlite.Connection, room_id: str) -> bool:
     return True
 
 
-def calendar_says(state: dict | None, calendar: RoomCalendar, now: datetime) -> bool | None:
-    """Whether a calendar entity puts the room in use right now; None if it can't say.
-
-    In use while a matching event is on, and from ``lead_min`` before the next
-    matching one starts. Home Assistant shows one event per calendar entity:
-    the one under way, else the next to come.
-    """
-    value = (state or {}).get("state")
-    if value not in ("on", "off"):
-        return None
-    attrs = (state or {}).get("attributes") or {}
-    wanted = calendar.match_text.casefold()
-    if wanted and wanted not in str(attrs.get("message") or "").casefold():
-        # The event shown is some other event. Nothing says a matching one is near.
-        return False
-    if value == "on":
-        return True
+def _instant(value: Any) -> datetime | None:
+    """An event's start or end as an instant. All-day events carry a bare date,
+    which is midnight in the house's zone."""
     try:
-        # Calendar attributes are wall-clock times in Home Assistant's own zone.
-        start = datetime.strptime(str(attrs.get("start_time")), "%Y-%m-%d %H:%M:%S")
+        found = datetime.fromisoformat(str(value))
     except ValueError:
-        return False
-    start = start.replace(tzinfo=tz.get_timezone())
-    return timedelta(0) <= start - now <= timedelta(minutes=calendar.lead_min)
+        return None
+    return found if found.tzinfo is not None else found.replace(tzinfo=tz.get_timezone())
 
 
-async def refresh_calendars(
-    conn: aiosqlite.Connection, get_state: Any, now: datetime, *, connected: bool = True
-) -> list[tuple[str, bool]]:
-    """Re-read every followed calendar; returns (room_id, in_use) for each change.
+def calendar_says(events: list[dict], calendar: RoomCalendar, now: datetime) -> bool:
+    """Whether a calendar's events put the room in use right now.
 
-    A calendar that can't be read, or any calendar while Home Assistant is
-    disconnected, changes nothing: the room keeps what the calendar last said.
+    In use while a matching event is on, and from ``lead_min`` before a
+    matching one starts. Every event in the window is looked at, so an
+    unrelated event overlapping the one that matters cannot hide it.
     """
-    if not connected:
-        return []
-    changed: list[tuple[str, bool]] = []
-    for room_id, calendar in (await load(conn)).calendars.items():
-        says = calendar_says(get_state(calendar.entity_id), calendar, now)
-        if says is None or says == calendar.in_use:
+    wanted = calendar.match_text.casefold()
+    horizon = now + timedelta(minutes=calendar.lead_min)
+    for event in events:
+        if not isinstance(event, dict):
             continue
-        await conn.execute(
-            "UPDATE room_calendars SET in_use = ? WHERE room_id = ?", (int(says), room_id)
-        )
-        changed.append((room_id, says))
-    if changed:
-        await conn.commit()
-    return changed
+        if wanted and wanted not in str(event.get("summary") or "").casefold():
+            continue
+        start, end = _instant(event.get("start")), _instant(event.get("end"))
+        if start is not None and end is not None and start <= horizon and end > now:
+            return True
+    return False
+
+
+# A calendar that has not been readable for this long stops being believed:
+# the room goes back to in use, because a room wrongly conditioned costs a
+# little energy and a room wrongly left cold has someone in it.
+UNREADABLE_FALLBACK = timedelta(minutes=30)
+
+
+class CalendarWatch:
+    """Reads the calendars rooms follow, and notices when one stops answering."""
+
+    def __init__(self) -> None:
+        self._unreadable_since: dict[str, datetime] = {}
+        self._warned: set[str] = set()
+
+    def unreadable(self) -> set[str]:
+        """Rooms whose calendar has stopped answering for long enough to say so."""
+        return set(self._warned)
+
+    async def refresh(
+        self, conn: aiosqlite.Connection, ha: Any, now: datetime
+    ) -> tuple[list[tuple[str, bool]], list[str]]:
+        """Re-read every followed calendar.
+
+        Returns the (room_id, in_use) changes, and the rooms whose calendar
+        has just been given up on. A calendar that can't be read changes
+        nothing at first; after ``UNREADABLE_FALLBACK`` the room is put back
+        in use until the calendar answers again.
+        """
+        calendars = (await load(conn)).calendars
+        for gone in set(self._unreadable_since) - set(calendars):
+            del self._unreadable_since[gone]
+            self._warned.discard(gone)
+        if not ha.is_connected:
+            # Home Assistant itself is away: nothing is concluded about any calendar.
+            return [], []
+        changed: list[tuple[str, bool]] = []
+        given_up: list[str] = []
+        for room_id, calendar in calendars.items():
+            try:
+                events = await ha.get_calendar_events(
+                    calendar.entity_id, now, now + timedelta(minutes=calendar.lead_min)
+                )
+            except Exception:
+                since = self._unreadable_since.setdefault(room_id, now)
+                if now - since < UNREADABLE_FALLBACK:
+                    continue
+                says = True
+                if room_id not in self._warned:
+                    self._warned.add(room_id)
+                    given_up.append(room_id)
+            else:
+                self._unreadable_since.pop(room_id, None)
+                self._warned.discard(room_id)
+                says = calendar_says(events, calendar, now)
+            if says != calendar.in_use:
+                await conn.execute(
+                    "UPDATE room_calendars SET in_use = ? WHERE room_id = ?", (int(says), room_id)
+                )
+                changed.append((room_id, says))
+        if changed:
+            await conn.commit()
+        return changed, given_up

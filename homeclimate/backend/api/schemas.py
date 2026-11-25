@@ -889,6 +889,12 @@ class RoomCalendarSchema(Schema):
         metadata={"description": "Only events whose title contains this; empty for any event"}
     )
     lead_min = fields.Int(metadata={"description": "Minutes before an event to be in use (0-1440)"})
+    unreadable = fields.Bool(
+        dump_only=True,
+        metadata={
+            "description": "Its calendar has not answered for 30 minutes; the room is in use"
+        },
+    )
 
 
 class HouseRoomSchema(RoomSwitchesSchema):

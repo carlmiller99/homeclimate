@@ -101,9 +101,22 @@ async def test_vacation_mode_never_cools_a_zone_a_fire_is_warming():
         messages = [c.args[2] for c in logger.log.await_args_list]
         assert len(messages) == 1 and "cooling is not commanded" in messages[0], vacation_mode
 
-        # A failed "off" is logged and retried next tick, not raised.
+        # Inside the band it parks in heat, never cool: the fire's own heat on
+        # the thermostat must not be able to start the compressor. (A fresh
+        # engine, so nothing from the ticks above is cached.)
+        park_ha = _ha_with_awaits(ambient=72.0)
+        parked = _engine_with_logger(park_ha, AsyncMock())
+        parked._get_fireplace_rooms = lambda: frozenset({"r1"})
+        inside = {"state": "heat_cool", "attributes": {"current_temperature": 72.0}}
+        await parked._apply_vacation_hold(conn, inside)
+        park_ha.set_thermostat_temperature_range.assert_not_awaited()
+        assert park_ha.set_thermostat_temperature.await_args.kwargs.get("hvac_mode") == "heat"
+
+        # A failed "off" says so and is retried next tick, not raised.
         ha.set_thermostat_hvac_mode.side_effect = RuntimeError("rejected")
+        engine._ambient_eval_at = None
         await engine._apply_vacation_hold(conn, hot)
+        assert "could not turn the equipment off" in logger.log.await_args_list[-1].args[2]
         await conn.close()
 
     # No fire: the range hold is used as before.

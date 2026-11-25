@@ -371,6 +371,32 @@ class HAClient:
         }
         return await self._send(msg)
 
+    async def get_calendar_events(
+        self, entity_id: str, start: datetime, end: datetime
+    ) -> list[dict]:
+        """Every event of a calendar entity between two instants (``calendar.get_events``).
+
+        Read-only. Raises if Home Assistant refuses, for instance when the
+        entity no longer exists.
+        """
+        result = await self._send(
+            {
+                "type": "call_service",
+                "domain": "calendar",
+                "service": "get_events",
+                "service_data": {
+                    "start_date_time": start.isoformat(),
+                    "end_date_time": end.isoformat(),
+                },
+                "target": {"entity_id": entity_id},
+                "return_response": True,
+            }
+        )
+        found = ((result or {}).get("response") or {}).get(entity_id)
+        if not isinstance(found, dict) or not isinstance(found.get("events"), list):
+            raise ValueError("no events list in the reply")
+        return list(found["events"])
+
     async def get_forecasts(self, entity_id: str, kind: str = "hourly") -> list[dict]:
         """A weather entity's forecast entries (``weather.get_forecasts``). Read-only."""
         result = await self._send(
