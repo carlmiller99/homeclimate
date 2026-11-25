@@ -991,6 +991,26 @@ class FireplacesSchema(Schema):
 class ForecastSettingsSchema(Schema):
     enabled = fields.Bool()
     weather_entity = fields.Str(metadata={"description": "A weather entity, or empty"})
+    correct = fields.Bool(
+        metadata={"description": "Add each hour's usual error to the forecast once it is known"}
+    )
+
+
+class ForecastAccuracyHourSchema(Schema):
+    hour = fields.Int(metadata={"description": "Hour of the day, house-local"})
+    n = fields.Int()
+    offset = fields.Float(metadata={"description": "°F delta added to that hour's forecast"})
+
+
+class ForecastAccuracySchema(Schema):
+    comparisons = fields.Int()
+    needed = fields.Int()
+    ready = fields.Bool()
+    in_use = fields.Bool()
+    mean_error = fields.Float(allow_none=True, metadata={"description": "°F delta"})
+    mean_abs = fields.Float(allow_none=True, metadata={"description": "°F delta"})
+    mean_abs_corrected = fields.Float(allow_none=True, metadata={"description": "°F delta"})
+    by_hour = fields.List(fields.Nested(ForecastAccuracyHourSchema))
 
 
 class ForecastDaySchema(Schema):
@@ -1003,7 +1023,8 @@ class ForecastDaySchema(Schema):
 
 class ForecastHourSchema(Schema):
     at = fields.Str()
-    temp = fields.Float(metadata={"description": "°F"})
+    temp = fields.Float(metadata={"description": "°F, corrected when the correction is in use"})
+    temp_raw = fields.Float(metadata={"description": "°F, as the weather source gave it"})
     cloud_pct = fields.Int(allow_none=True)
     precip_pct = fields.Int(allow_none=True)
     condition = fields.Str()
@@ -1021,6 +1042,7 @@ class ForecastSchema(Schema):
     covers_until = fields.Str(allow_none=True)
     days = fields.List(fields.Nested(ForecastDaySchema))
     hours = fields.List(fields.Nested(ForecastHourSchema))
+    accuracy = fields.Nested(ForecastAccuracySchema)
 
 
 class LearningSettingsSchema(Schema):

@@ -341,6 +341,16 @@ CREATE TABLE IF NOT EXISTS forecast_snapshots (
     PRIMARY KEY (issued, at)
 ) WITHOUT ROWID;
 
+-- How far the forecast is usually off, as a running average for each hour of
+-- the day in the house's time zone (backend/forecast_bias.py). °F.
+CREATE TABLE IF NOT EXISTS forecast_bias (
+    hour_of_day INTEGER PRIMARY KEY,
+    n INTEGER NOT NULL,
+    mean_error REAL NOT NULL,
+    mean_abs REAL NOT NULL,
+    mean_abs_corrected REAL NOT NULL
+);
+
 -- HomeClimate heat pumps: each backup (aux) heat episode seen on a zone's
 -- equipment-running source, for Metrics.
 CREATE TABLE IF NOT EXISTS aux_episodes (

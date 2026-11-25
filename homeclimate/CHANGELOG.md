@@ -2,6 +2,7 @@
 
 ## 0.5.7
 
+- Smart Control → Forecasts now shows how far off the forecast has been against your outside sensor, and after two days of comparisons corrects it for each hour of the day. On by default; **Correct the Forecast From Experience** turns it off. See docs/forecasts.md.
 - A schedule block, a hold and a room's occupancy target can each be a band: add a Cool To and the target becomes its Heat To, with the room kept between the two. Leave Cool To blank and nothing changes. See docs/house-band.md.
 
 ## 0.5.6

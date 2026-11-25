@@ -45,7 +45,7 @@ async def test_off_by_default_and_fetches_nothing(client, fake_ha):
     fake_ha.forecasts = {W: RuntimeError("must not be asked")}
     await client.app["scheduler"].refresh_forecast()
     snap = await (await client.get("/api/forecast")).json()
-    assert snap["settings"] == {"enabled": False, "weather_entity": ""}
+    assert snap["settings"] == {"enabled": False, "weather_entity": "", "correct": True}
     assert (snap["state"], snap["hours"], snap["days"], snap["problem"]) == ("off", [], [], None)
     # On, but with no weather entity anywhere.
     snap = await (await client.put("/api/forecast/settings", json={"enabled": True})).json()
@@ -59,6 +59,7 @@ async def test_turning_it_on_fetches_and_reports_the_next_day(client, on):
     assert on["hours"][0] == {
         "at": _this_hour().isoformat(),
         "temp": 50.0,
+        "temp_raw": 50.0,
         "cloud_pct": 40,
         "precip_pct": 10,
         "condition": "sunny",
@@ -174,7 +175,8 @@ async def test_the_shades_weather_entity_is_used_when_none_is_set_here(client, f
 
 async def test_settings_are_validated_with_fixed_messages(client):
     for body, message in (
-        ({"enabled": "yes"}, "enabled must be true or false"),
+        ({"enabled": "yes"}, "enabled and correct must be true or false"),
+        ({"correct": 1}, "enabled and correct must be true or false"),
         ({"weather_entity": "sensor.x"}, "weather_entity must be a weather entity or empty"),
         ({"weather_entity": 5}, "weather_entity must be a weather entity or empty"),
         ({"nope": 1}, "Unknown forecast setting"),
