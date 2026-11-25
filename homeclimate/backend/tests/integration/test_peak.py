@@ -282,11 +282,21 @@ async def test_banking_never_outvotes_a_hold(client, fake_ha, tick, monkeypatch,
     assert [ar.source for ar in eng._active_rooms.values()] == ["override"]
 
 
+@pytest.mark.parametrize("finished_hold", [False, True])
 async def test_a_banking_run_neither_sets_nor_holds_the_buildings_side(
-    client, fake_ha, tick, monkeypatch
+    client, fake_ha, tick, monkeypatch, finished_hold
 ):
-    """Another zone of the building that wants the other side waits one minimum runtime at most."""
-    _ids, eng = await _peak_site(client, fake_ha, monkeypatch, {"den": 75.5})
+    """Another zone of the building that wants the other side waits one minimum runtime at most.
+
+    The same with a room on a hold in the banking zone that is already where
+    it wants to be: it is in the run, but it is not what keeps the run going.
+    """
+    rooms = {"den": 75.5} | ({"nook": 72.0} if finished_hold else {})
+    ids, eng = await _peak_site(client, fake_ha, monkeypatch, rooms)
+    if finished_hold:
+        await client.post(
+            f"/api/rooms/{ids['nook']}/override", json={"target_temp": 72, "duration_hours": 2}
+        )
     other = "climate.peak_other"
     fake_ha.seed_state(
         other,
