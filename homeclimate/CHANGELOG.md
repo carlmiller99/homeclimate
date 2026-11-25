@@ -2,6 +2,7 @@
 
 ## 0.5.8
 
+- Smart Control → Smart Learning → Early Cooling: on a day still warming, a banded room whose model says it will pass its Cool To within three hours is cooled a little now instead. Never a hold, never outside the band, and it gives way to any room that asks for itself. Off until you turn it on; Watch Only logs what it would do. See docs/smart-learning.md.
 - Smart Control → Smart Learning → Get Rooms Ready for Usual Arrivals: a room is brought to its occupied temperature shortly before the hours of the week it is usually used, from its own occupancy history. It gives way to any room that asks for itself and is let go if nobody arrives. Off until you turn it on; Watch Only logs what it would do. See docs/smart-learning.md.
 - Smart Control → Peak Hours: bank heat or cool ahead of the hours when electricity costs most. Rooms following a band are worked a set depth into it before the peak, never past the band, only when the forecast for those hours calls for it, and never a hold. Off until you turn it on. See docs/peak-hours.md.
 - Smart Control → Smart Learning → Suggestions: advice from 14 days or more of history. A wider deadband for a zone with many short runs, and the hours a room is usually occupied as the blocks a schedule for it might have. Advice only; nothing is changed. See docs/smart-learning.md.

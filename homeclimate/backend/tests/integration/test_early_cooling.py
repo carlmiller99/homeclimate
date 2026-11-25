@@ -22,7 +22,7 @@ def utc(monkeypatch):
 
 
 async def _site(client, fake_ha, monkeypatch, rooms, *, ambient=75.0, level=2):
-    """A zone in a 68–76 house band on an afternoon forecast to climb from 90 to 96 °F."""
+    """A zone in a 68–76 house band on an afternoon forecast to climb from 90 to 100 °F."""
     fake_ha.seed_state(
         T,
         "heat_cool",
@@ -49,7 +49,7 @@ async def _site(client, fake_ha, monkeypatch, rooms, *, ambient=75.0, level=2):
     await house.set_band(conn, 68.0, 76.0)
     await forecast.update_settings(conn, {"correct": False})
     now = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
-    for n, temp in enumerate((90, 94, 96, 96, 96)):
+    for n, temp in enumerate((90, 96, 100, 100, 100)):
         await conn.execute(
             "INSERT INTO forecast_hours(at, temp, fetched_at) VALUES(?, ?, 0)",
             (int((now + timedelta(hours=n)).timestamp()), temp * forecast.TEMP_SCALE),

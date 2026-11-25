@@ -50,6 +50,7 @@ function data(over: Partial<la.Learning> = {}): la.Learning {
       early_start_level: 0,
       coast_level: 0,
       arrival_level: 0,
+      early_cool_level: 0,
     },
     coasting: { level: 0, misses_this_week: 0, misses_to_watch_only: 3, switched_back_at: null },
     samples: 3600,
@@ -226,6 +227,7 @@ describe("Smart Learning section", () => {
           early_start_level: 0,
           coast_level: 0,
           arrival_level: 0,
+          early_cool_level: 0,
         },
       })
     );
@@ -320,6 +322,10 @@ describe("Smart Learning section", () => {
     });
     await waitFor(() =>
       expect(la.updateLearningSettings).toHaveBeenCalledWith({ arrival_level: 1 })
+    );
+    fireEvent.change(screen.getByLabelText("Early Cooling"), { target: { value: "2" } });
+    await waitFor(() =>
+      expect(la.updateLearningSettings).toHaveBeenCalledWith({ early_cool_level: 2 })
     );
     cleanup();
     vi.mocked(la.getLearning).mockResolvedValue(

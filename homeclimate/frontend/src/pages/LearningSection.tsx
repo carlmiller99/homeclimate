@@ -303,6 +303,25 @@ export default function LearningSection() {
             ))}
           </select>
         </RuleRow>
+        <RuleRow
+          id="learning-early-cool"
+          title="Early Cooling"
+          help={`On a day the forecast says is still warming, a room following a band is cooled ${isCelsius ? "0.8°" : "1.5°"} below its Cool To when its own model says it would pass it within three hours if left alone, rather than waiting for the warmest part of the afternoon. Never a hold, never outside the band, and it gives way to any room that asks for itself. It moves cooling earlier and may use a little more of it. Watch Only writes what it would do to the Engine log.`}
+        >
+          <select
+            className="form-control"
+            aria-label="Early Cooling"
+            value={s.early_cool_level}
+            disabled={saving}
+            onChange={(e) => void set({ early_cool_level: Number(e.target.value) as 0 | 1 | 2 })}
+          >
+            {EARLY_START_LABELS.map((label, level) => (
+              <option key={label} value={level}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </RuleRow>
         {fitErr && <p className="form-error">{fitErr}</p>}
         {data.rooms.length === 0 && (
           <p className="page-subtitle">Add rooms in My Home to start collecting.</p>

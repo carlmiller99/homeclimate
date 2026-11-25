@@ -402,6 +402,25 @@ describe("Logs Page", () => {
     expect(await screen.findByText(/safety protection/i)).toBeInTheDocument();
   });
 
+  it("labels a room that was cooled early in the cycle detail", async () => {
+    vi.mocked(api.getCycleDetail).mockResolvedValue({
+      ...mockCycleDetail,
+      rooms: [
+        {
+          ...mockCycleDetail.rooms[0],
+          source: "precool",
+          trigger_detail: { source: "precool", target: 74.5 },
+        },
+      ],
+    });
+    render(<Logs />);
+
+    fireEvent.click(screen.getByText("Cycle History"));
+    fireEvent.click(await screen.findByText(/climate\.test/i));
+
+    expect(await screen.findByText(/early cooling/i)).toBeInTheDocument();
+  });
+
   it("labels a room that was got ready for a usual arrival in the cycle detail", async () => {
     vi.mocked(api.getCycleDetail).mockResolvedValue({
       ...mockCycleDetail,

@@ -177,6 +177,9 @@ function triggerSummary(
   if (source === "arrival") {
     return "getting ready for a usual arrival";
   }
+  if (source === "precool") {
+    return "early cooling";
+  }
   return source ?? "";
 }
 

@@ -214,6 +214,8 @@ export interface ZoneStatus {
   bank_rooms?: string[];
   /** Rooms being got ready for a usual arrival (Get Rooms Ready for Usual Arrivals). */
   arrival_rooms?: string[];
+  /** Rooms being cooled ahead of a warm afternoon (Early Cooling). */
+  early_cool_rooms?: string[];
   rooms: RoomLiveStatus[];
 }
 

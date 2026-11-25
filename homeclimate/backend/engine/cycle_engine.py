@@ -6932,9 +6932,7 @@ class CycleEngine:
         self._arrivals_logged = {k for k in self._arrivals_logged if k[1] > passed}
         the_house = await house.load(conn)
         tc = await self._load_tc(conn)
-        side, obey = (
-            self._get_building_side() if self._get_building_side is not None else (None, False)
-        )
+        side, obey = self._side_for_optional()
         state = (self._ha.get_state(self.thermostat_entity_id) or {}).get("state")
         models = await room_model.load(conn) if usual else {}
         outside = await self._read_outside_temp(conn) if usual else None
@@ -6966,6 +6964,9 @@ class CycleEngine:
                 if (
                     coming is None
                     or presence_temp is None
+                    # A call in this zone is waiting to coast: a run started
+                    # for this would end that wait for it.
+                    or (self._state == CycleState.IDLE and self._coast_wait)
                     or not switches.use_presence
                     or room.presence_holdover_hours <= 0
                 ):
@@ -7094,9 +7095,7 @@ class CycleEngine:
                 hours = (await forecast_bias.load(conn)).correct(hours)
             ahead = [(h.at, h.temp) for h in hours]
             models = await room_model.load(conn)
-        side, obey = (
-            self._get_building_side() if self._get_building_side is not None else (None, False)
-        )
+        side, obey = self._side_for_optional()
         state = (self._ha.get_state(self.thermostat_entity_id) or {}).get("state")
         quiet = timedelta(minutes=early_cooling.LOOK_AHEAD_MIN)
         self._early_cool_logged = {
@@ -7117,6 +7116,7 @@ class CycleEngine:
                     outside is None
                     or avg is None
                     or model is None
+                    or (self._state == CycleState.IDLE and self._coast_wait)
                     or not coasting.usable(model, now)
                     or state == "heat"
                     or (obey and side is not None and side != "cooling")

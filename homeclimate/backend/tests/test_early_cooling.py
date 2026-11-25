@@ -144,6 +144,17 @@ async def test_what_is_never_cooled_early(monkeypatch):
     models[room.id] = _model(loss=0.01, fitted=NOW)
     assert await engine._cool_early(conn, band, now=NOW) == band
     models[room.id] = kept
+    # While a call in the zone is waiting to coast, no run is started for this.
+    engine._coast_wait = {"another-room": (NOW, "heating", 70.0)}
+    assert await engine._cool_early(conn, band, now=NOW) == band
+    engine._coast_wait = {}
+    # A building on no side yet where another zone is waiting to heat.
+    engine._get_building_side = lambda: (None, True)
+    engine._get_building_waiting = lambda: "heating"
+    assert await engine._cool_early(conn, band, now=NOW) == band
+    engine._get_building_waiting = lambda: None
+    assert len(await engine._cool_early(conn, band, now=NOW)) == 1
+    engine._get_building_side = engine._get_building_waiting = None
     # A thermostat in heat mode, and a building held to heating (one only watched is not).
     engine._ha.get_state.return_value = {"state": "heat", "attributes": {}}
     assert await engine._cool_early(conn, band, now=NOW) == band

@@ -137,6 +137,29 @@ The Dashboard marks such a room **Getting Ready**, and the cycle detail in Logs 
 
 Known limits: on the two days a year the clocks change, an arrival in the changed hour can be an hour out. A room that is got ready and then not used has run the equipment for nothing; Watch Only for a week or two shows how often that would happen before you turn it on.
 
+## Early Cooling
+
+**Smart Control → Smart Learning → Early Cooling** cools a room a little before a warm afternoon makes it necessary. A room following a band is normally left alone until it passes its Cool To, which on a hot day happens when the equipment is at its least efficient and every room wants it at once.
+
+| Level | What it does |
+|---|---|
+| **Off** (default) | Nothing. |
+| **Watch Only** | Writes "Would cool … early" to the Engine log when it would have started, and starts nothing. |
+| **On** | Cools the room. |
+
+A room is cooled early only when all of these hold:
+
+- It follows a band (the house band, or a schedule or occupancy band), not a hold, and is inside it.
+- The forecast for the next three hours is warmer than the room's Cool To and at least 3 °F (1.7 °C) warmer than now. A day that has already peaked is left alone.
+- The room's own model, fitted in the last week with its heat loss learned, says the room would pass its Cool To within those three hours if nothing ran.
+- The thermostat is not in heat mode and the building is not held to heating.
+
+It is cooled to 1.5 °F (0.8 °C) below its Cool To, never closer than 1 °F and the room's deadband to its Heat To, and inside the zone's setpoint limits. Once it is there it is left until it drifts back past its deadband.
+
+Like the other conveniences it gives way to any room that asks for itself, never sets or holds a building's side, starts nothing while a call in the zone is waiting to coast, and a room that has started a run stays in it until the run ends. Peak Hours and Zone Balance take a room first when they want it. The Dashboard marks such a room **Cooling Early**; the cycle detail in Logs says "early cooling". The Engine log says it once per room every three hours.
+
+What to expect: cooling starts earlier, and the room is held slightly cooler through the warm-up, so this can use a little more cooling overall in exchange for doing it at a better time. Watch Only shows how often it would act before you decide.
+
 ## Suggestions
 
 Below the section, **Suggestions** gives advice from what has been recorded. It changes nothing: each suggestion says what it rests on and where to make the change if you agree. Nothing is suggested until there are 14 days of history, and it looks back 30 days.

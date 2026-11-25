@@ -135,6 +135,10 @@ async def test_what_is_left_alone(monkeypatch):
     engine._coast_wait = {room.id: (MON, "heating", 70.0)}
     assert await engine._arrive(conn, [], now=MON) == []
     engine._coast_wait = {}
+    # Nor is a run started while any call in the zone is waiting to coast.
+    engine._coast_wait = {"another-room": (MON, "cooling", 74.0)}
+    assert await engine._arrive(conn, [], now=MON) == []
+    engine._coast_wait = {}
     # No reading.
     temps["now"] = None
     assert await engine._arrive(conn, [], now=MON) == []

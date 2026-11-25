@@ -428,6 +428,7 @@ describe("Dashboard rooms and zones", () => {
         balance_rooms: ["loft"],
         bank_rooms: ["loft"],
         arrival_rooms: ["loft"],
+        early_cool_rooms: ["loft"],
       },
       status("climate.north"),
     ]);
@@ -458,6 +459,12 @@ describe("Dashboard rooms and zones", () => {
       expect.stringMatching(/usually used about now/)
     );
     expect(within(screen.getByTestId("dash-room-bunk")).queryByText("Getting Ready")).toBeNull();
+    // And one being cooled ahead of a warm afternoon.
+    expect(within(screen.getByTestId("dash-room-loft")).getByText("Cooling Early")).toHaveAttribute(
+      "title",
+      expect.stringMatching(/expected to pass its Cool To later/)
+    );
+    expect(within(screen.getByTestId("dash-room-bunk")).queryByText("Cooling Early")).toBeNull();
   });
 
   it("marks a room a lit fireplace is keeping out of demand", async () => {

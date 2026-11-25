@@ -9,6 +9,8 @@ export interface LearningSettings {
   coast_level: 0 | 1 | 2;
   /** Get rooms ready a little before they are usually used: 0 off, 1 watch only, 2 on. */
   arrival_level: 0 | 1 | 2;
+  /** Cool a banded room a little before a warm afternoon: 0 off, 1 watch only, 2 on. */
+  early_cool_level: 0 | 1 | 2;
 }
 
 export const EARLY_START_LABELS = ["Off", "Watch Only", "On"] as const;
