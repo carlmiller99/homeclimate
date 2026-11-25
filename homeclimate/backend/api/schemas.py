@@ -1130,6 +1130,12 @@ class LearningSettingsSchema(Schema):
             "0 off, 1 watch only, 2 on"
         }
     )
+    early_cool_level = fields.Int(
+        metadata={
+            "description": "Cool a banded room a little before a warm afternoon: "
+            "0 off, 1 watch only, 2 on"
+        }
+    )
 
 
 class NotifySettingsSchema(Schema):

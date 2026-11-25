@@ -2095,6 +2095,7 @@ class Scheduler:
             "balance_rooms": s.balance_rooms,
             "bank_rooms": s.bank_rooms,
             "arrival_rooms": s.arrival_rooms,
+            "early_cool_rooms": s.early_cool_rooms,
             "rooms": [
                 {
                     "room_id": r.room_id,

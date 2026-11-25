@@ -491,3 +491,5 @@ class ZoneStatus:
     bank_rooms: list[str] = field(default_factory=list)
     # Rooms being got ready for a usual arrival (Get Rooms Ready for Usual Arrivals).
     arrival_rooms: list[str] = field(default_factory=list)
+    # Rooms being cooled ahead of a warm afternoon (Early Cooling).
+    early_cool_rooms: list[str] = field(default_factory=list)

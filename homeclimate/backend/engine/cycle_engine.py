@@ -26,6 +26,7 @@ from .. import (
     arrivals,
     coasting,
     db,
+    early_cooling,
     eco,
     forecast,
     forecast_bias,
@@ -167,7 +168,7 @@ class CycleState(Enum):
 
 # Room sources added by a convenience rather than asked for by the house: they
 # never outvote the others when the zone chooses between heating and cooling.
-OPTIONAL_SOURCES = frozenset({"arrival", "balance", "bank"})
+OPTIONAL_SOURCES = frozenset({"arrival", "balance", "bank", "precool"})
 
 
 def _block_start(now: datetime, secs: int) -> datetime:
@@ -266,6 +267,9 @@ class CycleEngine:
         # when they were read, and the arrivals already written to the log.
         self._usual_hours: tuple[datetime, dict[str, frozenset[tuple[int, int]]]] | None = None
         self._arrivals_logged: set[tuple[str, str, str]] = set()
+        # Early Cooling (``backend/early_cooling.py``): rooms it has spoken of
+        # in the log, and when, so a warm afternoon is one line and not sixty.
+        self._early_cool_logged: dict[tuple[str, str], datetime] = {}
         self._coast_wait: dict[str, tuple[datetime, str, float]] = {}
         self._coast_done: dict[str, tuple[str, float]] = {}
         # When each room's last wait ended, and when coasting was last looked at.
@@ -618,6 +622,7 @@ class CycleEngine:
             balance_rooms=self.balance_rooms,
             bank_rooms=self.bank_rooms,
             arrival_rooms=self.arrival_rooms,
+            early_cool_rooms=self.early_cool_rooms,
             coasting_rooms=sorted(self._coast_wait)
             if self._coast_seen is not None
             and datetime.now(UTC) - self._coast_seen <= coasting.STALE_AFTER
@@ -6319,6 +6324,7 @@ class CycleEngine:
             self._arrive,
             self._balance,
             self._bank,
+            self._cool_early,
         ):
             try:
                 active = await step(conn, active, now)
@@ -7005,6 +7011,128 @@ class CycleEngine:
                     },
                 )
         return out
+
+    async def _cool_early(
+        self, conn: aiosqlite.Connection, active: list[ActiveRoom], now: datetime | None = None
+    ) -> list[ActiveRoom]:
+        """Cool a banded room a little before a warm afternoon (``backend/early_cooling.py``).
+
+        Only a room following a band (never a hold), inside it, whose model
+        says it will pass its Cool To within three hours if left alone on a day
+        the forecast says is still warming. Never past the band, never against
+        the side the building is held to or a thermostat in heat mode. A room
+        that has started a run is kept in it until the run ends. On Watch Only
+        it is logged and nothing is started.
+        """
+        level = early_cooling.LEVELS[(await learning.get_settings(conn))["early_cool_level"]]
+        held: dict[str, float] = {}
+        if self._state != CycleState.IDLE:
+            held = {
+                rid: ar.target_temp if ar.requested_target is None else ar.requested_target
+                for rid, ar in self._active_rooms.items()
+                if ar.source == "precool"
+            }
+        if level == "off" and not held:
+            return active
+        now = now or datetime.now(UTC)
+        tc = await self._load_tc(conn)
+        outside: float | None = None
+        ahead: list[tuple[datetime, float]] = []
+        models: dict[str, room_model.RoomModel] = {}
+        if level != "off" and (self._state == CycleState.IDLE or self._cycle_mode == "cooling"):
+            outside = await self._read_outside_temp(conn)
+            hours, _fetched = await forecast.load(conn, now=now)
+            if (await forecast.get_settings(conn))["correct"]:
+                hours = (await forecast_bias.load(conn)).correct(hours)
+            ahead = [(h.at, h.temp) for h in hours]
+            models = await room_model.load(conn)
+        side, obey = (
+            self._get_building_side() if self._get_building_side is not None else (None, False)
+        )
+        state = (self._ha.get_state(self.thermostat_entity_id) or {}).get("state")
+        quiet = timedelta(minutes=early_cooling.LOOK_AHEAD_MIN)
+        self._early_cool_logged = {
+            k: at for k, at in self._early_cool_logged.items() if timedelta(0) <= now - at < quiet
+        }
+        out = list(active)
+        for ar in active:
+            room = ar.room
+            if ar.source == "override" or ar.heat_to is None or ar.cool_to is None:
+                continue
+            minutes: int | None = None
+            if room.id in held:
+                target = held[room.id]
+            else:
+                model = models.get(room.id)
+                avg = self._get_avg_temp(room)
+                if (
+                    outside is None
+                    or avg is None
+                    or model is None
+                    or not coasting.usable(model, now)
+                    or state == "heat"
+                    or (obey and side is not None and side != "cooling")
+                ):
+                    continue
+                temp = avg + room.temp_offset
+                deadband = _effective_deadband(room, tc.deadband, ar.deadband_override)
+                target = peak.banked_target(
+                    "cooling", ar.heat_to, ar.cool_to, early_cooling.DEPTH_F, deadband
+                )
+                target = min(max(target, tc.min_setpoint), tc.max_setpoint)
+                if (
+                    temp - target <= deadband
+                    # Past its Cool To already: the band itself is asking.
+                    or temp > ar.cool_to + deadband
+                    or early_cooling.warming(outside, ahead, now, ar.cool_to) is None
+                ):
+                    continue
+                # The model was fitted on the raw readings, so it is asked in those.
+                minutes = early_cooling.breach_in(
+                    model,
+                    temp=avg,
+                    cool_to=ar.cool_to - room.temp_offset,
+                    outlook=coasting.Outlook(now, outside, ahead),
+                    zone=self._thermo_ambient_f(),
+                )
+                if minutes is None:
+                    continue
+            if level == "on" or room.id in held:
+                self._optional_replaced[room.id] = ar
+                out = [a for a in out if a.room.id != room.id]
+                out.append(
+                    ActiveRoom(
+                        room=room,
+                        target_temp=target,
+                        source="precool",
+                        deadband_override=ar.deadband_override,
+                    )
+                )
+            key = (room.id, level)
+            if minutes is not None and self._logger and key not in self._early_cool_logged:
+                self._early_cool_logged[key] = now
+                does = "Cooling" if level == "on" else "Would cool (watching only)"
+                await self._logger.log(
+                    "info",
+                    "engine",
+                    f"{does} {room.name} early to {target:g}°F: left alone it is expected to"
+                    f" pass {ar.cool_to:g}°F in about {minutes} min, and the afternoon is"
+                    " forecast warmer",
+                    {
+                        "thermostat": self.thermostat_entity_id,
+                        "room": room.id,
+                        "target": target,
+                        "breach_in_min": minutes,
+                    },
+                )
+        return out
+
+    @property
+    def early_cool_rooms(self) -> list[str]:
+        """Rooms in a run that is cooling them ahead of a warm afternoon."""
+        if self._state == CycleState.IDLE:
+            return []
+        return sorted(rid for rid, ar in self._active_rooms.items() if ar.source == "precool")
 
     @property
     def arrival_rooms(self) -> list[str]:
