@@ -28,6 +28,7 @@ import {
 import { bandText } from "../bands";
 import BuildingModeControl from "../components/BuildingModeControl";
 import { getBuildingModes, type BuildingMode } from "../buildingModeApi";
+import TodayCard from "../components/TodayCard";
 import ConfirmDialog from "../components/ConfirmDialog";
 import HouseBandCard from "../components/HouseBandCard";
 import RoomFollowDialog from "../components/RoomFollowDialog";
@@ -838,6 +839,7 @@ export default function Dashboard() {
         <StaleSensorsBanner />
 
         {house && <HouseBandCard house={house} onSaved={setHouse} />}
+        <TodayCard />
 
         {/* Vacation mode + Eco Suspend buttons — sit above climate cards */}
         <div style={{ marginBottom: "1rem" }}>

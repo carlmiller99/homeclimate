@@ -1089,6 +1089,33 @@ class ForecastDaySchema(Schema):
     hours = fields.Int()
 
 
+class TodayHourSchema(Schema):
+    at = fields.Str()
+    temp = fields.Float(metadata={"description": "°F, forecast outside"})
+    need = fields.Str(metadata={"description": "heat, cool or coast"})
+
+
+class TodayEventSchema(Schema):
+    at = fields.Str()
+    kind = fields.Str(metadata={"description": "schedule, peak_bank, peak_start or peak_end"})
+    room_id = fields.Str()
+    room = fields.Str()
+    target = fields.Float(metadata={"description": "°F; schedule events only"})
+    cool_to = fields.Float(allow_none=True, metadata={"description": "°F; banded blocks only"})
+
+
+class TodaySchema(Schema):
+    now = fields.Str()
+    heat_below = fields.Float(metadata={"description": "°F: colder than this outside needs heat"})
+    cool_above = fields.Float(
+        metadata={"description": "°F: warmer than this outside needs cooling"}
+    )
+    forecast_fetched_at = fields.Str(allow_none=True)
+    hours = fields.List(fields.Nested(TodayHourSchema))
+    events = fields.List(fields.Nested(TodayEventSchema))
+    yesterday = fields.Str()
+
+
 class ForecastHourSchema(Schema):
     at = fields.Str()
     temp = fields.Float(metadata={"description": "°F, corrected when the correction is in use"})

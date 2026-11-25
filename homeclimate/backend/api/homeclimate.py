@@ -29,6 +29,7 @@ from .. import (
     room_model,
     shades,
     suggestions,
+    today,
     tz,
     zone_balance,
     zones,
@@ -973,6 +974,13 @@ async def _forecast_snapshot(request: web.Request) -> dict:
     )
     snap["accuracy"] = forecast_bias.snapshot(bias, in_use=snap["settings"]["correct"])
     return snap
+
+
+@docs(tags=["system"], summary="Today's plan: what the weather asks for and what is coming up")
+@response_schema(schemas.TodaySchema)
+@routes.get("/api/today")
+async def get_today(request: web.Request) -> web.Response:
+    return json_response(await today.build(await get_conn(request), now=datetime.now(tz.UTC)))
 
 
 @docs(tags=["forecast"], summary="Forecast settings and the forecast in use")

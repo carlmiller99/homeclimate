@@ -7,6 +7,8 @@ import * as ha from "../houseApi";
 import { SystemContext, UnitContext, buildUnitContext } from "../contexts";
 
 vi.mock("../api");
+// The plan card loads by itself and has its own tests.
+vi.mock("../components/TodayCard", () => ({ default: () => null }));
 vi.mock("../houseApi", async (orig) => ({
   ...(await orig<typeof import("../houseApi")>()),
   getHouse: vi.fn(),

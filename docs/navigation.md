@@ -14,6 +14,8 @@ HomeClimate has five tabs. One rule decides what goes where, and where new featu
 
 Zones are grouped by building, and every room is listed under its zone with its temperature, whether or not it is part of a running cycle.
 
+**Today's Plan**, under the House band, shows the next 24 forecast hours as a strip (heating where it is colder outside than the house band's Heat To, cooling where warmer than its Cool To, coasting between), the next schedule blocks and peak hours on the clock in house time, and yesterday in a sentence: how often and how long heating and cooling ran, and how many warnings were logged. It refreshes every five minutes and changes nothing. With no weather source chosen it shows only yesterday.
+
 Manual controls live here and nowhere else:
 
 - **System On / Off** at the top right: one switch for all of HomeClimate's control. It asks before switching.

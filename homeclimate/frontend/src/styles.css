@@ -2819,3 +2819,48 @@ button.sc-nav-item {
   gap: 0.5rem;
   align-items: center;
 }
+
+/* Dashboard → Today's Plan */
+.today-strip {
+  display: flex;
+  gap: 2px;
+  margin: 0.5rem 0 1.4rem;
+}
+.today-hour {
+  position: relative;
+  flex: 1 1 0;
+  height: 1.5rem;
+  border-radius: 4px;
+  background: var(--state-idle-bg);
+}
+.today-heat {
+  background: var(--state-heating);
+}
+.today-cool {
+  background: var(--state-cooling);
+}
+.today-hour-label {
+  position: absolute;
+  top: 1.7rem;
+  left: 0;
+  font-size: 0.75rem;
+  color: var(--gray-600);
+  white-space: nowrap;
+}
+.today-events {
+  list-style: none;
+  margin: 0.75rem 0;
+  padding: 0;
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+}
+.today-events li {
+  display: grid;
+  grid-template-columns: 5.5rem minmax(0, 1fr);
+  gap: 0.75rem;
+}
+.today-when {
+  color: var(--gray-600);
+  font-variant-numeric: tabular-nums;
+}

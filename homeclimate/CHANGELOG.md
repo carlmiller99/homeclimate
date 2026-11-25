@@ -2,6 +2,7 @@
 
 ## 0.5.8
 
+- Dashboard → Today's Plan: the next 24 forecast hours marked as heating, coasting or cooling against the house band, the next schedule blocks and peak hours on the clock, and yesterday in a sentence. It shows; it changes nothing.
 - Smart Learning: rooms with a window of known direction (a shade in My Home) now learn how much the sun warms them, and that is used wherever a room is predicted to drift by itself. The sun's position and strength are adapted from RoomMind (MIT; see THIRD_PARTY_NOTICES.md).
 - Smart Control → Doors & Windows → Shades → Close Ahead of a Warm Room: a sunlit shade closes before any cooling runs when it is warmer outside and the room is close to, or expected to pass, the top of what it is asked to hold. Off until you turn it on. See docs/shades.md.
 - Smart Control → Smart Learning → Early Cooling: on a day still warming, a banded room whose model says it will pass its Cool To within three hours is cooled a little now instead. Never a hold, never outside the band, and it gives way to any room that asks for itself. Off until you turn it on; Watch Only logs what it would do. See docs/smart-learning.md.
