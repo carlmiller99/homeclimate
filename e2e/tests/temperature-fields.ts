@@ -85,6 +85,13 @@ export const TEMPERATURE_FIELDS: TempField[] = [
     endpoints: ["POST /api/thermostats", "PUT /api/thermostats/{id}"],
   },
 
+  // ── Peak Hours — PUT /api/peak-hours (Smart Control)
+  {
+    field: "peak_depth",
+    kind: "delta",
+    ui: true,
+    endpoints: ["PUT /api/peak-hours"],
+  },
   // ── Zone Balance — PUT /api/zone-balance/{building_id} (Smart Control)
   {
     field: "zone_gap",

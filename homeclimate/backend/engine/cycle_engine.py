@@ -30,6 +30,7 @@ from .. import (
     forecast_bias,
     house,
     learning,
+    peak,
     room_model,
     tz,
     zone_balance,
@@ -256,6 +257,9 @@ class CycleEngine:
         # house band entry, or None), so it can be put back: see
         # ``_optional_rooms_yield``.
         self._optional_replaced: dict[str, ActiveRoom | None] = {}
+        # Peak Hours (``backend/peak.py``): rooms being banked ahead of the
+        # peak (room id → target), kept to the end of the run they started.
+        self._bank_latch: dict[str, float] = {}
         self._coast_wait: dict[str, tuple[datetime, str, float]] = {}
         self._coast_done: dict[str, tuple[str, float]] = {}
         # When each room's last wait ended, and when coasting was last looked at.
@@ -606,6 +610,7 @@ class CycleEngine:
             # Not while coasting has stopped being looked at (Vacation Mode,
             # the system off): a wait from before is not a wait now.
             balance_rooms=self.balance_rooms,
+            bank_rooms=self.bank_rooms,
             coasting_rooms=sorted(self._coast_wait)
             if self._coast_seen is not None
             and datetime.now(UTC) - self._coast_seen <= coasting.STALE_AFTER
@@ -6292,7 +6297,13 @@ class CycleEngine:
         All are conveniences that run before safety protection is added, so a
         fault in one is logged and the tick goes on without it.
         """
-        for step in (self._heat_pump_warmups, self._early_starts, self._coast, self._balance):
+        for step in (
+            self._heat_pump_warmups,
+            self._early_starts,
+            self._coast,
+            self._balance,
+            self._bank,
+        ):
             try:
                 active = await step(conn, active, now)
             except Exception:
@@ -6664,6 +6675,85 @@ class CycleEngine:
             out.append(ActiveRoom(room=room, target_temp=target, source="balance"))
         self._balance_latch = latched
         return out
+
+    async def _bank(
+        self, conn: aiosqlite.Connection, active: list[ActiveRoom], now: datetime | None = None
+    ) -> list[ActiveRoom]:
+        """Bank heat or cool in banded rooms ahead of the peak hours (``backend/peak.py``).
+
+        For the lead time before a peak, a room following a band is worked a
+        set depth into it: cooled toward its Heat To before hours that will be
+        hot, warmed toward its Cool To before hours that will be cold. Never
+        past the band, never a hold, never against the side the building is
+        held to, and not warmed while a heat pump expects its strips. A room
+        that has started a run is kept in it until the run ends.
+        """
+        settings = await peak.load(conn)
+        now = now or datetime.now(UTC)
+        held: dict[str, float] = {}
+        if self._state != CycleState.IDLE:
+            held = self._bank_latch or {
+                # The target asked for, not one Eco has since relaxed.
+                rid: ar.target_temp if ar.requested_target is None else ar.requested_target
+                for rid, ar in self._active_rooms.items()
+                if ar.source == "bank"
+            }
+        win = peak.window(settings, now) if settings.enabled else None
+        banking = win is not None and win.banking(now)
+        if not banking and not held:
+            self._bank_latch = {}
+            return active
+        outside: float | None = None
+        ahead: list[tuple[datetime, float]] = []
+        if banking:
+            outside = await self._read_outside_temp(conn)
+            hours, _fetched = await forecast.load(conn, now=now)
+            if (await forecast.get_settings(conn))["correct"]:
+                hours = (await forecast_bias.load(conn)).correct(hours)
+            ahead = [(h.at, h.temp) for h in hours]
+        side, obey = (
+            self._get_building_side() if self._get_building_side is not None else (None, False)
+        )
+        tc = await self._load_tc(conn)
+        out = list(active)
+        latched: dict[str, float] = {}
+        for ar in active:
+            room = ar.room
+            if ar.source == "override" or ar.heat_to is None or ar.cool_to is None:
+                continue
+            if room.id in held:
+                target = held[room.id]
+            elif not banking or win is None:
+                continue
+            else:
+                way = peak.direction(win, ar.heat_to, ar.cool_to, outside, ahead)
+                if (
+                    way is None
+                    or (obey and side is not None and side != way)
+                    or (way == "heating" and self._hp_strips)
+                ):
+                    continue
+                target = peak.banked_target(way, ar.heat_to, ar.cool_to, settings.peak_depth)
+                target = min(max(target, tc.min_setpoint), tc.max_setpoint)
+                avg = self._get_avg_temp(room)
+                if avg is None:
+                    continue
+                temp = avg + room.temp_offset
+                short = target - temp if way == "heating" else temp - target
+                if short <= _effective_deadband(room, tc.deadband, ar.deadband_override):
+                    continue
+            latched[room.id] = target
+            out = [a for a in out if a.room.id != room.id]
+            out.append(ActiveRoom(room=room, target_temp=target, source="bank"))
+        self._bank_latch = latched
+        return out
+
+    @property
+    def bank_rooms(self) -> list[str]:
+        """Rooms in a run that is banking ahead of the peak hours."""
+        if self._state == CycleState.IDLE:
+            return []
+        return sorted(rid for rid, ar in self._active_rooms.items() if ar.source == "bank")
 
     @property
     def balance_rooms(self) -> list[str]:

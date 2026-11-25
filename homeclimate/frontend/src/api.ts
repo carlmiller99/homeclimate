@@ -210,6 +210,8 @@ export interface ZoneStatus {
   coasting_rooms?: string[];
   /** Rooms being heated or cooled to keep this zone near another (Zone Balance). */
   balance_rooms?: string[];
+  /** Rooms being banked ahead of the peak hours (Peak Hours). */
+  bank_rooms?: string[];
   rooms: RoomLiveStatus[];
 }
 

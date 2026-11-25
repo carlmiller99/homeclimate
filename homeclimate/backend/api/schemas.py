@@ -924,6 +924,35 @@ class BuildingModesSchema(Schema):
     buildings = fields.List(fields.Nested(BuildingModeSchema))
 
 
+class PeakHoursWriteSchema(Schema):
+    enabled = fields.Bool()
+    start = fields.Str(metadata={"description": "House-local HH:MM the peak begins"})
+    end = fields.Str(metadata={"description": "House-local HH:MM it ends; before start = next day"})
+    days = fields.List(fields.Int(), metadata={"description": "0 is Monday"})
+    lead_min = fields.Int(metadata={"description": "Minutes before the peak to bank for, 30-180"})
+    peak_depth = fields.Float(
+        metadata={
+            "description": "How far into the band to bank. A difference: display unit in, °F out."
+        }
+    )
+
+
+class PeakWindowSchema(Schema):
+    bank_from = fields.Str()
+    start = fields.Str()
+    end = fields.Str()
+    banking = fields.Bool()
+    under_way = fields.Bool()
+
+
+class PeakHoursSchema(PeakHoursWriteSchema):
+    window = fields.Nested(PeakWindowSchema, allow_none=True)
+    min_depth = fields.Float()
+    max_depth = fields.Float()
+    min_lead_min = fields.Int()
+    max_lead_min = fields.Int()
+
+
 class ZoneBalanceWriteSchema(Schema):
     level = fields.Str(metadata={"description": "off, watch or on"})
     zone_gap = fields.Float(

@@ -2,6 +2,7 @@
 
 ## 0.5.8
 
+- Smart Control → Peak Hours: bank heat or cool ahead of the hours when electricity costs most. Rooms following a band are worked a set depth into it before the peak, never past the band, only when the forecast for those hours calls for it, and never a hold. Off until you turn it on. See docs/peak-hours.md.
 - Smart Control → Smart Learning → Suggestions: advice from 14 days or more of history. A wider deadband for a zone with many short runs, and the hours a room is usually occupied as the blocks a schedule for it might have. Advice only; nothing is changed. See docs/smart-learning.md.
 - Smart Control → Zone Balance: per building, keep zones within a gap limit of each other (3 °F to start with). A zone too far behind one that is in use is heated or cooled back to the limit, only in the direction the building is already working. Off by default; Watch Only logs what it would do. See docs/zone-balance.md.
 - Smart Control → Smart Learning → Let Rooms Coast: a call waits when the room is a little short of its target and its model and the forecast say it will drift there on its own, up to 45 minutes (three times that on electric strip heat), never once it is 2 °F off, and never for a hold. Off by default; Watch Only logs what it would do. Three bad waits in a week switch it back to Watch Only. See docs/smart-learning.md.

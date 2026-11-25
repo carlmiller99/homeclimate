@@ -171,6 +171,9 @@ function triggerSummary(
   if (source === "balance") {
     return "zone balance";
   }
+  if (source === "bank") {
+    return "banking for peak hours";
+  }
   return source ?? "";
 }
 

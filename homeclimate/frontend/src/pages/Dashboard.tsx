@@ -120,6 +120,7 @@ function RoomRow({
   fireplace,
   coasting = false,
   balancing = false,
+  banking = false,
   onHold,
   onCancelHold,
   onClearPresence,
@@ -136,6 +137,8 @@ function RoomRow({
   coasting?: boolean;
   /** Heated or cooled to keep its zone near another (Zone Balance). */
   balancing?: boolean;
+  /** Worked into its band ahead of the peak hours (Peak Hours). */
+  banking?: boolean;
   onHold: () => void;
   onCancelHold: () => void;
   onClearPresence: () => void;
@@ -197,6 +200,15 @@ function RoomRow({
               title="Zone Balance is heating or cooling this room to keep its zone within the gap limit of another"
             >
               Zone Balance
+            </span>
+          )}
+          {banking && (
+            <span
+              className="badge badge-gray"
+              role="status"
+              title="This room is being heated or cooled a little into its band now, so less has to run during the peak hours"
+            >
+              Banking
             </span>
           )}
           {coasting && (
@@ -317,7 +329,8 @@ function roomsBlock(
     onClearPresence: () => void;
   },
   coasting: string[] = [],
-  balancing: string[] = []
+  balancing: string[] = [],
+  banking: string[] = []
 ) {
   // A room the cycle reports but the room list does not know yet (it was
   // added a moment ago) still gets a row, named by its id.
@@ -341,6 +354,7 @@ function roomsBlock(
           fireplace={fireplaceRooms[room.id] ?? null}
           coasting={coasting.includes(room.id)}
           balancing={balancing.includes(room.id)}
+          banking={banking.includes(room.id)}
           onHold={() => controls.onHold(room.id)}
           onCancelHold={() => controls.onCancelHold(room.id)}
           onClearPresence={controls.onClearPresence}
@@ -519,7 +533,8 @@ function ZoneCard({
           fireplaceRooms,
           { onHold, onCancelHold, onClearPresence },
           zone.coasting_rooms,
-          zone.balance_rooms
+          zone.balance_rooms,
+          zone.bank_rooms
         )}
       </Frozen>
 

@@ -402,6 +402,25 @@ describe("Logs Page", () => {
     expect(await screen.findByText(/safety protection/i)).toBeInTheDocument();
   });
 
+  it("labels a room that was banked for the peak hours in the cycle detail", async () => {
+    vi.mocked(api.getCycleDetail).mockResolvedValue({
+      ...mockCycleDetail,
+      rooms: [
+        {
+          ...mockCycleDetail.rooms[0],
+          source: "bank",
+          trigger_detail: { source: "bank", target: 74 },
+        },
+      ],
+    });
+    render(<Logs />);
+
+    fireEvent.click(screen.getByText("Cycle History"));
+    fireEvent.click(await screen.findByText(/climate\.test/i));
+
+    expect(await screen.findByText(/banking for peak hours/i)).toBeInTheDocument();
+  });
+
   it("labels a room that ran for Zone Balance in the cycle detail", async () => {
     vi.mocked(api.getCycleDetail).mockResolvedValue({
       ...mockCycleDetail,
