@@ -109,6 +109,34 @@ A waiting room shows **Coasting** on the Dashboard. Each wait is logged under En
 
 The limits are 2 °F and 1.5 °F (1.1 °C and 0.8 °C). A zone whose equipment has not been set in My Home counts as electric strip heat, which is the default; set a gas furnace there to get the shorter wait.
 
+## Get Rooms Ready for Usual Arrivals
+
+**Smart Control → Smart Learning → Get Rooms Ready for Usual Arrivals** brings a room to its occupied temperature shortly before the time of week it is usually used, so it is comfortable when someone walks in rather than half an hour later.
+
+| Level | What it does |
+|---|---|
+| **Off** (default) | Nothing. |
+| **Watch Only** | Writes "Would get … ready" to the Engine log at the moment it would have started, and starts nothing. |
+| **On** | Starts the room. |
+
+How it decides:
+
+- **Usual hours** come from the room's occupancy sensors: an hour of the week counts once the room has been occupied for most of it on at least two separate weeks, from two weeks or more of history. These are the same hours the schedule suggestion shows. They are read again every six hours.
+- **An arrival** is the first of a run of usual hours. Monday 14:00 to 16:00 gives one arrival, at 14:00.
+- **The lead** is 30 minutes until the room's model has learned how fast it warms or cools; after that it is the time the model says the room needs in this weather, never less than 15 minutes or more than 90.
+- **The temperature** is the one occupancy would give the room: its own occupied temperature (or the top of its occupied band when it is too warm), else the zone's default. A room with neither is never started.
+
+What it will not do:
+
+- Take a room that has a hold, a schedule block or occupancy already, or a schedule for the arrival hour (Start Rooms Early covers that), or a room switched out of use or set not to follow occupancy.
+- Go against the weather (heating toward a temperature it is already warmer than outdoors, or the reverse), against the thermostat's mode, against the side the building is held to, or onto a heat pump's strips.
+- Get in the way. A room being got ready gives way to any room that asks for itself, exactly as Zone Balance and Peak Hours rooms do: the zone chooses its direction as if this were off, and a run that is only getting rooms ready ends for a room that calls the other way once it has had its minimum runtime.
+- Keep going for nobody. Thirty minutes into the hour with nobody there, the room is no longer asked. A run already started finishes by the usual rules.
+
+The Dashboard marks such a room **Getting Ready**, and the cycle detail in Logs says "getting ready for a usual arrival".
+
+Known limits: on the two days a year the clocks change, an arrival in the changed hour can be an hour out. A room that is got ready and then not used has run the equipment for nothing; Watch Only for a week or two shows how often that would happen before you turn it on.
+
 ## Suggestions
 
 Below the section, **Suggestions** gives advice from what has been recorded. It changes nothing: each suggestion says what it rests on and where to make the change if you agree. Nothing is suggested until there are 14 days of history, and it looks back 30 days.

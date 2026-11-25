@@ -174,6 +174,9 @@ function triggerSummary(
   if (source === "bank") {
     return "banking for peak hours";
   }
+  if (source === "arrival") {
+    return "getting ready for a usual arrival";
+  }
   return source ?? "";
 }
 

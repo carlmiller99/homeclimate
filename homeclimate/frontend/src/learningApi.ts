@@ -7,6 +7,8 @@ export interface LearningSettings {
   early_start_level: 0 | 1 | 2;
   /** Let a call wait when the room will get there on its own: 0 off, 1 watch only, 2 on. */
   coast_level: 0 | 1 | 2;
+  /** Get rooms ready a little before they are usually used: 0 off, 1 watch only, 2 on. */
+  arrival_level: 0 | 1 | 2;
 }
 
 export const EARLY_START_LABELS = ["Off", "Watch Only", "On"] as const;

@@ -116,45 +116,74 @@ def _blocks(usual: set[tuple[int, int]]) -> list[dict[str, Any]]:
     ]
 
 
-async def _schedules(conn: aiosqlite.Connection, now: datetime) -> list[dict[str, Any]]:
-    since = int((now - timedelta(days=WINDOW_DAYS)).timestamp())
+async def _room_keys(conn: aiosqlite.Connection) -> dict[str, int]:
     async with conn.execute("SELECT key, value FROM room_reading_keys WHERE kind = 'room'") as cur:
-        keys = {r["value"]: r["key"] for r in await cur.fetchall()}
+        return {r["value"]: r["key"] for r in await cur.fetchall()}
+
+
+async def _usual(
+    conn: aiosqlite.Connection, room_key: int, now: datetime
+) -> tuple[set[tuple[int, int]], int] | None:
+    """The (weekday, hour) cells a room is usually occupied in, and the days of history.
+
+    None until there are two weeks of occupancy readings to go on.
+    """
+    since = int((now - timedelta(days=WINDOW_DAYS)).timestamp())
+    # Only the two columns needed: a month of readings is thousands of rows a room.
+    async with conn.execute(
+        "SELECT ts, occupied FROM room_readings WHERE room_key = ? AND ts >= ?"
+        " AND occupied IS NOT NULL ORDER BY ts",
+        (room_key, since),
+    ) as cur:
+        samples = [
+            (datetime.fromtimestamp(r["ts"], UTC), r["occupied"]) for r in await cur.fetchall()
+        ]
+    if not samples or (samples[-1][0] - samples[0][0]).total_seconds() < MIN_DAYS * 86400:
+        return None
+    # (weekday, hour) → [occupied readings, readings, the weeks it was seen in]
+    seen: dict[tuple[int, int], list[Any]] = {}
+    for ts, occupied in samples:
+        local = tz.to_local(ts)
+        cell = seen.setdefault((local.weekday(), local.hour), [0, 0, set()])
+        cell[1] += 1
+        if occupied:
+            cell[0] += 1
+            cell[2].add(local.isocalendar()[:2])  # occupied in this week
+    usual = {
+        key
+        for key, (count, total, weeks) in seen.items()
+        if len(weeks) >= MIN_WEEKS and count / total >= USUAL_SHARE
+    }
+    return usual, round((samples[-1][0] - samples[0][0]).total_seconds() / 86400)
+
+
+async def usual_hours(
+    conn: aiosqlite.Connection, room_ids: list[str], now: datetime
+) -> dict[str, frozenset[tuple[int, int]]]:
+    """For each of these rooms with enough history: the hours of the week it is usually used."""
+    keys = await _room_keys(conn)
+    out: dict[str, frozenset[tuple[int, int]]] = {}
+    for room_id in room_ids:
+        found = await _usual(conn, keys.get(room_id, -1), now)
+        if found is not None and found[0]:
+            out[room_id] = frozenset(found[0])
+    return out
+
+
+async def _schedules(conn: aiosqlite.Connection, now: datetime) -> list[dict[str, Any]]:
+    keys = await _room_keys(conn)
     out = []
     for room in await db.get_all_rooms(conn):
-        # Only the two columns needed: a month of readings is thousands of rows a room.
-        async with conn.execute(
-            "SELECT ts, occupied FROM room_readings WHERE room_key = ? AND ts >= ?"
-            " AND occupied IS NOT NULL ORDER BY ts",
-            (keys.get(room.id, -1), since),
-        ) as cur:
-            samples = [
-                (datetime.fromtimestamp(r["ts"], UTC), r["occupied"]) for r in await cur.fetchall()
-            ]
-        if not samples or (samples[-1][0] - samples[0][0]).total_seconds() < MIN_DAYS * 86400:
+        found = await _usual(conn, keys.get(room.id, -1), now)
+        if found is None or not found[0]:
             continue
-        # (weekday, hour) → [occupied readings, readings, the weeks it was seen in]
-        seen: dict[tuple[int, int], list[Any]] = {}
-        for ts, occupied in samples:
-            local = tz.to_local(ts)
-            cell = seen.setdefault((local.weekday(), local.hour), [0, 0, set()])
-            cell[1] += 1
-            if occupied:
-                cell[0] += 1
-                cell[2].add(local.isocalendar()[:2])  # occupied in this week
-        usual = {
-            key
-            for key, (count, total, weeks) in seen.items()
-            if len(weeks) >= MIN_WEEKS and count / total >= USUAL_SHARE
-        }
-        if not usual:
-            continue
+        usual, days = found
         out.append(
             {
                 "kind": "schedule",
                 "room_id": room.id,
                 "name": room.name,
-                "days": round((samples[-1][0] - samples[0][0]).total_seconds() / 86400),
+                "days": days,
                 "hours_a_week": len(usual),
                 "blocks": _blocks(usual),
             }

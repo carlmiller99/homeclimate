@@ -23,6 +23,7 @@ from typing import Any
 import aiosqlite
 
 from .. import (
+    arrivals,
     coasting,
     db,
     eco,
@@ -32,6 +33,7 @@ from .. import (
     learning,
     peak,
     room_model,
+    suggestions,
     tz,
     zone_balance,
     zones,
@@ -165,7 +167,7 @@ class CycleState(Enum):
 
 # Room sources added by a convenience rather than asked for by the house: they
 # never outvote the others when the zone chooses between heating and cooling.
-OPTIONAL_SOURCES = frozenset({"balance", "bank"})
+OPTIONAL_SOURCES = frozenset({"arrival", "balance", "bank"})
 
 
 def _block_start(now: datetime, secs: int) -> datetime:
@@ -260,6 +262,10 @@ class CycleEngine:
         # Peak Hours (``backend/peak.py``): rooms being banked ahead of the
         # peak (room id → target), kept to the end of the run they started.
         self._bank_latch: dict[str, float] = {}
+        # Usual arrivals (``backend/arrivals.py``): each room's usual hours and
+        # when they were read, and the arrivals already written to the log.
+        self._usual_hours: tuple[datetime, dict[str, frozenset[tuple[int, int]]]] | None = None
+        self._arrivals_logged: set[tuple[str, str, str]] = set()
         self._coast_wait: dict[str, tuple[datetime, str, float]] = {}
         self._coast_done: dict[str, tuple[str, float]] = {}
         # When each room's last wait ended, and when coasting was last looked at.
@@ -611,6 +617,7 @@ class CycleEngine:
             # the system off): a wait from before is not a wait now.
             balance_rooms=self.balance_rooms,
             bank_rooms=self.bank_rooms,
+            arrival_rooms=self.arrival_rooms,
             coasting_rooms=sorted(self._coast_wait)
             if self._coast_seen is not None
             and datetime.now(UTC) - self._coast_seen <= coasting.STALE_AFTER
@@ -6309,6 +6316,7 @@ class CycleEngine:
             self._heat_pump_warmups,
             self._early_starts,
             self._coast,
+            self._arrive,
             self._balance,
             self._bank,
         ):
@@ -6829,6 +6837,181 @@ class CycleEngine:
             )
         self._bank_latch = latched
         return out
+
+    async def _arrive(
+        self, conn: aiosqlite.Connection, active: list[ActiveRoom], now: datetime | None = None
+    ) -> list[ActiveRoom]:
+        """Get a room ready a little before it is usually used (``backend/arrivals.py``).
+
+        Shortly before the first of a room's usual hours it is asked to the
+        temperature occupancy would give it. Only a room that follows nothing
+        more specific than the house band, that uses occupancy and has no
+        schedule for that hour; only when the weather and the building's side
+        agree with the direction; never on a heat pump's strips. If nobody has
+        arrived half an hour into the hour it is no longer asked. A room that
+        has started a run is kept in it until the run ends. On Watch Only it is
+        logged and nothing is started.
+        """
+        level = arrivals.LEVELS[(await learning.get_settings(conn))["arrival_level"]]
+        held: dict[str, float] = {}
+        if self._state != CycleState.IDLE:
+            held = {
+                rid: ar.target_temp if ar.requested_target is None else ar.requested_target
+                for rid, ar in self._active_rooms.items()
+                if ar.source == "arrival"
+            }
+        if level == "off" and not held:
+            self._usual_hours = None
+            return active
+        now = now or datetime.now(UTC)
+        rooms = await db.get_rooms_for_thermostat(conn, self.thermostat_entity_id)
+        usual: dict[str, frozenset[tuple[int, int]]] = {}
+        if level != "off":
+            if self._usual_hours is None or not (
+                timedelta(0) <= now - self._usual_hours[0] < arrivals.REFRESH
+            ):
+                found = await suggestions.usual_hours(conn, [r.id for r in rooms], now)
+                self._usual_hours = (now, found)
+            usual = self._usual_hours[1]
+        local_now = tz.to_local_naive(now)
+        passed = (local_now - timedelta(minutes=arrivals.GRACE_MIN)).isoformat()
+        self._arrivals_logged = {k for k in self._arrivals_logged if k[1] > passed}
+        the_house = await house.load(conn)
+        tc = await self._load_tc(conn)
+        side, obey = (
+            self._get_building_side() if self._get_building_side is not None else (None, False)
+        )
+        state = (self._ha.get_state(self.thermostat_entity_id) or {}).get("state")
+        models = await room_model.load(conn) if usual else {}
+        outside = await self._read_outside_temp(conn) if usual else None
+        following = {ar.room.id: ar for ar in active}
+        by_room: dict[str, list] = {}
+        if usual:
+            for sched in await db.get_all_schedules(conn):
+                by_room.setdefault(sched.room_id, []).append(sched)
+        out = list(active)
+        for room in rooms:
+            ar = following.get(room.id)
+            switches = the_house.switches(room.id)
+            if (
+                not switches.in_use
+                or (ar is not None and ar.source != "house")
+                or room.id in self._coast_wait
+            ):
+                continue
+            lead: int | None = None
+            mode = ""
+            start = local_now
+            if room.id in held:
+                target = held[room.id]
+            else:
+                coming = arrivals.next_arrival(usual.get(room.id, frozenset()), local_now)
+                presence_temp = (
+                    tc.default_temp if room.system_wide_temp is None else room.system_wide_temp
+                )
+                if (
+                    coming is None
+                    or presence_temp is None
+                    or not switches.use_presence
+                    or room.presence_holdover_hours <= 0
+                ):
+                    continue
+                start, secs = coming
+                at = now + timedelta(seconds=max(secs, 0.0))
+                if (
+                    switches.use_schedules
+                    and _find_matching_schedule(by_room.get(room.id, []), at) is not None
+                ):
+                    continue  # a schedule has that hour; Start Rooms Early covers it
+                cool_to = (
+                    the_house.cool_to("presence", room.id, presence_temp)
+                    if room.system_wide_temp is not None
+                    else None
+                )
+                avg = self._get_avg_temp(room)
+                if avg is None:
+                    continue
+                temp = avg + room.temp_offset
+                deadband = _effective_deadband(room, tc.deadband)
+                high = presence_temp if cool_to is None else cool_to
+                if temp < presence_temp - deadband:
+                    mode, target = "heating", presence_temp
+                elif temp > high + deadband:
+                    mode, target = "cooling", high
+                else:
+                    continue
+                heating = mode == "heating"
+                target = min(max(target, tc.min_setpoint), tc.max_setpoint)
+                if (
+                    # The house band already asks for as much.
+                    (
+                        ar is not None
+                        and ar.heat_to is not None
+                        and ar.cool_to is not None
+                        and (target <= ar.heat_to if heating else target >= ar.cool_to)
+                    )
+                    # The weather has to agree, and so does the thermostat.
+                    or (
+                        outside is not None
+                        and (outside >= target if heating else outside <= target)
+                    )
+                    or state == ("cool" if heating else "heat")
+                    or (heating and self._hp_strips)
+                    or (obey and side is not None and side != mode)
+                    # A run going the other way for someone else.
+                    or (self._state != CycleState.IDLE and self._cycle_mode != mode)
+                ):
+                    continue
+                model = models.get(room.id)
+                learned: int | None = None
+                if (
+                    model is not None
+                    and outside is not None
+                    and model.fitted_at is not None
+                    and now - model.fitted_at <= timedelta(days=room_model.EARLY_START_STALE_DAYS)
+                    and model.learned["heat" if heating else "cool"]
+                ):
+                    learned = model.minutes_to(
+                        avg,
+                        target - room.temp_offset,
+                        outside,
+                        mode,
+                        limit_min=arrivals.MAX_LEAD_MIN,
+                        zone=self._thermo_ambient_f(),
+                    )
+                    if learned is None:
+                        learned = arrivals.MAX_LEAD_MIN
+                lead = arrivals.lead_minutes(learned)
+                if secs > lead * 60:
+                    continue
+            if level == "on" or room.id in held:
+                self._optional_replaced[room.id] = ar
+                out = [a for a in out if a.room.id != room.id]
+                out.append(ActiveRoom(room=room, target_temp=target, source="arrival"))
+            key = (room.id, start.isoformat(), level)
+            if lead is not None and self._logger and key not in self._arrivals_logged:
+                self._arrivals_logged.add(key)
+                does = "Getting" if level == "on" else "Would get (watching only)"
+                await self._logger.log(
+                    "info",
+                    "engine",
+                    f"{does} {room.name} ready for {start:%H:%M}, when it is usually in use:"
+                    f" {mode} to {target:g}°F",
+                    {
+                        "thermostat": self.thermostat_entity_id,
+                        "room": room.id,
+                        "target": target,
+                        "lead_min": lead,
+                    },
+                )
+        return out
+
+    @property
+    def arrival_rooms(self) -> list[str]:
+        """Rooms in a run that is getting them ready for a usual arrival."""
+        if self._state == CycleState.IDLE:
+            return []
+        return sorted(rid for rid, ar in self._active_rooms.items() if ar.source == "arrival")
 
     @property
     def bank_rooms(self) -> list[str]:

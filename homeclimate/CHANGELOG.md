@@ -2,6 +2,7 @@
 
 ## 0.5.8
 
+- Smart Control → Smart Learning → Get Rooms Ready for Usual Arrivals: a room is brought to its occupied temperature shortly before the hours of the week it is usually used, from its own occupancy history. It gives way to any room that asks for itself and is let go if nobody arrives. Off until you turn it on; Watch Only logs what it would do. See docs/smart-learning.md.
 - Smart Control → Peak Hours: bank heat or cool ahead of the hours when electricity costs most. Rooms following a band are worked a set depth into it before the peak, never past the band, only when the forecast for those hours calls for it, and never a hold. Off until you turn it on. See docs/peak-hours.md.
 - Smart Control → Smart Learning → Suggestions: advice from 14 days or more of history. A wider deadband for a zone with many short runs, and the hours a room is usually occupied as the blocks a schedule for it might have. Advice only; nothing is changed. See docs/smart-learning.md.
 - Smart Control → Zone Balance: per building, keep zones within a gap limit of each other (3 °F to start with). A zone too far behind one that is in use is heated or cooled back to the limit, only in the direction the building is already working. Off by default; Watch Only logs what it would do. See docs/zone-balance.md.

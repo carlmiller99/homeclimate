@@ -1124,6 +1124,12 @@ class LearningSettingsSchema(Schema):
             "0 off, 1 watch only, 2 on"
         }
     )
+    arrival_level = fields.Int(
+        metadata={
+            "description": "Get rooms ready a little before they are usually used: "
+            "0 off, 1 watch only, 2 on"
+        }
+    )
 
 
 class NotifySettingsSchema(Schema):

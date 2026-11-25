@@ -284,6 +284,25 @@ export default function LearningSection() {
             ))}
           </select>
         </RuleRow>
+        <RuleRow
+          id="learning-arrivals"
+          title="Get Rooms Ready for Usual Arrivals"
+          help="Once a room's occupancy sensors have shown, for two weeks or more, the hours of the week it is usually used, it is brought to its occupied temperature shortly before the first of them: half an hour ahead, or the time the room has taught, up to an hour and a half. Only a room with nothing more specific to follow and no schedule for that hour. It gives way to any room that asks for itself, and is let go if nobody has arrived half an hour in. Watch Only writes what it would do to the Engine log."
+        >
+          <select
+            className="form-control"
+            aria-label="Get Rooms Ready for Usual Arrivals"
+            value={s.arrival_level}
+            disabled={saving}
+            onChange={(e) => void set({ arrival_level: Number(e.target.value) as 0 | 1 | 2 })}
+          >
+            {EARLY_START_LABELS.map((label, level) => (
+              <option key={label} value={level}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </RuleRow>
         {fitErr && <p className="form-error">{fitErr}</p>}
         {data.rooms.length === 0 && (
           <p className="page-subtitle">Add rooms in My Home to start collecting.</p>

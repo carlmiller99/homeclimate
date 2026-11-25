@@ -49,6 +49,7 @@ function data(over: Partial<la.Learning> = {}): la.Learning {
       sample_retention_days: 60,
       early_start_level: 0,
       coast_level: 0,
+      arrival_level: 0,
     },
     coasting: { level: 0, misses_this_week: 0, misses_to_watch_only: 3, switched_back_at: null },
     samples: 3600,
@@ -224,6 +225,7 @@ describe("Smart Learning section", () => {
           sample_retention_days: 60,
           early_start_level: 0,
           coast_level: 0,
+          arrival_level: 0,
         },
       })
     );
@@ -313,6 +315,12 @@ describe("Smart Learning section", () => {
     ).toBeInTheDocument();
     fireEvent.change(level, { target: { value: "2" } });
     await waitFor(() => expect(la.updateLearningSettings).toHaveBeenCalledWith({ coast_level: 2 }));
+    fireEvent.change(screen.getByLabelText("Get Rooms Ready for Usual Arrivals"), {
+      target: { value: "1" },
+    });
+    await waitFor(() =>
+      expect(la.updateLearningSettings).toHaveBeenCalledWith({ arrival_level: 1 })
+    );
     cleanup();
     vi.mocked(la.getLearning).mockResolvedValue(
       data({

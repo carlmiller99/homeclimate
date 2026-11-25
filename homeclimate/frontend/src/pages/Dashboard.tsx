@@ -121,6 +121,7 @@ function RoomRow({
   coasting = false,
   balancing = false,
   banking = false,
+  arriving = false,
   onHold,
   onCancelHold,
   onClearPresence,
@@ -139,6 +140,8 @@ function RoomRow({
   balancing?: boolean;
   /** Worked into its band ahead of the peak hours (Peak Hours). */
   banking?: boolean;
+  /** Got ready shortly before it is usually used (Get Rooms Ready for Usual Arrivals). */
+  arriving?: boolean;
   onHold: () => void;
   onCancelHold: () => void;
   onClearPresence: () => void;
@@ -209,6 +212,15 @@ function RoomRow({
               title="This room is being heated or cooled a little into its band now, so less has to run during the peak hours"
             >
               Banking
+            </span>
+          )}
+          {arriving && (
+            <span
+              className="badge badge-gray"
+              role="status"
+              title="This room is usually used about now, so it is being brought to its occupied temperature ahead of time"
+            >
+              Getting Ready
             </span>
           )}
           {coasting && (
@@ -330,7 +342,8 @@ function roomsBlock(
   },
   coasting: string[] = [],
   balancing: string[] = [],
-  banking: string[] = []
+  banking: string[] = [],
+  arriving: string[] = []
 ) {
   // A room the cycle reports but the room list does not know yet (it was
   // added a moment ago) still gets a row, named by its id.
@@ -355,6 +368,7 @@ function roomsBlock(
           coasting={coasting.includes(room.id)}
           balancing={balancing.includes(room.id)}
           banking={banking.includes(room.id)}
+          arriving={arriving.includes(room.id)}
           onHold={() => controls.onHold(room.id)}
           onCancelHold={() => controls.onCancelHold(room.id)}
           onClearPresence={controls.onClearPresence}
@@ -534,7 +548,8 @@ function ZoneCard({
           { onHold, onCancelHold, onClearPresence },
           zone.coasting_rooms,
           zone.balance_rooms,
-          zone.bank_rooms
+          zone.bank_rooms,
+          zone.arrival_rooms
         )}
       </Frozen>
 

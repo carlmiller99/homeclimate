@@ -423,7 +423,12 @@ describe("Dashboard rooms and zones", () => {
   it("marks a room whose call is waiting for it to coast to its target", async () => {
     vi.mocked(api.getStatus).mockResolvedValue([
       { ...status("climate.up"), coasting_rooms: ["bunk"] },
-      { ...status("climate.den"), balance_rooms: ["loft"], bank_rooms: ["loft"] },
+      {
+        ...status("climate.den"),
+        balance_rooms: ["loft"],
+        bank_rooms: ["loft"],
+        arrival_rooms: ["loft"],
+      },
       status("climate.north"),
     ]);
     render(<Dashboard />);
@@ -447,6 +452,12 @@ describe("Dashboard rooms and zones", () => {
       expect.stringMatching(/less has to run during the peak hours/)
     );
     expect(within(screen.getByTestId("dash-room-bunk")).queryByText("Banking")).toBeNull();
+    // And one being got ready for a usual arrival.
+    expect(within(screen.getByTestId("dash-room-loft")).getByText("Getting Ready")).toHaveAttribute(
+      "title",
+      expect.stringMatching(/usually used about now/)
+    );
+    expect(within(screen.getByTestId("dash-room-bunk")).queryByText("Getting Ready")).toBeNull();
   });
 
   it("marks a room a lit fireplace is keeping out of demand", async () => {

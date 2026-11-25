@@ -37,6 +37,9 @@ SETTINGS: dict[str, tuple[str, Any, int, int]] = {
     # Let a call wait when the room will reach its target on its own
     # (``coasting``): 0 off, 1 watch only, 2 on.
     "coast_level": ("int", 0, 0, 2),
+    # Get rooms ready a little before they are usually used (``arrivals``):
+    # 0 off, 1 watch only, 2 on.
+    "arrival_level": ("int", 0, 0, 2),
 }
 EARLY_START_LEVELS = ("off", "watch", "on")
 # When coasting last switched itself back to Watch Only (``coasting.record_miss``).
@@ -54,6 +57,7 @@ _SETTING_MESSAGES = {
     "sample_retention_days": fixed("sample_retention_days must be a whole number from 30 to 365"),
     "early_start_level": fixed("early_start_level must be 0 (off), 1 (watch only) or 2 (on)"),
     "coast_level": fixed("coast_level must be 0 (off), 1 (watch only) or 2 (on)"),
+    "arrival_level": fixed("arrival_level must be 0 (off), 1 (watch only) or 2 (on)"),
 }
 
 

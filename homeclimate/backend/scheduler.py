@@ -2094,6 +2094,7 @@ class Scheduler:
             "coasting_rooms": s.coasting_rooms,
             "balance_rooms": s.balance_rooms,
             "bank_rooms": s.bank_rooms,
+            "arrival_rooms": s.arrival_rooms,
             "rooms": [
                 {
                     "room_id": r.room_id,
