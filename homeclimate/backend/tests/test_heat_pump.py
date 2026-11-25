@@ -342,10 +342,24 @@ async def test_warmups_start_early_only_when_needed(monkeypatch):
     ]
     await engine._heat_pump_warmups(conn, [], now=now)
     assert logger.log.await_count == 1  # announced once per block
+    # Once started it is kept until the block begins: a room that warms faster
+    # than the recovery rate must not drop out and come back.
+    engine._get_avg_temp = lambda _room, **_k: 69.5
+    kept = await engine._heat_pump_warmups(conn, [], now=now + timedelta(minutes=10))
+    assert [ar.target_temp for ar in kept] == [70.0]
+    assert logger.log.await_count == 1
+    engine._hp_latch = {}
+    assert await engine._heat_pump_warmups(conn, [], now=now + timedelta(minutes=10)) == []
+    engine._get_avg_temp = lambda _room, **_k: 66.0
+    # The same block next week is announced again.
+    await engine._heat_pump_warmups(conn, [], now=now + timedelta(days=7))
+    assert logger.log.await_count == 2 and len(engine._hp_warmups_logged) == 1
+    engine._hp_latch = {}
     # 04:30 is 2.5 h before: too early.
     assert await engine._heat_pump_warmups(conn, [], now=now - timedelta(hours=1)) == []
     # Already active, warm enough, or no reading: nothing added.
     assert await engine._heat_pump_warmups(conn, active, now=now) == active
+    assert engine._hp_latch == {}
     engine._get_avg_temp = lambda _room, **_k: 71.0
     assert await engine._heat_pump_warmups(conn, [], now=now) == []
     engine._get_avg_temp = lambda _room, **_k: None

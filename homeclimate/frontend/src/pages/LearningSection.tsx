@@ -247,7 +247,7 @@ export default function LearningSection() {
         <RuleRow
           id="learning-early-start"
           title="Start Rooms Early"
-          help="Starts heating or cooling a room ahead of its next schedule block, by as long as the room has taught it takes in this weather (15 minutes to 3 hours), so it is ready on time. Only for rooms whose rate has been learned. Watch Only logs what it would do."
+          help="Starts heating or cooling a room ahead of its next schedule block, by as long as the room has taught it takes in this weather (15 minutes to 3 hours), so it is ready on time. Only for rooms whose rate has been learned, and only when the weather agrees: a setback is never started early. Watch Only logs what it would do."
         >
           <select
             className="form-control"

@@ -49,6 +49,7 @@ SUSTAINED = 0.75  # a half-hour counts as sustained when the mode ran this much 
 LOSS_SPREAD_F = 3.0  # the outside-inside difference must have varied this much (std dev)
 EARLY_START_MIN_MIN = 15  # a room is started at least this early, and
 EARLY_START_MAX_MIN = 180  # at most this early
+EARLY_START_STALE_DAYS = 7  # a model not refitted for this long is not trusted
 MAX_RATE_F_PER_H = 12.0  # a faster change is a sensor glitch, not the room
 MAX_STEP_F = MAX_RATE_F_PER_H * STEP_S / 3600 * 2  # between two readings five minutes apart
 

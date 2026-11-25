@@ -28,7 +28,7 @@ Auxiliary heat (also called aux, backup or emergency heat) is the electric heate
 
 | Behaviour | What happens |
 |---|---|
-| Early warm-ups | When a schedule block is about to raise a room's target, heating starts early enough to arrive on time at the Max Recovery Rate, up to 3 hours ahead. Only while the thermostat is in heat mode and auxiliary heat is avoided. Logged once per block. |
+| Early warm-ups | When a schedule block is about to raise a room's target, heating starts early enough to arrive on time at the Max Recovery Rate, up to 3 hours ahead. Only while the thermostat is in heat mode and auxiliary heat is avoided. Once started, a warm-up is kept until its block begins. Logged once per block. |
 | Back-off | When auxiliary heat starts, the setpoint step is held to 0.5 °F for an hour and the setpoint is re-sent at once. |
 | Defrost allowance | A heating cycle may run 1.5 times the thermostat's cycle timeout, since defrost and small steps make warm-ups slower. |
 | Strips Expected | When the outdoor sensor reads below Compressor Lockout Below, the compressor can't run. Warm-ups don't start early, the heating deadband widens by 1 °F to cut strip runtime, and the Zones page shows Strips Expected. |

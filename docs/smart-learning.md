@@ -74,12 +74,17 @@ The fit takes well under a second per room, and stores one row per room (`room_m
 
 **Smart Control → Smart Learning → Start Rooms Early** uses the model to have a room at its next schedule block's target when the block begins, instead of starting from cold at that moment.
 
-- **Off** (the default), **Watch Only** (writes to the log what it would start and when, and starts nothing) or **On**.
+- **Off** (the default), **Watch Only** (logs what it would do and starts nothing) or **On**.
 - How early is the time the room's model says it needs in the current weather, never less than 15 minutes and never more than 3 hours.
-- Only for a room whose heating rate (for a warm-up) or cooling rate (for a cool-down) has been learned, with an outside temperature reading, and with nothing more specific to follow at the time. A hold, an active schedule or occupancy is left alone.
-- Never against the side its building is on, never for a room that is not in use or has its schedules switched off, and not for a paused room or one a lit fireplace has set aside.
-- A cool-down is not started early for a room that has a band on any of its blocks, because the block's target there is its Heat To.
-- Heat pump zones keep their own early warm-up and their capped climb; this can start them earlier, not faster.
+- Only for a rate the room has taught (see the grades above), and only from a model fitted within the last week. It needs an outside temperature reading, and the room has to be in use with its schedules switched on.
+- The weather and the thermostat have to agree with the direction: heating early only when it is colder outside than the target, cooling early only when it is warmer, and never heating on a thermostat set to cool or cooling on one set to heat. So a night setback is never "prepared for" by running the other equipment.
+- A room with nothing scheduled right now can be started early. So can a room that is in a block already, when the next block asks for more of the same: warmer when heating (62 °F overnight, then 70 °F at 7:00), cooler when cooling. A hold, presence, or a block with a band is left alone.
+- Once a room is started early it stays started until its block begins, even if it warms faster than expected, so the equipment is not switched off and on again on the way. The run ends when the room reaches the target, by the same rules as any other run.
+- Never against the side its building is on.
+- A cool-down is not started early toward a block with a band, because the block's target there is its Heat To.
+- The coming block's own deadband is used, if it has one.
+- Heat pump zones keep their own early warm-up and their capped climb; this can start them earlier, not faster. It does not start heating early while auxiliary heat is expected.
+- A room that is paused for an open door or window, or set aside for the fireplace, is not started. Nothing is started early in Vacation Mode.
 
 Each early start is logged once under Engine.
 

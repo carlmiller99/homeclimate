@@ -24,7 +24,12 @@ def _model(room_id: str, *, heat_hours=10.0, cool_hours=10.0, heat=3.0) -> rm.Ro
     )
 
 
-async def _setup(monkeypatch, *, target=70.0, temp=64.0, level=2, model=None, outside=30.0):
+START = datetime(2026, 1, 5, 7, 0, tzinfo=UTC)
+
+
+async def _setup(
+    monkeypatch, *, target=70.0, temp=64.0, level=2, model=None, outside=30.0, state="heat"
+):
     monkeypatch.setattr(tz, "get_timezone", lambda: UTC)
     conn = await _conn()
     room = await _scheduled_room(conn, 7, target)
@@ -35,7 +40,7 @@ async def _setup(monkeypatch, *, target=70.0, temp=64.0, level=2, model=None, ou
         " heat_hours, cool_hours, out_spread, rmse) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
         (
             room.id,
-            1,
+            int(NOW.timestamp()),
             found.windows,
             found.loss,
             found.pull,
@@ -49,7 +54,7 @@ async def _setup(monkeypatch, *, target=70.0, temp=64.0, level=2, model=None, ou
         ),
     )
     await conn.commit()
-    engine = _make_engine(_make_ha(ambient=temp, hvac_mode="heat", hvac_action="idle"))
+    engine = _make_engine(_make_ha(ambient=temp, hvac_mode=state, hvac_action="idle"))
     engine._logger = AsyncMock()
     engine._get_avg_temp = lambda _room, **_k: temp
     engine._read_outside_temp = AsyncMock(return_value=outside)
@@ -73,8 +78,14 @@ async def test_a_room_is_started_when_its_model_says_it_is_time(monkeypatch):
     assert [(ar.room.id, ar.target_temp, ar.source) for ar in active] == [
         (room.id, 70.0, "schedule")
     ]
+    # Said once, and again for the same block a week later.
     await engine._early_starts(conn, [], now=just)
-    assert _said(engine) == [
+    assert len(_said(engine)) == 1
+    engine._early_latch = {}
+    await engine._early_starts(conn, [], now=just + timedelta(days=7))
+    assert len(_said(engine)) == 2
+    assert len(engine._early_starts_logged) == 1  # last week's is forgotten
+    assert _said(engine)[:1] == [
         f"Starting heating Bunk Room {lead} min early for Mon 7:00 AM (70°F),"
         " from what the room has taught"
     ]
@@ -114,6 +125,13 @@ async def test_off_or_with_nothing_to_go_on_it_does_nothing(monkeypatch):
     await house.set_switches(conn, room.id, {"in_use": True, "use_schedules": False})
     assert await engine._early_starts(conn, [], now=NOW) == []
     await house.set_switches(conn, room.id, {"use_schedules": True})
+    # A model that has not been refitted for over a week is not trusted.
+    await conn.execute("UPDATE room_models SET fitted_at = ?", (int(NOW.timestamp()) - 8 * 86400,))
+    await conn.commit()
+    assert await engine._early_starts(conn, [], now=NOW) == []
+    await conn.execute("UPDATE room_models SET fitted_at = NULL")
+    await conn.commit()
+    assert await engine._early_starts(conn, [], now=NOW) == []
     # No model for the room, or no models at all.
     await conn.execute("UPDATE room_models SET room_id = 'someone-else'")
     await conn.commit()
@@ -160,13 +178,16 @@ async def test_a_short_warm_up_still_starts_a_quarter_of_an_hour_early(monkeypat
 
 
 async def test_cooling_starts_early_too_but_never_toward_a_bands_heat_to(monkeypatch):
-    conn, engine, room = await _setup(monkeypatch, target=72.0, temp=78.0, outside=95.0)
+    conn, engine, room = await _setup(
+        monkeypatch, target=72.0, temp=78.0, outside=95.0, state="cool"
+    )
     active = await engine._early_starts(conn, [], now=NOW)
     assert [ar.target_temp for ar in active] == [72.0]
     assert _said(engine)[0].startswith("Starting cooling Bunk Room")
     # The coming block is a band from 72 °F: its target here is the heat-to.
     (block,) = await db.get_schedules_for_room(conn, room.id)
     await house.set_target_band(conn, "schedule", block.id, 72.0, 78.0)
+    engine._early_latch = {}
     assert await engine._early_starts(conn, [], now=NOW) == []
     await conn.close()
 
@@ -176,6 +197,12 @@ async def test_never_against_the_side_the_building_is_on(monkeypatch):
     for side in ("cooling", "hold", "off"):
         engine._get_building_side = lambda side=side: (side, True)
         assert await engine._early_starts(conn, [], now=NOW) == []
+    # A room already started is let go when the building turns the other way.
+    engine._get_building_side = lambda: ("heating", True)
+    assert await engine._early_starts(conn, [], now=NOW) != []
+    engine._get_building_side = lambda: ("cooling", True)
+    assert await engine._early_starts(conn, [], now=NOW) == []
+    assert engine._early_latch == {}
     # A side that is only watched, or the same side, holds nothing back.
     engine._get_building_side = lambda: ("cooling", False)
     assert await engine._early_starts(conn, [], now=NOW) != []
@@ -184,13 +211,193 @@ async def test_never_against_the_side_the_building_is_on(monkeypatch):
     await conn.close()
 
 
-async def test_the_log_of_what_was_said_does_not_grow_for_ever(monkeypatch):
+async def test_once_started_a_room_is_kept_until_its_block_begins(monkeypatch):
+    """Warming faster than the model expected must not drop the room out and back in."""
+    conn, engine, room = await _setup(monkeypatch, temp=66.0)
+    lead = _model(room.id).minutes_to(66.0, 70.0, 30.0, "heating", limit_min=180, zone=66.0)
+    began = START - timedelta(minutes=lead - 1)
+    assert await engine._early_starts(conn, [], now=began) != []
+    # Ten minutes on it is at 69 °F: on its own that would be "too early" again.
+    engine._get_avg_temp = lambda _room, **_k: 69.0
+    later = began + timedelta(minutes=10)
+    assert [ar.target_temp for ar in await engine._early_starts(conn, [], now=later)] == [70.0]
+    # Inside the deadband, and even past the target, it is still the room's target:
+    # the cycle's own rules end the run, as they would for the block itself.
+    engine._get_avg_temp = lambda _room, **_k: 70.4
+    assert await engine._early_starts(conn, [], now=later + timedelta(minutes=5)) != []
+    assert len(_said(engine)) == 1
+    # A fresh engine at that moment would not start it.
+    engine._early_latch = {}
+    assert await engine._early_starts(conn, [], now=later + timedelta(minutes=5)) == []
+    # A hold takes the room over and the early start is forgotten.
+    engine._get_avg_temp = lambda _room, **_k: 66.0
+    assert await engine._early_starts(conn, [], now=later) != []
+    from backend.engine.room_manager import ActiveRoom
+
+    held = [ActiveRoom(room=room, target_temp=66.0, source="override")]
+    assert await engine._early_starts(conn, held, now=later) == held
+    assert engine._early_latch == {}
+    # The block's target changes: judged afresh against the new one.
+    assert await engine._early_starts(conn, [], now=later) != []
+    await conn.execute("UPDATE schedules SET target_temp = 66.0")
+    await conn.commit()
+    assert await engine._early_starts(conn, [], now=later) == []
+    # Switched off, everything is let go.
+    await conn.execute("UPDATE schedules SET target_temp = 70.0")
+    await conn.commit()
+    assert await engine._early_starts(conn, [], now=later) != []
+    await learning.update_settings(conn, {"early_start_level": 0})
+    await engine._early_starts(conn, [], now=later)
+    assert engine._early_latch == {}
+    await conn.close()
+
+
+async def test_the_weather_and_the_thermostat_have_to_agree(monkeypatch):
+    # Winter: the room is at 70 °F and the next block is a setback to 64 °F.
+    # Cooling early toward it would run the air conditioning for nothing.
+    conn, engine, _room = await _setup(monkeypatch, target=64.0, temp=70.0, outside=35.0)
+    assert await engine._early_starts(conn, [], now=NOW) == []
+    # Warm outside, but the thermostat is set to heat only.
+    engine._read_outside_temp = AsyncMock(return_value=80.0)
+    assert await engine._early_starts(conn, [], now=NOW) == []
+    assert _said(engine) == []
+    await conn.close()
+    # Summer: at 72 °F with a setback up to 78 °F coming, and 90 °F outside.
+    conn, engine, _room = await _setup(
+        monkeypatch, target=78.0, temp=72.0, outside=90.0, state="cool"
+    )
+    assert await engine._early_starts(conn, [], now=NOW) == []
+    engine._read_outside_temp = AsyncMock(return_value=40.0)
+    assert await engine._early_starts(conn, [], now=NOW) == []  # set to cool only
+    await conn.close()
+    # A heat pump expecting its strips: the model never learned from those.
     conn, engine, _room = await _setup(monkeypatch)
-    engine._early_starts_logged = {(str(i), "x", "on") for i in range(201)}
-    await engine._early_starts(conn, [], now=NOW)
-    assert len(engine._early_starts_logged) == 1
+    engine._hp_strips = True
+    assert await engine._early_starts(conn, [], now=NOW) == []
+    engine._hp_strips = False
+    assert await engine._early_starts(conn, [], now=NOW) != []
+    await conn.close()
+
+
+async def test_a_room_in_a_block_is_started_early_only_for_more_of_the_same(monkeypatch):
+    """Night setback to 62 °F, then 70 °F at 07:00: the usual case."""
+    from backend.engine.room_manager import ActiveRoom
+
+    conn, engine, room = await _setup(monkeypatch, temp=62.0)
+
+    def night(target, **more):
+        return [ActiveRoom(room=room, target_temp=target, source="schedule", **more)]
+
+    active = await engine._early_starts(conn, night(62.0), now=NOW)
+    assert [(ar.target_temp, ar.source) for ar in active] == [(70.0, "schedule")]
+    # The block it is in already asks for as much or more: nothing to do early.
+    engine._early_latch = {}
+    assert await engine._early_starts(conn, night(72.0), now=NOW) == night(72.0)
+    # A banded block, or presence, is left alone.
+    banded = night(62.0, heat_to=62.0, cool_to=76.0)
+    assert await engine._early_starts(conn, banded, now=NOW) == banded
+    here = [ActiveRoom(room=room, target_temp=62.0, source="presence")]
+    assert await engine._early_starts(conn, here, now=NOW) == here
+    await conn.close()
+    # Cooling: 76 °F now, 72 °F next, hot outside.
+    conn, engine, room = await _setup(
+        monkeypatch, target=72.0, temp=76.0, outside=95.0, state="cool"
+    )
+    now = START - timedelta(minutes=20)
+    active = await engine._early_starts(conn, night(76.0), now=now)
+    assert [ar.target_temp for ar in active] == [72.0]
+    engine._early_latch = {}
+    assert await engine._early_starts(conn, night(70.0), now=now) == night(70.0)
+    await conn.close()
+
+
+async def test_the_coming_blocks_own_deadband_and_the_rooms_offset_are_used(monkeypatch):
+    conn, engine, room = await _setup(monkeypatch, temp=68.0)
+    just = START - timedelta(minutes=20)
+    # 2 °F short, but the block has a 3 °F deadband: it would not start this itself.
+    await conn.execute("UPDATE schedules SET deadband_override = 3.0")
+    await conn.commit()
+    assert await engine._early_starts(conn, [], now=just) == []
+    await conn.execute("UPDATE schedules SET deadband_override = 1.0")
+    await conn.commit()
+    (early,) = await engine._early_starts(conn, [], now=just)
+    assert early.deadband_override == 1.0  # carried, so nothing changes at the hand-over
+    # The model is asked in raw readings: a +2 °F offset makes this room read 70 °F.
+    engine._early_latch = {}
+    room.temp_offset = 2.0
+    await db.upsert_room(conn, room)
+    assert await engine._early_starts(conn, [], now=just) == []
+    await conn.close()
+
+
+async def test_a_block_that_expires_before_it_next_starts_is_not_prepared_for(monkeypatch):
+    conn, engine, _room = await _setup(monkeypatch)
+    assert await engine._early_starts(conn, [], now=NOW) != []
+    engine._early_latch = {}
+    await conn.execute("UPDATE schedules SET expires_at = '2026-01-05T06:00:00'")
+    await conn.commit()
+    assert await engine._early_starts(conn, [], now=NOW) == []
+    await conn.close()
+
+
+async def test_without_a_logger_it_still_works(monkeypatch):
+    conn, engine, _room = await _setup(monkeypatch)
     engine._logger = None
     assert await engine._early_starts(conn, [], now=NOW) != []
+    await conn.close()
+
+
+async def test_through_the_engine_a_fast_room_is_asked_for_on_every_tick(monkeypatch):
+    """The whole tick, a minute at a time, with the room warming faster than its model."""
+    from backend.engine import cycle_engine
+
+    conn, engine, room = await _setup(monkeypatch, temp=64.0)
+    monkeypatch.setattr(cycle_engine, "get_active_rooms", AsyncMock(return_value=[]))
+    engine._reset_setpoint_to_ambient = AsyncMock()
+    engine._monitor_rooms = AsyncMock()
+    started = AsyncMock()
+    engine._start_or_update_cycle = started
+    clock = [START - timedelta(hours=4)]
+    temp = [64.0]
+    engine._get_avg_temp = lambda _room, **_k: temp[0]
+    real = engine._early_starts
+    engine._early_starts = lambda c, active: real(c, active, now=clock[0])
+    asked: list[bool] = []
+    while clock[0] < START and temp[0] < 69.4:
+        started.reset_mock()
+        await engine._do_tick(conn)
+        on = started.await_args is not None
+        if on:
+            active, mode = started.await_args.args[1], started.await_args.args[2]
+            assert (mode, {rid: ar.target_temp for rid, ar in active.items()}) == (
+                "heating",
+                {room.id: 70.0},
+            )
+            temp[0] += 4.5 / 60  # half as fast again as the model's 3 °F an hour
+        asked.append(on)
+        clock[0] += timedelta(minutes=1)
+    # Once it has begun it is asked for on every tick: no dropping out and back.
+    first = asked.index(True)
+    assert first >= 60 and all(asked[first:]) and temp[0] >= 69.4
+    assert len(_said(engine)) == 1
+    await conn.close()
+
+
+async def test_through_the_engine_a_winter_setback_starts_nothing_early(monkeypatch):
+    from backend.engine import cycle_engine
+
+    conn, engine, _room = await _setup(monkeypatch, target=64.0, temp=70.0, outside=35.0)
+    monkeypatch.setattr(cycle_engine, "get_active_rooms", AsyncMock(return_value=[]))
+    engine._reset_setpoint_to_ambient = AsyncMock()
+    engine._monitor_rooms = AsyncMock()
+    engine._start_or_update_cycle = AsyncMock()
+    real = engine._early_starts
+    for minutes in (170, 90, 30, 5):
+        engine._early_starts = lambda c, active, m=minutes: real(
+            c, active, now=START - timedelta(minutes=m)
+        )
+        await engine._do_tick(conn)
+    engine._start_or_update_cycle.assert_not_awaited()
     await conn.close()
 
 
