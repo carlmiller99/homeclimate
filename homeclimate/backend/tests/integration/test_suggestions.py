@@ -78,6 +78,32 @@ async def test_many_short_runs_suggest_a_wider_deadband(client, room):
     assert (await suggestions.build(conn, now=NOW))["zones"] == []
 
 
+async def test_runs_that_were_cut_off_and_zones_that_cannot_use_it_are_left_out(client, room):
+    conn = await client.app["scheduler"].get_db()
+    await _runs(conn, T1, days=20, a_day=10, minutes=5)
+    assert len((await suggestions.build(conn, now=NOW))["zones"]) == 1
+    # Every room has a deadband of its own: the zone's would change nothing.
+    the_room = await db.get_room(conn, room)
+    the_room.deadband_override = 1.0
+    await db.upsert_room(conn, the_room)
+    assert (await suggestions.build(conn, now=NOW))["zones"] == []
+    the_room.deadband_override = None
+    await db.upsert_room(conn, the_room)
+    # Runs that were cut off say nothing about the deadband.
+    await conn.execute("UPDATE cycle_logs SET ended_reason = 'aborted: thermostat unavailable'")
+    await conn.commit()
+    assert (await suggestions.build(conn, now=NOW))["zones"] == []
+    await conn.execute("UPDATE cycle_logs SET ended_reason = 'all rooms at target'")
+    # A damaged row is passed over.
+    await conn.execute("UPDATE cycle_logs SET ended_at = 'x' WHERE rowid = 1")
+    await conn.commit()
+    assert len((await suggestions.build(conn, now=NOW))["zones"]) == 1
+    # A zone that has been removed leaves its history behind, and gets no advice.
+    await conn.execute("DELETE FROM thermostat_configs")
+    await conn.commit()
+    assert (await suggestions.build(conn, now=NOW))["zones"] == []
+
+
 async def test_long_runs_few_runs_or_too_little_history_suggest_nothing(client, room):
     conn = await client.app["scheduler"].get_db()
     await _runs(conn, T1, days=20, a_day=10, minutes=20)

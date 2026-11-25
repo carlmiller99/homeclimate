@@ -56,5 +56,5 @@ export function describeDeadband(
   unitLabel: string
 ): string {
   const show = (f: number) => `${toDisplayDelta(f).toFixed(1)}${unitLabel}`;
-  return `Over ${z.days} days it ran about ${z.runs_a_day} times a day, and half of those runs were under ${z.typical_run_min} minutes. A deadband of ${show(z.suggested)} instead of ${show(z.current)} would give fewer, longer runs.`;
+  return `Over ${z.days} days it ran about ${z.runs_a_day} times a day, and half of those runs were under ${z.typical_run_min} minutes. A deadband of ${show(z.suggested)} instead of ${show(z.current)} would give fewer, longer runs. Rooms with a deadband of their own are not affected, and a minimum run time is the other way to lengthen runs.`;
 }

@@ -42,14 +42,22 @@ async def _deadbands(conn: aiosqlite.Connection, now: datetime) -> list[dict[str
     since = (now - timedelta(days=WINDOW_DAYS)).astimezone(UTC).replace(tzinfo=None).isoformat()
     async with conn.execute(
         "SELECT thermostat_entity_id AS tid, started_at, ended_at FROM cycle_logs"
-        " WHERE started_at >= ? AND ended_at IS NOT NULL ORDER BY started_at",
+        " WHERE started_at >= ? AND ended_at IS NOT NULL"
+        # A run cut off (thermostat away, a door opened, the system switched
+        # off) says nothing about the deadband; nor do the demonstration rows.
+        " AND (ended_reason IS NULL OR (ended_reason NOT LIKE 'aborted:%'"
+        " AND ended_reason != 'discarded_stale_on_restore'))"
+        " AND id NOT LIKE 'demo-%' ORDER BY started_at",
         (since,),
     ) as cur:
         rows = await cur.fetchall()
     by_zone: dict[str, list[tuple[datetime, float]]] = {}
     for r in rows:
-        start = datetime.fromisoformat(r["started_at"])
-        minutes = (datetime.fromisoformat(r["ended_at"]) - start).total_seconds() / 60
+        try:
+            start = datetime.fromisoformat(r["started_at"])
+            minutes = (datetime.fromisoformat(r["ended_at"]) - start).total_seconds() / 60
+        except (TypeError, ValueError):
+            continue  # a damaged row is passed over
         by_zone.setdefault(r["tid"], []).append((start, minutes))
     out = []
     for tid, runs in sorted(by_zone.items()):
@@ -58,8 +66,13 @@ async def _deadbands(conn: aiosqlite.Connection, now: datetime) -> list[dict[str
             continue
         a_day = len(runs) / days
         typical = median(m for _s, m in runs)
-        tc = await db.get_thermostat_config(conn, tid)
         profile = await zones.get_zone_profile(conn, tid)
+        if profile is None:
+            continue  # the zone has been removed; its history stays behind
+        tc = await db.get_thermostat_config(conn, tid)
+        rooms = await db.get_rooms_for_thermostat(conn, tid)
+        if rooms and all(r.deadband_override is not None for r in rooms):
+            continue  # every room has a deadband of its own: the zone's changes nothing
         if (
             typical >= SHORT_RUN_MIN
             or a_day < MANY_RUNS_A_DAY
@@ -70,7 +83,7 @@ async def _deadbands(conn: aiosqlite.Connection, now: datetime) -> list[dict[str
             {
                 "kind": "deadband",
                 "thermostat_entity_id": tid,
-                "name": (profile.name if profile else "") or tid,
+                "name": profile.name or tid,
                 "current": tc.deadband,
                 "suggested": tc.deadband + DEADBAND_STEP_F,
                 "runs_a_day": round(a_day, 1),
@@ -125,9 +138,10 @@ async def _schedules(conn: aiosqlite.Connection, now: datetime) -> list[dict[str
         for ts, occupied in samples:
             local = tz.to_local(ts)
             cell = seen.setdefault((local.weekday(), local.hour), [0, 0, set()])
-            cell[0] += bool(occupied)
             cell[1] += 1
-            cell[2].add(local.isocalendar()[:2])
+            if occupied:
+                cell[0] += 1
+                cell[2].add(local.isocalendar()[:2])  # occupied in this week
         usual = {
             key
             for key, (count, total, weeks) in seen.items()

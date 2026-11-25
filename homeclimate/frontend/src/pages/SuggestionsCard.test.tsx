@@ -65,7 +65,7 @@ describe("Suggestions", () => {
     const zone = await screen.findByRole("group", { name: "North Wing" });
     expect(
       within(zone).getByText(
-        "Over 19 days it ran about 10.3 times a day, and half of those runs were under 5 minutes. A deadband of 1.0°F instead of 0.5°F would give fewer, longer runs."
+        "Over 19 days it ran about 10.3 times a day, and half of those runs were under 5 minutes. A deadband of 1.0°F instead of 0.5°F would give fewer, longer runs. Rooms with a deadband of their own are not affected, and a minimum run time is the other way to lengthen runs."
       )
     ).toBeInTheDocument();
     expect(within(zone).getByRole("link", { name: "My Home" })).toHaveAttribute("href", "/my-home");

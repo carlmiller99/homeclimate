@@ -1159,8 +1159,8 @@ class LearningRoomSchema(Schema):
 
 class SuggestionBlockSchema(Schema):
     days = fields.List(fields.Int(), metadata={"description": "0 is Monday"})
-    start = fields.Str()
-    end = fields.Str()
+    start = fields.Str(metadata={"description": "House-local HH:MM"})
+    end = fields.Str(metadata={"description": "House-local HH:MM; 00:00 is midnight"})
 
 
 class ZoneSuggestionSchema(Schema):
