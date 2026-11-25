@@ -375,3 +375,52 @@ async def test_a_reading_hovering_at_the_edge_does_not_start_wait_after_wait(mon
     assert len(_said(engine)) == 4
     assert engine.get_zone_status().coasting_rooms == []
     await conn.close()
+
+
+async def test_a_wait_that_vanishes_does_not_buy_the_room_another(monkeypatch):
+    """A target nudged, a reading missed for a tick, a gap in the ticks: none restarts the wait."""
+    conn, engine, room, active, temps = await _setup(monkeypatch, strip=False)
+    held = 0
+    for minute in range(300):
+        when = NOW + timedelta(minutes=minute)
+        kind = (minute // 40) % 3 if minute % 40 == 39 else None
+        if kind == 0:
+            temps["now"] = None  # the room's sensor misses a tick
+        elif kind == 1:
+            active[0].target_temp += 0.1  # the target is nudged
+        left = await _at(engine, conn, active, when) if kind != 2 else active
+        temps["now"] = 68.4 + (active[0].target_temp - 70.0)
+        held += left == []
+    # A wait of up to 45 minutes, then half an hour at least before another:
+    # about half the time at most, where it used to be all of it.
+    assert 30 < held < 160
+    await conn.close()
+
+
+async def test_a_gap_in_the_ticks_ends_a_wait_and_the_dashboard_stops_saying_coasting(monkeypatch):
+    conn, engine, room, active, _temps = await _setup(monkeypatch)
+    now = datetime.now(UTC)
+    await conn.execute("UPDATE room_models SET fitted_at = ?", (int(now.timestamp()),))
+    await conn.commit()
+    assert await _at(engine, conn, active, now) == []
+    assert engine.get_zone_status().coasting_rooms == [room.id]
+    # Just inside five minutes it is the same wait; past it, the wait is over.
+    assert await engine._coast(conn, active, now=now + timedelta(minutes=4)) == []
+    assert await engine._coast(conn, active, now=now + timedelta(minutes=10)) == active
+    assert await engine._coast(conn, active, now=now + timedelta(minutes=11)) == active
+    # Coasting not looked at for a while (the system off): no badge meanwhile.
+    engine._coast_wait = {room.id: (now, "heating", 70.0)}
+    engine._coast_seen = now - timedelta(minutes=30)
+    assert engine.get_zone_status().coasting_rooms == []
+    engine._coast_seen = None
+    assert engine.get_zone_status().coasting_rooms == []
+    await conn.close()
+
+
+async def test_watching_only_does_not_flood_the_log_at_the_edge_either(monkeypatch):
+    conn, engine, _room, active, temps = await _setup(monkeypatch, level=1)
+    for minute in range(60):
+        temps["now"] = 69.45 if minute % 2 == 0 else 69.55
+        assert await _at(engine, conn, active, NOW + timedelta(minutes=minute)) == active
+    assert len(_said(engine)) == 2
+    await conn.close()

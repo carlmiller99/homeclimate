@@ -43,7 +43,7 @@ COOL_OFF = timedelta(minutes=30)  # after a wait, before the same room may wait 
 STALE_AFTER = timedelta(minutes=5)  # a wait not looked at for this long is dropped
 
 MISSES_KEY = "learn_coast_misses"
-DEMOTED_KEY = "learn_coast_demoted_at"
+DEMOTED_KEY = learning.COAST_DEMOTED_KEY
 
 
 def wait_limit_min(mode: str, costly_heat: bool) -> int:

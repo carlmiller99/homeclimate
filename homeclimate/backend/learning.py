@@ -39,6 +39,9 @@ SETTINGS: dict[str, tuple[str, Any, int, int]] = {
     "coast_level": ("int", 0, 0, 2),
 }
 EARLY_START_LEVELS = ("off", "watch", "on")
+# When coasting last switched itself back to Watch Only (``coasting.record_miss``).
+# Setting the level by hand clears it: from then on the level is the user's.
+COAST_DEMOTED_KEY = "learn_coast_demoted_at"
 
 
 class LearningError(UserError):
@@ -91,6 +94,8 @@ async def update_settings(conn: aiosqlite.Connection, body: dict[str, Any]) -> d
     for name, value in parsed.items():
         encoded = ("1" if value else "0") if isinstance(value, bool) else str(value)
         await db.set_system_setting(conn, SETTING_PREFIX + name, encoded)
+    if "coast_level" in parsed:
+        await db.set_system_setting(conn, COAST_DEMOTED_KEY, "")
     return await get_settings(conn)
 
 

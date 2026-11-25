@@ -587,7 +587,12 @@ class CycleEngine:
             cycle_id=self.current_cycle_id,
             cycle_started_at=self._cycle_log.started_at if self._cycle_log else None,
             rooms=room_states,
-            coasting_rooms=sorted(self._coast_wait),
+            # Not while coasting has stopped being looked at (Vacation Mode,
+            # the system off): a wait from before is not a wait now.
+            coasting_rooms=sorted(self._coast_wait)
+            if self._coast_seen is not None
+            and datetime.now(UTC) - self._coast_seen <= coasting.STALE_AFTER
+            else [],
         )
 
     # ------------------------------------------------------------------
@@ -6525,7 +6530,7 @@ class CycleEngine:
             # Coasting has not been looked at for a while (Vacation Mode, the
             # system switched off, the thermostat away): a wait from before
             # says nothing about now, and must not be counted as a miss.
-            self._coast_wait = {}
+            self._drop_waits(now)
         if level != "on" or self._state != CycleState.IDLE:
             # Released, not ended: the call has had its wait all the same.
             self._drop_waits(now)
@@ -6566,6 +6571,11 @@ class CycleEngine:
             r: t for r, t in self._coast_ended.items() if now - t < coasting.COOL_OFF
         }
         # A call that has ended, or changed, is forgotten: the next one is new.
+        # But a room whose wait goes this way (its target nudged, a reading
+        # missed for a tick) does not begin another straight away.
+        for rid, wait in self._coast_wait.items():
+            if calling.get(rid) != (wait[1], wait[2]):
+                self._coast_ended[rid] = now
         self._coast_done = {r: c for r, c in self._coast_done.items() if calling.get(r) == c}
         self._coast_wait = {
             r: w for r, w in self._coast_wait.items() if calling.get(r) == (w[1], w[2])
@@ -6628,7 +6638,9 @@ class CycleEngine:
                     if held is None:
                         self._coast_wait[room.id] = (now, mode, ar.target_temp)
                 else:
-                    self._coast_done[room.id] = call  # said once; nothing is held back
+                    # Said once; nothing is held back, and not said again for a while.
+                    self._coast_done[room.id] = call
+                    self._coast_ended[room.id] = now
                 if held is None:
                     await self._say_coast(
                         f"{'Letting' if level == 'on' else 'Would let (watching only)'} "

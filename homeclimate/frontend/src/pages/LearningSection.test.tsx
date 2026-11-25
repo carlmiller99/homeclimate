@@ -326,7 +326,7 @@ describe("Smart Learning section", () => {
     );
     render(<LearningSection />);
     expect(
-      await screen.findByText(/It switched itself back to Watch Only on .*2026|Jan/)
+      await screen.findByText(/It switched itself back to Watch Only on .*(2026|Jan)/)
     ).toBeInTheDocument();
     const none = { level: 2, misses_this_week: 0, misses_to_watch_only: 3, switched_back_at: null };
     expect(la.describeCoasting(none)).toBe("No room has been left waiting too long this week.");

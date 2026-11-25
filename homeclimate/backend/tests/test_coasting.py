@@ -118,6 +118,11 @@ async def test_three_misses_in_a_week_send_it_back_to_watch_only():
     assert coasting.describe(2, 0, when)["switched_back_at"] is None
     assert coasting.describe(1, 0)["switched_back_at"] is None
     assert await coasting.demoted_at(conn, now=NOW + timedelta(days=8)) is None
+    # Once the level is set by hand it is the user's: Watch Only chosen later
+    # is not reported as the feature switching itself back.
+    await learning.update_settings(conn, {"coast_level": 2})
+    await learning.update_settings(conn, {"coast_level": 1})
+    assert await coasting.demoted_at(conn, now=NOW) is None
     await db.set_system_setting(conn, coasting.DEMOTED_KEY, "soon")
     assert await coasting.demoted_at(conn, now=NOW) is None
     # A damaged record reads as none.
