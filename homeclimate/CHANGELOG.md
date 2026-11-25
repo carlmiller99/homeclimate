@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.4
+
+- Dashboard: a System On / Off switch at the top right (it was only in the gear menu).
+- The Metrics tab is now called Analytics.
+- The add-on logo no longer carries a subtitle.
+- Dashboard → House: set one Heat To and Cool To for the whole house. Every room in use is kept between them unless a hold, a schedule or occupancy gives it its own target. Off until you set it; nothing changes until then. See docs/house-band.md.
+- Dashboard → Options on each room: mark a room Not In Use (it asks for nothing but a hold; safety limits still apply), or switch off its schedules or occupancy so it follows the house band instead. Schedules are skipped, not deleted.
+
 ## 0.5.3
 
 - Smart Control → Fireplace: add a fireplace with the entity that is on while it burns and every room it warms. On Watch Only it is tracked and logged; set to On, its rooms stop calling for heating or cooling while it is lit and through a cool-down, and the Dashboard marks them. HomeClimate never switches a fireplace. See docs/fireplace.md.

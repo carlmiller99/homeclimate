@@ -105,8 +105,11 @@ class RoomOverrideStatusSchema(Schema):
 
 class RoomActiveStatusSchema(Schema):
     room_id = fields.Str()
-    source = fields.Str()  # 'schedule' | 'presence' | 'override' | 'safety' | 'idle'
+    source = fields.Str()  # 'schedule' | 'presence' | 'override' | 'house' | 'safety' | 'idle'
     target_temp = fields.Float(allow_none=True)
+    # The band a room following the house is kept in (°F); null for other sources.
+    heat_to = fields.Float(allow_none=True)
+    cool_to = fields.Float(allow_none=True)
     ends_in_seconds = fields.Int(allow_none=True)
     # #576: the active hold's Eco opt-in; null for every non-override source.
     override_respect_eco = fields.Bool(allow_none=True)
@@ -863,6 +866,32 @@ class ShadesSchema(Schema):
     settings = fields.Nested(ShadeSettingsSchema)
     sun = fields.Nested(SunSchema)
     shades = fields.List(fields.Nested(ShadeSchema))
+
+
+class HouseBandSchema(Schema):
+    house_heat_to = fields.Float(
+        allow_none=True, metadata={"description": "Heat rooms below this. Display unit in, °F out."}
+    )
+    house_cool_to = fields.Float(
+        allow_none=True, metadata={"description": "Cool rooms above this. Display unit in, °F out."}
+    )
+
+
+class RoomSwitchesSchema(Schema):
+    in_use = fields.Bool(metadata={"description": "Off: the room asks for nothing but a hold"})
+    use_schedules = fields.Bool(metadata={"description": "Off: schedules are skipped"})
+    use_presence = fields.Bool(metadata={"description": "Off: occupancy sets no target"})
+
+
+class HouseRoomSchema(RoomSwitchesSchema):
+    room_id = fields.Str()
+
+
+class HouseSchema(HouseBandSchema):
+    min_gap = fields.Float(metadata={"description": "°F delta required between the two"})
+    low = fields.Float(metadata={"description": "°F, lowest heat-to allowed"})
+    high = fields.Float(metadata={"description": "°F, highest cool-to allowed"})
+    rooms = fields.List(fields.Nested(HouseRoomSchema))
 
 
 class FireplaceWriteSchema(Schema):

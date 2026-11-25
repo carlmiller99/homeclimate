@@ -94,7 +94,7 @@ describe("the lazy Metrics route", () => {
     // Not requested until the route is entered.
     expect(screen.queryByTestId("metrics-page")).not.toBeInTheDocument();
 
-    fireEvent.click((await screen.findAllByRole("link", { name: /Metrics/i }))[0]);
+    fireEvent.click((await screen.findAllByRole("link", { name: /Analytics/i }))[0]);
     expect(await screen.findByTestId("metrics-page")).toBeInTheDocument();
   });
 

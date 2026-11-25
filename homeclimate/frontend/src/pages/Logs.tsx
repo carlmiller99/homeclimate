@@ -165,6 +165,9 @@ function triggerSummary(
   if (source === "safety") {
     return "safety protection";
   }
+  if (source === "house") {
+    return "house band";
+  }
   return source ?? "";
 }
 
@@ -1364,7 +1367,7 @@ function RetentionSettings() {
         <div className="form-hint">
           How far back the <strong>Cycle History</strong> tab lists cycles. This is a display window
           only — it deletes nothing itself. Cycles older than this stay in the database and stay
-          counted by every chart on the Metrics page, for as long as{" "}
+          counted by every chart on the Analytics page, for as long as{" "}
           <strong>metrics retention</strong> below keeps them. That setting is also a hard cap on
           this one: if it is the smaller of the two, this list stops where it does, because the
           older cycles really are gone.
@@ -1395,7 +1398,7 @@ function RetentionSettings() {
           disabled={saving}
         />
         <div className="form-hint">
-          How far back the <strong>Metrics</strong> page can reach, and the only setting that
+          How far back the <strong>Analytics</strong> page can reach, and the only setting that
           deletes cycle records. Every chart is computed live from them, and deleting one takes its
           whole detail with it: the per-room results, the temperature samples, the setpoint history
           and the vent events. <strong>Lowering this permanently destroys history</strong> on the

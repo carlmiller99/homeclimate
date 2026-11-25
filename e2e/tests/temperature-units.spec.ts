@@ -54,6 +54,8 @@ const ROOM_DEADBAND_OVERRIDE = isCelsius ? "0.5" : "0.9";
 // Ambient pre-cool/pre-heat deltas (Issue #248). 5°C → 9.0°F and 3°C → 5.4°F
 // both round-trip cleanly through the backend's 2dp °F storage, and the
 // widened deadband (3) clears any thermostat deadband set earlier in this file.
+const HOUSE_HEAT_TO = isCelsius ? "19.5" : "67";
+const HOUSE_COOL_TO = isCelsius ? "24" : "75";
 const AMBIENT_MIN_DIFF = isCelsius ? "5" : "5";
 const AMBIENT_DEADBAND = isCelsius ? "3" : "3";
 
@@ -603,6 +605,36 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
           hp_recovery_f_per_hr: isCelsius ? 1.1111 : 2,
           hp_compressor_lockout_f: null,
         },
+      });
+    }
+  });
+
+  test("house band persists exactly as entered", async ({ page }) => {
+    // @covers: house_heat_to, house_cool_to
+    try {
+      await page.goto("/");
+      await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
+      const heat = page.getByLabel(/^Heat To/);
+      const cool = page.getByLabel(/^Cool To/);
+      await heat.fill(HOUSE_HEAT_TO);
+      await cool.fill(HOUSE_COOL_TO);
+      await page.getByRole("button", { name: /Set House Band|^Save$/ }).click();
+      await expect(page.getByRole("button", { name: "Turn Off" })).toBeVisible();
+
+      await page.reload();
+      await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
+      expect(parseFloat(await page.getByLabel(/^Heat To/).inputValue())).toBeCloseTo(
+        parseFloat(HOUSE_HEAT_TO),
+        1,
+      );
+      expect(parseFloat(await page.getByLabel(/^Cool To/).inputValue())).toBeCloseTo(
+        parseFloat(HOUSE_COOL_TO),
+        1,
+      );
+    } finally {
+      // Leave no band behind: with one set, every room becomes active.
+      await page.request.put("/api/house", {
+        data: { house_heat_to: null, house_cool_to: null },
       });
     }
   });

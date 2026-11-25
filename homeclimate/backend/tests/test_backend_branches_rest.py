@@ -214,7 +214,7 @@ class TestRoomActiveStatusDefensiveReads:
         return room
 
     def _force_source(self, monkeypatch: pytest.MonkeyPatch, room: Room, source: str) -> None:
-        async def _resolved(_conn, _room, _schedules, _now):
+        async def _resolved(_conn, _room, _schedules, _now, _house=None):
             return ActiveRoom(room=room, target_temp=71.0, source=source)
 
         monkeypatch.setattr(room_manager, "_resolve_room", _resolved)

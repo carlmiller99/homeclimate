@@ -509,7 +509,7 @@ export default function App() {
                 <Suspense
                   fallback={
                     <div className="loading">
-                      <div className="spinner" /> Loading metrics…
+                      <div className="spinner" /> Loading analytics…
                     </div>
                   }
                 >

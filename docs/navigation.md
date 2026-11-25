@@ -7,7 +7,7 @@ HomeClimate has five tabs. One rule decides what goes where, and where new featu
 | **Dashboard** | Shows status and allows manual control. |
 | **My Home** | Shows and edits structure and hardware. |
 | **Smart Control** | Tunes what HomeClimate does on its own: scheduling, learning, automatic pauses. |
-| **Metrics** | Charts and history. |
+| **Analytics** | Charts and history. |
 | **Settings** | The house time zone, sensors used everywhere, integrations, logs, and Dev Mode. |
 
 ## Dashboard
@@ -16,6 +16,9 @@ Zones are grouped by building, and every room is listed under its zone with its 
 
 Manual controls live here and nowhere else:
 
+- **System On / Off** at the top right: one switch for all of HomeClimate's control. It asks before switching.
+- The **House** band at the top: one Heat To and Cool To for every room. See [House band](./house-band.md).
+- **Options** on each room: whether it is in use, and whether it follows its schedules and occupancy or the house band.
 - **Hold** and **Cancel Hold** on each room, and the page-level **Temporary hold** button. See [Temperature holds](./temperature-holds.md).
 - **Clear Presence** on a room that presence is holding active.
 - **Suspend Eco**, for the house or for one zone. See [Eco Mode](./eco-mode.md).

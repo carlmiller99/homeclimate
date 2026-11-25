@@ -696,8 +696,11 @@ export interface EntityState {
 
 export interface RoomActiveStatus {
   room_id: string;
-  source: "schedule" | "presence" | "override" | "idle";
+  source: "schedule" | "presence" | "override" | "house" | "idle";
   target_temp: number | null;
+  /** The band a room following the house is kept in (°F); null for every other source. */
+  heat_to?: number | null;
+  cool_to?: number | null;
   ends_in_seconds: number | null;
   // #576: the active hold's Eco opt-in; null for every non-override source.
   override_respect_eco: boolean | null;

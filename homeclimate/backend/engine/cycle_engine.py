@@ -21,7 +21,7 @@ from typing import Any
 
 import aiosqlite
 
-from .. import db, eco
+from .. import db, eco, house
 from .. import heat_pump as hp_rules
 from ..event_logger import EventLogger
 from ..ha_client import HAClient
@@ -741,6 +741,12 @@ class CycleEngine:
         # vacation this is the sole source of demand, `new_active_map` having
         # been seeded empty just above.
         await self._add_safety_rooms(conn, new_active_map)
+        # Rooms following a band (the house band) get this tick's single
+        # target: the edge the running cycle is working toward, or with no
+        # cycle running, their own temperature held inside the band.
+        self._apply_bands(
+            new_active_map, self._cycle_mode if self._state != CycleState.IDLE else None
+        )
 
         # Surface room-sensor staleness before any decisions are made off the
         # (now stale-filtered) data. Once-per-episode rate-limited internally.
@@ -889,6 +895,10 @@ class CycleEngine:
                     return
 
             effective_mode = inferred
+            # A cycle is about to start in this direction: banded rooms now
+            # work to that edge, so a room inside its band is filtered out below
+            # like any room that needs the other direction.
+            self._apply_bands(new_active_map, inferred)
         else:
             effective_mode = self._cycle_mode or hvac_mode
 
@@ -4228,6 +4238,11 @@ class CycleEngine:
                 )
                 if match is not None:
                     ar.deadband_override = match.deadband_override
+            elif source == "house":
+                # The band is not in the snapshot: re-read it as it stands now.
+                band = (await house.load(conn)).band
+                if band is not None:
+                    ar.heat_to, ar.cool_to = band.heat_to, band.cool_to
             elif source == "override":
                 # #576: respect_eco is not in the snapshot either — re-read it
                 # from the live hold row (the #517 pattern above). Without this
@@ -5301,7 +5316,11 @@ class CycleEngine:
             self._get_fireplace_rooms() if self._get_fireplace_rooms is not None else frozenset()
         )
         for room in zone_rooms:
-            if room.id in new_active_map:
+            current = new_active_map.get(room.id)
+            # A room following the house band is not "already conditioned": it
+            # asks for nothing while inside its band, and the band may be wider
+            # than this zone's safety limits. A breach replaces it below.
+            if current is not None and current.source != "house":
                 continue  # already conditioned via override/schedule/presence
             avg = self._get_avg_temp(room)
             if avg is None:
@@ -5470,6 +5489,34 @@ class CycleEngine:
             )
             return True
         return False
+
+    def _apply_bands(self, active_rooms: dict[str, ActiveRoom], mode: str | None) -> None:
+        """Give every banded room its single target for this tick (house.Band).
+
+        Two kinds of banded room are left out rather than given a target:
+
+        - One with no temperature reading of its own. Its place in the band is
+          unknown, and a cycle started on a stand-in reading could never be
+          judged finished. A room already part of the running cycle stays.
+        - With a cycle running or about to start, one that is not already part
+          of it and is not short of the edge the cycle works toward. Without
+          this a room resting in its band would hop in and out of every cycle
+          as it drifted across the deadband, moving its vents each time.
+        """
+        in_cycle = mode in ("heating", "cooling")
+        for room_id, ar in list(active_rooms.items()):
+            if ar.heat_to is None or ar.cool_to is None:
+                continue
+            avg = self._get_avg_temp(ar.room)
+            temp = None if avg is None else avg + ar.room.temp_offset
+            if room_id not in self._active_rooms:
+                if temp is None:
+                    del active_rooms[room_id]
+                    continue
+                if in_cycle and not (temp < ar.heat_to if mode == "heating" else temp > ar.cool_to):
+                    del active_rooms[room_id]
+                    continue
+            ar.target_temp = house.Band(ar.heat_to, ar.cool_to).target_for(mode, temp)
 
     async def _fire_is_warming_this_zone(self, conn: aiosqlite.Connection) -> bool:
         """Whether a lit fireplace has set aside any room of this zone."""
@@ -5780,13 +5827,17 @@ class CycleEngine:
         if hp is None or not hp.avoid_aux or self._hp_strips or state != "heat":
             return active
         now = now or datetime.now(UTC)
-        have = {ar.room.id for ar in active}
+        the_house = await house.load(conn)
+        # A room following the house band has nothing more specific yet, so an
+        # early warm-up may take it over; any other source is left alone.
+        have = {ar.room.id for ar in active if ar.source != "house"}
         by_room: dict[str, list] = {}
         for sched in await db.get_all_schedules(conn):
             by_room.setdefault(sched.room_id, []).append(sched)
         out = list(active)
         for room in await db.get_rooms_for_thermostat(conn, self.thermostat_entity_id):
-            if room.id in have:
+            switches = the_house.switches(room.id)
+            if room.id in have or not switches.in_use or not switches.use_schedules:
                 continue
             upcoming = _next_schedule_start(by_room.get(room.id, []), now)
             temp = self._get_avg_temp(room)
@@ -5798,6 +5849,7 @@ class CycleEngine:
             lead_hours = min((target - temp) / hp.recovery_f_per_hr, hp_rules.WARMUP_MAX_LEAD_HOURS)
             if secs > lead_hours * 3600:
                 continue
+            out = [ar for ar in out if ar.room.id != room.id]
             out.append(ActiveRoom(room=room, target_temp=target, source="schedule"))
             key = (room.id, label)
             if self._logger and key not in self._hp_warmups_logged:

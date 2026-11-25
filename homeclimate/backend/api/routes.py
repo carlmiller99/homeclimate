@@ -25,7 +25,7 @@ import aiohttp
 import aiosqlite
 from aiohttp import web
 
-from .. import auth, db, demo_seed, oidc, schedule_rules, scopes, session, structure, tz
+from .. import auth, db, demo_seed, house, oidc, schedule_rules, scopes, session, structure, tz
 from ..engine import room_manager
 from ..models import (
     VALID_CONTROL_METHODS,
@@ -479,6 +479,9 @@ TEMPERATURE_FIELDS: dict[str, str] = {
     "deadband": "delta",
     "overshoot_delta": "delta",
     "cooling_lockout_below_f": "absolute_nullable",
+    # House band (backend/house.py) — PUT /api/house
+    "house_heat_to": "absolute_nullable",
+    "house_cool_to": "absolute_nullable",
     # Room
     "system_wide_temp": "absolute_nullable",
     "temp_offset": "delta",
@@ -2275,13 +2278,14 @@ async def rooms_active_status(request: web.Request) -> web.Response:
     # datetime.now(UTC) in production (see tz.now_utc / #456).
     now = tz.now_utc()
 
+    the_house = await house.load(conn)
     result = {}
     for room_id in room_ids:
         room = await db.get_room(conn, room_id)
         if not room:
             continue
         schedules = await db.get_schedules_for_room(conn, room_id)
-        status = await room_manager.get_room_active_status(conn, room, schedules, now)
+        status = await room_manager.get_room_active_status(conn, room, schedules, now, the_house)
         result[room_id] = status
 
     return json_response(result)

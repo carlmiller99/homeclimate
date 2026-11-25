@@ -18,6 +18,7 @@ High-level guide to what HomeClimate does and how the pieces fit together. For i
 - [Shades](./shades.md) — open sunlit shades when heating and close them when cooling (Smart Control)
 - [Smart Learning](./smart-learning.md) — the room data recorder that learning is built on (Smart Control)
 - [Forecasts](./forecasts.md) — fetch, keep and archive the hourly weather forecast (Smart Control)
+- [House band](./house-band.md) — one heat-to and cool-to for the whole house, and per-room options for what each room follows (Dashboard)
 - [Fireplace](./fireplace.md) — keep rooms a fire is warming out of the heating and cooling's way (Smart Control)
 - [Temperature holds](./temperature-holds.md) — hold one room at an exact temperature for 1–8 hours, overriding schedules and presence
 - [Pre-cool / pre-heat](./precool-presence.md) — let a room coast to target on outside air instead of running HVAC for presence

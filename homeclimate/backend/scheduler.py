@@ -1620,6 +1620,11 @@ class Scheduler:
                 {"count": moved},
             )
 
+    async def tick_all_now(self) -> None:
+        """Tick every zone now, after a change to what rooms follow."""
+        for tid, engine in list(self._engines.items()):
+            await self._tick_engine(tid, engine)
+
     async def refresh_openings(self) -> None:
         """Re-evaluate pauses after a settings or sensor change and act at once."""
         for tid in await self._evaluate_openings():
