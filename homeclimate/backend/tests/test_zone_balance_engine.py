@@ -457,6 +457,73 @@ async def test_a_run_kept_going_only_by_conveniences_says_nothing_of_the_buildin
     await conn.close()
 
 
+async def test_which_rooms_are_counted_as_having_called():
+    conn, engine, room, _temps = await _setup()
+    tc = await db.get_thermostat_config(conn, THERMO_ID)
+    cold = Room.create(name="Craft Room", thermostat_entity_id=THERMO_ID)
+    resting = Room.create(name="Loft", thermostat_entity_id=THERMO_ID)
+    joiner = Room.create(name="Office", thermostat_entity_id=THERMO_ID)
+    temps = {room.id: 64.0, cold.id: 66.0, resting.id: 69.8, joiner.id: 80.0}
+    engine._get_avg_temp = lambda r, **_k: temps[r.id]
+
+    def hold(r, target=70.0):
+        return ActiveRoom(room=r, target_temp=target, source="override")
+
+    balancing = ActiveRoom(room=room, target_temp=67.0, source="balance")
+    # With the zone idle: a room that is calling, not one resting in its deadband,
+    # and never a convenience room. It is worked out with no convenience about, too.
+    active = {room.id: balancing, cold.id: hold(cold), resting.id: hold(resting)}
+    engine._optional_rooms_yield(dict(active), tc)
+    assert engine._run_called == {cold.id}
+    engine._run_called = set()
+    engine._optional_rooms_yield({cold.id: hold(cold), resting.id: hold(resting)}, tc)
+    assert engine._run_called == {cold.id}
+    # During a run: a room seen past its deadband, and a room asking for the
+    # run's own direction (it is joining). Not one asking for the other.
+    _run(engine, list(active.values()))
+    engine._run_called = set()
+    engine._room_cycle_states = {
+        rid: SimpleNamespace(vent_closed_at=None, target_temp=70.0) for rid in active
+    }
+    temps[cold.id] = 69.8
+    engine._optional_rooms_yield(dict(active), tc)
+    assert engine._run_called == set()
+    temps[resting.id] = 69.2
+    engine._optional_rooms_yield(dict(active), tc)
+    assert engine._run_called == {resting.id}
+    engine._run_called = set()
+    temps[resting.id] = 69.8
+    engine._optional_rooms_yield(active | {joiner.id: hold(joiner)}, tc)
+    assert engine._run_called == set()  # it wants cooling
+    temps[joiner.id] = 66.0
+    engine._optional_rooms_yield(active | {joiner.id: hold(joiner)}, tc)
+    assert engine._run_called == {joiner.id}
+    # A room not yet set up in the run is judged only by what it asks for; one
+    # with no reading by the thermostat's own, as the vote judges it.
+    engine._run_called = set()
+    temps[resting.id] = None
+    del engine._room_cycle_states[cold.id]
+    temps[cold.id] = 60.0
+    temps[joiner.id] = 80.0
+    engine._optional_rooms_yield(active | {joiner.id: hold(joiner)}, tc)
+    assert engine._run_called == {cold.id, resting.id}
+    engine._thermo_ambient_f = lambda: 70.0
+    engine._run_called = set()
+    engine._optional_rooms_yield(active | {joiner.id: hold(joiner)}, tc)
+    assert engine._run_called == {cold.id}
+    # While the run is on its way out against the building's side, nobody new
+    # is counted: a room that starts to ask then does not make the run its own.
+    engine._run_called = set()
+    engine._room_cycle_states[cold.id] = SimpleNamespace(vent_closed_at=None, target_temp=70.0)
+    temps[resting.id] = 69.0
+    engine._cycle_runtime_satisfied = lambda _tc, now=None: False
+    engine._optional_rooms_yield(dict(active), tc, "cooling")
+    assert engine._run_called == set() and engine.optional_only
+    engine._optional_rooms_yield(dict(active), tc, "heating")
+    assert engine._run_called == {cold.id, resting.id} and not engine.optional_only
+    await conn.close()
+
+
 async def test_what_another_zone_is_waiting_for_counts_as_the_side_where_the_building_chooses():
     conn, engine, _room, _temps = await _setup()
     engine._get_building_waiting = lambda: "cooling"
