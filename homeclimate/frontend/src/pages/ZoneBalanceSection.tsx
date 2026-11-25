@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useUnit } from "../contexts";
 import { Frozen } from "../ci";
 import {
@@ -26,13 +26,15 @@ export default function ZoneBalanceSection() {
   const [loadFailed, setLoadFailed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const saving = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
     const load = () =>
       getZoneBalance()
         .then((d) => {
-          if (!cancelled) setBuildings(d.buildings);
+          // Not over a change being saved: its answer is the newer one.
+          if (!cancelled && !saving.current) setBuildings(d.buildings);
         })
         .catch(() => {
           // A failed refresh keeps what is shown; only a failed first load says so.
@@ -50,11 +52,13 @@ export default function ZoneBalanceSection() {
   const change = async (id: string, patch: { level?: BalanceLevel; zone_gap?: number }) => {
     setErr(null);
     setBusy(true);
+    saving.current = true;
     try {
       setBuildings((await setZoneBalance(id, patch)).buildings);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Could not save");
     } finally {
+      saving.current = false;
       setBusy(false);
     }
   };

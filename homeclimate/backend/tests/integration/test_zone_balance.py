@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 import pytest
 
+from backend import db
 from backend import zone_balance as zb
 
 T1, T2, T3 = "climate.north", "climate.south", "climate.den"
@@ -124,11 +127,23 @@ async def test_an_occupied_zone_brings_a_lagging_one_to_within_the_limit(client,
     assert scheduler.balance_calls == {T2: (zb.Call("heating", 67.0, T1, 6.0), True)}
     assert scheduler._balance_call(T2) == zb.Call("heating", 67.0, T1, 6.0)
     assert scheduler._balance_call(T1) is None
-    scheduler._engines[T2]._balance_latch = {rooms[T2]: 67.0}
+    from backend.engine.cycle_engine import CycleState
+    from backend.engine.room_manager import ActiveRoom
+
+    south = scheduler._engines[T2]
+    conn = await scheduler.get_db()
+    south._active_rooms = {
+        rooms[T2]: ActiveRoom(
+            room=await db.get_room(conn, rooms[T2]), target_temp=67.0, source="balance"
+        )
+    }
+    south._state = CycleState.IDLE
+    assert not scheduler.balance_answering(T2)  # asked, but nothing is running
+    south._state = CycleState.RUNNING
     assert scheduler.balance_answering(T2) and not scheduler.balance_answering("climate.nope")
     snap = (await (await client.get("/api/zone-balance")).json())["buildings"][0]
     assert [z["answering"] for z in snap["zones"]] == [False, True]
-    scheduler._engines[T2]._balance_latch = {}
+    south._state, south._active_rooms = CycleState.IDLE, {}
     assert snap["direction"] == "heating"
     assert [(z["occupied"], z["target"], z["toward"], z["obeyed"]) for z in snap["zones"]] == [
         (True, None, None, False),
@@ -247,3 +262,59 @@ async def test_a_fault_while_planning_leaves_no_calls_and_does_not_stop_the_minu
     monkeypatch.setattr(scheduler, "replan_buildings_now", broken)
     resp = await client.put(f"/api/zone-balance/{main}", json={"level": "on"})
     assert resp.status == 200
+
+
+async def test_a_real_balancing_run_ends_by_itself_when_its_call_lapses(client, fake_ha, tick):
+    """With real engines and a real cycle: no abort, and the minimum runtime is kept."""
+    north, south = "climate.bal_north", "climate.bal_south"
+    rooms = {}
+    for tid, name, temp in ((north, "Kitchen", "70.0"), (south, "Bunk Room", "64.0")):
+        slug = name.split()[0].lower()
+        fake_ha.seed_state(
+            tid,
+            "heat",
+            {"current_temperature": float(temp), "temperature": 60.0, "hvac_action": "idle"},
+        )
+        fake_ha.seed_state(f"sensor.bal_{slug}", temp, {"unit_of_measurement": "°F"})
+        fake_ha.seed_state(f"cover.bal_{slug}", "open", {})
+        resp = await client.post("/api/rooms", json={"name": name, "thermostat_entity_id": tid})
+        rooms[tid] = (await resp.json())["id"]
+        await client.post(
+            f"/api/rooms/{rooms[tid]}/sensors", json={"entity_id": f"sensor.bal_{slug}"}
+        )
+        await client.post(
+            f"/api/rooms/{rooms[tid]}/vents",
+            json={"entity_id": f"cover.bal_{slug}", "control_method": "open_close"},
+        )
+        await client.put(f"/api/thermostats/{tid}", json={"min_cycle_runtime_min": 15})
+    main = (await (await client.post("/api/buildings", json={"name": "Main House"})).json())["id"]
+    for tid in (north, south):
+        await client.put(f"/api/zones/{tid}", json={"building_id": main})
+    await client.put(f"/api/building-modes/{main}", json={"mode": "heat_only"})
+    await client.post(
+        f"/api/rooms/{rooms[north]}/override", json={"target_temp": 70, "duration_hours": 8}
+    )
+    await _set(client, main, level="on")
+    await tick()
+    await tick()
+    scheduler = client.app["scheduler"]
+    eng = scheduler._engines[south]
+    assert eng.cycle_state.value == "running"
+    assert [ar.source for ar in eng._active_rooms.values()] == ["balance"]
+    assert scheduler.balance_answering(south) and eng.balance_rooms == [rooms[south]]
+    # The room arrives: the zones are inside the limit and the call lapses.
+    await fake_ha.set_entity_state("sensor.bal_bunk", "67.2", {"unit_of_measurement": "°F"})
+    await tick()
+    await tick()
+    assert scheduler.balance_calls == {}
+    assert eng.cycle_state.value != "idle" and eng._cycle_log.in_min_runtime_hold is True
+    # Once the minimum runtime has passed, it ends as any run does.
+    eng._cycle_log.started_at -= timedelta(minutes=16)
+    await tick()
+    assert eng.cycle_state.value == "idle" and eng.balance_rooms == []
+    conn = await scheduler.get_db()
+    async with conn.execute(
+        "SELECT ended_reason FROM cycle_logs WHERE thermostat_entity_id = ?", (south,)
+    ) as cur:
+        reasons = [r["ended_reason"] for r in await cur.fetchall()]
+    assert len(reasons) == 1 and not str(reasons[0]).startswith("aborted")

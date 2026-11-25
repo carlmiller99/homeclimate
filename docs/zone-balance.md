@@ -11,7 +11,7 @@ Each building has its own:
 - **Balance**: **Off** (the default), **Watch Only** (logs what it would do and does nothing) or **On**.
 - **Gap Limit**: how far apart zones may be. 3 °F to start with; 2 to 10 °F (1.2 to 5.5 °C).
 
-The section also shows each zone's temperature, how far apart the warmest and coolest are, and what is being balanced right now. It looks again every half minute. A room being heated or cooled for balance shows **Zone Balance** on the Dashboard.
+The section also shows each zone's temperature, how far apart the warmest and coolest are, and what is being balanced right now. It looks again every half minute. A room in a run for balance shows **Zone Balance** on the Dashboard.
 
 ## The rules
 

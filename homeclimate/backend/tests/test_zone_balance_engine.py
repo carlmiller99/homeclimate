@@ -38,8 +38,8 @@ def _targets(active) -> list[tuple[float, str]]:
 async def test_a_room_short_of_the_call_answers_it_and_is_kept_to_the_end_of_the_run():
     conn, engine, room, temps = await _setup()
     assert _targets(await engine._balance(conn, [])) == [(67.0, "balance")]
-    assert engine.balance_rooms == [room.id]
-    assert engine.get_zone_status().balance_rooms == [room.id]
+    # Asked, but nothing is running for it yet: it is not shown as being balanced.
+    assert engine._balance_latch == {room.id: 67.0} and engine.balance_rooms == []
     # Close enough: with nothing running it asks for nothing.
     temps["now"] = 66.8
     assert await engine._balance(conn, []) == []
@@ -72,7 +72,7 @@ async def test_a_call_that_lapses_mid_run_does_not_cut_the_run_short():
     # A room that gains a target of its own, or goes out of use, leaves it.
     own = [ActiveRoom(room=room, target_temp=70.0, source="override")]
     assert await engine._balance(conn, own) == own
-    assert engine.balance_rooms == []
+    assert engine._balance_latch == {}
     # Once the run is over, a lapsed call asks for nothing.
     engine._get_balance = lambda: None
     engine._state = CycleState.IDLE
@@ -102,8 +102,15 @@ async def test_after_a_restart_a_balancing_run_is_carried_on():
     conn, engine, room, temps = await _setup()
     engine._state, engine._cycle_mode = CycleState.RUNNING, "heating"
     engine._active_rooms = {room.id: ActiveRoom(room=room, target_temp=67.0, source="balance")}
+    assert engine.balance_rooms == [room.id]
+    assert engine.get_zone_status().balance_rooms == [room.id]
     temps["now"] = 66.8  # inside the deadband: a fresh look would drop it
     engine._get_balance = lambda: None
+    assert _targets(await engine._balance(conn, [])) == [(67.0, "balance")]
+    # Eco had relaxed it to 66 °F: it is carried on at what was asked for.
+    engine._balance_latch = {}
+    engine._active_rooms[room.id].target_temp = 66.0
+    engine._active_rooms[room.id].requested_target = 67.0
     assert _targets(await engine._balance(conn, [])) == [(67.0, "balance")]
     await conn.close()
 

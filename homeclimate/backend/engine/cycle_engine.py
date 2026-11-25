@@ -6534,7 +6534,8 @@ class CycleEngine:
         if self._state != CycleState.IDLE:
             # Kept from the last tick; after a restart, read back from the run itself.
             held = self._balance_latch or {
-                rid: ar.target_temp
+                # The target asked for, not one Eco has since relaxed.
+                rid: ar.target_temp if ar.requested_target is None else ar.requested_target
                 for rid, ar in self._active_rooms.items()
                 if ar.source == "balance"
             }
@@ -6590,8 +6591,14 @@ class CycleEngine:
 
     @property
     def balance_rooms(self) -> list[str]:
-        """Rooms answering a balancing call."""
-        return sorted(self._balance_latch)
+        """Rooms being heated or cooled for a balancing call right now.
+
+        The rooms in the running cycle, not the ones asked: a paused zone, a
+        lockout or Vacation Mode can leave a room asked with nothing running.
+        """
+        if self._state == CycleState.IDLE:
+            return []
+        return sorted(rid for rid, ar in self._active_rooms.items() if ar.source == "balance")
 
     @property
     def coasting_rooms(self) -> dict[str, dict[str, Any]]:
