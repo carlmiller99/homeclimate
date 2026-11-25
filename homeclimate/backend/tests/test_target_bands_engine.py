@@ -95,17 +95,21 @@ async def test_with_no_reading_of_its_own_a_banded_hold_goes_by_the_thermostat()
     assert (targets["r1"], mode) == (72.0, "cooling")
     await conn.close()
     # The room's offset counts on the stand-in reading, as it does for a single target:
-    # 71 °F at the thermostat, +3 °F, is past a 72 °F cool-to.
-    conn, engine, started = await _banded(temps, ambient=71.0)
-    for sched in await db.get_schedules_for_room(conn, "r2"):
-        await db.delete_schedule(conn, sched.id)  # leave r1 as the zone's only demand
+    # 71 °F at the thermostat, +3 °F, is past a 72 °F cool-to; without the offset it is not.
+    from backend.engine.room_manager import ActiveRoom
+
+    conn, engine, _started_mock = await _banded(temps, ambient=71.0)
     room = await db.get_room(conn, "r1")
-    room.temp_offset = 3.0
-    await db.upsert_room(conn, room)
-    await db.set_room_override(conn, RoomOverride("r1", 68.0, expires))
-    await house.set_target_band(conn, "hold", "r1", 68.0, 72.0, house.hold_stamp(expires))
-    await engine._do_tick(conn)
-    assert "r1" in _started(started)[0]
+    state = engine._ha.get_state(engine.thermostat_entity_id)
+    for offset, joins in ((3.0, True), (0.0, False)):
+        room.temp_offset = offset
+        rooms = {"r1": ActiveRoom(room, 68.0, "override", heat_to=68.0, cool_to=72.0)}
+        engine._apply_bands(rooms, "cooling", state)
+        assert ("r1" in rooms) is joins
+    # With no thermostat reading either, there is nothing to go by.
+    rooms = {"r1": ActiveRoom(room, 68.0, "override", heat_to=68.0, cool_to=72.0)}
+    engine._apply_bands(rooms, "cooling", None)
+    assert rooms == {}
     await conn.close()
     # A room following the house band still sits out: nobody asked for it by name.
     conn, engine, started = await _banded({"r1": None, "r2": None}, ambient=78.0)
