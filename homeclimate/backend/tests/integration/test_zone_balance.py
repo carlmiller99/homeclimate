@@ -423,6 +423,58 @@ async def test_a_hold_that_arrives_during_a_balancing_run_ends_it(client, fake_h
     assert eng.cycle_mode != "heating"
 
 
+async def test_a_call_the_building_side_rules_out_does_not_end_a_balancing_run(
+    client, fake_ha, tick
+):
+    """Heat Only: a hold hovering just over its target cannot be cooled, so it ends nothing."""
+    lead, lag = "climate.bal5_lead", "climate.bal5_lag"
+    ids = {}
+    for tid, name, temp in (
+        (lead, "kitchen", "76.0"),
+        (lag, "desk", "70.4"),
+        (lag, "bunk", "64.0"),
+    ):
+        fake_ha.seed_state(
+            tid,
+            "heat",
+            {"current_temperature": 68.0, "temperature": 60.0, "hvac_action": "idle"},
+        )
+        fake_ha.seed_state(f"sensor.bal5_{name}", temp, {"unit_of_measurement": "°F"})
+        fake_ha.seed_state(f"cover.bal5_{name}", "open", {})
+        resp = await client.post("/api/rooms", json={"name": name, "thermostat_entity_id": tid})
+        ids[name] = (await resp.json())["id"]
+        await client.post(
+            f"/api/rooms/{ids[name]}/sensors", json={"entity_id": f"sensor.bal5_{name}"}
+        )
+        await client.post(
+            f"/api/rooms/{ids[name]}/vents",
+            json={"entity_id": f"cover.bal5_{name}", "control_method": "open_close"},
+        )
+    main = (await (await client.post("/api/buildings", json={"name": "Main House"})).json())["id"]
+    for tid in (lead, lag):
+        await client.put(f"/api/zones/{tid}", json={"building_id": main})
+    await client.put(f"/api/building-modes/{main}", json={"mode": "heat_only"})
+    for name, target in (("kitchen", 76), ("desk", 70)):
+        await client.post(
+            f"/api/rooms/{ids[name]}/override", json={"target_temp": target, "duration_hours": 8}
+        )
+    await _set(client, main, level="on")
+    await tick()
+    await tick()
+    scheduler = client.app["scheduler"]
+    eng = scheduler._engines[lag]
+    assert eng.cycle_state.value == "running" and eng.balance_rooms == [ids["bunk"]]
+    for reading in ("70.6", "70.4", "70.6"):
+        fake_ha.seed_state("sensor.bal5_desk", reading, {"unit_of_measurement": "°F"})
+        await tick()
+        assert eng.cycle_state.value == "running" and eng.balance_rooms == [ids["bunk"]]
+    conn = await scheduler.get_db()
+    async with conn.execute(
+        "SELECT ended_reason FROM cycle_logs WHERE thermostat_entity_id = ?", (lag,)
+    ) as cur:
+        assert len(await cur.fetchall()) == 1
+
+
 @pytest.mark.parametrize("floor", [False, True])
 async def test_a_finished_room_does_not_keep_a_run_going_for_balancing_rooms(
     client, fake_ha, tick, floor

@@ -302,6 +302,21 @@ async def test_before_a_cycle_is_chosen_balancing_rooms_give_way_to_any_room_tha
     engine._cycle_runtime_satisfied = lambda _tc, now=None: True
     engine._optional_rooms_yield(running, tc)
     assert running == {room.id: was, other.id: hold}
+    # Not for a call the building's side rules out, which no cycle could
+    # answer: ending the run would only start it again a minute later.
+    running = asked(hold)
+    engine._optional_rooms_yield(running, tc, "heating")
+    assert running[room.id].source == "balance"
+    # A room past a safety limit is answered whatever the side, and so is a
+    # call for the side itself.
+    temps[other.id] = tc.max_setpoint + 1
+    running = asked(hold)
+    engine._optional_rooms_yield(running, tc, "heating")
+    assert running[room.id] is was
+    temps[other.id] = 80.0
+    running = asked(hold)
+    engine._optional_rooms_yield(running, tc, "cooling")
+    assert running[room.id] is was
     # A room that wants the same direction simply joins the run.
     temps[other.id] = 70.0
     running = asked(hold)
