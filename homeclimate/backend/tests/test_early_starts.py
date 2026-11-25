@@ -361,7 +361,7 @@ async def test_through_the_engine_a_fast_room_is_asked_for_on_every_tick(monkeyp
     temp = [64.0]
     engine._get_avg_temp = lambda _room, **_k: temp[0]
     real = engine._early_starts
-    engine._early_starts = lambda c, active: real(c, active, now=clock[0])
+    engine._early_starts = lambda c, active, _now: real(c, active, now=clock[0])
     asked: list[bool] = []
     while clock[0] < START and temp[0] < 69.4:
         started.reset_mock()
@@ -393,7 +393,7 @@ async def test_through_the_engine_a_winter_setback_starts_nothing_early(monkeypa
     engine._start_or_update_cycle = AsyncMock()
     real = engine._early_starts
     for minutes in (170, 90, 30, 5):
-        engine._early_starts = lambda c, active, m=minutes: real(
+        engine._early_starts = lambda c, active, _now, m=minutes: real(
             c, active, now=START - timedelta(minutes=m)
         )
         await engine._do_tick(conn)
@@ -407,4 +407,80 @@ async def test_the_setting_is_one_of_three_levels(monkeypatch):
     for bad in (3, -1, True, "on"):
         with pytest.raises(learning.LearningError):
             await learning.update_settings(conn, {"early_start_level": bad})
+    await conn.close()
+
+
+async def test_a_reading_that_goes_missing_for_a_tick_does_not_drop_a_started_room(monkeypatch):
+    conn, engine, room = await _setup(monkeypatch, temp=66.0)
+    began = START - timedelta(minutes=60)
+    assert await engine._early_starts(conn, [], now=began) != []
+    # The outside sensor is unreadable for a minute.
+    engine._read_outside_temp = AsyncMock(return_value=None)
+    later = began + timedelta(minutes=1)
+    assert [ar.room.id for ar in await engine._early_starts(conn, [], now=later)] == [room.id]
+    engine._read_outside_temp = AsyncMock(return_value=30.0)
+    # So is the room's own.
+    engine._get_avg_temp = lambda _room, **_k: None
+    later += timedelta(minutes=1)
+    assert [ar.room.id for ar in await engine._early_starts(conn, [], now=later)] == [room.id]
+    # A room that has not started needs both.
+    engine._early_latch = {}
+    assert await engine._early_starts(conn, [], now=later) == []
+    await conn.close()
+
+
+async def test_a_started_room_is_known_by_its_wall_clock_start_across_a_clock_change(monkeypatch):
+    """The latch compares the block's time on the house's clock, as schedules do."""
+    from zoneinfo import ZoneInfo
+
+    conn, engine, room = await _setup(monkeypatch, temp=66.0)
+    monkeypatch.setattr(tz, "get_timezone", lambda: ZoneInfo("America/Chicago"))
+    # Clocks go back at 02:00 on 2026-11-01; the block is at 07:00 that morning.
+    before = datetime(2026, 11, 1, 6, 30, tzinfo=UTC)  # 01:30 CDT
+    await conn.execute("UPDATE room_models SET fitted_at = ?", (int(before.timestamp()),))
+    await conn.commit()
+    engine._early_latch = {room.id: (datetime(2026, 11, 1, 7, 0), 70.0, "heating")}
+    assert await engine._early_starts(conn, [], now=before) != []
+    after = datetime(2026, 11, 1, 8, 30, tzinfo=UTC)  # 02:30 CST, an hour of wall clock later
+    assert await engine._early_starts(conn, [], now=after) != []
+    assert engine._early_latch[room.id][0] == datetime(2026, 11, 1, 7, 0)
+    await conn.close()
+
+
+async def test_a_fault_in_either_step_is_logged_and_the_tick_goes_on(monkeypatch, caplog):
+    from backend.engine.room_manager import ActiveRoom
+
+    conn, engine, room = await _setup(monkeypatch)
+    held = [ActiveRoom(room=room, target_temp=66.0, source="override")]
+
+    async def broken(*_a, **_k):
+        raise RuntimeError("boom")
+
+    engine._heat_pump_warmups = broken
+    assert await engine._ahead_of_schedule(conn, held, NOW) == held
+    assert "failed for" in caplog.text
+    engine._early_starts = broken
+    assert await engine._ahead_of_schedule(conn, held, NOW) == held
+    await conn.close()
+
+
+async def test_through_the_engine_the_clock_is_read_once_for_the_whole_tick(monkeypatch):
+    """Read separately, a tick straddling a block's start could lose the room for a minute."""
+    from backend.engine import cycle_engine
+
+    conn, engine, _room = await _setup(monkeypatch)
+    seen: list[datetime] = []
+
+    async def rooms(_conn, _tid, now):
+        seen.append(now)
+        return []
+
+    monkeypatch.setattr(cycle_engine, "get_active_rooms", rooms)
+    engine._reset_setpoint_to_ambient = AsyncMock()
+    engine._monitor_rooms = AsyncMock()
+    engine._start_or_update_cycle = AsyncMock()
+    engine._heat_pump_warmups = AsyncMock(side_effect=lambda _c, a, now: seen.append(now) or a)
+    engine._early_starts = AsyncMock(side_effect=lambda _c, a, now: seen.append(now) or a)
+    await engine._do_tick(conn)
+    assert len(seen) == 3 and seen[0] == seen[1] == seen[2]
     await conn.close()

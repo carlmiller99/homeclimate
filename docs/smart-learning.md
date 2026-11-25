@@ -79,7 +79,7 @@ The fit takes well under a second per room, and stores one row per room (`room_m
 - Only for a rate the room has taught (see the grades above), and only from a model fitted within the last week. It needs an outside temperature reading, and the room has to be in use with its schedules switched on.
 - The weather and the thermostat have to agree with the direction: heating early only when it is colder outside than the target, cooling early only when it is warmer, and never heating on a thermostat set to cool or cooling on one set to heat. So a night setback is never "prepared for" by running the other equipment.
 - A room with nothing scheduled right now can be started early. So can a room that is in a block already, when the next block asks for more of the same: warmer when heating (62 °F overnight, then 70 °F at 7:00), cooler when cooling. A hold, presence, or a block with a band is left alone.
-- Once a room is started early it stays started until its block begins, even if it warms faster than expected, so the equipment is not switched off and on again on the way. The run ends when the room reaches the target, by the same rules as any other run.
+- Once a room is started early it stays started until its block begins, even if it warms faster than expected, so the equipment is not switched off and on again on the way. The run ends when the room reaches the target, by the same rules as any other run. If it gets there early, it is kept at that target until the block begins.
 - Never against the side its building is on.
 - A cool-down is not started early toward a block with a band, because the block's target there is its Heat To.
 - The coming block's own deadband is used, if it has one.

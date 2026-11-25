@@ -348,6 +348,10 @@ async def test_warmups_start_early_only_when_needed(monkeypatch):
     kept = await engine._heat_pump_warmups(conn, [], now=now + timedelta(minutes=10))
     assert [ar.target_temp for ar in kept] == [70.0]
     assert logger.log.await_count == 1
+    # A reading that goes missing for a tick does not drop it either.
+    engine._get_avg_temp = lambda _room, **_k: None
+    assert len(await engine._heat_pump_warmups(conn, [], now=now + timedelta(minutes=11))) == 1
+    engine._get_avg_temp = lambda _room, **_k: 69.5
     engine._hp_latch = {}
     assert await engine._heat_pump_warmups(conn, [], now=now + timedelta(minutes=10)) == []
     engine._get_avg_temp = lambda _room, **_k: 66.0
