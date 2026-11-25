@@ -44,6 +44,7 @@ A side menu of sections:
 - **Smart Learning** — records how each room heats and cools, and shows how much each room has collected. See [Smart Learning](./smart-learning.md).
 - **Forecasts** — the weather source, and the forecast HomeClimate has fetched. See [Forecasts](./forecasts.md).
 - **Fireplace** — which entity says a fire is lit, the rooms it warms, and what to do while it burns. Fireplaces are added here, not in My Home, because most rooms don't have one. See [Fireplace](./fireplace.md).
+- **Zone Balance** — per building: whether zones are kept within a gap of each other, and the gap. See [Zone Balance](./zone-balance.md).
 - **Eco Mode** — per zone: whether targets relax when it is very hot or cold outside, and by how much. A single room's own Eco settings stay with the room in My Home. See [Eco Mode](./eco-mode.md).
 
 ## Settings

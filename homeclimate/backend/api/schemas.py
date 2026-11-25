@@ -924,6 +924,41 @@ class BuildingModesSchema(Schema):
     buildings = fields.List(fields.Nested(BuildingModeSchema))
 
 
+class ZoneBalanceWriteSchema(Schema):
+    level = fields.Str(metadata={"description": "off, watch or on"})
+    zone_gap = fields.Float(
+        metadata={
+            "description": "How far apart zones may be. A difference: display unit in, °F out."
+        }
+    )
+
+
+class ZoneBalanceZoneSchema(Schema):
+    thermostat_entity_id = fields.Str()
+    name = fields.Str()
+    temp = fields.Float(allow_none=True, metadata={"description": "°F; null with no reading"})
+    occupied = fields.Bool(metadata={"description": "A hold, schedule or occupancy asks for it"})
+    target = fields.Float(
+        allow_none=True, metadata={"description": "°F it is being balanced to, or null"}
+    )
+    toward = fields.Str(allow_none=True)
+    obeyed = fields.Bool(metadata={"description": "False when only being watched"})
+
+
+class ZoneBalanceBuildingSchema(ZoneBalanceWriteSchema):
+    building_id = fields.Str()
+    name = fields.Str()
+    direction = fields.Str(allow_none=True, metadata={"description": "heating, cooling or null"})
+    spread = fields.Float(allow_none=True, metadata={"description": "Warmest less coolest, °F"})
+    zones = fields.List(fields.Nested(ZoneBalanceZoneSchema))
+
+
+class ZoneBalanceSchema(Schema):
+    buildings = fields.List(fields.Nested(ZoneBalanceBuildingSchema))
+    min_gap = fields.Float()
+    max_gap = fields.Float()
+
+
 class HouseBandSchema(Schema):
     house_heat_to = fields.Float(
         allow_none=True, metadata={"description": "Heat rooms below this. Display unit in, °F out."}

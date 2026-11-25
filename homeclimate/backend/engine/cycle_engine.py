@@ -32,6 +32,7 @@ from .. import (
     learning,
     room_model,
     tz,
+    zone_balance,
     zones,
 )
 from .. import heat_pump as hp_rules
@@ -193,6 +194,7 @@ class CycleEngine:
         get_building_side: Callable[[], tuple[str | None, bool]] | None = None,
         claim_building_side: Callable[[str], str | None] | None = None,
         get_heat_pump: Callable[[], HeatPumpGuards | None] | None = None,
+        get_balance: Callable[[], zone_balance.Call | None] | None = None,
     ) -> None:
         self.thermostat_entity_id = thermostat_entity_id
         self._ha = ha
@@ -240,6 +242,11 @@ class CycleEngine:
         # target). Calls that have had their wait, or that Watch Only has
         # spoken about, and are not to be considered again until they end:
         # room id → (mode, target).
+        # Zone Balance (``backend/zone_balance.py``): this zone's balancing
+        # call, if its building has one for it, and the rooms answering it
+        # (room id → target), kept to the end of the run they started.
+        self._get_balance = get_balance
+        self._balance_latch: dict[str, float] = {}
         self._coast_wait: dict[str, tuple[datetime, str, float]] = {}
         self._coast_done: dict[str, tuple[str, float]] = {}
         # When each room's last wait ended, and when coasting was last looked at.
@@ -6258,12 +6265,12 @@ class CycleEngine:
     async def _ahead_of_schedule(
         self, conn: aiosqlite.Connection, active: list[ActiveRoom], now: datetime
     ) -> list[ActiveRoom]:
-        """Early warm-ups, early starts and coasting. None may stop the tick.
+        """Early warm-ups, early starts, coasting and zone balance. None may stop the tick.
 
         All are conveniences that run before safety protection is added, so a
         fault in one is logged and the tick goes on without it.
         """
-        for step in (self._heat_pump_warmups, self._early_starts, self._coast):
+        for step in (self._heat_pump_warmups, self._early_starts, self._coast, self._balance):
             try:
                 active = await step(conn, active, now)
             except Exception:
@@ -6497,6 +6504,65 @@ class CycleEngine:
                     },
                 )
         self._early_latch = latched
+        return out
+
+    async def _balance(
+        self, conn: aiosqlite.Connection, active: list[ActiveRoom], now: datetime | None = None
+    ) -> list[ActiveRoom]:
+        """Answer this zone's balancing call, if its building has one for it.
+
+        Rooms that are in use and follow nothing more specific than the house
+        band are asked to the call's target when they are short of it. A room
+        with a hold, a schedule or occupancy is left alone; so is a room whose
+        house band already asks for as much, or whose band the target would
+        break. Once a room has started a run it is kept to the end of it, so
+        the equipment is not stopped the moment the room is inside its
+        deadband. Pauses and the fireplace apply after this, as to any room.
+        """
+        call = self._get_balance() if self._get_balance is not None else None
+        if call is None:
+            self._balance_latch = {}
+            return active
+        heating = call.mode == "heating"
+        running = self._state != CycleState.IDLE and self._cycle_mode == call.mode
+        the_house = await house.load(conn)
+        tc = await self._load_tc(conn)
+        following = {ar.room.id: ar for ar in active}
+        out = list(active)
+        latched: dict[str, float] = {}
+        for room in await db.get_rooms_for_thermostat(conn, self.thermostat_entity_id):
+            ar = following.get(room.id)
+            if not the_house.switches(room.id).in_use or (ar is not None and ar.source != "house"):
+                continue
+            held = self._balance_latch.get(room.id)
+            if held is not None and running:
+                target = held
+            else:
+                target = min(max(call.target, tc.min_setpoint), tc.max_setpoint)
+                avg = self._get_avg_temp(room)
+                if avg is None:
+                    continue
+                temp = avg + room.temp_offset
+                short = target - temp if heating else temp - target
+                if short <= _effective_deadband(room, tc.deadband):
+                    continue
+                # Following the house band: only inside it, and only when
+                # the band is not already asking for as much.
+                if (
+                    ar is not None
+                    and ar.heat_to is not None
+                    and ar.cool_to is not None
+                    and not (
+                        ar.heat_to < target <= ar.cool_to
+                        if heating
+                        else ar.heat_to <= target < ar.cool_to
+                    )
+                ):
+                    continue
+            latched[room.id] = target
+            out = [a for a in out if a.room.id != room.id]
+            out.append(ActiveRoom(room=room, target_temp=target, source="balance"))
+        self._balance_latch = latched
         return out
 
     @property

@@ -21,6 +21,7 @@ import Schedules from "./Schedules";
 import FireplaceSection from "./FireplaceSection";
 import BuildingAutoCard from "./BuildingAutoCard";
 import EcoSection from "./EcoSection";
+import ZoneBalanceSection from "./ZoneBalanceSection";
 import ForecastSection from "./ForecastSection";
 import LearningSection from "./LearningSection";
 import RoomCalendarsCard from "./RoomCalendarsCard";
@@ -279,7 +280,7 @@ export default function SmartControl() {
   return (
     <SectionLayout
       title="Smart Control"
-      subtitle="Tune how HomeClimate runs on its own: schedules, pauses, shades, learning, forecasts, fireplaces and Eco Mode."
+      subtitle="Tune how HomeClimate runs on its own: schedules, pauses, shades, learning, forecasts, fireplaces, Eco Mode and Zone Balance."
       basePath="/smart-control"
       sections={SMART_CONTROL_SECTIONS}
       current={section}
@@ -297,6 +298,8 @@ export default function SmartControl() {
         <FireplaceSection />
       ) : section === "eco-mode" ? (
         <EcoSection />
+      ) : section === "zone-balance" ? (
+        <ZoneBalanceSection />
       ) : (
         <div className="embedded-page">
           <Schedules />

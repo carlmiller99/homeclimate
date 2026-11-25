@@ -28,6 +28,7 @@ from .. import (
     room_model,
     shades,
     tz,
+    zone_balance,
     zones,
 )
 from ..units import delta_to_f, to_f
@@ -572,6 +573,85 @@ async def update_building_mode(request: web.Request) -> web.Response:
     except Exception:
         log.exception("Could not apply the building mode straight away")
     return json_response(await _building_modes_snapshot(request))
+
+
+async def _zone_balance_snapshot(request: web.Request) -> dict:
+    conn = await get_conn(request)
+    scheduler = request.app["scheduler"]
+    settings = await zone_balance.load(conn)
+    states = await scheduler.zone_states()
+    calls = scheduler.balance_calls
+    profiles = {z.thermostat_entity_id: z for z in await zones.list_zone_profiles(conn)}
+    out = []
+    for building in await zones.list_buildings(conn):
+        tids = [t for t, z in profiles.items() if z.building_id == building.id and t in states]
+        rows = []
+        for tid in tids:
+            call, obeyed = calls.get(tid, (None, False))
+            rows.append(
+                {
+                    "thermostat_entity_id": tid,
+                    "name": profiles[tid].name or tid,
+                    "temp": states[tid].temp,
+                    "occupied": states[tid].occupied,
+                    "target": call.target if call else None,
+                    "toward": call.toward if call else None,
+                    "obeyed": obeyed,
+                }
+            )
+        setting = settings[building.id]
+        out.append(
+            {
+                "building_id": building.id,
+                "name": building.name,
+                "level": setting.level,
+                "zone_gap": setting.gap,
+                "direction": scheduler.building_direction(tids),
+                "spread": zone_balance.spread([states[t] for t in tids]),
+                "zones": rows,
+            }
+        )
+    return {"buildings": out, "min_gap": zone_balance.MIN_GAP_F, "max_gap": zone_balance.MAX_GAP_F}
+
+
+@docs(
+    tags=["buildings"],
+    summary="Zone Balance: each building's gap limit and how far apart its zones are",
+)
+@response_schema(schemas.ZoneBalanceSchema)
+@routes.get("/api/zone-balance")
+async def get_zone_balance(request: web.Request) -> web.Response:
+    return json_response(await _zone_balance_snapshot(request))
+
+
+@docs(tags=["buildings"], summary="Set a building's Zone Balance level and gap limit")
+@request_schema(schemas.ZoneBalanceWriteSchema)
+@response_schema(schemas.ZoneBalanceSchema)
+@routes.put("/api/zone-balance/{building_id}")
+async def update_zone_balance(request: web.Request) -> web.Response:
+    body = await _json_object(request)
+    # The write boundary converts the display-unit difference to °F (#231).
+    gap = body.get("zone_gap")
+    if isinstance(gap, int | float) and not isinstance(gap, bool):
+        body["zone_gap"] = delta_to_f(gap, request.app["scheduler"].get_temperature_unit())
+    conn = await get_conn(request)
+    try:
+        await zone_balance.update(conn, request.match_info["building_id"], body)
+    except UserError as exc:
+        text = safe_text(exc)
+        return error(text, status=404 if text == zone_balance.BUILDING_UNKNOWN else 400)
+    await emit(
+        request,
+        "info",
+        "api",
+        "Zone Balance changed",
+        {"building": request.match_info["building_id"], **body},
+    )
+    try:
+        await request.app["scheduler"].replan_buildings_now()
+    except Exception:
+        log.exception("Could not apply Zone Balance straight away")
+    return json_response(await _zone_balance_snapshot(request))
 
 
 async def _house_snapshot(request: web.Request) -> dict:

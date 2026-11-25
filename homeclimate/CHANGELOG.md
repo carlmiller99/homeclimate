@@ -2,6 +2,7 @@
 
 ## 0.5.8
 
+- Smart Control → Zone Balance: per building, keep zones within a gap limit of each other (3 °F to start with). A zone too far behind one that is in use is heated or cooled back to the limit, only in the direction the building is already working. Off by default; Watch Only logs what it would do. See docs/zone-balance.md.
 - Smart Control → Smart Learning → Let Rooms Coast: a call waits when the room is a little short of its target and its model and the forecast say it will drift there on its own, up to 45 minutes (three times that on electric strip heat), never once it is 2 °F off, and never for a hold. Off by default; Watch Only logs what it would do. Three bad waits in a week switch it back to Watch Only. See docs/smart-learning.md.
 - Settings → Notifications: send the warnings and errors you choose, and an optional daily summary, to your phone through a Home Assistant notify service. Off until you turn it on. Each message is sent once, with a limit of six warnings and six errors an hour. See docs/notifications.md.
 - Smart Control → Smart Learning → Start Rooms Early: start a room ahead of its next schedule block by as long as its model says it takes, so it is ready on time. Off by default; Watch Only logs what it would do. See docs/smart-learning.md.

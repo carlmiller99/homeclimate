@@ -34,10 +34,12 @@ from . import (
     room_model,
     shades,
     tz,
+    zone_balance,
     zones,
 )
 from .engine import room_manager
 from .engine.cycle_engine import SENSOR_STALE_AFTER_MIN, CycleEngine
+from .engine.room_manager import get_active_rooms
 from .engine.vent_controller import VentController
 from .event_logger import EventLogger
 from .ha_client import HAClient
@@ -166,6 +168,9 @@ class Scheduler:
         # and after a zone edit; backup-heat episodes from equipment sources.
         self._heat_pumps: dict[str, heat_pump.HeatPumpGuards] = {}
         self._zone_profiles: dict[str, zones.ZoneProfile] = {}
+        # Zone Balance: each zone's balancing call and whether it is obeyed.
+        self._balance_calls: dict[str, tuple[zone_balance.Call, bool]] = {}
+        self._balance_said: dict[str, tuple[str, bool]] = {}
         self._aux = heat_pump.AuxMonitor()
         self._shades = shades.ShadeController()
         self._forecast = forecast.Forecast()
@@ -1073,6 +1078,7 @@ class Scheduler:
             get_building_side=functools.partial(self._building_side, tid),
             claim_building_side=functools.partial(self._building_plan_claim, tid),
             get_heat_pump=functools.partial(self._heat_pumps.get, tid),
+            get_balance=functools.partial(self._balance_call, tid),
         )
 
     async def _sync_engines_locked(self) -> None:
@@ -1383,6 +1389,7 @@ class Scheduler:
         await self._plan_buildings()
         await self._refresh_room_calendars()
         await self._evaluate_fireplaces()
+        await self._plan_zone_balance()
         await self._load_heat_pumps()
         await self._watch_backup_heat()
         tasks = [self._tick_engine(tid, eng) for tid, eng in self._engines.items()]
@@ -1740,9 +1747,91 @@ class Scheduler:
         except Exception:
             log.exception("Could not plan building modes")
 
+    def _balance_call(self, thermostat_entity_id: str) -> zone_balance.Call | None:
+        """The balancing call this zone is to answer; None when watching only."""
+        found = self._balance_calls.get(thermostat_entity_id)
+        return found[0] if found is not None and found[1] else None
+
+    def building_direction(self, tids: list[str]) -> str | None:
+        """The way a building is working: its side, or the way its zones are running."""
+        sides = {self._building_side(tid)[0] for tid in tids}
+        if "off" in sides:
+            return None
+        for side in ("heating", "cooling"):
+            if side in sides:
+                return side
+        running = {m for tid in tids if (m := self._engines[tid].cycle_mode)}
+        return running.pop() if len(running) == 1 else None
+
+    async def zone_states(self) -> dict[str, zone_balance.ZoneState]:
+        """Each zone's temperature and whether anyone is using it."""
+        the_house = await house.load(self._db_conn)
+        set_aside = self._fireplaces.set_aside_rooms()
+        states = {}
+        for tid, engine in self._engines.items():
+            temps = [
+                temp + room.temp_offset
+                for room in await db.get_rooms_for_thermostat(self._db_conn, tid)
+                if the_house.switches(room.id).in_use
+                and room.id not in set_aside
+                and (temp := engine._get_avg_temp(room)) is not None
+            ]
+            asked = await get_active_rooms(self._db_conn, tid)
+            states[tid] = zone_balance.ZoneState(
+                tid,
+                round(sum(temps) / len(temps), 1) if temps else None,
+                any(ar.source != "house" for ar in asked),
+            )
+        return states
+
+    async def _plan_zone_balance(self) -> None:
+        """Work out each building's balancing calls before its zones tick; never raises."""
+        try:
+            settings = await zone_balance.load(self._db_conn)
+            on = {b: s for b, s in settings.items() if s.level != "off"}
+            calls: dict[str, tuple[zone_balance.Call, bool]] = {}
+            if on:
+                states = await self.zone_states()
+                for building_id, setting in on.items():
+                    tids = [
+                        tid
+                        for tid, z in self._zone_profiles.items()
+                        if z.building_id == building_id and tid in states
+                    ]
+                    found = zone_balance.decide(
+                        [states[tid] for tid in tids], self.building_direction(tids), setting.gap
+                    )
+                    for tid, call in found.items():
+                        calls[tid] = (call, setting.level == "on")
+            for tid, (call, obey) in calls.items():
+                if self._balance_said.get(tid) != (call.mode, obey) and self._event_logger:
+
+                    def name(t: str) -> str:
+                        return self._zone_profiles[t].name or t
+
+                    way = "colder" if call.mode == "heating" else "warmer"
+                    does = "it is" if obey else "it would be (watching only)"
+                    await self._event_logger.log(
+                        "info",
+                        "engine",
+                        f"Zone Balance: {name(tid)} is {call.behind:g}°F {way} than "
+                        f"{name(call.toward)}; {does} {call.mode[:4]}ed to {call.target:g}°F",
+                        {"thermostat": tid, "toward": call.toward, "target": call.target},
+                    )
+            self._balance_said = {tid: (c.mode, obey) for tid, (c, obey) in calls.items()}
+            self._balance_calls = calls
+        except Exception:
+            log.exception("Zone Balance could not be worked out")
+            self._balance_calls = {}
+
+    @property
+    def balance_calls(self) -> dict[str, tuple[zone_balance.Call, bool]]:
+        return self._balance_calls
+
     async def replan_buildings_now(self) -> None:
         """After a building's mode changes: decide again and apply it at once."""
         await self._plan_buildings()
+        await self._plan_zone_balance()
         await self.tick_all_now()
 
     async def _refresh_room_calendars(self) -> None:
