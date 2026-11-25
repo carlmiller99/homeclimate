@@ -43,6 +43,7 @@ from .room_manager import (
     _effective_deadband,
     _find_matching_schedule,
     _next_schedule_start,
+    _resolve_room,
     _seconds_since_schedule_end,
     expire_holdovers,
     get_active_rooms,
@@ -802,7 +803,9 @@ class CycleEngine:
         # target: the edge the running cycle is working toward, or with no
         # cycle running, their own temperature held inside the band.
         self._apply_bands(
-            new_active_map, self._cycle_mode if self._state != CycleState.IDLE else None
+            new_active_map,
+            self._cycle_mode if self._state != CycleState.IDLE else None,
+            thermo_state,
         )
 
         # Surface room-sensor staleness before any decisions are made off the
@@ -973,7 +976,7 @@ class CycleEngine:
             # A cycle is about to start in this direction: banded rooms now
             # work to that edge, so a room inside its band is filtered out below
             # like any room that needs the other direction.
-            self._apply_bands(new_active_map, inferred)
+            self._apply_bands(new_active_map, inferred, thermo_state)
         else:
             effective_mode = self._cycle_mode or hvac_mode
 
@@ -4336,6 +4339,13 @@ class CycleEngine:
                 live_hold = await db.get_room_override(conn, room_id)
                 if live_hold is not None:
                     ar.respect_eco = live_hold.respect_eco
+            if source in ("schedule", "override", "presence"):
+                # Nor is a band on the schedule, hold or occupancy target.
+                fresh = await _resolve_room(
+                    conn, room, await db.get_schedules_for_room(conn, room_id), datetime.now(UTC)
+                )
+                if fresh.source == source:
+                    ar.heat_to, ar.cool_to = fresh.heat_to, fresh.cool_to
             self._active_rooms[room_id] = ar
             self._room_vents[room_id] = await db.get_room_vents(conn, room_id)
 
@@ -5444,7 +5454,7 @@ class CycleEngine:
             # A room following the house band is not "already conditioned": it
             # asks for nothing while inside its band, and the band may be wider
             # than this zone's safety limits. A breach replaces it below.
-            if current is not None and current.source != "house":
+            if current is not None and current.heat_to is None:
                 continue  # already conditioned via override/schedule/presence
             avg = self._get_avg_temp(room)
             if avg is None:
@@ -5855,14 +5865,21 @@ class CycleEngine:
             only=side,
         )
 
-    def _apply_bands(self, active_rooms: dict[str, ActiveRoom], mode: str | None) -> None:
+    def _apply_bands(
+        self,
+        active_rooms: dict[str, ActiveRoom],
+        mode: str | None,
+        thermo_state: dict | None = None,
+    ) -> None:
         """Give every banded room its single target for this tick (house.Band).
 
         Two kinds of banded room are left out rather than given a target:
 
-        - One with no temperature reading of its own. Its place in the band is
-          unknown, and a cycle started on a stand-in reading could never be
-          judged finished. A room already part of the running cycle stays.
+        - One following the house band with no temperature reading of its own.
+          Its place in the band is unknown. A room already part of the
+          running cycle stays. (A banded hold, schedule or occupancy target
+          was asked for by name, so it goes by the thermostat's reading
+          instead, exactly as a single target with no reading does.)
         - With a cycle running or about to start, one that is not already part
           of it and is not short of the edge the cycle works toward. Without
           this a room resting in its band would hop in and out of every cycle
@@ -5874,6 +5891,17 @@ class CycleEngine:
                 continue
             avg = self._get_avg_temp(ar.room)
             temp = None if avg is None else avg + ar.room.temp_offset
+            if temp is None and ar.source != "house":
+                # A hold, a schedule or occupancy was set on purpose: with no
+                # reading of the room's own it goes by the thermostat's, as a
+                # single target does, rather than quietly doing nothing.
+                # Read plainly (the checked reading keeps state of its own that
+                # must not be disturbed from here), in °F like every reading.
+                proxy = _climate_temp_to_f(
+                    ((thermo_state or {}).get("attributes") or {}).get("current_temperature"),
+                    self._ha.ha_temp_unit,
+                )
+                temp = None if proxy is None else proxy + ar.room.temp_offset
             if room_id not in self._active_rooms:
                 if temp is None:
                     del active_rooms[room_id]

@@ -25,6 +25,7 @@ import {
   type Building,
   type ZoneProfile,
 } from "../zonesApi";
+import { bandText } from "../bands";
 import BuildingModeControl from "../components/BuildingModeControl";
 import { getBuildingModes, type BuildingMode } from "../buildingModeApi";
 import ConfirmDialog from "../components/ConfirmDialog";
@@ -833,7 +834,7 @@ export default function Dashboard() {
               >
                 <span>
                   🕒 <strong>{room?.name ?? h.room_id}</strong> held at{" "}
-                  <strong>{fmtTemp(h.target_temp)}</strong> · ends in{" "}
+                  <strong>{bandText(fmtTemp, h.target_temp, h.cool_to)}</strong> · ends in{" "}
                   <Frozen>{formatCountdown(h.ends_in_seconds)}</Frozen> ·{" "}
                   {h.respect_eco ? "Eco may relax" : "ignores Eco"}
                 </span>

@@ -16,8 +16,27 @@ Eco Mode, door and window pauses, fireplaces and the safety limits all apply to 
 Things to know before turning it on:
 
 - With a band set, HomeClimate manages every zone around the clock, the way an all-day schedule would, so a setpoint changed at the thermostat is put back.
-- A room with no working temperature sensor does not follow the band, because HomeClimate can't tell where it sits in it. Its holds, schedules and safety limits work as before.
+- A room with no working temperature sensor does not follow the house band, because HomeClimate can't tell where it sits in it. Its holds, schedules and safety limits work as before, going by the thermostat's reading.
 - On a heat pump zone, a room's coming schedule can still start early; the early warm-up takes over from the band.
+
+## A band on a schedule, a hold or occupancy
+
+A schedule block, a temporary hold and a room's occupancy target each hold one temperature by default. Give any of them a **Cool To** and that temperature becomes its **Heat To**: the room is kept between the two, exactly as it is with the house band, for as long as that block, hold or occupancy is what the room follows.
+
+- **Schedule block**: Smart Control → Schedules → add or edit a block → Cool To.
+- **Hold**: the Dashboard's hold dialog → Cool To.
+- **Occupancy target**: the room's settings in My Home → Cool To, under the presence-triggered temperature.
+
+Leave Cool To blank for a single target. The same rules as the house band apply: Cool To at least 3 °F (1.7 °C) above the target, both between 45 and 95 °F, and inside every zone's safety limits.
+
+A band belongs to the target it was set on:
+
+- Change a block's or a room's target without naming a Cool To and the band moves with it. If the new target would leave less than 3 °F to the Cool To, or take the band outside the limits, the band is dropped and the target becomes a single one, so MQTT and automations can always move a target.
+- A hold set without `cool_to` (from MQTT, an automation, or any other client) is a single target, even on a room whose last hold was a band.
+- Copying a schedule block copies its band.
+- Through the API a banded target still reports `target_temp` (its Heat To), with `cool_to` beside it. MQTT's hold entity shows the Heat To.
+
+If a room's own sensors stop reporting, a band on its hold, schedule or occupancy target goes by the thermostat's reading, as a single target does. (A room that is only following the house band sits out instead.)
 
 ## What a room follows
 

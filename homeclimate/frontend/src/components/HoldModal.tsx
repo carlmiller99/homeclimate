@@ -3,6 +3,8 @@ import { setOverride, clearOverride, type Room, type RoomOverrideHold } from "..
 import { useUnit } from "../contexts";
 import { Frozen } from "../ci";
 import { formatCountdown } from "../countdown";
+import { bandText, coolToValue } from "../bands";
+import CoolToField from "./CoolToField";
 
 interface Props {
   rooms: Room[];
@@ -39,6 +41,10 @@ export default function HoldModal({ rooms, initialRoom, holds, onClose, onChange
     const hold = holds[firstRoom];
     return String(hold ? toDisplay(hold.target_temp) : toDisplay(72));
   });
+  const [coolTo, setCoolTo] = useState(() => {
+    const hold = holds[firstRoom];
+    return hold?.cool_to != null ? String(toDisplay(hold.cool_to)) : "";
+  });
   const [duration, setDuration] = useState("2");
   const [allowEco, setAllowEco] = useState(() => holds[firstRoom]?.respect_eco ?? false);
   const [busy, setBusy] = useState(false);
@@ -50,8 +56,11 @@ export default function HoldModal({ rooms, initialRoom, holds, onClose, onChange
     setSelected(roomId);
     setError("");
     const hold = holds[roomId];
+    // A band belongs to one room's hold; it is not carried to the next room.
+    if (!hold) setCoolTo("");
     if (hold) {
       setTemp(String(toDisplay(hold.target_temp)));
+      setCoolTo(hold.cool_to != null ? String(toDisplay(hold.cool_to)) : "");
       setAllowEco(hold.respect_eco);
     }
   };
@@ -78,7 +87,7 @@ export default function HoldModal({ rooms, initialRoom, holds, onClose, onChange
     setError("");
     try {
       // Raw display value — the backend's _to_f converts (#231).
-      await setOverride(selected, t, parseFloat(duration), allowEco);
+      await setOverride(selected, t, parseFloat(duration), allowEco, coolToValue(coolTo));
       onChanged();
       onClose();
     } catch (e: unknown) {
@@ -136,7 +145,8 @@ export default function HoldModal({ rooms, initialRoom, holds, onClose, onChange
 
         {existing && (
           <p style={{ marginBottom: "1rem" }}>
-            This room is held at <strong>{fmtTemp(existing.target_temp)}</strong> — ends in{" "}
+            This room is held at{" "}
+            <strong>{bandText(fmtTemp, existing.target_temp, existing.cool_to)}</strong> — ends in{" "}
             <Frozen>{formatCountdown(existing.ends_in_seconds)}</Frozen>. Saving replaces the hold;
             cancelling returns the room to its schedules and presence now.
           </p>
@@ -158,6 +168,8 @@ export default function HoldModal({ rooms, initialRoom, holds, onClose, onChange
             disabled={busy}
           />
         </div>
+
+        <CoolToField id="hold-cool-to" value={coolTo} disabled={busy} onChange={setCoolTo} />
 
         <div className="form-group">
           <label className="form-label" htmlFor="hold-duration">

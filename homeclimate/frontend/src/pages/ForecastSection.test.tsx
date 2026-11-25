@@ -18,9 +18,30 @@ vi.mock("../components/EntityPicker", () => ({
   ),
 }));
 
+const NO_ACCURACY: fa.ForecastAccuracy = {
+  comparisons: 0,
+  needed: 48,
+  ready: false,
+  in_use: false,
+  mean_error: null,
+  mean_abs: null,
+  mean_abs_corrected: null,
+  by_hour: [],
+};
+const LEARNED: fa.ForecastAccuracy = {
+  comparisons: 120,
+  needed: 48,
+  ready: true,
+  in_use: true,
+  mean_error: 1.8,
+  mean_abs: 3.6,
+  mean_abs_corrected: 0.9,
+  by_hour: [],
+};
+
 function data(over: Partial<fa.Forecast> = {}): fa.Forecast {
   return {
-    settings: { enabled: true, weather_entity: "weather.home" },
+    settings: { enabled: true, weather_entity: "weather.home", correct: true },
     weather_entity: "weather.home",
     shared_with_shades: false,
     state: "fresh",
@@ -35,6 +56,7 @@ function data(over: Partial<fa.Forecast> = {}): fa.Forecast {
       {
         at: "2026-01-05T17:00:00+00:00",
         temp: 68,
+        temp_raw: 68,
         cloud_pct: 40,
         precip_pct: 10,
         condition: "partlycloudy",
@@ -42,17 +64,19 @@ function data(over: Partial<fa.Forecast> = {}): fa.Forecast {
       {
         at: "2026-01-05T18:00:00+00:00",
         temp: 50,
+        temp_raw: 50,
         cloud_pct: null,
         precip_pct: null,
         condition: "",
       },
     ],
+    accuracy: NO_ACCURACY,
     ...over,
   };
 }
 
 const OFF = data({
-  settings: { enabled: false, weather_entity: "" },
+  settings: { enabled: false, weather_entity: "", correct: true },
   weather_entity: "",
   state: "off",
   fetched_at: null,
@@ -136,7 +160,10 @@ describe("Forecasts section", () => {
 
   it("says when it is borrowing the source set for Shades", async () => {
     vi.mocked(fa.getForecast).mockResolvedValue(
-      data({ settings: { enabled: true, weather_entity: "" }, shared_with_shades: true })
+      data({
+        settings: { enabled: true, weather_entity: "", correct: true },
+        shared_with_shades: true,
+      })
     );
     show();
     expect(await screen.findByText(/Using the weather source set for Shades/)).toBeInTheDocument();
@@ -187,6 +214,46 @@ describe("Forecasts section", () => {
     vi.mocked(fa.updateForecastSettings).mockRejectedValueOnce("nope");
     fireEvent.click(screen.getByRole("switch", { name: "Use the Weather Forecast" }));
     expect(await screen.findByText("Could not save the setting")).toBeInTheDocument();
+  });
+
+  it("says how the forecast has compared with the outside sensor", async () => {
+    show();
+    expect(await screen.findByText(/Nothing to compare yet/)).toBeInTheDocument();
+    const words = (a: Partial<fa.ForecastAccuracy>, unit: "F" | "C" = "F") => {
+      const u = buildUnitContext(unit);
+      return fa.accuracyText({ ...LEARNED, ...a }, u.toDisplayDelta, u.unitLabel);
+    };
+    expect(words({ comparisons: 1, ready: false })).toBe(
+      "Compared 1 hour so far; the correction starts at 48."
+    );
+    expect(words({ comparisons: 30, ready: false })).toBe(
+      "Compared 30 hours so far; the correction starts at 48."
+    );
+    expect(words({})).toBe(
+      "Over 120 hours the forecast was off by 3.6°F on average. It usually reads 1.8°F too cold. Since it has been corrected, it has been off by 0.9°F; the temperatures below include the correction."
+    );
+    expect(words({ mean_error: -1.8, in_use: false })).toBe(
+      "Over 120 hours the forecast was off by 3.6°F on average. It usually reads 1.8°F too warm. The correction is switched off."
+    );
+    expect(words({ mean_error: 0.1 })).toMatch(/It leans neither warm nor cold\./);
+    // Differences are deltas: 3.6 °F is 2.0 °C, not -15.8.
+    expect(words({}, "C")).toMatch(/off by 2\.0°C on average\. It usually reads 1\.0°C too cold/);
+    expect(words({ mean_abs: null })).toMatch(/^Compared 120 hours so far/);
+    expect(words({ mean_abs_corrected: null })).toMatch(
+      /The correction has just begun; the temperatures below include the correction\.$/
+    );
+  });
+
+  it("switches the correction off and on", async () => {
+    vi.mocked(fa.getForecast).mockResolvedValue(data({ accuracy: LEARNED }));
+    show();
+    const toggle = await screen.findByRole("switch", {
+      name: /Correct the Forecast From Experience/,
+    });
+    expect(toggle).toBeChecked();
+    expect(screen.getByText(/the temperatures below include the correction/)).toBeInTheDocument();
+    fireEvent.click(toggle);
+    await waitFor(() => expect(fa.updateForecastSettings).toHaveBeenCalledWith({ correct: false }));
   });
 
   it("says so when it cannot load, and ignores late responses", async () => {

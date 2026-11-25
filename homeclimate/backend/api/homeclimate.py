@@ -17,6 +17,7 @@ from .. import (
     db,
     fireplace,
     forecast,
+    forecast_bias,
     ha_import,
     heat_pump,
     house,
@@ -753,7 +754,11 @@ async def delete_fireplace(request: web.Request) -> web.Response:
 
 async def _forecast_snapshot(request: web.Request) -> dict:
     conn = await get_conn(request)
-    snap: dict = await request.app["scheduler"].forecast.snapshot(conn, now=datetime.now(tz.UTC))
+    bias = await forecast_bias.load(conn)
+    snap: dict = await request.app["scheduler"].forecast.snapshot(
+        conn, now=datetime.now(tz.UTC), bias=bias
+    )
+    snap["accuracy"] = forecast_bias.snapshot(bias, in_use=snap["settings"]["correct"])
     return snap
 
 

@@ -475,6 +475,48 @@ describe("Schedules Page — per-schedule deadband override (#517)", () => {
     });
   });
 
+  it("leaves cool_to out for a single target, and sends it for a band", async () => {
+    render(<Schedules />);
+    await openNewBlock();
+    expect(screen.getByLabelText(/Target temperature/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Save"));
+    await waitFor(() => expect(api.createSchedule).toHaveBeenCalled());
+    expect(vi.mocked(api.createSchedule).mock.calls[0][1]).not.toHaveProperty("cool_to");
+  });
+
+  it("sends the typed Cool To, and calls the target Heat To", async () => {
+    render(<Schedules />);
+    await openNewBlock();
+    fireEvent.change(screen.getByLabelText(/Cool To/i), { target: { value: "76" } });
+    expect(screen.getByLabelText(/^Heat To/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Save"));
+    await waitFor(() => {
+      expect(api.createSchedule).toHaveBeenCalledWith(
+        "room-1",
+        expect.objectContaining({ cool_to: 76 })
+      );
+    });
+  });
+
+  it("shows a block's band, and sends null to make it a single target again", async () => {
+    vi.mocked(api.getSchedules).mockResolvedValue([{ ...mockSchedules[0], cool_to: 76 }]);
+    vi.mocked(api.updateSchedule).mockResolvedValue(mockSchedules[0]);
+    render(<Schedules />);
+    fireEvent.click(await screen.findByText("Living Room"));
+    expect(await screen.findByText(/°F to 76\.0°F/)).toBeInTheDocument();
+    fireEvent.click(await screen.findByText("Edit"));
+    expect(screen.getByLabelText(/Cool To/i)).toHaveValue(76);
+    fireEvent.change(screen.getByLabelText(/Cool To/i), { target: { value: "" } });
+    fireEvent.click(screen.getByText("Save"));
+    await waitFor(() => {
+      expect(api.updateSchedule).toHaveBeenCalledWith(
+        "room-1",
+        "sched-1",
+        expect.objectContaining({ cool_to: null })
+      );
+    });
+  });
+
   it("sends the typed band when custom is picked", async () => {
     render(<Schedules />);
     await openNewBlock();

@@ -12,13 +12,34 @@ from .. import models
 
 # --- Base Model Schemas (Auto-generated from models.py) ---
 
-RoomSchema = class_schema(models.Room)
+
+class RoomSchema(class_schema(models.Room)):  # type: ignore[misc]
+    presence_cool_to = fields.Float(
+        allow_none=True,
+        metadata={"description": "°F. With it, system_wide_temp is the heat-to of a band"},
+    )
+
+
 RoomSensorSchema = class_schema(models.RoomSensor)
 RoomVentSchema = class_schema(models.RoomVent)
 RoomPresenceSensorSchema = class_schema(models.RoomPresenceSensor)
-ScheduleSchema = class_schema(models.Schedule)
+_COOL_TO = {
+    "description": "With it, the target is the heat-to of a band; null for one target."
+    " Sent in the display unit, returned in °F"
+}
+
+
+class ScheduleSchema(class_schema(models.Schedule)):  # type: ignore[misc]
+    cool_to = fields.Float(allow_none=True, metadata=_COOL_TO)
+
+
 ThermostatConfigSchema = class_schema(models.ThermostatConfig)
-RoomOverrideSchema = class_schema(models.RoomOverride)
+
+
+class RoomOverrideSchema(class_schema(models.RoomOverride)):  # type: ignore[misc]
+    cool_to = fields.Float(allow_none=True)
+
+
 ZoneStatusSchema = class_schema(models.ZoneStatus)
 RoomLiveStateSchema = class_schema(models.RoomLiveState)
 CycleTempSampleSchema = class_schema(models.CycleTempSample)
@@ -63,7 +84,7 @@ class UpdatedSchema(Schema):
     updated = fields.Bool(dump_default=True)
 
 
-class RoomResponseSchema(RoomSchema):  # type: ignore[misc, valid-type]
+class RoomResponseSchema(RoomSchema):
     sensors = fields.List(fields.Nested(RoomSensorSchema))
     vents = fields.List(fields.Nested(RoomVentSchema))
     presence_sensors = fields.List(fields.Nested(RoomPresenceSensorSchema))
@@ -86,6 +107,10 @@ class VentTestSchema(Schema):
 
 class RoomOverrideRequestSchema(Schema):
     target_temp = fields.Float(required=True)
+    cool_to = fields.Float(
+        allow_none=True,
+        metadata={"description": "With it, the target is the heat-to and this the cool-to"},
+    )
     # Capped at 8 h (#576): a hold is temporary relief, not a standing setting.
     duration_hours = fields.Float(load_default=2.0)
     # Eco opt-IN (#576). False (the default every pre-#576 caller keeps)
@@ -98,6 +123,10 @@ class RoomOverrideStatusSchema(Schema):
 
     room_id = fields.Str()
     target_temp = fields.Float()  # raw °F; the frontend converts for display
+    cool_to = fields.Float(
+        allow_none=True,
+        metadata={"description": "With it, the target is the heat-to and this the cool-to"},
+    )
     expires_at = fields.Str()  # naive-UTC ISO string
     respect_eco = fields.Bool()
     ends_in_seconds = fields.Int()
@@ -962,6 +991,26 @@ class FireplacesSchema(Schema):
 class ForecastSettingsSchema(Schema):
     enabled = fields.Bool()
     weather_entity = fields.Str(metadata={"description": "A weather entity, or empty"})
+    correct = fields.Bool(
+        metadata={"description": "Add each hour's usual error to the forecast once it is known"}
+    )
+
+
+class ForecastAccuracyHourSchema(Schema):
+    hour = fields.Int(metadata={"description": "Hour of the day, house-local"})
+    n = fields.Int()
+    offset = fields.Float(metadata={"description": "°F delta added to that hour's forecast"})
+
+
+class ForecastAccuracySchema(Schema):
+    comparisons = fields.Int()
+    needed = fields.Int()
+    ready = fields.Bool()
+    in_use = fields.Bool()
+    mean_error = fields.Float(allow_none=True, metadata={"description": "°F delta"})
+    mean_abs = fields.Float(allow_none=True, metadata={"description": "°F delta"})
+    mean_abs_corrected = fields.Float(allow_none=True, metadata={"description": "°F delta"})
+    by_hour = fields.List(fields.Nested(ForecastAccuracyHourSchema))
 
 
 class ForecastDaySchema(Schema):
@@ -974,7 +1023,8 @@ class ForecastDaySchema(Schema):
 
 class ForecastHourSchema(Schema):
     at = fields.Str()
-    temp = fields.Float(metadata={"description": "°F"})
+    temp = fields.Float(metadata={"description": "°F, corrected when the correction is in use"})
+    temp_raw = fields.Float(metadata={"description": "°F, as the weather source gave it"})
     cloud_pct = fields.Int(allow_none=True)
     precip_pct = fields.Int(allow_none=True)
     condition = fields.Str()
@@ -992,6 +1042,7 @@ class ForecastSchema(Schema):
     covers_until = fields.Str(allow_none=True)
     days = fields.List(fields.Nested(ForecastDaySchema))
     hours = fields.List(fields.Nested(ForecastHourSchema))
+    accuracy = fields.Nested(ForecastAccuracySchema)
 
 
 class LearningSettingsSchema(Schema):

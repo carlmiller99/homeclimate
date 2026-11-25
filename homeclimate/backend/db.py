@@ -277,6 +277,20 @@ CREATE TABLE IF NOT EXISTS room_calendars (
     in_use INTEGER NOT NULL DEFAULT 1
 );
 
+-- A band on a schedule, an occupancy target or a hold (backend/house.py). The
+-- row adds a cool-to to that target, which then acts as the heat-to. heat_to
+-- (and for a hold, stamp = its expiry) says which target the band was set
+-- for: a target changed by any other route no longer matches, and the band
+-- stops applying rather than being carried onto a target it was not set for.
+CREATE TABLE IF NOT EXISTS target_bands (
+    kind TEXT NOT NULL,      -- 'schedule' | 'presence' | 'hold'
+    ref_id TEXT NOT NULL,    -- schedule id, or room id
+    heat_to REAL NOT NULL,
+    cool_to REAL NOT NULL,
+    stamp TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (kind, ref_id)
+);
+
 -- Building mode (backend/building_mode.py): each building's mode, and for
 -- Auto the side it is on and when it last switched (Unix seconds).
 CREATE TABLE IF NOT EXISTS building_modes (
@@ -326,6 +340,17 @@ CREATE TABLE IF NOT EXISTS forecast_snapshots (
     temp INTEGER NOT NULL,
     PRIMARY KEY (issued, at)
 ) WITHOUT ROWID;
+
+-- How far the forecast is usually off, as a running average for each hour of
+-- the day in the house's time zone (backend/forecast_bias.py). °F.
+CREATE TABLE IF NOT EXISTS forecast_bias (
+    hour_of_day INTEGER PRIMARY KEY,
+    n INTEGER NOT NULL,
+    mean_error REAL NOT NULL,
+    mean_abs REAL NOT NULL,
+    mean_abs_corrected REAL NOT NULL,
+    n_corrected INTEGER NOT NULL DEFAULT 0
+);
 
 -- HomeClimate heat pumps: each backup (aux) heat episode seen on a zone's
 -- equipment-running source, for Metrics.
@@ -1498,6 +1523,11 @@ async def delete_room(conn: aiosqlite.Connection, room_id: str) -> None:
     await conn.execute("DELETE FROM fireplace_rooms WHERE room_id=?", (room_id,))
     await conn.execute("DELETE FROM room_switches WHERE room_id=?", (room_id,))
     await conn.execute("DELETE FROM room_calendars WHERE room_id=?", (room_id,))
+    await conn.execute(
+        "DELETE FROM target_bands WHERE ref_id=? OR (kind='schedule' AND ref_id NOT IN"
+        " (SELECT id FROM schedules))",
+        (room_id,),
+    )
     await conn.commit()
 
 
@@ -1688,6 +1718,9 @@ async def upsert_schedule(conn: aiosqlite.Connection, s: Schedule) -> None:
 
 async def delete_schedule(conn: aiosqlite.Connection, schedule_id: str) -> None:
     await conn.execute("DELETE FROM schedules WHERE id=?", (schedule_id,))
+    await conn.execute(
+        "DELETE FROM target_bands WHERE kind='schedule' AND ref_id=?", (schedule_id,)
+    )
     await conn.commit()
 
 
@@ -1955,6 +1988,7 @@ async def set_room_override(conn: aiosqlite.Connection, override: RoomOverride) 
 
 async def clear_room_override(conn: aiosqlite.Connection, room_id: str) -> None:
     await conn.execute("DELETE FROM room_overrides WHERE room_id=?", (room_id,))
+    await conn.execute("DELETE FROM target_bands WHERE kind='hold' AND ref_id=?", (room_id,))
     await conn.commit()
 
 

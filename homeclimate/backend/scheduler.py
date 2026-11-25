@@ -25,6 +25,7 @@ from . import (
     db,
     fireplace,
     forecast,
+    forecast_bias,
     heat_pump,
     house,
     learning,
@@ -1539,6 +1540,7 @@ class Scheduler:
                     )
                 else:
                     await self._event_logger.log("info", "forecast", "Forecast is back", {})
+            await forecast_bias.score(self._db_conn, now=datetime.now(UTC))
         except Exception:
             log.exception("Could not refresh the forecast")
 
@@ -1662,6 +1664,8 @@ class Scheduler:
         try:
             now = datetime.now(UTC)
             hours, _fetched = await forecast.load(self._db_conn, now=now)
+            if (await forecast.get_settings(self._db_conn))["correct"]:
+                hours = (await forecast_bias.load(self._db_conn)).correct(hours)
             band = (await house.load(self._db_conn)).band
             switched = await self._building_plan.plan(
                 self._db_conn, self.zones_now(), hours, band, now

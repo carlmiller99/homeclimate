@@ -8,6 +8,8 @@ export interface Room {
   thermostat_entity_id: string;
   include_thermostat_sensor: boolean;
   system_wide_temp: number | null;
+  /** °F. With it, system_wide_temp is the heat-to of a band. */
+  presence_cool_to?: number | null;
   presence_holdover_hours: number;
   notes: string;
   temp_offset: number;
@@ -73,6 +75,8 @@ export interface Schedule {
   start_time: string;
   end_time: string;
   target_temp: number;
+  /** °F. With it, target_temp is the heat-to of a band. */
+  cool_to?: number | null;
   // Lifecycle (Issue #359). `enabled=false` parks a block without deleting it.
   // `expires_at` is a naive LOCAL datetime-local string (or null = never
   // expire); a backend sweep flips `enabled` to false once it passes.
@@ -453,6 +457,8 @@ export interface RoomOverrideHold {
   target_temp: number; // raw °F — convert for display via toDisplay/fmtTemp
   expires_at: string; // naive-UTC ISO string
   respect_eco: boolean;
+  /** °F. With it, target_temp is the heat-to of a band. */
+  cool_to?: number | null;
   ends_in_seconds: number;
 }
 
@@ -462,11 +468,18 @@ export const setOverride = (
   room_id: string,
   target_temp: number,
   duration_hours = 2,
-  respect_eco = false
+  respect_eco = false,
+  cool_to: number | null = null
 ) =>
   api<RoomOverrideHold>(`/api/rooms/${room_id}/override`, {
     method: "POST",
-    body: JSON.stringify({ target_temp, duration_hours, respect_eco }),
+    body: JSON.stringify({
+      target_temp,
+      duration_hours,
+      respect_eco,
+      // Also a raw display value. Left out for a single target.
+      ...(cool_to === null ? {} : { cool_to }),
+    }),
   });
 export const clearOverride = (room_id: string) =>
   api<unknown>(`/api/rooms/${room_id}/override`, { method: "DELETE" });

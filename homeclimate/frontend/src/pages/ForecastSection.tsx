@@ -5,6 +5,7 @@ import { RuleRow } from "../components/SmartControlControls";
 import Time from "../components/Time";
 import { useUnit } from "../contexts";
 import {
+  accuracyText,
   describeCondition,
   getForecast,
   refreshForecast,
@@ -22,7 +23,7 @@ const STATE_TEXT: Record<Forecast["state"], string> = {
 };
 
 export default function ForecastSection() {
-  const { fmtTemp } = useUnit();
+  const { fmtTemp, toDisplayDelta, unitLabel } = useUnit();
   const [data, setData] = useState<Forecast | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -116,6 +117,18 @@ export default function ForecastSection() {
             )}
           </div>
         </div>
+        <RuleRow
+          id="forecast-correct"
+          title="Correct the Forecast From Experience"
+          help="Compares each hour's forecast with your outside temperature sensor and, once it knows how far off the forecast usually is at that time of day, adjusts for it."
+          enabled={s.correct}
+          onToggle={(v) => set({ correct: v })}
+        >
+          {null}
+        </RuleRow>
+        <p className="rule-help forecast-accuracy" role="status">
+          {accuracyText(data.accuracy, toDisplayDelta, unitLabel)}
+        </p>
         {err && <p className="form-error">{err}</p>}
       </section>
 

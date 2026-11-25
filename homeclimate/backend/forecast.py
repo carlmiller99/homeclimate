@@ -39,6 +39,8 @@ SETTING_PREFIX = "forecast_"
 SETTINGS: dict[str, tuple[str, Any]] = {
     "enabled": ("bool", False),
     "weather_entity": ("entity", ""),
+    # Add each hour's usual error to the forecast once enough has been seen.
+    "correct": ("bool", True),
 }
 SHADES_WEATHER_SETTING = "shades_weather_entity"
 
@@ -48,7 +50,7 @@ class ForecastError(UserError):
 
 
 UNKNOWN_SETTING = fixed("Unknown forecast setting")
-BAD_ENABLED = fixed("enabled must be true or false")
+BAD_ENABLED = fixed("enabled and correct must be true or false")
 BAD_ENTITY = fixed("weather_entity must be a weather entity or empty")
 FETCH_FAILED = "Home Assistant did not return an hourly forecast from this weather entity."
 
@@ -70,7 +72,8 @@ def parse_setting(name: str, value: Any) -> Any:
 async def get_settings(conn: aiosqlite.Connection) -> dict[str, Any]:
     enabled = await db.get_system_setting(conn, SETTING_PREFIX + "enabled", "0")
     entity = await db.get_system_setting(conn, SETTING_PREFIX + "weather_entity", "")
-    return {"enabled": enabled == "1", "weather_entity": entity}
+    correct = await db.get_system_setting(conn, SETTING_PREFIX + "correct", "1")
+    return {"enabled": enabled == "1", "weather_entity": entity, "correct": correct == "1"}
 
 
 async def update_settings(conn: aiosqlite.Connection, body: dict[str, Any]) -> dict[str, Any]:
@@ -168,6 +171,10 @@ async def save(
     ]
     if await db.get_system_setting(conn, SOURCE_SETTING, "") != source:
         await conn.execute("DELETE FROM forecast_hours")
+        # Another source is off by its own amounts: what was learned about
+        # the old one, and its archive, do not carry over.
+        await conn.execute("DELETE FROM forecast_snapshots")
+        await conn.execute("DELETE FROM forecast_bias")
     await conn.execute(
         "DELETE FROM forecast_hours WHERE (at BETWEEN ? AND ?) OR at < ?",
         (rows[0][0], rows[-1][0], int((now - PAST_KEEP).timestamp())),
@@ -254,8 +261,14 @@ class Forecast:
         self.failed = False
         return "fetched" if changed else None
 
-    async def snapshot(self, conn: aiosqlite.Connection, *, now: datetime) -> dict[str, Any]:
-        """Everything the Forecasts section shows."""
+    async def snapshot(
+        self, conn: aiosqlite.Connection, *, now: datetime, bias: Any = None
+    ) -> dict[str, Any]:
+        """Everything the Forecasts section shows.
+
+        ``bias`` (a ``forecast_bias.Bias``) corrects the temperatures shown when
+        the Correct setting is on; ``temp_raw`` is always what the source gave.
+        """
         settings = await get_settings(conn)
         entity = await weather_entity(conn)
         hours, fetched = await load(conn, now=now)
@@ -276,6 +289,9 @@ class Forecast:
             hours, state = [], "none"
         if state in ("off", "no_entity"):
             hours = []
+        raw = {h.at: h.temp for h in hours}
+        if bias is not None and settings["correct"]:
+            hours = bias.correct(hours)
         days: dict[str, list[Hour]] = {}
         for h in hours:
             days.setdefault(tz.to_local(h.at).date().isoformat(), []).append(h)
@@ -301,6 +317,7 @@ class Forecast:
                 {
                     "at": h.at.isoformat(),
                     "temp": h.temp,
+                    "temp_raw": raw[h.at],
                     "cloud_pct": h.cloud_pct,
                     "precip_pct": h.precip_pct,
                     "condition": h.condition,

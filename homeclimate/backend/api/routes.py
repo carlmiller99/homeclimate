@@ -12,6 +12,7 @@ import hashlib
 import hmac
 import json
 import logging
+import math
 import os
 import secrets
 import shutil
@@ -484,6 +485,10 @@ TEMPERATURE_FIELDS: dict[str, str] = {
     "house_cool_to": "absolute_nullable",
     # Room
     "system_wide_temp": "absolute_nullable",
+    # A cool-to that turns a schedule's or hold's target, or a room's occupancy
+    # target, into a band (house.TargetBand).
+    "cool_to": "absolute_nullable",
+    "presence_cool_to": "absolute_nullable",
     "temp_offset": "delta",
     # Deadband override — the SAME field name on two write boundaries: per-room
     # (Issue #277) and per-schedule (Issue #517). Identical kind, bounds, and
@@ -931,7 +936,10 @@ async def _ensure_zone(request: web.Request, conn: aiosqlite.Connection, entity_
 async def list_rooms(request: web.Request) -> web.Response:
     conn = await get_conn(request)
     rooms = await db.get_all_rooms(conn)
-    return json_response([r.__dict__ for r in rooms])
+    the_house = await house.load(conn)
+    return json_response(
+        [{**r.__dict__, "presence_cool_to": _presence_cool_to(the_house, r)} for r in rooms]
+    )
 
 
 @docs(tags=["rooms"], summary="Create a new room")
@@ -1027,6 +1035,12 @@ async def create_room(request: web.Request) -> web.Response:
     return json_response(room.__dict__, status=201)
 
 
+def _presence_cool_to(the_house: house.House, room: Room) -> float | None:
+    if room.system_wide_temp is None:
+        return None
+    return the_house.cool_to("presence", room.id, room.system_wide_temp)
+
+
 @docs(tags=["rooms"], summary="Get room details")
 @response_schema(schemas.RoomResponseSchema)
 @routes.get("/api/rooms/{room_id}")
@@ -1039,13 +1053,18 @@ async def get_room(request: web.Request) -> web.Response:
     vents = await db.get_room_vents(conn, room.id)
     presence = await db.get_room_presence_sensors(conn, room.id)
     schedules = await db.get_schedules_for_room(conn, room.id)
+    the_house = await house.load(conn)
     return json_response(
         {
             **room.__dict__,
             "sensors": [s.__dict__ for s in sensors],
             "vents": [v.__dict__ for v in vents],
             "presence_sensors": [p.__dict__ for p in presence],
-            "schedules": [_schedule_to_dict(s) for s in schedules],
+            "schedules": [
+                _schedule_to_dict(s, the_house.cool_to("schedule", s.id, s.target_temp))
+                for s in schedules
+            ],
+            "presence_cool_to": _presence_cool_to(the_house, room),
         }
     )
 
@@ -1059,6 +1078,7 @@ async def update_room(request: web.Request) -> web.Response:
     room = await db.get_room(conn, request.match_info["room_id"])
     if not room:
         return error("Room not found", 404)
+    old_presence = room.system_wide_temp
     body = await request.json()
     unit = request.app["scheduler"].get_temperature_unit()
 
@@ -1151,13 +1171,26 @@ async def update_room(request: web.Request) -> web.Response:
         setattr(room, attr, value)
     for attr, value in eco_updates.items():
         setattr(room, attr, value)
+    presence_cool_f, err = await _read_cool_to(
+        request, body, "presence_cool_to", room.system_wide_temp
+    )
+    if err:
+        return err
+    if presence_cool_f is _UNCHANGED:
+        # The occupancy target may have moved: its band moves with it.
+        presence_cool_f = await _carried_cool_to(
+            request, "presence", room.id, old_presence, room.system_wide_temp
+        )
     # A room moved to a thermostat that is not a zone yet gets its zone here,
     # after every check that could still reject the update.
     await _ensure_zone(request, conn, room.thermostat_entity_id)
     await db.upsert_room(conn, room)
+    await house.set_target_band(
+        conn, "presence", room.id, room.system_wide_temp or 0.0, presence_cool_f
+    )
     await refresh(request)
     await emit(request, "info", "api", f"Room updated: {room.name}", {"room_id": room.id})
-    return json_response(room.__dict__)
+    return json_response({**room.__dict__, "presence_cool_to": presence_cool_f})
 
 
 @docs(tags=["rooms"], summary="Delete a room")
@@ -1456,8 +1489,83 @@ async def remove_presence(request: web.Request) -> web.Response:
 # ---------------------------------------------------------------------------
 
 
-def _schedule_to_dict(s: Schedule) -> dict:
+_UNCHANGED = object()
+
+
+async def _read_cool_to(
+    request: web.Request, body: dict, key: str, heat_f: float | None
+) -> tuple[Any, web.Response | None]:
+    """The cool-to a request gives a target, in °F.
+
+    Returns ``_UNCHANGED`` when the key is absent, None to make it a single
+    target again, or the validated cool-to; or an error response.
+    """
+    if key not in body:
+        return _UNCHANGED, None
+    value = body[key]
+    if value is None:
+        return None, None
+    if isinstance(value, bool) or not isinstance(value, int | float) or abs(value) > 1000:
+        return None, error(f"{key} must be a number or null")
+    if heat_f is None:
+        return None, error(f"{key} needs a target to pair with")
+    unit = request.app["scheduler"].get_temperature_unit()
+    return await _check_cool_to(request, key, heat_f, _to_f(float(value), unit))
+
+
+async def _check_cool_to(
+    request: web.Request, key: str, heat_f: float, cool_f: float
+) -> tuple[Any, web.Response | None]:
+    unit = request.app["scheduler"].get_temperature_unit()
+    problem = await house.cool_to_problem(await get_conn(request), heat_f, cool_f)
+    scale, shift = (5 / 9, 32) if unit == "C" else (1.0, 0)
+    if problem == "range":
+        # Bounds shown rounded inward, so the numbers in the message are accepted.
+        low = math.ceil(round((house.LOW_F - shift) * scale, 6) * 10) / 10
+        high = math.floor(round((house.HIGH_F - shift) * scale, 6) * 10) / 10
+        gap = math.ceil(round(house.MIN_GAP_F * scale, 6) * 10) / 10
+        return None, error(
+            f"{key} and its target must be between {low} and {high}°{unit},"
+            f" with {key} at least {gap}° above the target"
+        )
+    if problem == "safety":
+        top, bottom = await house.safety_window(await get_conn(request))
+        most = math.floor(round((top - shift) * scale, 6) * 10) / 10
+        least = math.ceil(round((bottom - shift) * scale, 6) * 10) / 10
+        return None, error(
+            f"The band must sit inside every zone's safety limits: the target at most"
+            f" {most}°{unit} and {key} at least {least}°{unit}"
+        )
+    return cool_f, None
+
+
+async def _carried_cool_to(
+    request: web.Request, kind: str, ref_id: str, old_target: float | None, target: float | None
+) -> float | None:
+    """The cool-to a target keeps when a request changes it without naming one.
+
+    Only a band that belonged to the target as it was is carried: a leftover
+    from a target changed by some other route is not revived. A band that the
+    new target would make invalid is dropped, so a client that knows nothing
+    of bands (MQTT, an automation) can still move the target.
+    """
+    if old_target is None or target is None:
+        return None
+    conn = await get_conn(request)
+    cool_f = (await house.load(conn)).cool_to(kind, ref_id, old_target)
+    if cool_f is None:
+        return None
+    if abs(old_target - target) <= 0.01:
+        return cool_f  # the target did not move: nothing about the band is re-judged
+    if await house.cool_to_problem(conn, target, cool_f) is not None:
+        return None
+    return cool_f
+
+
+def _schedule_to_dict(s: Schedule, cool_to: float | None = None) -> dict:
     return {
+        # °F, or null for a single target. With it, target_temp is the heat-to.
+        "cool_to": cool_to,
         "id": s.id,
         "room_id": s.room_id,
         "days_of_week": s.days_of_week,
@@ -1489,7 +1597,13 @@ _schedule_overlap_label = schedule_rules.describe_block
 async def list_schedules(request: web.Request) -> web.Response:
     conn = await get_conn(request)
     schedules = await db.get_schedules_for_room(conn, request.match_info["room_id"])
-    return json_response([_schedule_to_dict(s) for s in schedules])
+    the_house = await house.load(conn)
+    return json_response(
+        [
+            _schedule_to_dict(s, the_house.cool_to("schedule", s.id, s.target_temp))
+            for s in schedules
+        ]
+    )
 
 
 @docs(tags=["schedules"], summary="Create a new schedule")
@@ -1551,8 +1665,13 @@ async def create_schedule(request: web.Request) -> web.Response:
         conflict = schedule_rules.find_conflict(s, existing)
         if conflict is not None:
             return error(f"Overlaps with existing block on {_schedule_overlap_label(conflict)}")
+    cool_f, err = await _read_cool_to(request, body, "cool_to", s.target_temp)
+    if err:
+        return err
+    cool_f = None if cool_f is _UNCHANGED else cool_f
     await db.upsert_schedule(conn, s)
-    return json_response(_schedule_to_dict(s), status=201)
+    await house.set_target_band(conn, "schedule", s.id, s.target_temp, cool_f)
+    return json_response(_schedule_to_dict(s, cool_f), status=201)
 
 
 @docs(tags=["schedules"], summary="Update a schedule")
@@ -1566,6 +1685,7 @@ async def update_schedule(request: web.Request) -> web.Response:
     schedule = next((s for s in schedules if s.id == sid), None)
     if not schedule:
         return error("Schedule not found", 404)
+    old_target = schedule.target_temp
     body = await request.json()
     unit = request.app["scheduler"].get_temperature_unit()
     if "days_of_week" in body:
@@ -1630,8 +1750,18 @@ async def update_schedule(request: web.Request) -> web.Response:
         conflict = schedule_rules.find_conflict(schedule, schedules, exclude_id=schedule.id)
         if conflict is not None:
             return error(f"Overlaps with existing block on {_schedule_overlap_label(conflict)}")
+    cool_f, err = await _read_cool_to(request, body, "cool_to", schedule.target_temp)
+    if err:
+        return err
+    if cool_f is _UNCHANGED:
+        # The target may have moved: a band already on this block moves with
+        # it, and must still be a band the rules allow.
+        cool_f = await _carried_cool_to(
+            request, "schedule", schedule.id, old_target, schedule.target_temp
+        )
     await db.upsert_schedule(conn, schedule)
-    return json_response(_schedule_to_dict(schedule))
+    await house.set_target_band(conn, "schedule", schedule.id, schedule.target_temp, cool_f)
+    return json_response(_schedule_to_dict(schedule, cool_f))
 
 
 @docs(tags=["schedules"], summary="Delete a schedule")
@@ -1640,6 +1770,7 @@ async def update_schedule(request: web.Request) -> web.Response:
 async def delete_schedule(request: web.Request) -> web.Response:
     conn = await get_conn(request)
     await db.delete_schedule(conn, request.match_info["schedule_id"])
+    await house.set_target_band(conn, "schedule", request.match_info["schedule_id"], 0.0, None)
     return json_response({"deleted": True})
 
 
@@ -1665,6 +1796,11 @@ async def copy_schedule(request: web.Request) -> web.Response:
     sid = request.match_info["schedule_id"]
     src_schedules = await db.get_schedules_for_room(conn, src_room_id)
     source = next((s for s in src_schedules if s.id == sid), None)
+    source_cool_to = (
+        (await house.load(conn)).cool_to("schedule", source.id, source.target_temp)
+        if source
+        else None
+    )
     if not source:
         return error("Schedule not found", 404)
 
@@ -1702,6 +1838,8 @@ async def copy_schedule(request: web.Request) -> web.Response:
             status = "created"
             conflict_with = None
         await db.upsert_schedule(conn, copy)
+        # A band is part of what the block asks for: it goes with the copy.
+        await house.set_target_band(conn, "schedule", copy.id, copy.target_temp, source_cool_to)
         results.append(
             {
                 "room_id": target_room_id,
@@ -2168,6 +2306,10 @@ async def set_override(request: web.Request) -> web.Response:
         return error("duration_hours must be greater than 0 and at most 8")
 
     respect_eco = bool(body.get("respect_eco", False))
+    cool_f, err = await _read_cool_to(request, body, "cool_to", target_temp_f)
+    if err:
+        return err
+    cool_f = None if cool_f is _UNCHANGED else cool_f
 
     override = RoomOverride(
         room_id=room.id,
@@ -2176,12 +2318,16 @@ async def set_override(request: web.Request) -> web.Response:
         respect_eco=respect_eco,
     )
     await db.set_room_override(conn, override)
+    await house.set_target_band(
+        conn, "hold", room.id, target_temp_f, cool_f, house.hold_stamp(override.expires_at)
+    )
     await emit(
         request,
         "info",
         "api",
         f"Temperature hold set for room {room.name}: {override.target_temp}°F "
-        f"for {duration_hours:g}h"
+        + (f"to {cool_f}°F " if cool_f is not None else "")
+        + f"for {duration_hours:g}h"
         + (" (Eco may relax it)" if respect_eco else " (ignores Eco Mode)"),
         {
             "room_id": room.id,
@@ -2199,6 +2345,7 @@ async def set_override(request: web.Request) -> web.Response:
             "target_temp": override.target_temp,
             "expires_at": override.expires_at.replace(tzinfo=None).isoformat(),
             "respect_eco": override.respect_eco,
+            "cool_to": cool_f,
         }
     )
 
@@ -2241,6 +2388,7 @@ async def list_overrides(request: web.Request) -> web.Response:
     """
     conn = await get_conn(request)
     overrides = await db.list_room_overrides(conn)
+    the_house = await house.load(conn)
     now = tz.now_utc()
     return json_response(
         [
@@ -2249,6 +2397,9 @@ async def list_overrides(request: web.Request) -> web.Response:
                 "target_temp": o.target_temp,
                 "expires_at": o.expires_at.replace(tzinfo=None).isoformat(),
                 "respect_eco": o.respect_eco,
+                "cool_to": the_house.cool_to(
+                    "hold", o.room_id, o.target_temp, house.hold_stamp(o.expires_at)
+                ),
                 "ends_in_seconds": max(0, int((o.expires_at - now).total_seconds())),
             }
             for o in overrides
