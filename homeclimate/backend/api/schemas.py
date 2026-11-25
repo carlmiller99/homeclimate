@@ -852,6 +852,7 @@ class ShadeSettingsSchema(Schema):
     skip_occupied = fields.Bool()
     daylight_only = fields.Bool()
     close_night_heat = fields.Bool()
+    predictive_close = fields.Bool()
     respect_manual = fields.Bool()
     manual_hold_min = fields.Int()
     min_move_min = fields.Int()

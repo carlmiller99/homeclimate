@@ -21,6 +21,7 @@ The zone's direction is its running cycle, or else the thermostat's own mode.
 | Automatically Control Shades to Optimize Solar Effects | off | Nothing moves until this is on. |
 | Do Not Control Shades in an Occupied Room | on | Uses the room's presence sensors. |
 | Only Between Sunrise and Sunset | on | Shades are left alone overnight. |
+| Close Ahead of a Warm Room | off | Closes a sunlit shade while the zone is idle, before any cooling is needed. See below. |
 | Close at Night in Heat Mode | off | Closes shades after dark while the zone heats. Needs Only Between Sunrise and Sunset off. |
 | Respect Manual Moves For | on, 120 min | A shade someone moves by hand is left alone this long. |
 | Quiet Hours | off, 20:00 to 07:00 | Shades marked Quiet Hours Apply never move between these house-local times. |
@@ -37,3 +38,14 @@ Each move is logged under **Settings → Logs**, in the `shades` category, with 
 - `PUT /api/shades/settings`
 - `PUT /api/shades/{entity_id}` with `room_id`, `facing` and the per-shade options
 - `DELETE /api/shades/{entity_id}`
+
+## Closing ahead of a warm room
+
+Without this, a sunlit shade closes only once its zone is cooling, by which time the sun has already warmed the room. With **Close Ahead of a Warm Room** on, a sunlit shade also closes while the zone is idle when both of these hold:
+
+- It is warmer outside than the top of what the room is asked to hold (its Cool To, or its single target). In cold weather sun through a window is welcome, so nothing closes early. With no outside sensor this never acts.
+- The room is within 1 °F (0.6 °C) of that top already, or its Smart Learning model expects it to pass it within three hours on a day the forecast says is still warming.
+
+Every other rule still applies first: Never Control, occupied rooms, quiet hours, manual moves, overcast skies, the minimum time between moves, and a room that follows nothing (not in use) is never acted on. A heating zone still opens sunlit shades. The Engine log and the shade's status line read "Sunlit and the room is expected to get too warm, so closed ahead of it."
+
+A shade closed this way is not reopened by HomeClimate when the room cools; it opens again the next time its zone heats, or when someone opens it.

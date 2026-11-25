@@ -19,6 +19,8 @@ export interface ShadeSettings {
   skip_occupied: boolean;
   daylight_only: boolean;
   close_night_heat: boolean;
+  /** Close a sunlit shade while the zone is idle, when the room is about to be too warm. */
+  predictive_close: boolean;
   respect_manual: boolean;
   manual_hold_min: number;
   min_move_min: number;

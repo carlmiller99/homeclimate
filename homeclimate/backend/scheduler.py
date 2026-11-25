@@ -23,6 +23,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from . import (
     building_mode,
     db,
+    early_cooling,
     fireplace,
     forecast,
     forecast_bias,
@@ -39,7 +40,7 @@ from . import (
 )
 from .engine import room_manager
 from .engine.cycle_engine import SENSOR_STALE_AFTER_MIN, CycleEngine
-from .engine.room_manager import get_active_rooms
+from .engine.room_manager import _resolve_room, get_active_rooms
 from .engine.vent_controller import VentController
 from .event_logger import EventLogger
 from .ha_client import HAClient
@@ -1671,11 +1672,62 @@ class Scheduler:
             )
         return fitted
 
+    async def _rooms_warm_ahead(self, now: datetime) -> frozenset[str]:
+        """Rooms with a shade that are about to be too warm (Close Ahead of a Warm Room).
+
+        Empty unless that setting is on. A room counts when it is close to the
+        top of what it is asked to hold, or its model expects it to pass that
+        on a warming afternoon. A room that follows nothing has no top.
+        """
+        conn = self._db_conn
+        settings = await shades.get_settings(conn)
+        if not (settings["auto_enabled"] and settings["predictive_close"]):
+            return frozenset()
+        wanted = {s.room_id for s in await shades.list_shades(conn) if not s.never_control}
+        if not wanted:
+            return frozenset()
+        hours, _fetched = await forecast.load(conn, now=now)
+        if (await forecast.get_settings(conn))["correct"]:
+            hours = (await forecast_bias.load(conn)).correct(hours)
+        ahead = [(h.at, h.temp) for h in hours]
+        models = await room_model.load(conn)
+        the_house = await house.load(conn)
+        by_room: dict[str, list] = {}
+        for sched in await db.get_all_schedules(conn):
+            by_room.setdefault(sched.room_id, []).append(sched)
+        out = set()
+        for room in await db.get_all_rooms(conn):
+            engine = self._engines.get(room.thermostat_entity_id)
+            if room.id not in wanted or engine is None:
+                continue
+            ar = await _resolve_room(conn, room, by_room.get(room.id, []), now, the_house)
+            temp = engine._get_avg_temp(room, refresh=False)
+            if ar.source == "idle" or temp is None:
+                continue
+            top = ar.target_temp if ar.cool_to is None else ar.cool_to
+            if early_cooling.warm_ahead(
+                models.get(room.id),
+                temp=temp,
+                cool_to=top - room.temp_offset,
+                outside=await engine._read_outside_temp(conn),
+                ahead=ahead,
+                now=now,
+                zone=engine._thermo_ambient_f(),
+            ):
+                out.add(room.id)
+        return frozenset(out)
+
     async def _run_shades(self) -> None:
         """Move shades for the sun, after the engines have settled their modes."""
         try:
+            now = datetime.now(UTC)
             moves = await self._shades.run(
-                self._db_conn, self._ha, self.zone_mode, datetime.now(UTC), tz.now_local().time()
+                self._db_conn,
+                self._ha,
+                self.zone_mode,
+                now,
+                tz.now_local().time(),
+                await self._rooms_warm_ahead(now),
             )
         except Exception:
             log.exception("Could not run shade automation")

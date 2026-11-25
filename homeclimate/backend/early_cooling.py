@@ -46,6 +46,40 @@ def warming(
     return peak + (outside - current)
 
 
+NEAR_F = 1.0  # this close to its Cool To, a room counts as about to pass it
+
+
+def warm_ahead(
+    model: room_model.RoomModel | None,
+    *,
+    temp: float,
+    cool_to: float,
+    outside: float | None,
+    ahead: Sequence[tuple[datetime, float]],
+    now: datetime,
+    zone: float | None = None,
+) -> bool:
+    """Whether a room is about to be too warm: what a sunlit shade is closed ahead of.
+
+    Only when it is warmer outside than that top (in the cold, sun through a
+    window is welcome). Then: within 1 °F of the top already, or, on a day
+    still warming, expected by its own model to pass it within three hours.
+    ``temp`` and ``cool_to`` are raw readings (no room offset).
+    """
+    if outside is None or outside <= cool_to:
+        return False
+    if temp >= cool_to - NEAR_F:
+        return True
+    if (
+        model is None
+        or not coasting.usable(model, now)
+        or warming(outside, ahead, now, cool_to) is None
+    ):
+        return False
+    outlook = coasting.Outlook(now, outside, ahead)
+    return breach_in(model, temp=temp, cool_to=cool_to, outlook=outlook, zone=zone) is not None
+
+
 def breach_in(
     model: room_model.RoomModel,
     *,

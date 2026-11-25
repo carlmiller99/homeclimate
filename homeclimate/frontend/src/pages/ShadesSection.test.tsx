@@ -26,6 +26,7 @@ const SETTINGS: sh.ShadeSettings = {
   skip_occupied: true,
   daylight_only: true,
   close_night_heat: false,
+  predictive_close: false,
   respect_manual: true,
   manual_hold_min: 120,
   min_move_min: 30,
@@ -160,6 +161,7 @@ describe("Shades section", () => {
       ["Do Not Control Shades in an Occupied Room", "skip_occupied"],
       ["Only Between Sunrise and Sunset", "daylight_only"],
       ["Close at Night in Heat Mode", "close_night_heat"],
+      ["Close Ahead of a Warm Room", "predictive_close"],
       ["Respect Manual Moves For", "respect_manual"],
       ["Quiet Hours", "quiet_hours"],
     ] as const) {
