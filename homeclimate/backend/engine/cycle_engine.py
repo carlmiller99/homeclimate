@@ -162,6 +162,11 @@ class CycleState(Enum):
     TERMINATING = "terminating"
 
 
+# Room sources added by a convenience rather than asked for by the house: they
+# never outvote the others when the zone chooses between heating and cooling.
+OPTIONAL_SOURCES = frozenset({"balance"})
+
+
 def _block_start(now: datetime, secs: int) -> datetime:
     """The house's wall-clock time of a block ``secs`` away, to the minute.
 
@@ -2965,6 +2970,11 @@ class CycleEngine:
 
         needs_cool = 0
         needs_heat = 0
+        # Rooms asked for by a convenience (Zone Balance) count only when no
+        # other room has a say: they must never outvote a safety room, a hold
+        # or a schedule and send the zone the other way.
+        optional_cool = 0
+        optional_heat = 0
         for ar in active_rooms.values():
             avg = self._get_avg_temp(ar.room)
             if avg is None:
@@ -2985,10 +2995,15 @@ class CycleEngine:
                 tc,
                 recently_off,
             )
-            if vote == "cool":
+            if ar.source in OPTIONAL_SOURCES:
+                optional_cool += vote == "cool"
+                optional_heat += vote == "heat"
+            elif vote == "cool":
                 needs_cool += 1
             elif vote == "heat":
                 needs_heat += 1
+        if needs_cool == 0 and needs_heat == 0:
+            needs_cool, needs_heat = optional_cool, optional_heat
 
         if only is not None:
             return only if (needs_heat if only == "heating" else needs_cool) > 0 else "off"
