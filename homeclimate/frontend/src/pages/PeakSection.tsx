@@ -14,6 +14,48 @@ import {
   type PeakSettings,
 } from "../peakApi";
 
+/**
+ * A time that is saved when the field is left (or Enter is pressed), not on
+ * every change: browsers report a time one segment at a time while it is typed.
+ * Never disabled, so typing is not cut off by a save elsewhere on the card.
+ */
+function TimeField({
+  id,
+  label,
+  value,
+  onCommit,
+}: {
+  id?: string;
+  label: string;
+  value: string;
+  onCommit: (value: string) => void;
+}) {
+  const [draft, setDraft] = useState(value);
+  // Re-derive when the saved value changes, during render (pitfall #9).
+  const [lastValue, setLastValue] = useState(value);
+  if (value !== lastValue) {
+    setLastValue(value);
+    setDraft(value);
+  }
+  const commit = () => {
+    if (draft && draft !== value) onCommit(draft);
+  };
+  return (
+    <input
+      type="time"
+      id={id}
+      className="form-control"
+      aria-label={label}
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") commit();
+      }}
+    />
+  );
+}
+
 /** Smart Control → Peak Hours: bank heat or cool ahead of the dearest hours. */
 export default function PeakSection() {
   const { unit, unitLabel, toDisplayDelta } = useUnit();
@@ -91,22 +133,13 @@ export default function PeakSection() {
         title="The Peak Hours"
         help="When electricity costs most, in the house's time. An end earlier than the start runs into the next day."
       >
-        <input
-          type="time"
-          className="form-control"
-          aria-label="Peak starts"
+        <TimeField
+          id="peak-hours-min"
+          label="Peak starts"
           value={data.start}
-          disabled={busy}
-          onChange={(e) => e.target.value && void set({ start: e.target.value })}
+          onCommit={(start) => void set({ start })}
         />
-        <input
-          type="time"
-          className="form-control"
-          aria-label="Peak ends"
-          value={data.end}
-          disabled={busy}
-          onChange={(e) => e.target.value && void set({ end: e.target.value })}
-        />
+        <TimeField label="Peak ends" value={data.end} onCommit={(end) => void set({ end })} />
         <ZoneHint />
       </RuleRow>
       <fieldset className="notify-categories" disabled={busy}>
@@ -129,6 +162,7 @@ export default function PeakSection() {
       >
         <select
           className="form-control"
+          id="peak-lead-min"
           aria-label="Start banking"
           value={data.lead_min}
           disabled={busy}
@@ -148,6 +182,7 @@ export default function PeakSection() {
       >
         <select
           className="form-control"
+          id="peak-depth-min"
           aria-label="How far to bank"
           value={shown}
           disabled={busy}

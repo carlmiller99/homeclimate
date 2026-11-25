@@ -21,6 +21,7 @@ BANKING = datetime(2026, 7, 6, 13, 0, tzinfo=UTC)  # Monday, an hour before a 14
 
 
 async def _setup(monkeypatch, *, temp=75.5, outside=95.0, **settings):
+    """One banded room; the engine counts as short of its minimum runtime unless told."""
     monkeypatch.setattr(tz, "get_timezone", lambda: UTC)
     conn = await _conn()
     room = Room.create(name="Bunk Room", thermostat_entity_id=THERMO_ID)
@@ -30,6 +31,7 @@ async def _setup(monkeypatch, *, temp=75.5, outside=95.0, **settings):
     temps = {"now": temp}
     engine._get_avg_temp = lambda _room, **_k: temps["now"]
     engine._read_outside_temp = AsyncMock(return_value=outside)
+    engine._cycle_runtime_satisfied = lambda _tc, now=None: False
     band = [ActiveRoom(room=room, target_temp=68.0, source="house", heat_to=68.0, cool_to=76.0)]
     return conn, engine, room, band, temps
 
@@ -145,6 +147,13 @@ async def test_a_run_begun_for_banking_is_not_cut_short_when_the_peak_begins(mon
         (68.0, "house"),
         (74.0, "bank"),
     ]
+    # Once the run has had its minimum runtime, banking is not carried on at
+    # peak prices: the room goes back to its band and the run ends by itself.
+    engine._cycle_runtime_satisfied = lambda _tc, now=None: True
+    assert await engine._bank(conn, band, now=peak_now) == band
+    assert engine._bank_latch == {}
+    engine._cycle_runtime_satisfied = lambda _tc, now=None: False
+    engine._bank_latch = {room.id: 74.0}
     # A hold takes the room over; a room no longer asked for anything leaves the run.
     hold = [ActiveRoom(room=room, target_temp=72.0, source="override")]
     assert await engine._bank(conn, hold, now=peak_now) == hold

@@ -9,7 +9,7 @@ anything has to run.
 The rules, all here:
 
 * never past the band: the banked target is a set depth inside the band's
-  near edge, and never beyond the far edge less a degree;
+  near edge, and never closer to the far edge than a degree and the deadband;
 * only rooms following a band (the house band, or a banded schedule or
   occupancy target). A hold is left alone, and so is a single target;
 * the direction comes from the forecast for the peak hours (the outside
@@ -23,6 +23,7 @@ wall clock; temperatures are °F.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta
 from typing import Any
@@ -39,7 +40,8 @@ MIN_DEPTH_F = 1.0
 MAX_DEPTH_F = 5.0
 MIN_LEAD_MIN = 30
 MAX_LEAD_MIN = 180
-FAR_EDGE_MARGIN_F = 1.0  # how close to the band's far edge banking may go
+FAR_EDGE_MARGIN_F = 1.0  # how close to the band's far edge banking may go, plus the deadband
+_TIME = re.compile(r"([01]\d|2[0-3]):[0-5]\d")
 
 
 class PeakError(UserError):
@@ -75,12 +77,9 @@ class Settings:
 
 
 def _time(value: Any) -> time | None:
-    if not isinstance(value, str) or len(value) != 5 or value[2] != ":":
+    if not isinstance(value, str) or not _TIME.fullmatch(value):
         return None
-    try:
-        return time(int(value[:2]), int(value[3:]))
-    except ValueError:
-        return None
+    return time(int(value[:2]), int(value[3:]))
 
 
 def _checked(body: dict[str, Any], current: Settings) -> Settings:
@@ -194,8 +193,18 @@ def direction(
     return None
 
 
-def banked_target(way: str, heat_to: float, cool_to: float, depth: float) -> float:
-    """Where a banded room is worked to before the peak: inside the band, always."""
+def banked_target(
+    way: str, heat_to: float, cool_to: float, depth: float, deadband: float = 0.0
+) -> float:
+    """Where a banded room is worked to before the peak: inside the band, always.
+
+    Kept a degree and the room's deadband short of the band's far edge, so a
+    run that carries a little past its target does not set off the other
+    equipment; in a band too narrow for that, the middle of it.
+    """
+    margin = FAR_EDGE_MARGIN_F + deadband
     if way == "cooling":
-        return max(cool_to - depth, heat_to + FAR_EDGE_MARGIN_F)
-    return min(heat_to + depth, cool_to - FAR_EDGE_MARGIN_F)
+        target = max(cool_to - depth, heat_to + margin)
+    else:
+        target = min(heat_to + depth, cool_to - margin)
+    return target if heat_to <= target <= cool_to else (heat_to + cool_to) / 2

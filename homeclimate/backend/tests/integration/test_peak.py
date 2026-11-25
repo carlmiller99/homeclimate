@@ -56,9 +56,14 @@ async def test_the_direction_comes_from_the_forecast_for_the_peak_hours():
 async def test_the_banked_target_is_always_inside_the_band():
     assert peak.banked_target("cooling", 68.0, 76.0, 2.0) == 74.0
     assert peak.banked_target("heating", 68.0, 76.0, 2.0) == 70.0
-    # A narrow band: never closer than a degree to its far edge.
+    # A narrow band: never closer to its far edge than a degree and the deadband.
     assert peak.banked_target("cooling", 70.0, 73.0, 5.0) == 71.0
     assert peak.banked_target("heating", 70.0, 73.0, 5.0) == 72.0
+    assert peak.banked_target("cooling", 70.0, 73.0, 5.0, 0.5) == 71.5
+    assert peak.banked_target("heating", 70.0, 73.0, 5.0, 0.5) == 71.5
+    # Too narrow even for that: the middle of it.
+    assert peak.banked_target("cooling", 70.0, 70.5, 2.0) == 70.25
+    assert peak.banked_target("heating", 70.0, 72.0, 2.0, 1.5) == 71.0
 
 
 async def test_the_settings_are_read_changed_and_checked(client):
@@ -94,6 +99,10 @@ async def test_the_settings_are_read_changed_and_checked(client):
         ({"enabled": "yes"}, peak.BAD_ENABLED),
         ({"start": "3pm"}, peak.BAD_TIME),
         ({"start": "25:00"}, peak.BAD_TIME),
+        ({"start": "+1:00"}, peak.BAD_TIME),
+        ({"start": " 1:00"}, peak.BAD_TIME),
+        ({"start": "１５:00"}, peak.BAD_TIME),
+        ({"end": "12:60"}, peak.BAD_TIME),
         ({"end": "15:00"}, peak.BAD_TIME),  # the same as the start
         ({"end": 1500}, peak.BAD_TIME),
         ({"days": []}, peak.BAD_DAYS),
@@ -131,3 +140,109 @@ async def test_no_days_at_all_or_a_damaged_setting_fall_back_safely(client):
     for raw in ("not json", '{"start": "soon"}', "[1]"):
         await db.set_system_setting(conn, peak.SETTING_KEY, raw)
         assert await peak.load(conn) == peak.Settings()
+
+
+T = "climate.peak_zone"
+
+
+async def _peak_site(client, fake_ha, monkeypatch, rooms, ambient=75.0):
+    """A zone of rooms with sensors and vents, a 68–76 house band, and banking due now."""
+    from backend import house
+
+    fake_ha.seed_state(
+        T,
+        "heat_cool",
+        {"current_temperature": ambient, "temperature": ambient, "hvac_action": "idle"},
+    )
+    ids = {}
+    for name, temp in rooms.items():
+        fake_ha.seed_state(f"sensor.peak_{name}", str(temp), {"unit_of_measurement": "°F"})
+        fake_ha.seed_state(f"cover.peak_{name}", "open", {})
+        resp = await client.post("/api/rooms", json={"name": name, "thermostat_entity_id": T})
+        ids[name] = (await resp.json())["id"]
+        await client.post(
+            f"/api/rooms/{ids[name]}/sensors", json={"entity_id": f"sensor.peak_{name}"}
+        )
+        await client.post(
+            f"/api/rooms/{ids[name]}/vents",
+            json={"entity_id": f"cover.peak_{name}", "control_method": "open_close"},
+        )
+    await client.put(f"/api/thermostats/{T}", json={"min_cycle_runtime_min": 15})
+    conn = await client.app["scheduler"].get_db()
+    await house.set_band(conn, 68.0, 76.0)
+    now = tz.to_local(datetime.now(UTC))
+    start = now + timedelta(minutes=30)
+    resp = await client.put(
+        "/api/peak-hours",
+        json={
+            "enabled": True,
+            "start": start.strftime("%H:%M"),
+            "end": (start + timedelta(hours=3)).strftime("%H:%M"),
+            "days": list(range(7)),
+            "lead_min": 60,
+        },
+    )
+    assert resp.status == 200, await resp.text()
+    # The engine exists before the first tick, so the outside reading can be set first.
+    await client.app["scheduler"]._sync_engines()
+    return ids, _hot(client, monkeypatch)
+
+
+def _hot(client, monkeypatch):
+    from unittest.mock import AsyncMock
+
+    engine = client.app["scheduler"]._engines[T]
+    monkeypatch.setattr(engine, "_read_outside_temp", AsyncMock(return_value=95.0))
+    return engine
+
+
+async def test_a_real_banking_run_cools_into_the_band_and_ends_by_itself(
+    client, fake_ha, tick, monkeypatch
+):
+    ids, eng = await _peak_site(client, fake_ha, monkeypatch, {"den": 75.5})
+    await tick()
+    await tick()
+    assert eng.cycle_state.value == "running" and eng.cycle_mode == "cooling"
+    assert [(ar.source, ar.target_temp) for ar in eng._active_rooms.values()] == [("bank", 74.0)]
+    assert eng.bank_rooms == [ids["den"]]
+    # It arrives: held for its minimum runtime, then ends as any run does.
+    await fake_ha.set_entity_state("sensor.peak_den", "73.9", {"unit_of_measurement": "°F"})
+    await tick()
+    assert eng._cycle_log.in_min_runtime_hold is True
+    eng._cycle_log.started_at -= timedelta(minutes=16)
+    await tick()
+    await tick()
+    assert eng.cycle_state.value == "idle" and eng.bank_rooms == []
+    conn = await client.app["scheduler"].get_db()
+    async with conn.execute(
+        "SELECT ended_reason FROM cycle_logs WHERE thermostat_entity_id = ?", (T,)
+    ) as cur:
+        reasons = [r["ended_reason"] for r in await cur.fetchall()]
+    assert len(reasons) == 1 and not str(reasons[0]).startswith("aborted")
+
+
+async def test_banking_never_outvotes_a_room_past_a_safety_limit(
+    client, fake_ha, tick, monkeypatch
+):
+    """Two rooms would be cooled for the peak; a third is too cold. The zone must heat."""
+    ids, eng = await _peak_site(
+        client, fake_ha, monkeypatch, {"cold": 57.0, "one": 75.5, "two": 75.5}, ambient=60.5
+    )
+    await client.put(f"/api/house/rooms/{ids['cold']}", json={"in_use": False})
+    await tick()
+    await tick()
+    assert eng.cycle_mode == "heating"
+    assert {ar.source for ar in eng._active_rooms.values()} == {"safety"}
+
+
+async def test_banking_never_outvotes_a_hold(client, fake_ha, tick, monkeypatch):
+    ids, eng = await _peak_site(
+        client, fake_ha, monkeypatch, {"held": 70.0, "one": 75.5, "two": 75.5}, ambient=73.0
+    )
+    await client.post(
+        f"/api/rooms/{ids['held']}/override", json={"target_temp": 73, "duration_hours": 2}
+    )
+    await tick()
+    await tick()
+    assert eng.cycle_mode == "heating"
+    assert [ar.source for ar in eng._active_rooms.values()] == ["override"]

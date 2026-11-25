@@ -165,7 +165,7 @@ class CycleState(Enum):
 
 # Room sources added by a convenience rather than asked for by the house: they
 # never outvote the others when the zone chooses between heating and cooling.
-OPTIONAL_SOURCES = frozenset({"balance"})
+OPTIONAL_SOURCES = frozenset({"balance", "bank"})
 
 
 def _block_start(now: datetime, secs: int) -> datetime:
@@ -2981,7 +2981,7 @@ class CycleEngine:
 
         needs_cool = 0
         needs_heat = 0
-        # Rooms asked for by a convenience (Zone Balance) count only when no
+        # Rooms asked for by a convenience (Zone Balance, Peak Hours) count only when no
         # other room has a say: they must never outvote a safety room, a hold
         # or a schedule and send the zone the other way.
         optional_cool = 0
@@ -3013,8 +3013,10 @@ class CycleEngine:
                 needs_cool += 1
             elif vote == "heat":
                 needs_heat += 1
+        with_a_say = [ar for ar in active_rooms.values() if ar.source not in OPTIONAL_SOURCES]
         if needs_cool == 0 and needs_heat == 0:
             needs_cool, needs_heat = optional_cool, optional_heat
+            with_a_say = list(active_rooms.values())
 
         if only is not None:
             return only if (needs_heat if only == "heating" else needs_cool) > 0 else "off"
@@ -3033,8 +3035,8 @@ class CycleEngine:
         # "heating" but the thermostat itself is already warmer than every room
         # target) means sensors are stale, offset-skewed, or in a microclimate.
         # Override the vote and warn so the operator can investigate.
-        if thermo_ambient is not None and active_rooms:
-            all_targets = [ar.target_temp for ar in active_rooms.values()]
+        if thermo_ambient is not None and with_a_say:
+            all_targets = [ar.target_temp for ar in with_a_say]
             if inferred == "heating" and thermo_ambient > max(all_targets) + deadband:
                 corrected = "cooling"
             elif inferred == "cooling" and thermo_ambient < min(all_targets) - deadband:
@@ -6700,6 +6702,12 @@ class CycleEngine:
             }
         win = peak.window(settings, now) if settings.enabled else None
         banking = win is not None and win.banking(now)
+        tc = await self._load_tc(conn)
+        if held and not banking and self._cycle_runtime_satisfied(tc):
+            # The peak has begun (or banking was switched off) and the run has
+            # had its minimum: banking is not worth peak-priced energy. The
+            # rooms go back to their bands and the run ends by the usual rules.
+            held = {}
         if not banking and not held:
             self._bank_latch = {}
             return active
@@ -6714,7 +6722,6 @@ class CycleEngine:
         side, obey = (
             self._get_building_side() if self._get_building_side is not None else (None, False)
         )
-        tc = await self._load_tc(conn)
         out = list(active)
         latched: dict[str, float] = {}
         for ar in active:
@@ -6733,18 +6740,28 @@ class CycleEngine:
                     or (way == "heating" and self._hp_strips)
                 ):
                     continue
-                target = peak.banked_target(way, ar.heat_to, ar.cool_to, settings.peak_depth)
+                deadband = _effective_deadband(room, tc.deadband, ar.deadband_override)
+                target = peak.banked_target(
+                    way, ar.heat_to, ar.cool_to, settings.peak_depth, deadband
+                )
                 target = min(max(target, tc.min_setpoint), tc.max_setpoint)
                 avg = self._get_avg_temp(room)
                 if avg is None:
                     continue
                 temp = avg + room.temp_offset
                 short = target - temp if way == "heating" else temp - target
-                if short <= _effective_deadband(room, tc.deadband, ar.deadband_override):
+                if short <= deadband:
                     continue
             latched[room.id] = target
             out = [a for a in out if a.room.id != room.id]
-            out.append(ActiveRoom(room=room, target_temp=target, source="bank"))
+            out.append(
+                ActiveRoom(
+                    room=room,
+                    target_temp=target,
+                    source="bank",
+                    deadband_override=ar.deadband_override,
+                )
+            )
         self._bank_latch = latched
         return out
 

@@ -51,16 +51,26 @@ describe("Peak Hours", () => {
     const start = await screen.findByLabelText("Peak starts");
     expect(start).toHaveValue("14:00");
     expect(screen.getByRole("status")).toHaveTextContent(/^Next peak .*; banking starts /);
+    // Typing does not save; leaving the field does.
+    fireEvent.change(start, { target: { value: "01:00" } });
     fireEvent.change(start, { target: { value: "15:00" } });
+    expect(pa.updatePeakHours).not.toHaveBeenCalled();
+    fireEvent.blur(start);
     await waitFor(() => expect(pa.updatePeakHours).toHaveBeenLastCalledWith({ start: "15:00" }));
-    await waitFor(() => expect(screen.getByLabelText("Peak ends")).toBeEnabled());
-    fireEvent.change(screen.getByLabelText("Peak ends"), { target: { value: "20:00" } });
+    await waitFor(() => expect(screen.getByLabelText("Peak starts")).toHaveValue("15:00"));
+    const end = screen.getByLabelText("Peak ends");
+    fireEvent.change(end, { target: { value: "20:00" } });
+    fireEvent.keyDown(end, { key: "a" });
+    expect(pa.updatePeakHours).toHaveBeenCalledTimes(1);
+    fireEvent.keyDown(end, { key: "Enter" });
     await waitFor(() => expect(pa.updatePeakHours).toHaveBeenLastCalledWith({ end: "20:00" }));
-    // A cleared time is not sent.
-    await waitFor(() => expect(screen.getByLabelText("Peak ends")).toBeEnabled());
+    // A cleared time, or one left as it was, is not sent.
+    await waitFor(() => expect(screen.getByLabelText("Peak ends")).toHaveValue("20:00"));
     fireEvent.change(screen.getByLabelText("Peak ends"), { target: { value: "" } });
-    fireEvent.change(screen.getByLabelText("Peak starts"), { target: { value: "" } });
+    fireEvent.blur(screen.getByLabelText("Peak ends"));
+    fireEvent.blur(screen.getByLabelText("Peak starts"));
     expect(pa.updatePeakHours).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(screen.getByRole("checkbox", { name: "Sat" })).toBeEnabled());
     fireEvent.click(screen.getByRole("checkbox", { name: "Sat" }));
     await waitFor(() =>
       expect(pa.updatePeakHours).toHaveBeenLastCalledWith({ days: [0, 1, 2, 3, 4, 5] })
@@ -115,9 +125,11 @@ describe("Peak Hours", () => {
     await screen.findByLabelText("Peak starts");
     vi.mocked(pa.updatePeakHours).mockRejectedValueOnce(new Error("Times must differ"));
     fireEvent.change(screen.getByLabelText("Peak starts"), { target: { value: "19:00" } });
+    fireEvent.blur(screen.getByLabelText("Peak starts"));
     expect(await screen.findByText("Times must differ")).toBeInTheDocument();
     vi.mocked(pa.updatePeakHours).mockRejectedValueOnce("x");
     fireEvent.change(screen.getByLabelText("Peak starts"), { target: { value: "18:00" } });
+    fireEvent.blur(screen.getByLabelText("Peak starts"));
     expect(await screen.findByText("Could not save")).toBeInTheDocument();
     first.unmount();
     vi.mocked(pa.getPeakHours).mockRejectedValue(new Error("down"));
