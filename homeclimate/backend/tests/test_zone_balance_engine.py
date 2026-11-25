@@ -310,19 +310,49 @@ async def test_before_a_cycle_is_chosen_balancing_rooms_give_way_to_any_room_tha
     # And a run still working for a room with a say of its own is left alone...
     temps[other.id] = 80.0
     running = asked(hold)
+    # (`other` is in the heating run with a target of 70 °F, and now reads 80:
+    # it wants cooling as a hold, and is long done as far as this run goes.)
     served = ActiveRoom(room=other, target_temp=70.0, source="schedule")
     engine._active_rooms[other.id] = served
-    engine._room_cycle_states = {other.id: SimpleNamespace(vent_closed_at=None)}
-    engine._optional_rooms_yield(running, tc)
-    assert running[room.id].source == "balance"
+
+    def state(closed, target=70.0):
+        return {other.id: SimpleNamespace(vent_closed_at=closed, target_temp=target)}
+
+    # Not yet started for that room, or still short of its target: left alone.
     engine._room_cycle_states = {}
     engine._optional_rooms_yield(running, tc)
     assert running[room.id].source == "balance"
-    # ...but not once that room has reached its target and only the balancing
-    # rooms keep the run going.
-    engine._room_cycle_states = {other.id: SimpleNamespace(vent_closed_at=NOW)}
+    engine._room_cycle_states = state(None, target=85.0)
+    engine._optional_rooms_yield(running, tc)
+    assert running[room.id].source == "balance"
+    # ...but not once that room is done and only the balancing rooms keep the
+    # run going: at its target with its vent held open by the airflow floor,
+    running = asked(hold)
+    engine._room_cycle_states = state(None)
     engine._optional_rooms_yield(running, tc)
     assert running[room.id] is was
+    # with its vent closed,
+    running = asked(hold)
+    engine._room_cycle_states = state(NOW)
+    engine._optional_rooms_yield(running, tc)
+    assert running[room.id] is was
+    # or with no reading to hold the run open at all.
+    temps[other.id] = None
+    engine._thermo_ambient_f = lambda: 80.0
+    running = asked(hold)
+    engine._optional_rooms_yield(running, tc)
+    assert running[room.id] is was
+    del engine._thermo_ambient_f
+    # A served room that has drifted back past its deadband still needs the run.
+    temps[other.id] = 80.0
+    third_hold = ActiveRoom(room=third, target_temp=60.0, source="override")
+    engine._active_rooms = {room.id: asked()[room.id], other.id: served}
+    engine._room_cycle_states = state(NOW, target=85.0)
+    running = asked(third_hold)
+    del running[third.id]
+    running[third.id] = third_hold
+    engine._optional_rooms_yield(running, tc)
+    assert running[room.id].source == "balance"
     engine._state, engine._active_rooms, engine._room_cycle_states = CycleState.IDLE, {}, {}
     # With no reading: a house band room asks for nothing; another goes by the
     # thermostat's reading (64 °F here, so a hold at 74 calls and one at 64 does

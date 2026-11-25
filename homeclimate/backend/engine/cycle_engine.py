@@ -6534,6 +6534,27 @@ class CycleEngine:
         self._early_latch = latched
         return out
 
+    def _done_in_this_run(self, ar: ActiveRoom, tc: ThermostatConfig) -> bool:
+        """Whether the running cycle has nothing more to do for this room.
+
+        The same judgement ``_monitor_rooms`` makes: a room with no reading
+        cannot hold a run open; one whose vent has closed is done unless it
+        has drifted back past its deadband; one whose vent is still open (the
+        airflow floor may be keeping it so) is done once it is at its target.
+        """
+        state = self._room_cycle_states.get(ar.room.id)
+        if state is None:
+            return False
+        avg = self._get_avg_temp(ar.room, refresh=False)
+        if avg is None:
+            return True
+        temp = avg + ar.room.temp_offset
+        mode = self._cycle_mode or ""
+        if state.vent_closed_at is not None:
+            band = _effective_deadband(ar.room, tc.deadband, ar.deadband_override)
+            return not _drifted_past_deadband(temp, state.target_temp, mode, band)
+        return mode in ("heating", "cooling") and _is_at_target(temp, state.target_temp, mode)
+
     def _optional_rooms_yield(self, active: dict[str, ActiveRoom], tc: ThermostatConfig) -> None:
         """Rooms added by a convenience give way to any room that calls for itself.
 
@@ -6581,12 +6602,8 @@ class CycleEngine:
             give_way = (
                 bool(calling - {self._cycle_mode})
                 and all(
-                    ar.source in OPTIONAL_SOURCES
-                    or (
-                        (state := self._room_cycle_states.get(rid)) is not None
-                        and state.vent_closed_at is not None
-                    )
-                    for rid, ar in self._active_rooms.items()
+                    ar.source in OPTIONAL_SOURCES or self._done_in_this_run(ar, tc)
+                    for ar in self._active_rooms.values()
                 )
                 and self._cycle_runtime_satisfied(tc)
             )
