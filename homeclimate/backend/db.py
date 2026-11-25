@@ -341,6 +341,23 @@ CREATE TABLE IF NOT EXISTS forecast_snapshots (
     PRIMARY KEY (issued, at)
 ) WITHOUT ROWID;
 
+-- How each room warms and cools (backend/room_model.py): one row per room,
+-- replaced by the nightly fit. Rates are °F per hour; fitted_at is Unix seconds.
+CREATE TABLE IF NOT EXISTS room_models (
+    room_id TEXT PRIMARY KEY,
+    fitted_at INTEGER,
+    windows INTEGER NOT NULL,
+    loss REAL NOT NULL,
+    pull REAL NOT NULL,
+    heat REAL NOT NULL,
+    cool REAL NOT NULL,
+    drift REAL NOT NULL,
+    heat_hours REAL NOT NULL,
+    cool_hours REAL NOT NULL,
+    out_spread REAL NOT NULL,
+    rmse REAL
+);
+
 -- How far the forecast is usually off, as a running average for each hour of
 -- the day in the house's time zone (backend/forecast_bias.py). °F.
 CREATE TABLE IF NOT EXISTS forecast_bias (

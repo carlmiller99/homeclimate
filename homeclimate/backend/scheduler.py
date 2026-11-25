@@ -30,6 +30,7 @@ from . import (
     house,
     learning,
     openings,
+    room_model,
     shades,
     tz,
     zones,
@@ -294,6 +295,17 @@ class Scheduler:
         )
         # Daily metrics rollup at 00:05 local — recomputes yesterday + today so
         # cycles that crossed midnight or arrived late are picked up. (#85 1d)
+        # Smart Learning: fit each room's model from its readings, at 3:20 AM
+        # house time. Read-only: nothing is commanded from it.
+        self._apscheduler.add_job(
+            self.fit_room_models,
+            "cron",
+            hour=3,
+            minute=20,
+            id="room_model_fit",
+            max_instances=1,
+            coalesce=True,
+        )
         self._apscheduler.add_job(
             self._rollup_daily_metrics_job,
             "cron",
@@ -1598,6 +1610,23 @@ class Scheduler:
             await learning.purge(self._db_conn, now=now, keep_days=keep)
         except Exception:
             log.exception("Could not clear old Smart Learning readings")
+
+    async def fit_room_models(self) -> int:
+        """Fit every room's model; never raises. Returns how many rooms were fitted."""
+        try:
+            models = await room_model.fit_all(self._db_conn, now=datetime.now(UTC))
+        except Exception:
+            log.exception("Could not fit the room models")
+            return 0
+        fitted = sum(1 for m in models if m.fitted_at is not None)
+        if self._event_logger is not None:
+            await self._event_logger.log(
+                "info",
+                "engine",
+                f"Smart Learning fitted {fitted} of {len(models)} rooms",
+                {"rooms": len(models), "fitted": fitted},
+            )
+        return fitted
 
     async def _run_shades(self) -> None:
         """Move shades for the sun, after the engines have settled their modes."""

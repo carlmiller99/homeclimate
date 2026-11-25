@@ -1,13 +1,33 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as la from "../learningApi";
+import { buildUnitContext } from "../contexts";
 import LearningSection from "./LearningSection";
 
 vi.mock("../learningApi", async (orig) => ({
   ...(await orig<typeof import("../learningApi")>()),
   getLearning: vi.fn(),
   updateLearningSettings: vi.fn(),
+  fitLearning: vi.fn(),
 }));
+
+const MODEL: la.RoomModel = {
+  room_id: "r1",
+  fitted_at: "2026-01-13T09:20:00+00:00",
+  windows: 500,
+  hours: 250,
+  loss: 0.05,
+  pull: 0.2,
+  heat: 3.6,
+  cool: -2.7,
+  drift: 0.3,
+  heat_hours: 40,
+  cool_hours: 0,
+  out_spread: 30,
+  rmse: 0.2,
+  learned: { loss: true, pull: true, heat: true, cool: false },
+  grade: "ready",
+};
 
 const ROOM: la.LearningRoom = {
   room_id: "r1",
@@ -18,6 +38,7 @@ const ROOM: la.LearningRoom = {
   with_temperature_pct: 97,
   first_sample_at: "2026-01-01T00:00:00+00:00",
   last_sample_at: "2026-01-13T12:00:00+00:00",
+  model: null,
 };
 
 function data(over: Partial<la.Learning> = {}): la.Learning {
@@ -72,7 +93,9 @@ describe("Smart Learning section", () => {
     expect(screen.getByText(/How much each room has recorded so far/)).toBeInTheDocument();
     expect(screen.getByText(/Last reading/)).toBeInTheDocument();
 
-    const rows = screen.getAllByRole("listitem");
+    // Each room appears twice: what it has recorded, then what that has taught.
+    const rows = screen.getAllByRole("listitem").slice(0, 3);
+    expect(screen.getAllByRole("listitem")).toHaveLength(6);
     expect(rows).toHaveLength(3);
     expect(within(rows[0]).getByText("12.5 days")).toBeInTheDocument();
     expect(within(rows[0]).queryByText(/No room temperature/)).toBeNull();
@@ -202,6 +225,67 @@ describe("Smart Learning section", () => {
     render(<LearningSection />);
     await screen.findByText(/How much each room/);
     expect(screen.queryByText(/Last reading/)).toBeNull();
+  });
+
+  it("shows what each room has taught, and works it out on request", async () => {
+    vi.mocked(la.getLearning).mockResolvedValue(
+      data({
+        rooms: [
+          { ...ROOM, model: MODEL },
+          { ...ROOM, room_id: "r2", name: "Craft Room" },
+        ],
+      })
+    );
+    vi.mocked(la.fitLearning).mockResolvedValue(
+      data({
+        rooms: [
+          { ...ROOM, model: MODEL },
+          {
+            ...ROOM,
+            room_id: "r2",
+            name: "Craft Room",
+            model: { ...MODEL, room_id: "r2", grade: "learning" },
+          },
+        ],
+      })
+    );
+    render(<LearningSection />);
+    const bunk = await screen.findByRole("listitem", { name: "Bunk Room model" });
+    expect(bunk).toHaveTextContent("Ready");
+    expect(bunk).toHaveTextContent(
+      "Heats about 3.6°F an hour. Cooling rate not learned yet (needs about 3 hours of cooling). Drifts about 0.5°F an hour toward outside for every 10°F of difference."
+    );
+    const craft = screen.getByRole("listitem", { name: "Craft Room model" });
+    expect(craft).toHaveTextContent("Not worked out yet.");
+    fireEvent.click(screen.getByRole("button", { name: "Work It Out Now" }));
+    expect(screen.getByRole("button", { name: "Working It Out…" })).toBeDisabled();
+    await waitFor(() => expect(craft).toHaveTextContent("Learning"));
+    vi.mocked(la.fitLearning).mockRejectedValueOnce(new Error("Busy"));
+    fireEvent.click(screen.getByRole("button", { name: "Work It Out Now" }));
+    expect(await screen.findByText("Busy")).toBeInTheDocument();
+    vi.mocked(la.fitLearning).mockRejectedValueOnce("x");
+    fireEvent.click(screen.getByRole("button", { name: "Work It Out Now" }));
+    expect(await screen.findByText("Could not work it out")).toBeInTheDocument();
+  });
+
+  it("describes a model in the house's unit, as differences", () => {
+    const c = buildUnitContext("C");
+    // 3.6 °F an hour is 2.0 °C an hour: a rate is a difference, with no 32° offset.
+    expect(la.describeModel(MODEL, c.toDisplayDelta, c.unitLabel)).toEqual([
+      "Heats about 2.0°C an hour",
+      "Cooling rate not learned yet (needs about 3 hours of cooling)",
+      "Drifts about 0.3°C an hour toward outside for every 6°C of difference",
+    ]);
+    const f = buildUnitContext("F");
+    const all = { ...MODEL, learned: { loss: false, pull: true, heat: false, cool: true } };
+    expect(la.describeModel(all, f.toDisplayDelta, f.unitLabel)).toEqual([
+      "Heating rate not learned yet (needs about 3 hours of heating)",
+      "Cools about 2.7°F an hour",
+      "Heat loss not learned yet (needs more varied weather)",
+    ]);
+    expect(la.describeModel({ ...MODEL, grade: "none" }, f.toDisplayDelta, f.unitLabel)).toEqual([
+      "Needs about a day of readings with nothing open and no fire lit.",
+    ]);
   });
 
   it("says so when it cannot load", async () => {

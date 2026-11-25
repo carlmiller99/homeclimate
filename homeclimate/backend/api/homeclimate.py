@@ -23,6 +23,7 @@ from .. import (
     house,
     learning,
     openings,
+    room_model,
     shades,
     tz,
     zones,
@@ -407,10 +408,15 @@ async def update_shade_settings(request: web.Request) -> web.Response:
 
 async def _learning_snapshot(request: web.Request) -> dict:
     conn = await get_conn(request)
-    return {
+    snap = {
         "settings": await learning.get_settings(conn),
         **await learning.status(conn, now=datetime.now(tz.UTC)),
     }
+    models = await room_model.load(conn)
+    for room in snap["rooms"]:
+        found = models.get(room["room_id"])
+        room["model"] = room_model.describe(found) if found is not None else None
+    return snap
 
 
 @docs(tags=["learning"], summary="Smart Learning settings and how much each room has collected")
@@ -432,6 +438,14 @@ async def update_learning_settings(request: web.Request) -> web.Response:
     except UserError as exc:
         return error(safe_text(exc))
     await emit(request, "info", "api", "Smart Learning settings updated", body)
+    return json_response(await _learning_snapshot(request))
+
+
+@docs(tags=["learning"], summary="Fit every room's model now, instead of waiting for tonight")
+@response_schema(schemas.LearningSchema)
+@routes.post("/api/learning/fit")
+async def fit_learning(request: web.Request) -> web.Response:
+    await request.app["scheduler"].fit_room_models()
     return json_response(await _learning_snapshot(request))
 
 

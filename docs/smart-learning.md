@@ -37,3 +37,33 @@ The section lists each room with how many days of readings it has and when the l
 - `PUT /api/learning/settings` changes `sampling_enabled` and `sample_retention_days`.
 
 Both are also MCP tools. Readings live in the `room_readings` table, with `room_reading_keys` holding the names.
+
+## What each room has taught
+
+Each night at 3:20 AM (house time) HomeClimate fits a small model to each room's last 30 days of readings. **Work It Out Now** in the section does the same on request. Nothing is controlled from it yet; coasting, start times and suggestions will read it.
+
+The readings are grouped into half-hours, and for each one the model explains how fast the room's temperature moved:
+
+| Term | What it is | Starting value |
+| --- | --- | --- |
+| Heat loss | Drift toward the outside temperature, per degree of difference | 1 °F an hour per 30 °F |
+| Zone pull | Drift toward the thermostat's reading, from air mixing with the rest of the zone | 0.1 °F an hour per °F |
+| Heating rate | How fast the room warms while the zone heats, scaled by how far its vent is open | 3 °F an hour |
+| Cooling rate | The same for cooling | 3 °F an hour |
+| Everything else | People, appliances, sun | 0 |
+
+A term the readings can't speak to keeps its starting value and is shown as not learned yet: the heating rate needs about 3 hours of heating in the period, the cooling rate 3 hours of cooling, and heat loss needs the difference between inside and outside to have varied by at least 5 °F. A fitted value that makes no physical sense (heating that cools, walls that gain heat from the cold) is discarded for the starting value.
+
+Half-hours are left out when a door or window was open, a fireplace was lit or cooling down, auxiliary heat ran, a reading was missing, or the temperature jumped more than 12 °F an hour (a sensor glitch).
+
+**Grades**: *Not enough yet* (under a day of usable half-hours), *Learning*, and *Ready* (six days of usable half-hours with heat loss learned).
+
+Sun through windows is not modelled yet; it is part of "everything else".
+
+The fit takes well under a second per room, and stores one row per room (`room_models`).
+
+### API
+
+- `GET /api/learning` includes each room's `model` (or null before the first fit).
+- `POST /api/learning/fit` fits every room now.
+

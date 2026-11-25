@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.8
+
+- Smart Learning now works out, each night, how fast each room heats, cools and drifts toward the outside temperature, from its recorded readings. Smart Control → Smart Learning shows what each room has taught and how ready it is. Nothing is controlled from it yet. See docs/smart-learning.md.
+
 ## 0.5.7
 
 - Smart Control → Forecasts now shows how far off the forecast has been against your outside sensor, and after two days of comparisons corrects it for each hour of the day. On by default; **Correct the Forecast From Experience** turns it off. See docs/forecasts.md.

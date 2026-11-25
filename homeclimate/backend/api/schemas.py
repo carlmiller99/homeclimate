@@ -1050,6 +1050,31 @@ class LearningSettingsSchema(Schema):
     sample_retention_days = fields.Int()
 
 
+class RoomModelLearnedSchema(Schema):
+    loss = fields.Bool()
+    pull = fields.Bool()
+    heat = fields.Bool()
+    cool = fields.Bool()
+
+
+class RoomModelSchema(Schema):
+    room_id = fields.Str()
+    fitted_at = fields.Str(allow_none=True)
+    windows = fields.Int(metadata={"description": "Usable half-hours the fit used"})
+    hours = fields.Float()
+    loss = fields.Float(metadata={"description": "°F per hour, per °F of outside difference"})
+    pull = fields.Float(metadata={"description": "°F per hour, per °F from the zone"})
+    heat = fields.Float(metadata={"description": "°F per hour while heating, vent open"})
+    cool = fields.Float(metadata={"description": "°F per hour while cooling (negative)"})
+    drift = fields.Float(metadata={"description": "°F per hour from everything else"})
+    heat_hours = fields.Float()
+    cool_hours = fields.Float()
+    out_spread = fields.Float(metadata={"description": "°F delta"})
+    rmse = fields.Float(allow_none=True, metadata={"description": "°F per hour"})
+    learned = fields.Nested(RoomModelLearnedSchema)
+    grade = fields.Str(metadata={"description": "none, learning or ready"})
+
+
 class LearningRoomSchema(Schema):
     room_id = fields.Str()
     name = fields.Str()
@@ -1059,6 +1084,7 @@ class LearningRoomSchema(Schema):
     with_temperature_pct = fields.Int()
     first_sample_at = fields.Str(allow_none=True)
     last_sample_at = fields.Str(allow_none=True)
+    model = fields.Nested(RoomModelSchema, allow_none=True)
 
 
 class LearningSchema(Schema):

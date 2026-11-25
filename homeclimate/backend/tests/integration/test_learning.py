@@ -386,6 +386,7 @@ async def test_status_reports_progress_per_room(client, fake_ha, house):
         "with_temperature_pct": 0,
         "first_sample_at": None,
         "last_sample_at": None,
+        "model": None,
     }
 
     conn = await client.app["scheduler"].get_db()

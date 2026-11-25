@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getLearning, updateLearningSettings } from "./learningApi";
+import { fitLearning, getLearning, updateLearningSettings } from "./learningApi";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -13,9 +13,11 @@ describe("learningApi requests", () => {
     vi.stubGlobal("fetch", fetchMock);
     await getLearning();
     await updateLearningSettings({ sample_retention_days: 90 });
+    await fitLearning();
     expect(fetchMock.mock.calls.map(([u, i]) => [u, i?.method ?? "GET", i?.body])).toEqual([
       ["/api/learning", "GET", undefined],
       ["/api/learning/settings", "PUT", JSON.stringify({ sample_retention_days: 90 })],
+      ["/api/learning/fit", "POST", undefined],
     ]);
   });
 });

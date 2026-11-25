@@ -3,7 +3,11 @@ import { Frozen } from "../ci";
 import ConfirmDialog from "../components/ConfirmDialog";
 import Time from "../components/Time";
 import { RuleRow } from "../components/SmartControlControls";
+import { useUnit } from "../contexts";
 import {
+  describeModel,
+  fitLearning,
+  GRADE_LABELS,
   describeCollected,
   getLearning,
   RETENTION_MAX_DAYS,
@@ -98,6 +102,9 @@ export default function LearningSection() {
   const [saving, setSaving] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [shorten, setShorten] = useState<number | null>(null);
+  const [fitting, setFitting] = useState(false);
+  const [fitErr, setFitErr] = useState<string | null>(null);
+  const { toDisplayDelta, unitLabel } = useUnit();
 
   useEffect(() => {
     let cancelled = false;
@@ -129,6 +136,17 @@ export default function LearningSection() {
       setSaving(false);
     }
   };
+  const fit = async () => {
+    setFitErr(null);
+    setFitting(true);
+    try {
+      setData(await fitLearning());
+    } catch (e) {
+      setFitErr(e instanceof Error ? e.message : "Could not work it out");
+    } finally {
+      setFitting(false);
+    }
+  };
   const s = data.settings;
 
   return (
@@ -136,8 +154,9 @@ export default function LearningSection() {
       <section className="sc-section" id="smart-learning">
         <h2 className="sc-section-title">Smart Learning</h2>
         <p className="sc-section-lead">
-          HomeClimate records how each room heats and cools. Learning features will be built on
-          these readings; for now, recording does not change how your home is controlled.
+          HomeClimate records how each room heats and cools, and each night works out how fast each
+          room warms, cools and drifts. Learning features will be built on this; for now it does not
+          change how your home is controlled.
         </p>
         <RuleRow
           id="learning-sampling"
@@ -202,6 +221,49 @@ export default function LearningSection() {
           <ul className="learning-rooms">
             {data.rooms.map((r) => (
               <RoomRow key={r.room_id} room={r} />
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="sc-section" id="learning-models">
+        <div className="sc-section-head">
+          <h2 className="sc-section-title">What Each Room Has Taught</h2>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            disabled={fitting}
+            onClick={() => void fit()}
+          >
+            {fitting ? "Working It Out…" : "Work It Out Now"}
+          </button>
+        </div>
+        <p className="sc-section-lead">
+          Worked out each night at 3:20 AM from the last 30 days, leaving out any time a door or
+          window was open, a fire was lit or auxiliary heat ran. A room is Ready after about six
+          days of usable readings across a spread of weather.
+        </p>
+        {fitErr && <p className="form-error">{fitErr}</p>}
+        {data.rooms.length > 0 && (
+          <ul className="learning-rooms">
+            {data.rooms.map((r) => (
+              <li key={r.room_id} className="learning-room" aria-label={`${r.name} model`}>
+                <span className="sensor-title">{r.name}</span>
+                {r.model ? (
+                  <>
+                    <span
+                      className={`badge ${r.model.grade === "ready" ? "badge-green" : "badge-gray"}`}
+                    >
+                      {GRADE_LABELS[r.model.grade]}
+                    </span>
+                    <span className="shade-why">
+                      {describeModel(r.model, toDisplayDelta, unitLabel).join(". ")}.
+                    </span>
+                  </>
+                ) : (
+                  <span className="shade-why">Not worked out yet.</span>
+                )}
+              </li>
             ))}
           </ul>
         )}
