@@ -171,8 +171,9 @@ class ZoneNow:
     thermostat_entity_id: str
     running: str | None  # "heating" / "cooling" while a cycle runs
     wait: dict | None  # the engine's ``building_wait``
-    # The cycle only protects rooms past a safety limit. It says nothing about
-    # which side the building wants, so it never sets or switches the side.
+    # The cycle only protects rooms past a safety limit, or runs for nothing
+    # but convenience rooms (Zone Balance and the like). Either says nothing
+    # about which side the building wants, so it never sets or switches it.
     protecting: bool = False
 
 
@@ -182,6 +183,9 @@ class Decision:
     obey: bool
     note: str
     switched_to: str | None = None
+    # The side is the building's setting (Heat Only, Cool Only), not a choice
+    # that a waiting zone could change.
+    fixed: bool = False
 
 
 class Planner:
@@ -201,6 +205,11 @@ class Planner:
         """(side, obey) for a zone; (None, False) for a zone in no building."""
         decision = self._decisions.get(self._zone_building.get(thermostat_entity_id, ""))
         return (decision.side, decision.obey) if decision else (None, False)
+
+    def side_is_fixed(self, thermostat_entity_id: str) -> bool:
+        """Whether the zone's building is set to one side, which no waiting changes."""
+        decision = self._decisions.get(self._zone_building.get(thermostat_entity_id, ""))
+        return decision is not None and decision.fixed
 
     def building_of(self, thermostat_entity_id: str) -> str | None:
         return self._zone_building.get(thermostat_entity_id)
@@ -316,7 +325,7 @@ class Planner:
             fixed_side = FIXED_SIDE[m.mode]
             against = {"heating": "cooling", "cooling": "heating"}.get(fixed_side)
             note = f"Waiting for {against} to finish" if against in every_cycle else ""
-            return Decision(fixed_side, True, note)
+            return Decision(fixed_side, True, note, fixed=True)
         if m.auto_level == "off":
             return Decision(None, False, "")
         obey = m.auto_level == "on"

@@ -82,6 +82,30 @@ async def test_fixed_modes_hold_every_zone_to_one_side(client, site):
         assert planner.side_for(T1) == (side, True)
         assert planner.side_for(T2) == (side, True)
         assert planner.side_for(T3) == (None, False)
+        # A side that is the building's own setting, which no waiting changes.
+        assert planner.side_is_fixed(T1) is True
+        assert planner.side_is_fixed(T3) is False
+    await _mode(client, site, mode="auto", auto_level="on")
+    assert client.app["scheduler"].building_plan.side_is_fixed(T1) is False
+
+
+async def test_a_run_for_convenience_rooms_alone_is_reported_as_setting_no_side(client, site):
+    from backend.engine.cycle_engine import CycleState
+    from backend.engine.room_manager import ActiveRoom
+    from backend.models import Room
+
+    scheduler = client.app["scheduler"]
+    await scheduler._sync_engines()
+    tid, engine = next(iter(scheduler._engines.items()))
+    room = Room.create(name="Loft", thermostat_entity_id=tid)
+    engine._state, engine._cycle_mode = CycleState.RUNNING, "cooling"
+    engine._active_rooms = {room.id: ActiveRoom(room=room, target_temp=74.0, source="balance")}
+    now = next(z for z in scheduler.zones_now() if z.thermostat_entity_id == tid)
+    assert engine.optional_only and now.running == "cooling" and now.protecting is True
+    engine._active_rooms[room.id].source = "schedule"
+    now = next(z for z in scheduler.zones_now() if z.thermostat_entity_id == tid)
+    assert not engine.optional_only and now.protecting is False
+    engine._state, engine._cycle_mode, engine._active_rooms = CycleState.IDLE, None, {}
 
 
 async def test_auto_takes_the_side_of_the_first_cycle_and_watch_only_never_holds(client, site):

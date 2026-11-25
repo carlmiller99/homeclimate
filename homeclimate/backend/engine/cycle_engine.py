@@ -198,6 +198,7 @@ class CycleEngine:
         get_fireplace_rooms: Callable[[], frozenset[str]] | None = None,
         get_building_side: Callable[[], tuple[str | None, bool]] | None = None,
         claim_building_side: Callable[[str], str | None] | None = None,
+        get_side_fixed: Callable[[], bool] | None = None,
         get_heat_pump: Callable[[], HeatPumpGuards | None] | None = None,
         get_balance: Callable[[], zone_balance.Call | None] | None = None,
     ) -> None:
@@ -217,6 +218,7 @@ class CycleEngine:
         # obey it or only note what obeying would have done.
         self._get_building_side = get_building_side
         self._claim_building_side = claim_building_side
+        self._get_side_fixed = get_side_fixed
         # When this zone began waiting for its building's other side, and when
         # that was last confirmed: (direction, obeyed, since, seen).
         self._wait_started: tuple[str, bool, datetime, datetime] | None = None
@@ -5798,6 +5800,19 @@ class CycleEngine:
             )
 
     @property
+    def optional_only(self) -> bool:
+        """A cycle is running for nothing but convenience rooms (``OPTIONAL_SOURCES``).
+
+        Such a run says nothing about which side the building wants, so it
+        neither sets the side nor counts toward keeping it.
+        """
+        return (
+            self._state != CycleState.IDLE
+            and bool(self._active_rooms)
+            and all(ar.source in OPTIONAL_SOURCES for ar in self._active_rooms.values())
+        )
+
+    @property
     def protecting_only(self) -> bool:
         """A cycle is running against the building's side, only to protect rooms."""
         return self._state != CycleState.IDLE and self._protecting is not None
@@ -6575,10 +6590,17 @@ class CycleEngine:
         runtime, a room that calls for the other direction ends it the same
         way, rather than waiting out a run nobody asked for. A cycle still
         working for a room with a say of its own is left alone; the
-        conveniences may join it if it suits them. A call for the direction
-        the building's side (``side``, when it is being obeyed) rules out does
-        not end a run, since no cycle could answer it; a room past a safety
-        limit is the exception, as it is for the side itself.
+        conveniences may join it if it suits them.
+
+        ``side`` is the building's side when it is being obeyed. Where that
+        side is the building's own setting (Heat Only, Cool Only), a call for
+        the other direction does not end a run, since no cycle could answer
+        it; a room past a safety limit is the exception, as it is for the side
+        itself. Where the building chooses its side, the call does end the
+        run: the zone has to be idle and waiting for the building to switch.
+        And a run for nothing but convenience rooms that finds itself against
+        the building's side ends once it has had its minimum runtime, so it
+        never keeps another zone waiting for the side.
         """
         optional = [rid for rid, ar in active.items() if ar.source in OPTIONAL_SOURCES]
         if not optional:
@@ -6607,14 +6629,16 @@ class CycleEngine:
             give_way = bool(calling)
         else:
             others = calling - {self._cycle_mode}
-            if others and side in ("heating", "cooling"):
+            fixed = self._get_side_fixed is not None and self._get_side_fixed()
+            if others and fixed and side in ("heating", "cooling"):
                 with_a_say = {
                     rid: ar for rid, ar in active.items() if ar.source not in OPTIONAL_SOURCES
                 }
                 breaches = self._safety_breaches(with_a_say, tc)
                 others = {way for way in others if way == side or way in breaches}
+            against_side = side in ("heating", "cooling") and side != self._cycle_mode
             give_way = (
-                bool(others)
+                (bool(others) or against_side)
                 and all(
                     ar.source in OPTIONAL_SOURCES or self._done_in_this_run(ar, tc)
                     for ar in self._active_rooms.values()
@@ -6683,10 +6707,14 @@ class CycleEngine:
                 continue
             if room.id in held:
                 target = held[room.id]
-            elif call is None or (
+            elif (
+                call is None
                 # A run going the other way for someone else: not asked this
                 # tick, rather than asked and turned away every minute.
-                self._state != CycleState.IDLE and self._cycle_mode != call.mode
+                or (self._state != CycleState.IDLE and self._cycle_mode != call.mode)
+                # A call in this zone is waiting to coast: starting a run for
+                # balance would end that wait for it.
+                or (self._state == CycleState.IDLE and self._coast_wait)
             ):
                 continue
             else:

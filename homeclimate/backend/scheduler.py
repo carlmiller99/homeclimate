@@ -1076,6 +1076,7 @@ class Scheduler:
             get_openings=functools.partial(self._pause_for, tid),
             get_fireplace_rooms=lambda: frozenset(self._fireplaces.set_aside_rooms()),
             get_building_side=functools.partial(self._building_side, tid),
+            get_side_fixed=functools.partial(self._building_plan.side_is_fixed, tid),
             claim_building_side=functools.partial(self._building_plan_claim, tid),
             get_heat_pump=functools.partial(self._heat_pumps.get, tid),
             get_balance=functools.partial(self._balance_call, tid),
@@ -1719,7 +1720,11 @@ class Scheduler:
     def zones_now(self) -> list[building_mode.ZoneNow]:
         return [
             building_mode.ZoneNow(
-                tid, engine.cycle_mode, engine.building_wait, engine.protecting_only
+                tid,
+                engine.cycle_mode,
+                engine.building_wait,
+                # Neither kind of run says which side the building wants.
+                engine.protecting_only or engine.optional_only,
             )
             for tid, engine in self._engines.items()
         ]
