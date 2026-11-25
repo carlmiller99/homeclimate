@@ -222,6 +222,9 @@ class CycleEngine:
         self._claim_building_side = claim_building_side
         self._get_side_fixed = get_side_fixed
         self._get_building_waiting = get_building_waiting
+        # The zone's settings as of the last tick, for ``optional_only``,
+        # which is read between ticks.
+        self._tc_for_done: ThermostatConfig | None = None
         # When this zone began waiting for its building's other side, and when
         # that was last confirmed: (direction, obeyed, since, seen).
         self._wait_started: tuple[str, bool, datetime, datetime] | None = None
@@ -5810,29 +5813,38 @@ class CycleEngine:
     def _side_for_optional(self) -> tuple[str | None, bool]:
         """The building's side as convenience rooms must see it: (side, obey).
 
-        The side itself, and, while an obeyed building is on no side yet, the
-        direction another of its zones is waiting to go. That zone is what the
-        building wants, so no convenience run is started or kept going
-        against it.
+        The side itself, or, where the building chooses its own side, the
+        direction another of its zones is waiting to go. That zone is what
+        the building wants next, so no convenience run is started or kept
+        going against it. (Where the side is the building's own setting a
+        waiting zone changes nothing, and is not looked at.)
         """
         side, obey = (
             self._get_building_side() if self._get_building_side is not None else (None, False)
         )
-        if obey and side is None and self._get_building_waiting is not None:
-            side = self._get_building_waiting()
+        fixed = self._get_side_fixed is not None and self._get_side_fixed()
+        if obey and not fixed and self._get_building_waiting is not None:
+            waiting = self._get_building_waiting()
+            if waiting is not None and waiting != side:
+                side = waiting
         return side, obey
 
     @property
     def optional_only(self) -> bool:
-        """A cycle is running for nothing but convenience rooms (``OPTIONAL_SOURCES``).
+        """A cycle is running, and only convenience rooms (``OPTIONAL_SOURCES``) keep it going.
 
-        Such a run says nothing about which side the building wants, so it
-        neither sets the side nor counts toward keeping it.
+        Every other room in it has finished: with the conveniences off the
+        run would have ended. Such a run says nothing about which side the
+        building wants, so it neither sets the side nor counts toward keeping
+        it.
         """
-        return (
-            self._state != CycleState.IDLE
-            and bool(self._active_rooms)
-            and all(ar.source in OPTIONAL_SOURCES for ar in self._active_rooms.values())
+        if self._state == CycleState.IDLE:
+            return False
+        rooms = list(self._active_rooms.values())
+        tc = self._tc_for_done
+        return any(ar.source in OPTIONAL_SOURCES for ar in rooms) and all(
+            ar.source in OPTIONAL_SOURCES or (tc is not None and self._done_in_this_run(ar, tc))
+            for ar in rooms
         )
 
     @property
@@ -6631,6 +6643,7 @@ class CycleEngine:
         the building's side ends once it has had its minimum runtime, so it
         never keeps another zone waiting for the side.
         """
+        self._tc_for_done = tc
         optional = [rid for rid, ar in active.items() if ar.source in OPTIONAL_SOURCES]
         if not optional:
             return
@@ -6666,14 +6679,29 @@ class CycleEngine:
                 breaches = self._safety_breaches(with_a_say, tc)
                 others = {way for way in others if way == side or way in breaches}
             against_side = side in ("heating", "cooling") and side != self._cycle_mode
+            only_optional = all(
+                ar.source in OPTIONAL_SOURCES or self._done_in_this_run(ar, tc)
+                for ar in self._active_rooms.values()
+            )
             give_way = (
                 (bool(others) or against_side)
-                and all(
-                    ar.source in OPTIONAL_SOURCES or self._done_in_this_run(ar, tc)
-                    for ar in self._active_rooms.values()
-                )
+                and only_optional
                 and self._cycle_runtime_satisfied(tc)
             )
+            if against_side and only_optional and not give_way:
+                # The run is serving out its minimum runtime against the
+                # building's side. A room with a say of its own that asks now
+                # must not join it and so keep it going: it waits, as it would
+                # with the conveniences off, for the run to end. A room past a
+                # safety limit is never held back.
+                for rid in [
+                    rid
+                    for rid, ar in active.items()
+                    if ar.source not in OPTIONAL_SOURCES
+                    and ar.source != "safety"
+                    and rid not in self._active_rooms
+                ]:
+                    del active[rid]
         if not give_way:
             return
         for rid in optional:
