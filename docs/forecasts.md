@@ -32,7 +32,7 @@ Temperatures are converted to °F when stored, using the weather entity's own un
 ## API
 
 - `GET /api/forecast` — settings, state, daily highs and lows, and the next 24 hours.
-- `PUT /api/forecast/settings` — `enabled`, `weather_entity`; fetches straight away.
+- `PUT /api/forecast/settings` — `enabled`, `weather_entity`, `correct`; fetches straight away.
 - `POST /api/forecast/refresh` — fetch now.
 
 ## How good the forecast is, and correcting it
@@ -40,10 +40,11 @@ Temperatures are converted to °F when stored, using the weather entity's own un
 Every hour HomeClimate compares the outside temperature your sensor recorded with what the forecast had said for that hour about six hours earlier. It keeps a running average of the difference for each hour of the day, in the house's time zone, following roughly the last 30 days.
 
 - **Smart Control → Forecasts** shows how many hours have been compared, how far off the forecast has been on average, and which way it leans.
-- After **48 comparisons** (two days), **Correct the Forecast From Experience** adds each hour's usual difference to the forecast. A source that always reads 4° cold in the afternoon stops misleading building mode. The section shows the corrected temperatures; the uncorrected ones are still in the API as `temp_raw`.
+- After **48 compared hours**, **Correct the Forecast From Experience** adds each hour's usual difference to the forecast. That is two days on a new install; an install that already has two days of recordings and forecasts reaches it on the first check. A source that always reads 4° cold in the afternoon stops misleading building mode. The section shows the corrected temperatures; the uncorrected ones are still in the API as `temp_raw`.
+- The correction is cautious. An hour of the day that has been seen only a few times is pulled toward the overall average, and the forecast is never moved by more than 8 °F (4.4 °C), so a few odd days or a sensor in the sun cannot swing it far.
 - The switch is on by default and can be turned off; what was learned is kept either way.
-- It needs an outside temperature sensor (Settings → Sensors) and Smart Learning's recording, which is where the recorded temperatures come from. Hours with no reading within 15 minutes, or with no forecast from at least 3 hours before, are skipped. A difference over 30 °F is treated as a faulty sensor and ignored.
-- Choosing a different weather source starts the learning again, because each source is off in its own way.
+- It needs an outside temperature sensor (Settings → Sensors) and Smart Learning's recording, which is where the recorded temperatures come from. Hours with no reading within 15 minutes, or with no forecast made between 3 and 12 hours before, are skipped. A difference over 30 °F is treated as a faulty sensor and ignored.
+- Choosing a different weather source starts the learning again, because each source is off in its own way. The archive of the old source's forecasts is cleared with it.
 
 The averages take 24 small rows. No per-hour history is added beyond the forecast archive that already exists.
 

@@ -348,7 +348,8 @@ CREATE TABLE IF NOT EXISTS forecast_bias (
     n INTEGER NOT NULL,
     mean_error REAL NOT NULL,
     mean_abs REAL NOT NULL,
-    mean_abs_corrected REAL NOT NULL
+    mean_abs_corrected REAL NOT NULL,
+    n_corrected INTEGER NOT NULL DEFAULT 0
 );
 
 -- HomeClimate heat pumps: each backup (aux) heat episode seen on a zone's

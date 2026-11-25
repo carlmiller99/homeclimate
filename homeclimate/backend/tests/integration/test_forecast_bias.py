@@ -21,7 +21,13 @@ def _at(hours_ago: int) -> int:
 
 
 async def _conn(client):
-    return await client.app["scheduler"].get_db()
+    conn = await client.app["scheduler"].get_db()
+    # The recorder's key for the one room these readings belong to.
+    await conn.execute(
+        "INSERT OR IGNORE INTO room_reading_keys(key, kind, value) VALUES(1, 'room', 'r1')"
+    )
+    await conn.commit()
+    return conn
 
 
 async def _seed(conn, hours_ago: int, said: float, recorded: float | None, *, lead_h=6, off_s=0):
@@ -89,6 +95,38 @@ async def test_the_forecast_nearest_six_hours_ahead_is_the_one_scored(client):
     await _seed(conn, 1, said=49.5, recorded=50.0, lead_h=3)
     await fb.score(conn, now=NOW)
     assert (await fb.load(conn)).mean_error == 2.0
+    # A forecast from days before says nothing about the six-hour one: not scored.
+    await _seed(conn, 0, said=40.0, recorded=50.0, lead_h=70)
+    assert await fb.score(conn, now=NOW + timedelta(hours=1)) == 0
+
+
+async def test_a_source_that_gives_its_hours_on_the_half_hour_is_still_scored(client):
+    """India, Newfoundland, Adelaide: local hours fall on UTC half hours."""
+    conn = await _conn(client)
+    at = _at(1) + 1800
+    await conn.execute(
+        "INSERT INTO forecast_snapshots(issued, at, temp) VALUES(?,?,?)",
+        (_at(7), at, 5000),
+    )
+    await conn.execute(
+        "INSERT INTO room_readings(room_key, ts, zone_key, action_key, outside_temp)"
+        " VALUES(1, ?, 1, 1, 5300)",
+        (at,),
+    )
+    await conn.commit()
+    assert await fb.score(conn, now=NOW) == 1
+    assert (await fb.load(conn)).mean_error == 3.0
+
+
+async def test_two_runs_at_once_score_each_hour_once(client):
+    import asyncio
+
+    conn = await _conn(client)
+    for h in range(1, 13):
+        await _seed(conn, h, said=50.0, recorded=52.0)
+    got = await asyncio.gather(fb.score(conn, now=NOW), fb.score(conn, now=NOW))
+    assert sorted(got) == [0, 12]
+    assert (await fb.load(conn)).comparisons == 12
 
 
 async def test_only_the_last_two_days_are_caught_up_and_a_bad_mark_is_ignored(client):
@@ -96,21 +134,22 @@ async def test_only_the_last_two_days_are_caught_up_and_a_bad_mark_is_ignored(cl
     await _seed(conn, 47, said=50.0, recorded=51.0)
     await _seed(conn, 49, said=50.0, recorded=51.0)  # too long ago
     assert await fb.score(conn, now=NOW) == 1
-    # A mark left in the future (a clock that was wrong) is put right, not trusted.
+    # A mark left in the future (the clock went backwards) is waited out, so the
+    # hours in between are never scored twice.
     from backend import db
 
     await db.set_system_setting(conn, fb.SCORED_THROUGH, str(_at(-500)))
     await _seed(conn, 1, said=50.0, recorded=51.0)
     assert await fb.score(conn, now=NOW) == 0
-    assert await db.get_system_setting(conn, fb.SCORED_THROUGH, "") == str(_at(1))
+    assert await db.get_system_setting(conn, fb.SCORED_THROUGH, "") == str(_at(-500))
     await db.set_system_setting(conn, fb.SCORED_THROUGH, "junk")
     assert await fb.score(conn, now=NOW) == 2
 
 
-async def _learn(conn, days: int, error_by_local_hour) -> None:
+async def _learn(conn, days: int, error_by_local_hour, *, after: int = 0) -> None:
     """Seed ``days`` days of hours whose forecast was off by a known amount."""
     for d in range(days):
-        day_now = NOW - timedelta(days=days - 1 - d)
+        day_now = NOW + timedelta(days=after + d)
         for h in range(1, 25):
             at = int(day_now.timestamp()) // HOUR * HOUR - h * HOUR
             local = tz.to_local(datetime.fromtimestamp(at, UTC)).hour
@@ -139,43 +178,49 @@ async def test_a_forecast_that_is_always_off_is_corrected_after_48_comparisons(c
     assert (bias.comparisons, bias.ready) == (24, False)
     assert bias.offset(14) == 0.0  # not used yet
 
-    await _learn(conn, 10, off)
+    await _learn(conn, 10, off, after=1)
     bias = await fb.load(conn)
     assert bias.ready and bias.comparisons >= 48
-    assert bias.offset(14) == pytest.approx(4.0)
-    assert bias.offset(3) == pytest.approx(-1.0)
-    # It was off by 1.75 °F on average; corrected, by much less.
+    # Each hour's habit shows through, pulled a little toward the overall average.
+    assert 2.0 < bias.offset(14) < 4.0
+    assert -1.0 < bias.offset(3) < 0.0
+    # It was off by 1.75 °F on average; over the hours since correcting began, by less.
     assert bias.mean_abs == pytest.approx(1.75)
-    # (The first two days count in full: nothing was being corrected yet.)
-    assert bias.mean_abs_corrected < 0.6
+    assert bias.mean_abs_corrected < 1.4
     afternoon = next(
         NOW + timedelta(hours=i)
         for i in range(24)
         if tz.to_local(NOW + timedelta(hours=i)).hour == 14
     )
     (fixed,) = bias.correct([forecast.Hour(afternoon, 60.0, 10, 20, "sunny")])
-    assert (fixed.temp, fixed.cloud_pct, fixed.precip_pct, fixed.condition) == (
-        64.0,
-        10,
-        20,
-        "sunny",
-    )
+    assert 62.0 < fixed.temp < 64.0
+    assert (fixed.cloud_pct, fixed.precip_pct, fixed.condition) == (10, 20, "sunny")
 
 
-async def test_an_hour_seen_only_once_uses_the_overall_average(client):
+async def test_an_hours_own_average_counts_for_more_the_more_it_has_been_seen(client):
     by_hour = {h: fb.HourBias(3, 2.0, 2.0, 1.0) for h in range(16)}
     by_hour[20] = fb.HourBias(1, -6.0, 6.0, 6.0)
+    by_hour[21] = fb.HourBias(40, -6.0, 6.0, 6.0)
     bias = fb.Bias(by_hour)
     assert bias.ready
-    assert bias.offset(20) == pytest.approx(bias.mean_error)  # one sighting is not a habit
-    assert bias.offset(23) == pytest.approx(bias.mean_error)  # never seen
-    assert bias.offset(5) == 2.0
+    overall = bias.mean_error
+    assert bias.offset(23) == pytest.approx(overall)  # never seen: the overall average
+    assert abs(bias.offset(20) - overall) < 1.0  # one sighting is not a habit
+    assert bias.offset(21) < -4.0  # forty are
+    assert bias.offset(5) == pytest.approx((3 * 2.0 + 8 * overall) / 11)
+    assert bias.mean_abs_corrected is None  # nothing has been corrected yet
+
+
+async def test_the_correction_is_capped(client):
+    """A sensor in the afternoon sun, or one freak day, must not swing the forecast."""
+    bias = fb.Bias({h: fb.HourBias(60, 25.0 if h == 15 else -25.0, 25.0, 1.0) for h in range(24)})
+    assert bias.offset(15) == 8.0 and bias.offset(3) == -8.0
 
 
 async def test_an_hours_average_follows_about_its_last_thirty_days(client):
     conn = await _conn(client)
     await _learn(conn, 40, lambda _h: 5.0)
-    await _learn(conn, 30, lambda _h: 0.0)
+    await _learn(conn, 30, lambda _h: 0.0, after=40)
     bias = await fb.load(conn)
     assert abs(bias.offset(12)) < 2.0  # a month on, the old habit has mostly gone
 
@@ -197,8 +242,8 @@ async def test_the_section_shows_corrected_temperatures_and_how_good_they_are(cl
 
     conn = await _conn(client)
     await conn.executemany(
-        "INSERT INTO forecast_bias(hour_of_day, n, mean_error, mean_abs, mean_abs_corrected)"
-        " VALUES(?,3,2.5,2.5,0.5)",
+        "INSERT INTO forecast_bias(hour_of_day, n, mean_error, mean_abs, mean_abs_corrected,"
+        " n_corrected) VALUES(?,3,2.5,2.5,0.5,1)",
         [(h,) for h in range(24)],
     )
     await conn.commit()
@@ -225,7 +270,7 @@ async def test_the_section_shows_corrected_temperatures_and_how_good_they_are(cl
 
 async def test_a_new_weather_source_starts_learning_again(client, fake_ha):
     conn = await _conn(client)
-    await conn.execute("INSERT INTO forecast_bias VALUES(5, 60, 2.0, 2.0, 1.0)")
+    await conn.execute("INSERT OR REPLACE INTO forecast_bias VALUES(5, 60, 2.0, 2.0, 1.0, 12)")
     await conn.commit()
     for entity in (W, "weather.other"):
         fake_ha.seed_state(entity, "sunny", {"temperature_unit": "°F"})
@@ -238,14 +283,12 @@ async def test_a_new_weather_source_starts_learning_again(client, fake_ha):
         for e in (W, "weather.other")
     }
     await client.put("/api/forecast/settings", json={"enabled": True, "weather_entity": W})
-    await conn.execute("INSERT INTO forecast_bias VALUES(5, 60, 2.0, 2.0, 1.0)")
+    await conn.execute("INSERT OR REPLACE INTO forecast_bias VALUES(5, 60, 2.0, 2.0, 1.0, 12)")
     await conn.commit()
     snap = await (
         await client.put("/api/forecast/settings", json={"weather_entity": "weather.other"})
     ).json()
     assert snap["accuracy"]["comparisons"] == 0
-    await fb.reset(conn)
-    assert (await fb.load(conn)).comparisons == 0
 
 
 async def test_the_building_planner_sees_the_corrected_forecast(client, fake_ha, monkeypatch):
@@ -258,7 +301,7 @@ async def test_the_building_planner_sees_the_corrected_forecast(client, fake_ha,
         source=W,
     )
     await conn.executemany(
-        "INSERT INTO forecast_bias VALUES(?, 3, 20.0, 20.0, 1.0)", [(h,) for h in range(24)]
+        "INSERT INTO forecast_bias VALUES(?, 30, 5.0, 5.0, 1.0, 6)", [(h,) for h in range(24)]
     )
     await conn.commit()
     seen: list[list] = []
@@ -272,4 +315,4 @@ async def test_the_building_planner_sees_the_corrected_forecast(client, fake_ha,
     await scheduler._plan_buildings()
     await client.put("/api/forecast/settings", json={"correct": False})
     await scheduler._plan_buildings()
-    assert [hours[0].temp for hours in seen[-2:]] == [70.0, 50.0]
+    assert [hours[0].temp for hours in seen[-2:]] == [55.0, 50.0]

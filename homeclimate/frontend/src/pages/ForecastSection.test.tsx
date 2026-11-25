@@ -230,7 +230,7 @@ describe("Forecasts section", () => {
       "Compared 30 hours so far; the correction starts at 48."
     );
     expect(words({})).toBe(
-      "Over 120 hours the forecast was off by 3.6°F on average. It usually reads 1.8°F too cold. Corrected, it has been off by 0.9°F; the temperatures below include the correction."
+      "Over 120 hours the forecast was off by 3.6°F on average. It usually reads 1.8°F too cold. Since it has been corrected, it has been off by 0.9°F; the temperatures below include the correction."
     );
     expect(words({ mean_error: -1.8, in_use: false })).toBe(
       "Over 120 hours the forecast was off by 3.6°F on average. It usually reads 1.8°F too warm. The correction is switched off."
@@ -239,6 +239,9 @@ describe("Forecasts section", () => {
     // Differences are deltas: 3.6 °F is 2.0 °C, not -15.8.
     expect(words({}, "C")).toMatch(/off by 2\.0°C on average\. It usually reads 1\.0°C too cold/);
     expect(words({ mean_abs: null })).toMatch(/^Compared 120 hours so far/);
+    expect(words({ mean_abs_corrected: null })).toMatch(
+      /The correction has just begun; the temperatures below include the correction\.$/
+    );
   });
 
   it("switches the correction off and on", async () => {

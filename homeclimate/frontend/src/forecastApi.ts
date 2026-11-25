@@ -81,7 +81,7 @@ export function accuracyText(
     return "Nothing to compare yet. This needs an outside temperature sensor (Settings, Sensors) and Smart Learning recording.";
   }
   const hours = `${a.comparisons} ${a.comparisons === 1 ? "hour" : "hours"}`;
-  if (!a.ready || a.mean_error === null || a.mean_abs === null || a.mean_abs_corrected === null) {
+  if (!a.ready || a.mean_error === null || a.mean_abs === null) {
     return `Compared ${hours} so far; the correction starts at ${a.needed}.`;
   }
   const deg = (f: number) => `${Math.abs(toDisplayDelta(f)).toFixed(1)}${unitLabel}`;
@@ -90,7 +90,10 @@ export function accuracyText(
       ? "It leans neither warm nor cold."
       : `It usually reads ${deg(a.mean_error)} too ${a.mean_error > 0 ? "cold" : "warm"}.`;
   const base = `Over ${hours} the forecast was off by ${deg(a.mean_abs)} on average. ${lean}`;
-  return a.in_use
-    ? `${base} Corrected, it has been off by ${deg(a.mean_abs_corrected)}; the temperatures below include the correction.`
-    : `${base} The correction is switched off.`;
+  if (!a.in_use) return `${base} The correction is switched off.`;
+  const since =
+    a.mean_abs_corrected === null
+      ? "The correction has just begun"
+      : `Since it has been corrected, it has been off by ${deg(a.mean_abs_corrected)}`;
+  return `${base} ${since}; the temperatures below include the correction.`;
 }
