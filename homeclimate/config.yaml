@@ -1,6 +1,6 @@
 name: "HomeClimate"
 description: "HVAC zoning controller — drives HA cover entities and climate thermostats for per-room comfort"
-version: "0.5.11"
+version: "0.5.12"
 slug: "homeclimate"
 url: "https://github.com/carlmiller99/homeclimate"
 arch:
