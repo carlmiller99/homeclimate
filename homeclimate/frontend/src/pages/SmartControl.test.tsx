@@ -18,6 +18,7 @@ vi.mock("./Schedules", () => ({ default: () => <p>schedules page</p> }));
 vi.mock("./RoomCalendarsCard", () => ({ default: () => <p>room calendars</p> }));
 vi.mock("./LearningSection", () => ({ default: () => <p>learning section</p> }));
 vi.mock("./ForecastSection", () => ({ default: () => <p>forecast section</p> }));
+vi.mock("./BuildingAutoCard", () => ({ default: () => <p>building auto</p> }));
 vi.mock("./FireplaceSection", () => ({ default: () => <p>fireplace section</p> }));
 vi.mock("./ShadesSection", () => ({
   default: ({ rooms }: { rooms: { name: string }[] }) => (

@@ -17,6 +17,7 @@ High-level guide to what HomeClimate does and how the pieces fit together. For i
 - [Doors & windows](./doors-and-windows.md) — pause a zone or a room while a door or window is open (Smart Control)
 - [Shades](./shades.md) — open sunlit shades when heating and close them when cooling (Smart Control)
 - [Smart Learning](./smart-learning.md) — the room data recorder that learning is built on (Smart Control)
+- [Building mode](./building-mode.md) — keep every zone in a building on one side, heating or cooling (Dashboard, Smart Control)
 - [Forecasts](./forecasts.md) — fetch, keep and archive the hourly weather forecast (Smart Control)
 - [House band](./house-band.md) — one heat-to and cool-to for the whole house, and per-room options for what each room follows (Dashboard)
 - [Fireplace](./fireplace.md) — keep rooms a fire is warming out of the heating and cooling's way (Smart Control)

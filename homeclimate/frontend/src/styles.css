@@ -2751,3 +2751,23 @@ button.sc-nav-item {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* Dashboard → building mode */
+.building-mode {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.9rem;
+  align-items: center;
+  margin: 0 0 0.75rem;
+}
+.building-mode-pick select {
+  width: auto;
+  min-width: 8.5rem;
+}
+.building-mode-status {
+  font-size: 0.875rem;
+  color: var(--gray-600);
+}
+.building-mode-wait {
+  color: var(--state-paused-text);
+}

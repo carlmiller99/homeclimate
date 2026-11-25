@@ -19,6 +19,7 @@ import {
 import { getZones, type ZoneProfile } from "../zonesApi";
 import Schedules from "./Schedules";
 import FireplaceSection from "./FireplaceSection";
+import BuildingAutoCard from "./BuildingAutoCard";
 import ForecastSection from "./ForecastSection";
 import LearningSection from "./LearningSection";
 import RoomCalendarsCard from "./RoomCalendarsCard";
@@ -287,7 +288,10 @@ export default function SmartControl() {
       ) : section === "smart-learning" ? (
         <LearningSection />
       ) : section === "forecasts" ? (
-        <ForecastSection />
+        <>
+          <ForecastSection />
+          <BuildingAutoCard />
+        </>
       ) : section === "fireplace" ? (
         <FireplaceSection />
       ) : (

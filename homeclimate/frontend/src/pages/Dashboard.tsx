@@ -25,6 +25,8 @@ import {
   type Building,
   type ZoneProfile,
 } from "../zonesApi";
+import BuildingModeControl from "../components/BuildingModeControl";
+import { getBuildingModes, type BuildingMode } from "../buildingModeApi";
 import ConfirmDialog from "../components/ConfirmDialog";
 import HouseBandCard from "../components/HouseBandCard";
 import RoomFollowDialog from "../components/RoomFollowDialog";
@@ -544,6 +546,7 @@ export default function Dashboard() {
   });
   const [smart, setSmart] = useState<SmartControl | null>(null);
   const [house, setHouse] = useState<House | null>(null);
+  const [buildingModes, setBuildingModes] = useState<BuildingMode[]>([]);
   const system = useSystem();
   const [confirmSystem, setConfirmSystem] = useState(false);
   const [optionsFor, setOptionsFor] = useState<{ id: string; name: string } | null>(null);
@@ -569,16 +572,18 @@ export default function Dashboard() {
     setLoadFailed(false);
     // Building layout, pauses and idle-room temperatures are extras: a failure
     // here leaves the zone cards ungrouped and idle rooms showing "—".
-    const [b, zp, sc, health, hs] = await Promise.all([
+    const [b, zp, sc, health, hs, bm] = await Promise.all([
       getBuildings().catch(() => [] as Building[]),
       getZones().catch(() => [] as ZoneProfile[]),
       getSmartControl().catch(() => null),
       getSensorHealth().catch(() => null),
       getHouse().catch(() => null),
+      getBuildingModes().catch(() => null),
     ]);
     // A failed refresh keeps the last good house: blanking it would drop an
     // unsaved band edit and close an open Options dialog.
     if (hs) setHouse(hs);
+    if (bm) setBuildingModes(bm);
     setBuildings(b);
     setProfiles(zp);
     setSmart(sc ?? null);
@@ -879,6 +884,18 @@ export default function Dashboard() {
                 {buildings.length > 0 && (
                   <div className="dash-building-title">{group.building?.name ?? "Other Zones"}</div>
                 )}
+                {buildingModes
+                  .filter((m) => m.building_id === group.building?.id)
+                  .map((m) => (
+                    <BuildingModeControl
+                      key={m.building_id}
+                      building={m}
+                      zoneNames={Object.fromEntries(
+                        profiles.map((p) => [p.thermostat_entity_id, p.name])
+                      )}
+                      onSaved={setBuildingModes}
+                    />
+                  ))}
                 <div className="card-grid">
                   {group.items.map((z) => (
                     <ZoneCard

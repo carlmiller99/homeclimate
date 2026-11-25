@@ -166,6 +166,7 @@ class CycleEngine:
         get_eco_suspended: Callable[[], bool] | None = None,
         get_openings: Callable[[], tuple[bool, frozenset[str]]] | None = None,
         get_fireplace_rooms: Callable[[], frozenset[str]] | None = None,
+        get_building_side: Callable[[], tuple[str | None, bool]] | None = None,
         get_heat_pump: Callable[[], HeatPumpGuards | None] | None = None,
     ) -> None:
         self.thermostat_entity_id = thermostat_entity_id
@@ -179,6 +180,12 @@ class CycleEngine:
         # Door and window pausing (Smart Control): (zone paused, paused room ids).
         self._get_openings = get_openings
         self._get_fireplace_rooms = get_fireplace_rooms
+        # Building mode (backend/building_mode.py): the side this zone's building
+        # is on ("heating", "cooling", "off" or None for either) and whether to
+        # obey it or only note what obeying would have done.
+        self._get_building_side = get_building_side
+        # Set while this zone has demand its building's side does not allow.
+        self.building_wait: dict | None = None
         # Heat pump protection: guards for this zone, or None (conventional).
         self._get_heat_pump = get_heat_pump
         # (started_at, thermostat ambient °F) of the current heat pump warm-up.
@@ -729,6 +736,13 @@ class CycleEngine:
             new_active = []
         elif paused_rooms:
             new_active = [ar for ar in new_active if ar.room.id not in paused_rooms]
+        side, obey_side = (
+            self._get_building_side() if self._get_building_side is not None else (None, False)
+        )
+        if side == "off" and obey_side:
+            # The building is switched off (not in use). Nothing here asks for
+            # heating or cooling; the safety limits below still protect it.
+            new_active = []
         new_active_map = {ar.room.id: ar for ar in new_active}
 
         # Per-room safety protection (Issue #367): pull in any zone room whose
@@ -823,6 +837,16 @@ class CycleEngine:
                 outside_temp=outside_temp_f,
                 tc=tc,
                 off_schedule_ok=off_schedule_ok,
+            )
+            inferred = await self._keep_to_building_side(
+                inferred,
+                side,
+                obey_side,
+                new_active_map,
+                tc,
+                thermo_state,
+                outside_temp_f,
+                off_schedule_ok,
             )
             if inferred == "off":
                 # All rooms within deadband — park the setpoint so the HVAC
@@ -2790,8 +2814,13 @@ class CycleEngine:
         outside_temp: float | None = None,
         tc: ThermostatConfig | None = None,
         off_schedule_ok: dict[str, bool] | None = None,
+        only: str | None = None,
     ) -> str:
         """Determine needed cycle direction from room temperatures vs targets.
+
+        With ``only`` set to "heating" or "cooling", just that direction is
+        asked about: it is returned if any room needs it, else "off".
+
 
         Returns 'cooling' | 'heating' | 'off'.  'off' means every room is
         within deadband — no cycle needed.  Mixed rooms: majority wins; ties
@@ -2849,6 +2878,8 @@ class CycleEngine:
             elif vote == "heat":
                 needs_heat += 1
 
+        if only is not None:
+            return only if (needs_heat if only == "heating" else needs_cool) > 0 else "off"
         if needs_cool == 0 and needs_heat == 0:
             return "off"
         if needs_cool > 0 and needs_heat == 0:
@@ -5531,6 +5562,73 @@ class CycleEngine:
             )
             return True
         return False
+
+    async def _keep_to_building_side(
+        self,
+        inferred: str,
+        side: str | None,
+        obey: bool,
+        active_rooms: dict[str, ActiveRoom],
+        tc: ThermostatConfig,
+        thermo_state: dict | None,
+        outside_temp: float | None,
+        off_schedule_ok: dict[str, bool] | None,
+    ) -> str:
+        """Hold a new cycle to the side this zone's building is on.
+
+        Zones in one building share a side so they never heat and cool against
+        each other. When this zone wants the other side it waits, and
+        ``building_wait`` records that so the building can decide to switch and
+        the Dashboard can say why nothing is running. Rooms that do need the
+        building's side are still served. A safety breach is never held back.
+        When the side is only being watched, the wait is recorded and nothing
+        is held.
+        """
+        wrong_side = (
+            side in ("heating", "cooling")
+            and inferred in ("heating", "cooling")
+            and inferred != side
+            and not any(ar.source == "safety" for ar in active_rooms.values())
+        )
+        if not wrong_side:
+            self.building_wait = None
+            return inferred
+        excess = 0.0
+        for ar in active_rooms.values():
+            avg = self._get_avg_temp(ar.room)
+            if avg is not None:
+                gap = avg + ar.room.temp_offset - ar.target_temp
+                excess = max(excess, gap if inferred == "cooling" else -gap)
+        now = datetime.now(UTC)
+        before = self.building_wait
+        fresh = before is None or before["direction"] != inferred or before["obeyed"] != obey
+        self.building_wait = {
+            "direction": inferred,
+            "since": now if fresh or before is None else before["since"],
+            "excess": round(excess, 2),
+            "obeyed": obey,
+        }
+        if fresh and self._logger:
+            waits = "is waiting" if obey else "would wait (watching only)"
+            await self._logger.log(
+                "info",
+                "engine",
+                f"{self.thermostat_entity_id} {waits} to start {inferred}: its building is on"
+                f" {side}",
+                {"thermostat": self.thermostat_entity_id, "wants": inferred, "side": side},
+            )
+        if not obey:
+            return inferred
+        # Serve any room that does need the building's side.
+        return await self._infer_mode_from_room_temps(
+            active_rooms,
+            tc.deadband,
+            thermo_state,
+            outside_temp=outside_temp,
+            tc=tc,
+            off_schedule_ok=off_schedule_ok,
+            only=side,
+        )
 
     def _apply_bands(self, active_rooms: dict[str, ActiveRoom], mode: str | None) -> None:
         """Give every banded room its single target for this tick (house.Band).
