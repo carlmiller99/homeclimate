@@ -1157,6 +1157,39 @@ class LearningRoomSchema(Schema):
     model = fields.Nested(RoomModelSchema, allow_none=True)
 
 
+class SuggestionBlockSchema(Schema):
+    days = fields.List(fields.Int(), metadata={"description": "0 is Monday"})
+    start = fields.Str()
+    end = fields.Str()
+
+
+class ZoneSuggestionSchema(Schema):
+    kind = fields.Str(metadata={"description": "deadband"})
+    thermostat_entity_id = fields.Str()
+    name = fields.Str()
+    current = fields.Float(metadata={"description": "°F difference"})
+    suggested = fields.Float(metadata={"description": "°F difference"})
+    runs_a_day = fields.Float()
+    typical_run_min = fields.Float()
+    days = fields.Int(metadata={"description": "Days of history it rests on"})
+
+
+class RoomSuggestionSchema(Schema):
+    kind = fields.Str(metadata={"description": "schedule"})
+    room_id = fields.Str()
+    name = fields.Str()
+    days = fields.Int()
+    hours_a_week = fields.Int()
+    blocks = fields.List(fields.Nested(SuggestionBlockSchema))
+
+
+class SuggestionsSchema(Schema):
+    min_days = fields.Int()
+    window_days = fields.Int()
+    zones = fields.List(fields.Nested(ZoneSuggestionSchema))
+    rooms = fields.List(fields.Nested(RoomSuggestionSchema))
+
+
 class CoastingSchema(Schema):
     level = fields.Int()
     misses_this_week = fields.Int(

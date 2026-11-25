@@ -27,6 +27,7 @@ from .. import (
     openings,
     room_model,
     shades,
+    suggestions,
     tz,
     zone_balance,
     zones,
@@ -426,6 +427,17 @@ async def _learning_snapshot(request: web.Request) -> dict:
         await coasting.demoted_at(conn, now=now),
     )
     return snap
+
+
+@docs(
+    tags=["learning"],
+    summary="Suggestions from recorded history: a wider deadband, a schedule from occupancy",
+)
+@response_schema(schemas.SuggestionsSchema)
+@routes.get("/api/learning/suggestions")
+async def get_suggestions(request: web.Request) -> web.Response:
+    conn = await get_conn(request)
+    return json_response(await suggestions.build(conn, now=datetime.now(tz.UTC)))
 
 
 @docs(tags=["learning"], summary="Smart Learning settings and how much each room has collected")

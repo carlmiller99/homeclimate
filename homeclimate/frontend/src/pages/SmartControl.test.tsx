@@ -20,6 +20,7 @@ vi.mock("./LearningSection", () => ({ default: () => <p>learning section</p> }))
 vi.mock("./ForecastSection", () => ({ default: () => <p>forecast section</p> }));
 vi.mock("./BuildingAutoCard", () => ({ default: () => <p>building auto</p> }));
 vi.mock("./EcoSection", () => ({ default: () => <p>eco section</p> }));
+vi.mock("./SuggestionsCard", () => ({ default: () => <p>suggestions card</p> }));
 vi.mock("./ZoneBalanceSection", () => ({ default: () => <p>zone balance section</p> }));
 vi.mock("./FireplaceSection", () => ({ default: () => <p>fireplace section</p> }));
 vi.mock("./ShadesSection", () => ({

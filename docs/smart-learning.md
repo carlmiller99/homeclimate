@@ -109,6 +109,15 @@ A waiting room shows **Coasting** on the Dashboard. Each wait is logged under En
 
 The limits are 2 °F and 1.5 °F (1.1 °C and 0.8 °C). A zone whose equipment has not been set in My Home counts as electric strip heat, which is the default; set a gas furnace there to get the shorter wait.
 
+## Suggestions
+
+Below the section, **Suggestions** gives advice from what has been recorded. It changes nothing: each suggestion says what it rests on and where to make the change if you agree. Nothing is suggested until there are 14 days of history, and it looks back 30 days.
+
+- **A wider deadband**, per zone. When a zone ran eight or more times a day and half of its runs were under 8 minutes, a deadband half a degree wider is suggested (never past 2 °F). Fewer, longer runs are easier on the equipment and hold rooms nearly as closely.
+- **When a room is usually in use**, per room with occupancy sensors. Each hour of the week in which the room was occupied at least 60 % of the time, seen in at least two separate weeks, joined into blocks with matching days grouped. These are the blocks a schedule for the room might have; add them under Schedules if they look right.
+
+`GET /api/learning/suggestions` returns the same.
+
 ### API
 
 - `GET /api/learning` includes each room's `model` (or null before the first fit).

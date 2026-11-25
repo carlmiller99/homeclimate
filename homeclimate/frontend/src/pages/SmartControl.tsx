@@ -21,6 +21,7 @@ import Schedules from "./Schedules";
 import FireplaceSection from "./FireplaceSection";
 import BuildingAutoCard from "./BuildingAutoCard";
 import EcoSection from "./EcoSection";
+import SuggestionsCard from "./SuggestionsCard";
 import ZoneBalanceSection from "./ZoneBalanceSection";
 import ForecastSection from "./ForecastSection";
 import LearningSection from "./LearningSection";
@@ -288,7 +289,10 @@ export default function SmartControl() {
       {section === "doors-windows" ? (
         <DoorsWindows />
       ) : section === "smart-learning" ? (
-        <LearningSection />
+        <>
+          <LearningSection />
+          <SuggestionsCard />
+        </>
       ) : section === "forecasts" ? (
         <>
           <ForecastSection />
