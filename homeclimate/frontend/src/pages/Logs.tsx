@@ -1375,7 +1375,7 @@ function RetentionSettings() {
       </div>
 
       <div className="form-group">
-        <label className="form-label">Analytics retention (days)</label>
+        <label className="form-label">Metrics retention (days)</label>
         <input
           className="form-control"
           type="number"

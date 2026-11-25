@@ -11,12 +11,12 @@ The house band is one **Heat To** and one **Cool To** temperature for the whole 
 
 A room's deadband applies at each edge, exactly as it does around a single target: heating starts once the room is a deadband below Heat To and stops at Heat To; cooling starts a deadband above Cool To and stops at Cool To. A room resting inside the band is left out of any cycle running for other rooms.
 
-Eco Mode, door and window pauses, fireplaces and the safety limits all apply to a room following the band. Vacation Mode pauses the band along with schedules and occupancy.
+Eco Mode, door and window pauses, fireplaces and the safety limits all apply to a room following the band. If the band is wider than a zone's safety limits, the safety limits act first. Vacation Mode pauses the band along with schedules and occupancy.
 
 Things to know before turning it on:
 
 - With a band set, HomeClimate manages every zone around the clock, the way an all-day schedule would, so a setpoint changed at the thermostat is put back.
-- A room with no working temperature sensor is judged on its zone thermostat's reading.
+- A room with no working temperature sensor does not follow the band, because HomeClimate can't tell where it sits in it. Its holds, schedules and safety limits work as before.
 - On a heat pump zone, a room's coming schedule can still start early; the early warm-up takes over from the band.
 
 ## What a room follows

@@ -77,25 +77,55 @@ async def test_a_running_cycle_keeps_its_rooms_and_leaves_resting_ones_out():
     # resting inside the band and is not pulled in.
     engine._active_rooms = {"r1": (await fresh())["r1"]}
     active = await fresh()
-    engine._apply_bands(active, "heating", None)
+    engine._apply_bands(active, "heating")
     assert {rid: ar.target_temp for rid, ar in active.items()} == {"r1": 68.0}
 
     # Nothing is in a cooling cycle yet, and neither room is above cool-to.
     engine._active_rooms = {}
     active = await fresh()
-    engine._apply_bands(active, "cooling", None)
+    engine._apply_bands(active, "cooling")
     assert active == {}
     await conn.close()
 
 
-async def test_a_room_with_no_reading_is_given_the_benefit_of_the_doubt():
-    conn, engine, _s = await _house({"r1": None, "r2": None})
+async def test_a_room_with_no_reading_of_its_own_does_not_follow_the_band():
+    """Its place in the band is unknown, and a cycle begun on the thermostat's
+    reading could never be judged finished."""
+    conn, engine, started = await _house({"r1": None, "r2": None}, ambient=60.0)
+    await engine._do_tick(conn)
+    started.assert_not_awaited()
+
     from backend.engine.room_manager import get_active_rooms
 
-    active = {ar.room.id: ar for ar in await get_active_rooms(conn, engine.thermostat_entity_id)}
-    engine._apply_bands(active, "heating", None)
-    assert {rid: ar.target_temp for rid, ar in active.items()} == {"r1": 68.0, "r2": 68.0}
+    async def fresh() -> dict:
+        return {ar.room.id: ar for ar in await get_active_rooms(conn, engine.thermostat_entity_id)}
+
+    for mode in (None, "heating", "cooling"):
+        active = await fresh()
+        engine._apply_bands(active, mode)
+        assert active == {}, mode
+    # A room already in the running cycle whose sensor drops out stays in it.
+    engine._active_rooms = {"r1": (await fresh())["r1"]}
+    active = await fresh()
+    engine._apply_bands(active, "heating")
+    assert {rid: ar.target_temp for rid, ar in active.items()} == {"r1": 68.0}
     await conn.close()
+
+
+async def test_safety_limits_still_protect_a_room_resting_inside_a_wide_band():
+    """Band 50–90 against limits of 60/85: at 55 or 88 the room is in its band
+    and asks for nothing, so the safety limits must step in."""
+    for temp, expected in ((55.0, "heating"), (88.0, "cooling")):
+        # The thermostat reads what the room does, so the mode check agrees.
+        conn, engine, started = await _house({"r1": temp, "r2": 72.0}, ambient=temp)
+        await house.set_band(conn, 50.0, 90.0)
+        await engine._do_tick(conn)
+        targets, mode = _started(started)
+        assert mode == expected, temp
+        assert set(targets) == {"r1"}
+        active = started.await_args.args[1]
+        assert active["r1"].source == "safety"
+        await conn.close()
 
 
 async def test_a_full_cycle_heats_to_heat_to_and_then_rests_without_flipping_to_cooling():
@@ -156,27 +186,13 @@ async def test_a_full_cycle_heats_to_heat_to_and_then_rests_without_flipping_to_
     await conn.close()
 
 
-async def test_with_no_reading_the_thermostat_stands_in_then_heat_to():
-    conn, engine, _s = await _house({"r1": None, "r2": None})
-    from backend.engine.room_manager import get_active_rooms
-
-    active = {ar.room.id: ar for ar in await get_active_rooms(conn, engine.thermostat_entity_id)}
-    state = {"attributes": {"current_temperature": 80.0}}
-    engine._apply_bands(active, None, state)
-    assert active["r1"].target_temp == 74.0  # the thermostat reads above the band
-    engine._apply_bands(active, None, None)
-    assert active["r1"].target_temp == 68.0
-    assert engine._state == CycleState.IDLE
-    await conn.close()
-
-
 async def test_single_target_rooms_are_untouched():
     conn = await _two_scheduled_rooms()  # schedules at 72, no house band
     engine = _make_engine(_make_ha(ambient=72.0))
     from backend.engine.room_manager import get_active_rooms
 
     active = {ar.room.id: ar for ar in await get_active_rooms(conn, engine.thermostat_entity_id)}
-    engine._apply_bands(active, "heating", None)
+    engine._apply_bands(active, "heating")
     assert {ar.target_temp for ar in active.values()} == {72.0}
     await conn.close()
 

@@ -208,6 +208,19 @@ async def test_the_band_must_sit_inside_every_zones_safety_limits(client, rooms)
         assert (resp.status, (await resp.json())["error"]) == (400, message), (heat, cool)
     assert (await _set(client, 84, 95)).status == 200
     assert (await _set(client, 45, 61)).status == 200
+    scheduler = client.app["scheduler"]
+    scheduler._active_unit = "C"
+    try:
+        resp = await _set(client, 30, 35)
+        # 84 °F is 28.89 °C and 61 °F is 16.11 °C: named so that they are accepted.
+        assert (await resp.json())["error"] == (
+            "The band must sit inside every zone's safety limits: Heat To at most 28.8°C"
+            " and Cool To at least 16.2°C"
+        )
+        assert (await _set(client, 28.8, 35)).status == 200
+        assert (await _set(client, 7.3, 16.2)).status == 200
+    finally:
+        scheduler._active_unit = "F"
 
 
 async def test_what_a_room_reports_matches_its_switches(client, rooms):

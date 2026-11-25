@@ -25,7 +25,7 @@ from .. import (
     tz,
     zones,
 )
-from ..units import delta_to_f, from_f, to_f
+from ..units import delta_to_f, to_f
 from ..user_errors import UserError, safe_text
 from . import schemas
 from .openapi import docs, query_params, request_schema, response_schema
@@ -505,9 +505,13 @@ async def update_house(request: web.Request) -> web.Response:
             )
         top, bottom = await house.safety_window(conn)
         if heat_f > top or cool_f < bottom:
+            scale, shift = (5 / 9, 32) if unit == "C" else (1.0, 0)
+            # Rounded inward, so the numbers named are ones that are accepted.
+            most = math.floor(round((top - shift) * scale, 6) * 10) / 10
+            least = math.ceil(round((bottom - shift) * scale, 6) * 10) / 10
             return error(
                 f"The band must sit inside every zone's safety limits: Heat To at most"
-                f" {from_f(top, unit)}°{unit} and Cool To at least {from_f(bottom, unit)}°{unit}"
+                f" {most}°{unit} and Cool To at least {least}°{unit}"
             )
         await house.set_band(conn, heat_f, cool_f)
     await emit(request, "info", "api", "House band changed", body)
