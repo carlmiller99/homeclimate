@@ -202,3 +202,29 @@ async def test_through_the_engine_a_balancing_room_starts_a_cycle_and_a_pause_st
     await engine._do_tick(conn)
     started.assert_not_awaited()
     await conn.close()
+
+
+async def test_balancing_rooms_never_outvote_a_room_with_a_say_of_its_own():
+    """Two rooms asked to heat for balance must not stop a third being cooled."""
+    conn, engine, room, _temps = await _setup()
+    rooms = [room]
+    for name in ("Craft Room", "Loft"):
+        extra = Room.create(name=name, thermostat_entity_id=THERMO_ID)
+        await db.upsert_room(conn, extra)
+        rooms.append(extra)
+    temps = {rooms[0].id: 64.0, rooms[1].id: 64.0, rooms[2].id: 80.0}
+    engine._get_avg_temp = lambda r, **_k: temps[r.id]
+    active = {
+        rooms[0].id: ActiveRoom(room=rooms[0], target_temp=67.0, source="balance"),
+        rooms[1].id: ActiveRoom(room=rooms[1], target_temp=67.0, source="balance"),
+        rooms[2].id: ActiveRoom(room=rooms[2], target_temp=76.0, source="safety"),
+    }
+    assert await engine._infer_mode_from_room_temps(active, 0.5) == "cooling"
+    # A hold, a schedule or occupancy has the same standing.
+    active[rooms[2].id].source = "override"
+    assert await engine._infer_mode_from_room_temps(active, 0.5) == "cooling"
+    # With nobody else asking, they decide for themselves.
+    del active[rooms[2].id]
+    assert await engine._infer_mode_from_room_temps(active, 0.5) == "heating"
+    assert await engine._infer_mode_from_room_temps(active, 0.5, only="heating") == "heating"
+    await conn.close()
