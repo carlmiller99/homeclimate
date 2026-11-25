@@ -197,6 +197,15 @@ class FakeHomeAssistant:
         )
         return {}
 
+    async def get_calendar_events(
+        self, entity_id: str, start: datetime, end: datetime
+    ) -> list[dict]:
+        """Events seeded in ``self.calendars``; an Exception there, or no entry, is raised."""
+        found: Any = getattr(self, "calendars", {}).get(entity_id, KeyError(entity_id))
+        if isinstance(found, Exception):
+            raise found
+        return list(found)
+
     async def get_forecasts(self, entity_id: str, kind: str = "hourly") -> list[dict]:
         """Forecast entries seeded in ``self.forecasts``; an Exception there is raised."""
         found: Any = getattr(self, "forecasts", {}).get(entity_id, [])

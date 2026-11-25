@@ -17,10 +17,27 @@ export interface House {
   min_gap: number;
   low: number;
   high: number;
-  rooms: ({ room_id: string } & RoomSwitches)[];
+  rooms: ({ room_id: string; calendar?: RoomCalendar | null } & RoomSwitches)[];
 }
 
+/** The Home Assistant calendar a room's In Use follows. */
+export interface RoomCalendar {
+  entity_id: string;
+  /** Only events whose title contains this; empty for any event. */
+  match_text: string;
+  /** Minutes before an event starts that the room is already in use. */
+  lead_min: number;
+  /** The calendar has not answered for 30 minutes, so the room is being treated as in use. */
+  unreadable?: boolean;
+}
+
+export const LEAD_MAX_MIN = 1440;
+
 export const ALL_ON: RoomSwitches = { in_use: true, use_schedules: true, use_presence: true };
+
+export function calendarFor(house: House | null, roomId: string): RoomCalendar | null {
+  return house?.rooms.find((r) => r.room_id === roomId)?.calendar ?? null;
+}
 
 export function switchesFor(house: House | null, roomId: string): RoomSwitches {
   return house?.rooms.find((r) => r.room_id === roomId) ?? ALL_ON;
@@ -40,3 +57,12 @@ export const setRoomSwitches = (roomId: string, data: Partial<RoomSwitches>) =>
     method: "PUT",
     body: JSON.stringify(data),
   });
+
+export const setRoomCalendar = (roomId: string, data: Partial<RoomCalendar>) =>
+  api<House>(`/api/house/rooms/${encodeURIComponent(roomId)}/calendar`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+
+export const clearRoomCalendar = (roomId: string) =>
+  api<House>(`/api/house/rooms/${encodeURIComponent(roomId)}/calendar`, { method: "DELETE" });

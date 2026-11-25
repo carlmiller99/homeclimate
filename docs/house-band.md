@@ -40,13 +40,23 @@ Each room on the Dashboard has **Options**:
 | **Follow Its Schedules** | The room's schedules are skipped, not deleted, and it follows the house band instead. |
 | **Follow Occupancy** | Occupancy gives the room no target of its own; it follows the house band instead. |
 
-All three are on for every room until changed. Cancelling a hold is how a held room goes back to what it follows.
+All three are on for every room until changed.
 
-A change to the band or to a room's options is applied straight away, though the equipment's own protections (minimum off time, the heat pump's switchover wait) can still delay a start. Turning the band off, or marking a room not in use, ends a cycle that was running only for those rooms, so Turn Off asks first.
+### Room In Use from a calendar
+
+Under **Smart Control → Schedules → Rooms In Use by Calendar**, a room's In Use can follow a Home Assistant calendar instead of being set by hand, for rooms that are only lived in some of the time.
+
+- The room is in use while an event is on, and from **Get Ready Ahead** (2 hours by default, up to 24) before one starts, so it is at temperature on arrival. The lead is a fixed time; on a heat pump zone in cold weather, allow more.
+- **Only Events Containing** limits it to events whose title contains that text; leave it empty for any event. Every event in the window is looked at, so an unrelated event at the same time does not hide the one that matters.
+- The calendar is read once a minute through Home Assistant's event list. New or changed events show up as fast as the calendar integration itself refreshes.
+- If the calendar can't be read (renamed, removed, its integration down), the room first keeps what the calendar last said. After 30 minutes it is treated as **in use** until the calendar answers again, a warning is logged, and the card says so. While Home Assistant itself is disconnected, nothing is concluded.
+- While a room follows a calendar its In Use switch on the Dashboard is locked. **Stop Following** hands it back, keeping the state it had.
+- All-day events run from midnight in the house's time zone.
 
 ## API
 
 - `GET /api/house` — the band (°F, or null) and every room's switches.
 - `PUT /api/house` — `house_heat_to` and `house_cool_to` in the display unit, or both null to clear. Both keys are required.
 - `PUT /api/house/rooms/{room_id}` — `in_use`, `use_schedules`, `use_presence`.
+- `PUT /api/house/rooms/{room_id}/calendar` — `entity_id`, `match_text`, `lead_min`; `DELETE` to stop following.
 - `POST /api/rooms/active-status` reports `source: "house"` with `heat_to` and `cool_to` for a room following the band.

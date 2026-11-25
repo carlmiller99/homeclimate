@@ -20,7 +20,7 @@ from datetime import UTC, datetime, timedelta
 import aiosqlite
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from . import db, fireplace, forecast, heat_pump, learning, openings, shades, tz, zones
+from . import db, fireplace, forecast, heat_pump, house, learning, openings, shades, tz, zones
 from .engine import room_manager
 from .engine.cycle_engine import SENSOR_STALE_AFTER_MIN, CycleEngine
 from .engine.vent_controller import VentController
@@ -152,6 +152,7 @@ class Scheduler:
         self._shades = shades.ShadeController()
         self._forecast = forecast.Forecast()
         self._fireplaces = fireplace.FireplaceMonitor()
+        self._calendars = house.CalendarWatch()
 
     def _spawn_bg(self, coro: Coroutine) -> asyncio.Task:
         """Create a background task and keep a strong reference until it
@@ -1326,6 +1327,7 @@ class Scheduler:
         await self._refresh_continuous_presence()
         await self._refresh_reported_states()
         await self._evaluate_openings()
+        await self._refresh_room_calendars()
         await self._evaluate_fireplaces()
         await self._load_heat_pumps()
         await self._watch_backup_heat()
@@ -1619,6 +1621,44 @@ class Scheduler:
                 f"Moved {moved} door or window sensor(s) from their zone into a room",
                 {"count": moved},
             )
+
+    async def _refresh_room_calendars(self) -> None:
+        """Bring rooms that follow a calendar in and out of use, and say so."""
+        try:
+            changes, given_up = await self._calendars.refresh(
+                self._db_conn, self._ha, datetime.now(UTC)
+            )
+            if self._event_logger is None:
+                return
+            for room_id in given_up:
+                room = await db.get_room(self._db_conn, room_id)
+                await self._event_logger.log(
+                    "warning",
+                    "engine",
+                    f"The calendar {room.name if room else 'a room'} follows has not answered"
+                    " for 30 minutes; treating the room as in use until it does",
+                    {"room": room_id},
+                )
+            for room_id, in_use in changes:
+                room = await db.get_room(self._db_conn, room_id)
+                if room is not None:
+                    await self._event_logger.log(
+                        "info",
+                        "engine",
+                        f"{room.name} is {'in use' if in_use else 'not in use'} (calendar)",
+                        {"room": room_id, "in_use": in_use},
+                    )
+        except Exception:
+            log.exception("Could not read room calendars")
+
+    @property
+    def calendars(self) -> house.CalendarWatch:
+        return self._calendars
+
+    async def refresh_room_calendars_now(self) -> None:
+        """After a calendar link changes: read it and apply the result at once."""
+        await self._refresh_room_calendars()
+        await self.tick_all_now()
 
     async def tick_all_now(self) -> None:
         """Tick every zone now, after a change to what rooms follow."""

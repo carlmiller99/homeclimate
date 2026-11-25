@@ -247,6 +247,31 @@ describe("Dashboard room options", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
+  it("shows that a room's In Use is set by a calendar and cannot be flipped here", async () => {
+    vi.mocked(ha.getHouse).mockResolvedValue(
+      house({
+        rooms: [
+          {
+            room_id: "kitchen",
+            in_use: true,
+            use_schedules: true,
+            use_presence: true,
+            calendar: { entity_id: "calendar.custody", match_text: "", lead_min: 120 },
+          },
+        ],
+      })
+    );
+    show();
+    const kitchen = await screen.findByTestId("dash-room-kitchen");
+    fireEvent.click(within(kitchen).getByRole("button", { name: "Options for Kitchen" }));
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByRole("switch", { name: "Room In Use" })).toBeDisabled();
+    expect(
+      within(dialog).getByText(/Set by calendar\.custody; change it in Smart Control, Schedules\./)
+    ).toBeInTheDocument();
+    expect(within(dialog).getByRole("switch", { name: "Follow Occupancy" })).not.toBeDisabled();
+  });
+
   it("reports a switch that could not be saved", async () => {
     vi.mocked(ha.setRoomSwitches).mockRejectedValueOnce(new Error("Room not found"));
     show();

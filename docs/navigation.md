@@ -39,7 +39,7 @@ One page for the whole structure: buildings, the zones in each building, and the
 
 A side menu of sections:
 
-- **Schedules** — per-room time blocks. See [Schedules](./schedules.md).
+- **Schedules** — per-room time blocks, and **Rooms In Use by Calendar**: a room can be in use only while a Home Assistant calendar event is on. See [Schedules](./schedules.md) and [House band](./house-band.md).
 - **Doors & Windows** — how long a door or window can stay open before its room or zone pauses, per-zone and per-room overrides, and **Shades**. The sensors themselves are added to rooms in My Home. See [Doors & windows](./doors-and-windows.md) and [Shades](./shades.md).
 - **Smart Learning** — records how each room heats and cools, and shows how much each room has collected. See [Smart Learning](./smart-learning.md).
 - **Forecasts** — the weather source, and the forecast HomeClimate has fetched. See [Forecasts](./forecasts.md).

@@ -4627,8 +4627,13 @@ class CycleEngine:
             return
 
         tc = await self._load_tc(conn)
+        # A lit fireplace is warming a room of this zone (Smart Control →
+        # Fireplace): cooling would only fight the fire. The range hold lets
+        # the equipment cool on its own, so it gives way to the single-setpoint
+        # hold below, whose cooling arm is skipped.
+        fire = await self._fire_is_warming_this_zone(conn)
 
-        if tc.vacation_hvac_mode == "range":
+        if tc.vacation_hvac_mode == "range" and not fire:
             # Set thermostat to heat_cool/auto with low=min_setpoint, high=max_setpoint.
             # The bounds are commanded BARE here — no deadband inset (#628).
             # That is deliberate, not the flapping defect the single-setpoint
@@ -4883,6 +4888,38 @@ class CycleEngine:
                 f"holding heat at {heat_target:.1f}°F, one deadband inside the bound.",
                 heat_details,
             )
+        elif current_temp_f > tc.max_setpoint and fire:
+            if current_hvac_mode != "off":
+                try:
+                    await self._ha.set_thermostat_hvac_mode(self.thermostat_entity_id, "off")
+                except Exception as exc:
+                    log.error(
+                        "Vacation hold: failed to turn off %s: %s", self.thermostat_entity_id, exc
+                    )
+                    await self._announce_vacation_hold(
+                        "fire:off-failed",
+                        "error",
+                        f"Vacation hold for {self.thermostat_entity_id} could not turn the "
+                        "equipment off while a lit fireplace is warming this zone — Home "
+                        "Assistant rejected the command. The hold retries every tick.",
+                        {"thermostat": self.thermostat_entity_id, "action": "off"},
+                    )
+                    return
+                else:
+                    self._note_hold_stopped_compressor(current_hvac_mode)
+            await self._announce_vacation_hold(
+                "fire:no-cooling",
+                "info",
+                f"Vacation hold for {self.thermostat_entity_id}: ambient "
+                f"{current_temp_f:.1f}°F is above max_setpoint {tc.max_setpoint:.1f}°F, but a "
+                "lit fireplace is warming this zone, so cooling is not commanded.",
+                {
+                    "thermostat": self.thermostat_entity_id,
+                    "current_temp": current_temp_f,
+                    "max_setpoint": tc.max_setpoint,
+                    "action": "off",
+                },
+            )
         elif current_temp_f > tc.max_setpoint:
             # Too hot — cool to the maximum bound. Respect the compressor
             # off-time lockout (#208/#426): vacation activation aborts any
@@ -4982,7 +5019,12 @@ class CycleEngine:
             recovered_cycle = await db.get_last_completed_cycle_for_thermostat(
                 conn, self.thermostat_entity_id
             )
-            if recovered_cycle is not None:
+            if fire:
+                # Parked in cool, the fire's heat on the thermostat's own probe
+                # could start the compressor. Heat is the direction a fire
+                # cannot trip.
+                park_mode = "heat"
+            elif recovered_cycle is not None:
                 # CycleLog.mode ('heating'/'cooling') is exactly the
                 # `direction` `_parked_setpoint` already accepts — no
                 # translation needed, mirroring #637's own mapping. Checked

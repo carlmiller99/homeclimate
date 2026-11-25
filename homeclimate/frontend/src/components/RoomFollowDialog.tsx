@@ -27,12 +27,15 @@ export default function RoomFollowDialog({
   roomId,
   roomName,
   switches,
+  calendar,
   onSaved,
   onClose,
 }: {
   roomId: string;
   roomName: string;
   switches: RoomSwitches;
+  /** The calendar this room's In Use follows, if any: then it can't be set by hand. */
+  calendar?: string | null;
   onSaved: (house: House) => void;
   onClose: () => void;
 }) {
@@ -59,6 +62,7 @@ export default function RoomFollowDialog({
           const on = switches[row.key];
           // Not in use, nothing else applies.
           const moot = row.key !== "in_use" && !switches.in_use;
+          const byCalendar = row.key === "in_use" && Boolean(calendar);
           return (
             <div className="rule-row" key={row.key}>
               <input
@@ -68,13 +72,14 @@ export default function RoomFollowDialog({
                 role="switch"
                 checked={on}
                 aria-label={row.title}
-                disabled={saving || moot}
+                disabled={saving || moot || byCalendar}
                 onChange={() => void flip(row.key)}
               />
               <div className="rule-text">
                 <span className="rule-title">{row.title}</span>
                 <p className="rule-help">
                   {moot ? "Not used while the room is not in use." : on ? row.on : row.off}
+                  {byCalendar && ` Set by ${calendar}; change it in Smart Control, Schedules.`}
                 </p>
               </div>
             </div>
