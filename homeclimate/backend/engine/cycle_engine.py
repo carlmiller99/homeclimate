@@ -4627,8 +4627,13 @@ class CycleEngine:
             return
 
         tc = await self._load_tc(conn)
+        # A lit fireplace is warming a room of this zone (Smart Control →
+        # Fireplace): cooling would only fight the fire. The range hold lets
+        # the equipment cool on its own, so it gives way to the single-setpoint
+        # hold below, whose cooling arm is skipped.
+        fire = await self._fire_is_warming_this_zone(conn)
 
-        if tc.vacation_hvac_mode == "range":
+        if tc.vacation_hvac_mode == "range" and not fire:
             # Set thermostat to heat_cool/auto with low=min_setpoint, high=max_setpoint.
             # The bounds are commanded BARE here — no deadband inset (#628).
             # That is deliberate, not the flapping defect the single-setpoint
@@ -4882,6 +4887,27 @@ class CycleEngine:
                 f"{current_temp_f:.1f}°F is below min_setpoint {tc.min_setpoint:.1f}°F — "
                 f"holding heat at {heat_target:.1f}°F, one deadband inside the bound.",
                 heat_details,
+            )
+        elif current_temp_f > tc.max_setpoint and fire:
+            if current_hvac_mode != "off":
+                try:
+                    await self._ha.set_thermostat_hvac_mode(self.thermostat_entity_id, "off")
+                except Exception as exc:
+                    log.error(
+                        "Vacation hold: failed to turn off %s: %s", self.thermostat_entity_id, exc
+                    )
+            await self._announce_vacation_hold(
+                "fire:no-cooling",
+                "info",
+                f"Vacation hold for {self.thermostat_entity_id}: ambient "
+                f"{current_temp_f:.1f}°F is above max_setpoint {tc.max_setpoint:.1f}°F, but a "
+                "lit fireplace is warming this zone, so cooling is not commanded.",
+                {
+                    "thermostat": self.thermostat_entity_id,
+                    "current_temp": current_temp_f,
+                    "max_setpoint": tc.max_setpoint,
+                    "action": "off",
+                },
             )
         elif current_temp_f > tc.max_setpoint:
             # Too hot — cool to the maximum bound. Respect the compressor

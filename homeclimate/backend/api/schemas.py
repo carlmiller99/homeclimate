@@ -883,8 +883,17 @@ class RoomSwitchesSchema(Schema):
     use_presence = fields.Bool(metadata={"description": "Off: occupancy sets no target"})
 
 
+class RoomCalendarSchema(Schema):
+    entity_id = fields.Str(metadata={"description": "The calendar the room's In Use follows"})
+    match_text = fields.Str(
+        metadata={"description": "Only events whose title contains this; empty for any event"}
+    )
+    lead_min = fields.Int(metadata={"description": "Minutes before an event to be in use (0-1440)"})
+
+
 class HouseRoomSchema(RoomSwitchesSchema):
     room_id = fields.Str()
+    calendar = fields.Nested(RoomCalendarSchema, allow_none=True)
 
 
 class HouseSchema(HouseBandSchema):

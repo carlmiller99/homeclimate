@@ -2725,3 +2725,29 @@ button.sc-nav-item {
   margin-left: 0.3rem;
   font-weight: 600;
 }
+
+/* Smart Control → Schedules → rooms in use by calendar */
+.calendar-row {
+  display: grid;
+  grid-template-columns: minmax(9rem, 14rem) minmax(0, 1fr);
+  gap: 0.75rem 1.5rem;
+  align-items: start;
+  padding: 0.85rem 0;
+  border-top: 1px solid var(--border);
+}
+.calendar-room {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.calendar-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.5rem;
+  align-items: end;
+}
+@media (max-width: 720px) {
+  .calendar-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

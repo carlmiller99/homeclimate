@@ -43,8 +43,20 @@ async def test_with_no_house_band_nothing_changes(client, rooms):
     assert (snap["house_heat_to"], snap["house_cool_to"]) == (None, None)
     assert (snap["min_gap"], snap["low"], snap["high"]) == (3.0, 45.0, 95.0)
     assert snap["rooms"] == [
-        {"room_id": rooms["bunk"], "in_use": True, "use_schedules": True, "use_presence": True},
-        {"room_id": rooms["craft"], "in_use": True, "use_schedules": True, "use_presence": True},
+        {
+            "room_id": rooms["bunk"],
+            "in_use": True,
+            "use_schedules": True,
+            "use_presence": True,
+            "calendar": None,
+        },
+        {
+            "room_id": rooms["craft"],
+            "in_use": True,
+            "use_schedules": True,
+            "use_presence": True,
+            "calendar": None,
+        },
     ]
     assert await _sources(client) == {}
 
@@ -309,3 +321,172 @@ def test_the_target_a_band_gives_the_engine():
     assert band.target_for(None, 80.0) == 74.0  # above: short of cool-to
     assert band.target_for(None, 71.3) == 71.3  # inside: at target
     assert band.target_for("off", None) == 68.0
+
+
+CAL = "calendar.custody"
+
+
+def _event(state: str, *, starts_in_min: float = 0, message: str = "Girls here") -> dict:
+    from backend import tz
+
+    start = (datetime.now(tz.get_timezone()) + timedelta(minutes=starts_in_min)).replace(
+        tzinfo=None
+    )
+    return {
+        "message": message,
+        "start_time": start.strftime("%Y-%m-%d %H:%M:%S"),
+        "end_time": (start + timedelta(days=2)).strftime("%Y-%m-%d %H:%M:%S"),
+    } | {"_state": state}
+
+
+async def _seed(fake_ha, state: str, **kw) -> None:
+    attrs = _event(state, **kw)
+    attrs.pop("_state")
+    await fake_ha.set_entity_state(CAL, state, attrs)
+
+
+async def _in_use(client, room_id: str) -> bool:
+    snap = await (await client.get("/api/house")).json()
+    return next(bool(r["in_use"]) for r in snap["rooms"] if r["room_id"] == room_id)
+
+
+async def test_a_room_in_use_follows_a_calendar(client, fake_ha, rooms):
+    await _set(client, 68, 74)
+    scheduler = client.app["scheduler"]
+    fake_ha.seed_state(CAL, "off", {})
+    url = f"/api/house/rooms/{rooms['bunk']}/calendar"
+    snap = await (await client.put(url, json={"entity_id": CAL})).json()
+    assert snap["rooms"][0]["calendar"] == {"entity_id": CAL, "match_text": "", "lead_min": 120}
+    # No event on and none coming: not in use, so it follows nothing.
+    assert snap["rooms"][0]["in_use"] is False
+    assert "Bunk Room" not in await _sources(client)
+
+    # An event starts: in use, and following the house band again.
+    await _seed(fake_ha, "on")
+    await scheduler._refresh_room_calendars()
+    assert await _in_use(client, rooms["bunk"]) is True
+    assert (await _sources(client))["Bunk Room"][0] == "house"
+
+    # Over, with the next one three hours off: outside the two-hour lead.
+    await _seed(fake_ha, "off", starts_in_min=180)
+    await scheduler._refresh_room_calendars()
+    assert await _in_use(client, rooms["bunk"]) is False
+    # Ninety minutes off: inside the lead, so the room is ready on arrival.
+    await _seed(fake_ha, "off", starts_in_min=90)
+    await scheduler._refresh_room_calendars()
+    assert await _in_use(client, rooms["bunk"]) is True
+    # A shorter lead takes effect straight away.
+    snap = await (await client.put(url, json={"lead_min": 30})).json()
+    assert snap["rooms"][0]["in_use"] is False
+
+    events = await (await client.get("/api/logs/events?category=engine")).json()
+    messages = [e["message"] for e in events]
+    assert "Bunk Room is in use (calendar)" in messages
+    assert "Bunk Room is not in use (calendar)" in messages
+
+
+async def test_only_matching_events_count_when_a_match_is_set(client, fake_ha, rooms):
+    scheduler = client.app["scheduler"]
+    await _seed(fake_ha, "on", message="Dentist")
+    url = f"/api/house/rooms/{rooms['bunk']}/calendar"
+    await client.put(url, json={"entity_id": CAL, "match_text": " girls "})
+    assert await _in_use(client, rooms["bunk"]) is False
+    await _seed(fake_ha, "on", message="GIRLS here this week")
+    await scheduler._refresh_room_calendars()
+    assert await _in_use(client, rooms["bunk"]) is True
+    # The next event shown is something else: nothing says the girls are near.
+    await _seed(fake_ha, "off", starts_in_min=10, message="Dentist")
+    await scheduler._refresh_room_calendars()
+    assert await _in_use(client, rooms["bunk"]) is False
+
+
+async def test_a_calendar_that_cannot_be_read_changes_nothing(
+    client, fake_ha, rooms, monkeypatch, caplog
+):
+    scheduler = client.app["scheduler"]
+    await _seed(fake_ha, "on")
+    url = f"/api/house/rooms/{rooms['bunk']}/calendar"
+    await client.put(url, json={"entity_id": CAL})
+    assert await _in_use(client, rooms["bunk"]) is True
+    for state in ("unavailable", "unknown"):
+        await fake_ha.set_entity_state(CAL, state, {})
+        await scheduler._refresh_room_calendars()
+        assert await _in_use(client, rooms["bunk"]) is True
+    # Disconnected: an "off" left in the cache is not believed.
+    await fake_ha.set_entity_state(CAL, "off", {})
+    fake_ha._connected.clear()
+    try:
+        await scheduler._refresh_room_calendars()
+    finally:
+        fake_ha._connected.set()
+    assert await _in_use(client, rooms["bunk"]) is True
+    # An event with no readable start time is not a reason to get ready.
+    await fake_ha.set_entity_state(CAL, "off", {"message": "x", "start_time": "soon"})
+    await scheduler._refresh_room_calendars()
+    assert await _in_use(client, rooms["bunk"]) is False
+
+    async def boom(*_a, **_k):
+        raise RuntimeError("db gone")
+
+    monkeypatch.setattr(house, "refresh_calendars", boom)
+    await scheduler._refresh_room_calendars()
+    assert "Could not read room calendars" in caplog.text
+
+
+async def test_in_use_cannot_be_set_by_hand_while_following_a_calendar(client, fake_ha, rooms):
+    await _seed(fake_ha, "on")
+    url = f"/api/house/rooms/{rooms['bunk']}/calendar"
+    await client.put(url, json={"entity_id": CAL})
+    resp = await client.put(f"/api/house/rooms/{rooms['bunk']}", json={"in_use": False})
+    assert (resp.status, (await resp.json())["error"]) == (
+        400,
+        "This room's In Use follows a calendar; stop following it to set it by hand",
+    )
+    # The other switches still work.
+    resp = await client.put(f"/api/house/rooms/{rooms['bunk']}", json={"use_presence": False})
+    assert resp.status == 200
+
+    # Unlinking keeps, by hand, the state the calendar last gave.
+    await _seed(fake_ha, "off", starts_in_min=600)
+    await client.app["scheduler"]._refresh_room_calendars()
+    snap = await (await client.delete(url)).json()
+    assert (snap["rooms"][0]["calendar"], snap["rooms"][0]["in_use"]) == (None, False)
+    assert (
+        await client.put(f"/api/house/rooms/{rooms['bunk']}", json={"in_use": True})
+    ).status == 200
+    assert (await client.delete(url)).status == 404
+
+
+async def test_calendar_links_are_validated(client, rooms):
+    url = f"/api/house/rooms/{rooms['bunk']}/calendar"
+    for body, message in (
+        ({"entity_id": "switch.x"}, "entity_id must be a calendar entity"),
+        ({"entity_id": "calendar."}, "entity_id must be a calendar entity"),
+        ({"entity_id": 5}, "entity_id must be a calendar entity"),
+        ({"entity_id": CAL, "match_text": 5}, "match_text must be text of up to 60 characters"),
+        (
+            {"entity_id": CAL, "match_text": "x" * 61},
+            "match_text must be text of up to 60 characters",
+        ),
+        (
+            {"entity_id": CAL, "lead_min": 1441},
+            "lead_min must be a whole number of minutes from 0 to 1440",
+        ),
+        (
+            {"entity_id": CAL, "lead_min": True},
+            "lead_min must be a whole number of minutes from 0 to 1440",
+        ),
+        ({"entity_id": CAL, "colour": "red"}, "Unknown calendar field"),
+        ({"lead_min": 30}, "Choose the calendar this room follows"),
+    ):
+        resp = await client.put(url, json=body)
+        assert resp.status == 400, body
+        assert (await resp.json())["error"] == message
+    resp = await client.put("/api/house/rooms/nope/calendar", json={"entity_id": CAL})
+    assert (resp.status, (await resp.json())["error"]) == (404, "Room not found")
+    # Deleting a room drops its link.
+    assert (await client.put(url, json={"entity_id": CAL})).status == 200
+    await client.post("/api/rooms", json={"name": "Spare", "thermostat_entity_id": T1})
+    await client.delete(f"/api/rooms/{rooms['bunk']}")
+    conn = await client.app["scheduler"].get_db()
+    assert (await house.load(conn)).calendars == {}

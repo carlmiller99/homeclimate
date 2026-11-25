@@ -267,6 +267,16 @@ CREATE TABLE IF NOT EXISTS room_switches (
     use_presence INTEGER NOT NULL DEFAULT 1
 );
 
+-- A room whose "in use" follows a Home Assistant calendar (backend/house.py).
+-- in_use is what the calendar last said, kept so an outage changes nothing.
+CREATE TABLE IF NOT EXISTS room_calendars (
+    room_id TEXT PRIMARY KEY,
+    entity_id TEXT NOT NULL,
+    match_text TEXT NOT NULL DEFAULT '',
+    lead_min INTEGER NOT NULL DEFAULT 120,
+    in_use INTEGER NOT NULL DEFAULT 1
+);
+
 -- Fireplaces (backend/fireplace.py): the entity that says one is lit, the
 -- rooms it warms, and what to do about it. last_lit_at is Unix seconds, so a
 -- cool-down survives a restart.
@@ -1475,6 +1485,7 @@ async def delete_room(conn: aiosqlite.Connection, room_id: str) -> None:
     await conn.execute("DELETE FROM rooms WHERE id=?", (room_id,))
     await conn.execute("DELETE FROM fireplace_rooms WHERE room_id=?", (room_id,))
     await conn.execute("DELETE FROM room_switches WHERE room_id=?", (room_id,))
+    await conn.execute("DELETE FROM room_calendars WHERE room_id=?", (room_id,))
     await conn.commit()
 
 

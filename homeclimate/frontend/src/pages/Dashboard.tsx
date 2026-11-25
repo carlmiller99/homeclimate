@@ -28,7 +28,7 @@ import {
 import ConfirmDialog from "../components/ConfirmDialog";
 import HouseBandCard from "../components/HouseBandCard";
 import RoomFollowDialog from "../components/RoomFollowDialog";
-import { getHouse, switchesFor, type House } from "../houseApi";
+import { calendarFor, getHouse, switchesFor, type House } from "../houseApi";
 import { getSmartControl, type SmartControl } from "../smartControlApi";
 import { useSystem, useTimeZone, useUnit } from "../contexts";
 import { onStateChanged } from "../stateEvents";
@@ -935,6 +935,7 @@ export default function Dashboard() {
             roomId={optionsFor.id}
             roomName={optionsFor.name}
             switches={switchesFor(house, optionsFor.id)}
+            calendar={calendarFor(house, optionsFor.id)?.entity_id ?? null}
             onSaved={setHouse}
             onClose={() => setOptionsFor(null)}
           />

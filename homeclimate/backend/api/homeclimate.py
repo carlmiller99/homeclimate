@@ -449,6 +449,15 @@ async def _house_snapshot(request: web.Request) -> dict:
                 "in_use": the_house.switches(room.id).in_use,
                 "use_schedules": the_house.switches(room.id).use_schedules,
                 "use_presence": the_house.switches(room.id).use_presence,
+                "calendar": (
+                    {
+                        "entity_id": the_house.calendars[room.id].entity_id,
+                        "match_text": the_house.calendars[room.id].match_text,
+                        "lead_min": the_house.calendars[room.id].lead_min,
+                    }
+                    if room.id in the_house.calendars
+                    else None
+                ),
             }
             for room in await db.get_all_rooms(conn)
         ],
@@ -539,6 +548,42 @@ async def update_room_switches(request: web.Request) -> web.Response:
         f"What {room.name if room else 'a room'} follows changed",
         {"room": request.match_info["room_id"], **body},
     )
+    await _tick_everything(request)
+    return json_response(await _house_snapshot(request))
+
+
+@docs(
+    tags=["house"],
+    summary="Make a room's In Use follow a Home Assistant calendar",
+    description=(
+        "The room is in use while an event is on, and from lead_min before one starts."
+        " match_text limits it to events whose title contains that text."
+    ),
+)
+@request_schema(schemas.RoomCalendarSchema)
+@response_schema(schemas.HouseSchema)
+@routes.put("/api/house/rooms/{room_id}/calendar")
+async def update_room_calendar(request: web.Request) -> web.Response:
+    body = await _json_object(request)
+    conn = await get_conn(request)
+    try:
+        await house.set_calendar(conn, request.match_info["room_id"], body)
+    except UserError as exc:
+        text = safe_text(exc)
+        return error(text, status=404 if text == house.ROOM_UNKNOWN else 400)
+    await emit(request, "info", "api", "Room calendar link changed", body)
+    await request.app["scheduler"].refresh_room_calendars_now()
+    return json_response(await _house_snapshot(request))
+
+
+@docs(tags=["house"], summary="Stop a room's In Use following a calendar")
+@response_schema(schemas.HouseSchema)
+@routes.delete("/api/house/rooms/{room_id}/calendar")
+async def delete_room_calendar(request: web.Request) -> web.Response:
+    conn = await get_conn(request)
+    if not await house.clear_calendar(conn, request.match_info["room_id"]):
+        return error("This room does not follow a calendar", status=404)
+    await emit(request, "info", "api", "Room calendar link removed", {})
     await _tick_everything(request)
     return json_response(await _house_snapshot(request))
 

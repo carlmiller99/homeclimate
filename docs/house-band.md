@@ -40,7 +40,17 @@ Each room on the Dashboard has **Options**:
 | **Follow Its Schedules** | The room's schedules are skipped, not deleted, and it follows the house band instead. |
 | **Follow Occupancy** | Occupancy gives the room no target of its own; it follows the house band instead. |
 
-All three are on for every room until changed. Cancelling a hold is how a held room goes back to what it follows.
+All three are on for every room until changed.
+
+### Room In Use from a calendar
+
+Under **Smart Control → Schedules → Rooms In Use by Calendar**, a room's In Use can follow a Home Assistant calendar instead of being set by hand, for rooms that are only lived in some of the time.
+
+- The room is in use while an event is on, and from **Get Ready Ahead** (2 hours by default, up to 24) before one starts, so it is at temperature on arrival.
+- **Only Events Containing** limits it to events whose title contains that text; leave it empty for any event. Home Assistant shows one event per calendar at a time (the one under way, else the next), so a calendar used only for this purpose is the most reliable.
+- If the calendar can't be read, or Home Assistant is disconnected, the room keeps what the calendar last said.
+- While a room follows a calendar its In Use switch on the Dashboard is locked. **Stop Following** hands it back, keeping the state it had.
+- Calendar times are read in the house's time zone, checked once a minute. Cancelling a hold is how a held room goes back to what it follows.
 
 A change to the band or to a room's options is applied straight away, though the equipment's own protections (minimum off time, the heat pump's switchover wait) can still delay a start. Turning the band off, or marking a room not in use, ends a cycle that was running only for those rooms, so Turn Off asks first.
 
@@ -49,4 +59,5 @@ A change to the band or to a room's options is applied straight away, though the
 - `GET /api/house` — the band (°F, or null) and every room's switches.
 - `PUT /api/house` — `house_heat_to` and `house_cool_to` in the display unit, or both null to clear. Both keys are required.
 - `PUT /api/house/rooms/{room_id}` — `in_use`, `use_schedules`, `use_presence`.
+- `PUT /api/house/rooms/{room_id}/calendar` — `entity_id`, `match_text`, `lead_min`; `DELETE` to stop following.
 - `POST /api/rooms/active-status` reports `source: "house"` with `heat_to` and `cool_to` for a room following the band.

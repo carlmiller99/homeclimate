@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.5
+
+- Smart Control → Schedules → Rooms In Use by Calendar: a room's In Use can follow a Home Assistant calendar. It is in use while an event is on and from a set time before one starts; the rest of the time it asks for nothing. An unreadable calendar changes nothing. See docs/house-band.md.
+- Vacation Mode no longer cools a zone that a lit fireplace is warming.
+
 ## 0.5.4
 
 - Dashboard: a System On / Off switch at the top right (it was only in the gear menu).
