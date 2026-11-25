@@ -75,6 +75,15 @@ describe("describing the plan", () => {
     expect(ta.describeNeeds([])).toBe("");
   });
 
+  it("puts the strip in words", () => {
+    const hour = (at: string) => at.slice(11, 13);
+    expect(ta.describeRuns(HOURS, hour)).toBe(
+      "Heating from 08, coasting from 14, cooling from 15."
+    );
+    expect(ta.describeRuns(HOURS.slice(6), hour)).toBe("Coasting from 14, cooling from 15.");
+    expect(ta.describeRuns([], hour)).toBe("");
+  });
+
   it("says what each event is", () => {
     const f = buildUnitContext("F").fmtTemp;
     expect(TODAY.events.map((e) => ta.describeEvent(e, f))).toEqual([
@@ -112,6 +121,9 @@ describe("Today's Plan card", () => {
         .getAllByText(/AM$/)
         .map((n) => n.textContent)
     ).toEqual(["4 AM", "10 AM"]);
+    expect(
+      screen.getByText("Heating from 4 AM, coasting from 10 AM, cooling from 11 AM.")
+    ).toBeInTheDocument();
     expect(
       screen.getByText(
         "Heating when it is colder than 66.0°F outside, cooling when warmer than 76.0°F: the house band."
@@ -164,6 +176,20 @@ describe("Today's Plan card", () => {
     });
     expect(screen.getByText(TODAY.yesterday)).toBeInTheDocument();
     expect(screen.queryByText("Could not load today's plan.")).toBeNull();
+  });
+
+  it("stops asking once it has gone", async () => {
+    vi.useFakeTimers();
+    const shown = show();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(ta.getToday).toHaveBeenCalledTimes(1);
+    shown.unmount();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15 * 60_000);
+    });
+    expect(ta.getToday).toHaveBeenCalledTimes(1);
   });
 
   it("ignores an answer that arrives after it has gone", async () => {

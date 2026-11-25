@@ -66,7 +66,7 @@ Half-hours are left out when a door or window was open, a fireplace was lit or c
 
 Limits worth knowing:
 
-- The sun term is the clear-sky sun on the windows. Cloud cover, and whether a shade was down, are not recorded, so what is learned is the room's usual gain on days like those it has seen. It is used where a room is predicted to drift by itself (Let Rooms Coast, Early Cooling, shades closing ahead of a warm room), not in how long heating or cooling takes.
+- The sun term is the clear-sky sun on the windows. Cloud cover, and whether a shade was down, are not recorded, so what is learned is the room's usual gain on days like those it has seen. It is used wherever the model predicts: where a room is expected to drift by itself (Let Rooms Coast, Early Cooling, shades closing ahead of a warm room) and in how long a warm-up or cool-down will take (Start Rooms Early, Get Rooms Ready for Usual Arrivals). The Smart Learning summary shows the gain with the sun full on the windows, which is about four tenths of the fitted figure.
 - A sensor that reports in whole degrees, or that lags the room by several minutes, makes the rates come out low.
 - The model is fitted from snapshots every five minutes, so heating that runs in bursts shorter than that is under-counted.
 

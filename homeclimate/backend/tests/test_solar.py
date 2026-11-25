@@ -23,6 +23,16 @@ def test_the_suns_position_through_a_summer_day():
     evening = solar.position(LAT, LON, datetime(2026, 6, 21, 23, 0, tzinfo=UTC))
     assert 20 < morning[0] < 40 and 60 < morning[1] < 100  # in the east
     assert 20 < evening[0] < 40 and 260 < evening[1] < 300  # in the west
+    # Late in the day the sun is still in the west, though it is already
+    # tomorrow in UTC: 19:30 in the house is 00:30 UTC.
+    late = solar.position(32.3, -95.3, datetime(2026, 6, 22, 0, 30, tzinfo=UTC))
+    assert late[0] == pytest.approx(10.5, abs=2.0) and late[1] == pytest.approx(291.2, abs=2.0)
+    assert solar.gain(32.3, -95.3, datetime(2026, 6, 22, 0, 30, tzinfo=UTC), [270.0]) > 0.02
+    assert solar.gain(32.3, -95.3, datetime(2026, 6, 22, 0, 30, tzinfo=UTC), [90.0]) == 0.0
+    # And east of Greenwich a morning that is still yesterday in UTC is in the east:
+    # 06:30 in Tokyo is 21:30 UTC the day before.
+    tokyo = solar.position(35.7, 139.7, datetime(2026, 6, 20, 21, 30, tzinfo=UTC))
+    assert 15 < tokyo[0] < 30 and 60 < tokyo[1] < 90
     night = solar.position(LAT, LON, datetime(2026, 6, 21, 6, 0, tzinfo=UTC))
     assert night[0] < -20
     # Midwinter noon is far lower, and still due south.

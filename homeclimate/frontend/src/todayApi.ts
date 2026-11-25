@@ -44,6 +44,19 @@ export function describeNeeds(hours: TodayHour[]): string {
   return parts.join(", ");
 }
 
+/**
+ * The strip in words, for anyone who cannot tell its colours apart or hover
+ * over it: "Heating from 4 AM, coasting from 10 AM, cooling from 11 AM."
+ */
+export function describeRuns(hours: TodayHour[], hour: (at: string) => string): string {
+  const runs = hours
+    .filter((h, i) => i === 0 || h.need !== hours[i - 1].need)
+    .map((h) => `${WORDS[h.need]} from ${hour(h.at)}`);
+  if (runs.length === 0) return "";
+  const text = runs.join(", ");
+  return `${text[0].toUpperCase()}${text.slice(1)}.`;
+}
+
 /** What an event is, with temperatures already formatted for display. */
 export function describeEvent(e: TodayEvent, fmtTemp: (f: number) => string): string {
   if (e.kind === "peak_bank") return "Banking for the peak hours begins";

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Frozen } from "../ci";
 import { useTimeZone, useUnit } from "../contexts";
-import { describeEvent, describeNeeds, getToday, type Today } from "../todayApi";
+import { describeEvent, describeNeeds, describeRuns, getToday, type Today } from "../todayApi";
 
 const REFRESH_MS = 5 * 60_000;
 const NEED_WORD = { heat: "heating", cool: "cooling", coast: "coasting" } as const;
@@ -21,10 +21,7 @@ export default function TodayCard() {
     const load = () =>
       getToday()
         .then((d) => {
-          if (!cancelled) {
-            setData(d);
-            setLoadFailed(false);
-          }
+          if (!cancelled) setData(d);
         })
         .catch(() => {
           if (!cancelled) setLoadFailed(true);
@@ -73,6 +70,7 @@ export default function TodayCard() {
                   </span>
                 ))}
               </div>
+              <p className="today-runs">{describeRuns(data.hours, hour)}</p>
               <p className="form-hint">
                 {`Heating when it is colder than ${fmtTemp(data.heat_below)} outside, cooling when warmer than ${fmtTemp(data.cool_above)}: the house band.`}
               </p>

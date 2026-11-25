@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from backend import arrivals, db, house, learning, room_model, suggestions, tz
+from backend import arrivals, db, house, learning, room_model, solar, suggestions, tz
 from backend.engine.cycle_engine import OPTIONAL_SOURCES, CycleState
 from backend.engine.room_manager import ActiveRoom
 from backend.models import Room, Schedule
@@ -287,4 +287,25 @@ async def test_usual_hours_are_read_now_and_then_not_every_minute(monkeypatch):
     await engine._arrive(conn, [], now=MON + arrivals.REFRESH)
     await engine._arrive(conn, [], now=MON)
     assert read.await_count == 3
+    await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_the_sun_on_the_rooms_windows_reaches_the_warm_up_time(monkeypatch):
+    conn, engine, room, _temps = await _setup(monkeypatch)
+    seen = []
+
+    def minutes_to(*_a, sun_at=None, **_k):
+        seen.append((sun_at(0), sun_at(30)))
+        return 60
+
+    model = SimpleNamespace(
+        fitted_at=MON - timedelta(days=1), learned={"heat": True}, minutes_to=minutes_to
+    )
+    monkeypatch.setattr(room_model, "load", AsyncMock(return_value={room.id: model}))
+    monkeypatch.setattr(
+        solar, "for_rooms", AsyncMock(return_value={room.id: lambda when: when.minute / 100})
+    )
+    await engine._arrive(conn, [], now=MON - timedelta(minutes=30))  # 13:10
+    assert seen == [(0.1, 0.4)]
     await conn.close()

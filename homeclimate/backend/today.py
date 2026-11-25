@@ -16,12 +16,12 @@ Temperatures are °F; times are ISO instants.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import aiosqlite
 
-from . import building_mode, db, forecast, forecast_bias, house, notify, peak
+from . import building_mode, db, forecast, forecast_bias, house, notify, peak, tz
 from .engine.room_manager import _next_schedule_block
 
 HOURS = 24
@@ -67,7 +67,11 @@ async def build(conn: aiosqlite.Connection, *, now: datetime) -> dict[str, Any]:
         secs, block, _label = found
         events.append(
             {
-                "at": (now + timedelta(seconds=secs)).isoformat(),
+                # The block's own wall-clock start in the house's zone, so a
+                # clock change between now and then does not shift it.
+                "at": (tz.to_local_naive(now) + timedelta(seconds=secs))
+                .replace(tzinfo=tz.get_timezone())
+                .astimezone(UTC),
                 "kind": "schedule",
                 "room_id": room.id,
                 "room": room.name,
@@ -84,14 +88,15 @@ async def build(conn: aiosqlite.Connection, *, now: datetime) -> dict[str, Any]:
             (window.end, "peak_end"),
         ):
             if now < at <= until:
-                events.append({"at": at.isoformat(), "kind": kind})
+                events.append({"at": at.astimezone(UTC), "kind": kind})
     events.sort(key=lambda e: e["at"])
+    events = [{**e, "at": e["at"].isoformat()} for e in events[:MAX_EVENTS]]
     return {
         "now": now.isoformat(),
         "heat_below": heat_below,
         "cool_above": cool_above,
         "forecast_fetched_at": None if fetched is None else fetched.isoformat(),
         "hours": strip,
-        "events": events[:MAX_EVENTS],
+        "events": events,
         "yesterday": await notify.summary(conn, now=now),
     }

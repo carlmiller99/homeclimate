@@ -1705,9 +1705,12 @@ class Scheduler:
                 continue
             ar = await _resolve_room(conn, room, by_room.get(room.id, []), now, the_house)
             temp = engine._get_avg_temp(room, refresh=False)
-            if ar.source == "idle" or temp is None:
+            # Only a room following a band has a top with room under it. A
+            # single target is always "within a degree" of itself, and would
+            # have its shade shut whenever it is warm out.
+            if ar.cool_to is None or temp is None:
                 continue
-            top = ar.target_temp if ar.cool_to is None else ar.cool_to
+            top = ar.cool_to
             if early_cooling.warm_ahead(
                 models.get(room.id),
                 temp=temp,
@@ -1725,13 +1728,14 @@ class Scheduler:
         """Move shades for the sun, after the engines have settled their modes."""
         try:
             now = datetime.now(UTC)
+            try:
+                warm_ahead = await self._rooms_warm_ahead(now)
+            except Exception:
+                # The ordinary shade rules must not depend on a prediction.
+                log.exception("Could not work out which rooms are about to be too warm")
+                warm_ahead = frozenset()
             moves = await self._shades.run(
-                self._db_conn,
-                self._ha,
-                self.zone_mode,
-                now,
-                tz.now_local().time(),
-                await self._rooms_warm_ahead(now),
+                self._db_conn, self._ha, self.zone_mode, now, tz.now_local().time(), warm_ahead
             )
         except Exception:
             log.exception("Could not run shade automation")

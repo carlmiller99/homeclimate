@@ -27,6 +27,12 @@ def test_sun_on_the_windows_shortens_a_drift_upward():
     slow = coasting.minutes_alone(sunny, temp=74.0, goal=75.0, outlook=dark, within_min=600)
     fast = coasting.minutes_alone(sunny, temp=74.0, goal=75.0, outlook=lit, within_min=600)
     assert slow is not None and fast is not None and fast < slow / 2
+    # The sun is read as the clock moves on, not once at the start.
+    rising = coasting.Outlook(
+        NOW, 80.0, (), lambda when: float(when >= NOW + timedelta(minutes=10))
+    )
+    between = coasting.minutes_alone(sunny, temp=74.0, goal=75.0, outlook=rising, within_min=600)
+    assert between is not None and fast < between < slow
 
 
 def test_how_long_a_call_may_wait():

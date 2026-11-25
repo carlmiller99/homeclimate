@@ -138,3 +138,51 @@ async def test_the_strip_follows_the_house_band_and_events_come_in_order(client,
             },
         )
     assert len((await today.build(conn, now=NOW))["events"]) == today.MAX_EVENTS
+
+
+async def test_events_are_in_order_and_at_the_right_hour_in_the_houses_own_zone(
+    client, fake_ha, monkeypatch
+):
+    from zoneinfo import ZoneInfo
+
+    chicago = ZoneInfo("America/Chicago")
+    monkeypatch.setattr(tz, "get_timezone", lambda: chicago)
+    conn = await client.app["scheduler"].get_db()
+    fake_ha.seed_state(T, "heat_cool", {"current_temperature": 72, "hvac_action": "idle"})
+    ids = {}
+    for name in ("Bunk Room", "Far Room"):
+        resp = await client.post("/api/rooms", json={"name": name, "thermostat_entity_id": T})
+        ids[name] = (await resp.json())["id"]
+    # Monday 09:20 in the house. A block at 14:00 today and on Sunday at 08:00;
+    # a room whose only block is on Wednesday; peak hours 16:00 to 19:00.
+    for name, days, at in (
+        ("Bunk Room", [0], "14:00"),
+        ("Bunk Room", [6], "08:00"),
+        ("Far Room", [2], "10:00"),
+    ):
+        resp = await client.post(
+            f"/api/rooms/{ids[name]}/schedules",
+            json={"days_of_week": days, "start_time": at, "end_time": "23:00", "target_temp": 70},
+        )
+        assert resp.status == 201, await resp.text()
+    await client.put(
+        "/api/peak-hours",
+        json={"enabled": True, "start": "16:00", "end": "19:00", "lead_min": 60},
+    )
+    monday = datetime(2026, 7, 6, 9, 20, tzinfo=chicago)
+    events = (await today.build(conn, now=monday))["events"]
+    # In the order they happen, whatever offset each was worked out in, and
+    # nothing from more than a day away.
+    assert [(e["kind"], e["at"]) for e in events] == [
+        ("schedule", "2026-07-06T19:00:00+00:00"),
+        ("peak_bank", "2026-07-06T20:00:00+00:00"),
+        ("peak_start", "2026-07-06T21:00:00+00:00"),
+        ("peak_end", "2026-07-07T00:00:00+00:00"),
+    ]
+    # A peak that is only on Wednesdays is more than a day off.
+    await client.put("/api/peak-hours", json={"days": [2]})
+    assert [e["kind"] for e in (await today.build(conn, now=monday))["events"]] == ["schedule"]
+    # The night the clocks go back, Sunday's 08:00 block is at 08:00 on the new clock.
+    saturday = datetime(2026, 10, 31, 23, 0, tzinfo=chicago)
+    [event] = (await today.build(conn, now=saturday))["events"]
+    assert event["at"] == "2026-11-01T14:00:00+00:00"  # 08:00 CST

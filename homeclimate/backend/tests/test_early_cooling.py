@@ -218,3 +218,31 @@ async def test_a_room_that_started_a_run_is_kept_in_it_to_the_end(monkeypatch):
     engine._state = CycleState.IDLE
     assert await engine._cool_early(conn, band, now=later) == band
     await conn.close()
+
+
+def _watch_the_sun(monkeypatch, room_id):
+    """Give the room a sun reader, and record what reaches the model's drift prediction."""
+    from backend import solar
+
+    def sun(when):
+        return 0.5
+
+    seen = []
+    real = coasting.minutes_alone
+
+    def spy(model, **kw):
+        seen.append(kw["outlook"].sun)
+        return real(model, **kw)
+
+    monkeypatch.setattr(solar, "for_rooms", AsyncMock(return_value={room_id: sun}))
+    monkeypatch.setattr(coasting, "minutes_alone", spy)
+    return sun, seen
+
+
+@pytest.mark.asyncio
+async def test_the_sun_on_the_rooms_windows_reaches_the_prediction(monkeypatch):
+    conn, engine, room, band, _temps, _models = await _setup(monkeypatch)
+    sun, seen = _watch_the_sun(monkeypatch, room.id)
+    await engine._cool_early(conn, band, now=NOW)
+    assert seen == [sun]
+    await conn.close()

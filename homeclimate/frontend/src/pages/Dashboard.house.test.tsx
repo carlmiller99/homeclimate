@@ -8,7 +8,9 @@ import { SystemContext, UnitContext, buildUnitContext } from "../contexts";
 
 vi.mock("../api");
 // The plan card loads by itself and has its own tests.
-vi.mock("../components/TodayCard", () => ({ default: () => null }));
+vi.mock("../components/TodayCard", () => ({
+  default: () => <div data-testid="today-card-stub" />,
+}));
 vi.mock("../houseApi", async (orig) => ({
   ...(await orig<typeof import("../houseApi")>()),
   getHouse: vi.fn(),
@@ -102,6 +104,8 @@ describe("Dashboard house band", () => {
   it("shows the band and saves what was typed", async () => {
     show();
     const heat = await screen.findByLabelText("Heat To (°F)");
+    // Today's Plan sits on the Dashboard too (it has its own tests).
+    expect(screen.getByTestId("today-card-stub")).toBeInTheDocument();
     const cool = screen.getByLabelText("Cool To (°F)");
     expect(heat).toHaveValue(68);
     expect(cool).toHaveValue(75.2);

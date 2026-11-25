@@ -103,6 +103,24 @@ def test_the_sun_on_a_rooms_windows_is_learned():
     # It moves a prediction only where the sun is, and only once learned.
     assert model.rate(70, 60, sun=1.0) - model.rate(70, 60) == pytest.approx(model.sun)
     assert model.rate(70, 60, sun=0.0) == model.rate(70, 60)
+    # A room in sun warms sooner than the equipment's rate alone says (and
+    # cools later), and the sun is read as the minutes go by.
+    shade = model.minutes_to(62, 68, 30, "heating")
+    full = model.minutes_to(62, 68, 30, "heating", sun_at=lambda minutes: 1.0)
+    later = model.minutes_to(62, 68, 30, "heating", sun_at=lambda minutes: float(minutes >= 30))
+    assert shade is not None and full is not None and later is not None
+    assert full < later < shade
+    # A term fitted from too few sunlit hours is not used.
+    import dataclasses
+
+    unsure = dataclasses.replace(model, sun_hours=rm.SUN_HOURS - 1)
+    assert not unsure.learned["sun"] and unsure.rate(70, 60, sun=1.0) == unsure.rate(70, 60)
+    # A half-hour is sunlit by its average: a brief flash does not count.
+    flash = rm.windows_from(lit[:7], lambda ts: 0.5 if ts == lit[0].ts else 0.0)
+    assert [round(w.sun, 4) for w in flash] == [round(0.5 / 6, 4)]
+    assert rm.fit("r1", flash * 60, now=NOW).sun_hours == 0.0
+    steady = rm.windows_from(lit[:7], lambda ts: rm.SUNLIT)
+    assert rm.fit("r1", steady * 60, now=NOW).sun_hours == 30.0
     dark = rm.fit("r1", rm.windows_from(lit), now=NOW)
     assert not dark.learned["sun"] and dark.rate(70, 60, sun=1.0) == dark.rate(70, 60)
     assert rm.describe(model)["learned"]["sun"] is True

@@ -181,6 +181,7 @@ class RoomModel:
         mode: str | None,
         limit_min: int = 360,
         zone: float | None = None,
+        sun_at: Callable[[int], float] | None = None,
     ) -> int | None:
         """Minutes for the room to go from ``start`` to ``target``; None if it won't in time.
 
@@ -188,6 +189,9 @@ class RoomModel:
         below it when cooling, and for a room left alone, when the two are equal.
         Stepped five minutes at a time so the loss changes as the room moves.
         ``zone`` is the thermostat's reading, taken to stay where it is.
+        ``sun_at`` gives the sun on the room's windows a number of minutes
+        from now: a west room on a bright afternoon cools more slowly than the
+        equipment's own rate says.
         """
         if mode == "heating":
             rising = True
@@ -201,7 +205,8 @@ class RoomModel:
             return 0
         temp = start
         for step in range(1, limit_min // learning.SAMPLE_EVERY_MIN + 1):
-            temp += self.rate(temp, outside, zone, mode) * STEP_S / 3600
+            sun = 0.0 if sun_at is None else sun_at((step - 1) * learning.SAMPLE_EVERY_MIN)
+            temp += self.rate(temp, outside, zone, mode, sun) * STEP_S / 3600
             if (temp >= target) if rising else (temp <= target):
                 return step * learning.SAMPLE_EVERY_MIN
         return None

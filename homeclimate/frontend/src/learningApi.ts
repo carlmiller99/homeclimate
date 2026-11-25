@@ -111,6 +111,9 @@ export const GRADE_LABELS: Record<RoomModel["grade"], string> = {
  * `delta` turns a °F difference into the house's unit (rates are differences
  * per hour, so no 32° offset).
  */
+/** About the most sun a window ever has on it, in the model's units. */
+const SUNNIEST = 0.4;
+
 export function describeModel(
   m: RoomModel,
   delta: (f: number) => number,
@@ -137,9 +140,11 @@ export function describeModel(
       ? `Drifts about ${per(m.loss * across)} toward outside for every ${celsius ? 5 : 10}${unitLabel} of difference`
       : "Heat loss not learned yet (needs more varied weather)"
   );
-  // Only for a room whose windows are known (it has a shade in My Home).
+  // Only for a room whose windows are known (it has a shade in My Home). The
+  // fitted figure is per unit of sun on the glass, which for real windows
+  // tops out near 0.4, so that is what is shown.
   if (m.learned.sun) {
-    out.push(`Gains about ${per(m.sun ?? 0)} in full sun on its windows`);
+    out.push(`Gains about ${per((m.sun ?? 0) * SUNNIEST)} with the sun full on its windows`);
   } else if ((m.sun_hours ?? 0) > 0) {
     out.push("Sun on its windows not learned yet (needs about 10 sunlit hours)");
   }

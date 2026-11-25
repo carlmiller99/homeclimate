@@ -2821,27 +2821,45 @@ button.sc-nav-item {
 }
 
 /* Dashboard → Today's Plan */
+/* The three kinds of hour differ in shape as well as colour: a coasting hour
+   is a low outlined cell, heating is full height, cooling is full height with
+   a notch of the card showing at the top. */
 .today-strip {
   display: flex;
+  align-items: flex-end;
   gap: 2px;
+  height: 1.5rem;
   margin: 0.5rem 0 1.4rem;
 }
 .today-hour {
   position: relative;
   flex: 1 1 0;
-  height: 1.5rem;
+  box-sizing: border-box;
+  height: 40%;
+  border: 1px solid var(--gray-500);
   border-radius: 4px;
   background: var(--state-idle-bg);
 }
 .today-heat {
+  height: 100%;
+  border-color: var(--state-heating);
   background: var(--state-heating);
 }
 .today-cool {
+  height: 100%;
+  border-color: var(--state-cooling);
+  border-top: 5px solid var(--surface);
+  outline: 1px solid var(--state-cooling);
+  outline-offset: -1px;
   background: var(--state-cooling);
+}
+.today-runs {
+  margin: 0;
+  font-size: 0.875rem;
 }
 .today-hour-label {
   position: absolute;
-  top: 1.7rem;
+  top: calc(100% + 0.2rem);
   left: 0;
   font-size: 0.75rem;
   color: var(--gray-600);

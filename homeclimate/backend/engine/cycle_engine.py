@@ -6463,6 +6463,7 @@ class CycleEngine:
             return active
         now = now or datetime.now(UTC)
         models = await room_model.load(conn)
+        suns = await solar.for_rooms(conn)
         outside = await self._read_outside_temp(conn)
         if not models:
             self._early_latch = {}
@@ -6557,6 +6558,7 @@ class CycleEngine:
                     mode,
                     limit_min=room_model.EARLY_START_MAX_MIN,
                     zone=self._thermo_ambient_f(),
+                    sun_at=_sun_ahead(suns.get(room.id), now),
                 )
                 # A room the model says would not arrive within three hours gets all three.
                 lead = room_model.EARLY_START_MAX_MIN if found is None else found
@@ -6936,6 +6938,7 @@ class CycleEngine:
         side, obey = self._side_for_optional()
         state = (self._ha.get_state(self.thermostat_entity_id) or {}).get("state")
         models = await room_model.load(conn) if usual else {}
+        suns = await solar.for_rooms(conn) if usual else {}
         outside = await self._read_outside_temp(conn) if usual else None
         following = {ar.room.id: ar for ar in active}
         by_room: dict[str, list] = {}
@@ -7034,6 +7037,7 @@ class CycleEngine:
                         mode,
                         limit_min=arrivals.MAX_LEAD_MIN,
                         zone=self._thermo_ambient_f(),
+                        sun_at=_sun_ahead(suns.get(room.id), now),
                     )
                     if learned is None:
                         learned = arrivals.MAX_LEAD_MIN
@@ -8000,6 +8004,15 @@ def _is_at_target(avg_temp: float, target_temp: float, hvac_mode: str) -> bool:
     # rather than closing prematurely.  (Issue #48 Bug 6)
     log.warning("_is_at_target called with unexpected mode %r — returning False", hvac_mode)
     return False
+
+
+def _sun_ahead(
+    sun: Callable[[datetime], float] | None, now: datetime
+) -> Callable[[int], float] | None:
+    """A room's sun reader (``solar.for_rooms``) as minutes from ``now``, for the model."""
+    if sun is None:
+        return None
+    return lambda minutes: sun(now + timedelta(minutes=minutes))
 
 
 def _drifted_past_deadband(

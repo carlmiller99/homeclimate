@@ -64,6 +64,19 @@ def test_closing_ahead_of_a_warm_room():
     )
 
 
+def test_where_warm_ahead_draws_its_lines():
+    from backend import early_cooling
+
+    now = datetime(2026, 7, 6, 15, 0, tzinfo=UTC)
+    kw = {"cool_to": 76.0, "ahead": [], "now": now}
+    # Exactly a degree under the top counts; a hair more does not. Outside has
+    # to be warmer than the top, not merely as warm.
+    assert early_cooling.warm_ahead(None, temp=75.0, outside=90.0, **kw)
+    assert not early_cooling.warm_ahead(None, temp=74.99, outside=90.0, **kw)
+    assert not early_cooling.warm_ahead(None, temp=75.5, outside=76.0, **kw)
+    assert early_cooling.warm_ahead(None, temp=75.5, outside=76.1, **kw)
+
+
 def test_a_room_is_warm_ahead_only_when_it_is_warmer_outside():
     from backend import coasting, early_cooling
 
@@ -146,8 +159,51 @@ async def test_the_scheduler_closes_a_sunlit_shade_ahead_of_a_warm_room(
     await house.set_switches(conn, room, {"in_use": False})
     assert await scheduler._rooms_warm_ahead(now) == frozenset()
     await house.set_switches(conn, room, {"in_use": True})
+    # A sensor offset is applied to the band's top before the raw reading is compared.
+    from backend import early_cooling, solar
+
+    asked = {}
+    real = early_cooling.warm_ahead
+
+    def spy(model, **kw):
+        asked.update(kw)
+        return real(model, **kw)
+
+    monkeypatch.setattr(early_cooling, "warm_ahead", spy)
+
+    def sun(when):
+        return 0.5
+
+    monkeypatch.setattr(solar, "for_rooms", AsyncMock(return_value={room: sun}))
+    await client.put(f"/api/rooms/{room}", json={"temp_offset": 2})
+    await scheduler._rooms_warm_ahead(now)
+    assert (asked["temp"], asked["cool_to"], asked["sun"]) == (75.3, 74.0, sun)
+    await client.put(f"/api/rooms/{room}", json={"temp_offset": 0})
+    # A room on a single target has no band to be near the top of: a hold at
+    # 76 is always "within a degree" of itself, and is left to the ordinary rules.
     await client.post(f"/api/rooms/{room}/override", json={"target_temp": 76, "duration_hours": 2})
+    assert await scheduler._rooms_warm_ahead(now) == frozenset()
+    await client.delete(f"/api/rooms/{room}/override")
     assert await scheduler._rooms_warm_ahead(now) == frozenset({room})
+    # A prediction that fails does not stop the ordinary shade rules.
+    fake_ha.seed_state(SHADE, "open", {"friendly_name": "Bunk Shade", "current_position": 100})
+    scheduler.shade_controller.status.clear()
+
+    async def boom(_now):
+        raise RuntimeError("no forecast")
+
+    monkeypatch.setattr(scheduler, "_rooms_warm_ahead", boom)
+    seen = {}
+    run = scheduler.shade_controller.run
+
+    async def watch(*args):
+        seen["warm_ahead"] = args[-1]
+        return await run(*args)
+
+    monkeypatch.setattr(scheduler.shade_controller, "run", watch)
+    await scheduler._run_shades()
+    assert seen == {"warm_ahead": frozenset()}
+    monkeypatch.undo()
     scheduler._engines.pop(T1)
     assert await scheduler._rooms_warm_ahead(now) == frozenset()
 
