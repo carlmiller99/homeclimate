@@ -228,6 +228,10 @@ class CycleEngine:
         # The zone's settings as of the last tick, for ``optional_only``,
         # which is read between ticks.
         self._tc_for_done: ThermostatConfig | None = None
+        # Rooms with a say of their own that have really called in the run
+        # going now (been past their deadband). A room merely swept into a
+        # convenience run while resting inside its deadband is not one.
+        self._run_called: set[str] = set()
         # When this zone began waiting for its building's other side, and when
         # that was last confirmed: (direction, obeyed, since, seen).
         self._wait_started: tuple[str, bool, datetime, datetime] | None = None
@@ -4456,6 +4460,10 @@ class CycleEngine:
                 if fresh.source == source:
                     ar.heat_to, ar.cool_to = fresh.heat_to, fresh.cool_to
             self._active_rooms[room_id] = ar
+            if ar.source not in OPTIONAL_SOURCES:
+                # A run carried over a restart: its own rooms are taken to
+                # have called, as they must have for the run to be going.
+                self._run_called.add(room_id)
             self._room_vents[room_id] = await db.get_room_vents(conn, room_id)
 
         # Sanity check: verify the restored mode still makes sense given the
@@ -5856,10 +5864,26 @@ class CycleEngine:
         if self._state == CycleState.IDLE:
             return False
         rooms = list(self._active_rooms.values())
+        if not any(ar.source in OPTIONAL_SOURCES for ar in rooms):
+            return False
         tc = self._tc_for_done
-        return any(ar.source in OPTIONAL_SOURCES for ar in rooms) and all(
-            ar.source in OPTIONAL_SOURCES or (tc is not None and self._done_in_this_run(ar, tc))
-            for ar in rooms
+        if tc is None:  # before the first tick: only what can be told at a glance
+            return all(ar.source in OPTIONAL_SOURCES for ar in rooms)
+        return self._only_conveniences_keep_run(tc)
+
+    def _only_conveniences_keep_run(self, tc: ThermostatConfig) -> bool:
+        """No room with a say of its own is why the running cycle is still going.
+
+        Such a room keeps a run going only if it has called during it and is
+        not yet done. One that never called (it was resting inside its
+        deadband when a convenience run swept it in) would have had no run at
+        all with the conveniences off.
+        """
+        return all(
+            ar.source in OPTIONAL_SOURCES
+            or rid not in self._run_called
+            or self._done_in_this_run(ar, tc)
+            for rid, ar in self._active_rooms.items()
         )
 
     @property
@@ -6661,9 +6685,6 @@ class CycleEngine:
         never keeps another zone waiting for the side.
         """
         self._tc_for_done = tc
-        optional = [rid for rid, ar in active.items() if ar.source in OPTIONAL_SOURCES]
-        if not optional:
-            return
 
         def wants(ar: ActiveRoom) -> str | None:
             avg = self._get_avg_temp(ar.room, refresh=False)
@@ -6682,6 +6703,33 @@ class CycleEngine:
                 return "heating"
             return "cooling" if temp > high + deadband else None
 
+        # Which rooms with a say have really called: those calling when a
+        # cycle may be about to start, and any seen past its deadband since.
+        if self._state == CycleState.IDLE:
+            self._run_called = {
+                rid
+                for rid, ar in active.items()
+                if ar.source not in OPTIONAL_SOURCES and wants(ar) is not None
+            }
+        else:
+            mode = self._cycle_mode or ""
+            for rid, ar in self._active_rooms.items():
+                rcs = self._room_cycle_states.get(rid)
+                avg = self._get_avg_temp(ar.room, refresh=False)
+                if ar.source in OPTIONAL_SOURCES or rcs is None or avg is None:
+                    continue
+                band = _effective_deadband(ar.room, tc.deadband, ar.deadband_override)
+                if _drifted_past_deadband(avg + ar.room.temp_offset, rcs.target_temp, mode, band):
+                    self._run_called.add(rid)
+            # And a room that asks for the run's own direction is joining it.
+            self._run_called |= {
+                rid
+                for rid, ar in active.items()
+                if ar.source not in OPTIONAL_SOURCES and wants(ar) == mode
+            }
+        optional = [rid for rid, ar in active.items() if ar.source in OPTIONAL_SOURCES]
+        if not optional:
+            return
         calling = {wants(ar) for ar in active.values() if ar.source not in OPTIONAL_SOURCES}
         calling.discard(None)
         if self._state == CycleState.IDLE:
@@ -6696,29 +6744,26 @@ class CycleEngine:
                 breaches = self._safety_breaches(with_a_say, tc)
                 others = {way for way in others if way == side or way in breaches}
             against_side = side in ("heating", "cooling") and side != self._cycle_mode
-            only_optional = all(
-                ar.source in OPTIONAL_SOURCES or self._done_in_this_run(ar, tc)
-                for ar in self._active_rooms.values()
-            )
+            only_optional = self._only_conveniences_keep_run(tc)
             give_way = (
                 (bool(others) or against_side)
                 and only_optional
                 and self._cycle_runtime_satisfied(tc)
             )
-            if against_side and only_optional and not give_way:
-                # The run is serving out its minimum runtime against the
-                # building's side. A room with a say of its own that asks now
-                # must not join it and so keep it going: it waits, as it would
-                # with the conveniences off, for the run to end. A room past a
-                # safety limit is never held back.
-                for rid in [
-                    rid
-                    for rid, ar in active.items()
-                    if ar.source not in OPTIONAL_SOURCES
-                    and ar.source != "safety"
-                    and rid not in self._active_rooms
-                ]:
-                    del active[rid]
+            if against_side and only_optional:
+                # The run is against the building's side and only conveniences
+                # keep it going: it is serving out its minimum runtime, or
+                # ending this very tick. A room with a say of its own that asks
+                # now must not join it and so keep it going: it waits, as it
+                # would with the conveniences off, for the run to end. A room
+                # past a safety limit is never held back, whatever it follows.
+                with_a_say = {
+                    rid: ar for rid, ar in active.items() if ar.source not in OPTIONAL_SOURCES
+                }
+                past_limit = set().union(*self._safety_breaches(with_a_say, tc).values())
+                for rid in with_a_say:
+                    if rid not in self._active_rooms and rid not in past_limit:
+                        del active[rid]
         if not give_way:
             return
         for rid in optional:
@@ -6727,6 +6772,19 @@ class CycleEngine:
                 del active[rid]
             else:
                 active[rid] = was
+        if self._state != CycleState.IDLE:
+            # A room with a say that was swept into the run without ever
+            # calling (it was resting inside its deadband) must not now be
+            # what the run carries on for: with the conveniences off it would
+            # have had no run. It is left out for this tick, so the run ends.
+            for rid, ar in self._active_rooms.items():
+                if (
+                    ar.source not in OPTIONAL_SOURCES
+                    and rid not in self._run_called
+                    and rid in active
+                    and active[rid].source not in OPTIONAL_SOURCES
+                ):
+                    del active[rid]
 
     async def _balance(
         self, conn: aiosqlite.Connection, active: list[ActiveRoom], now: datetime | None = None

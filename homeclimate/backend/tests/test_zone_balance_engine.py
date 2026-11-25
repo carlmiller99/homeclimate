@@ -344,6 +344,7 @@ async def test_before_a_cycle_is_chosen_balancing_rooms_give_way_to_any_room_tha
     # it wants cooling as a hold, and is long done as far as this run goes.)
     served = ActiveRoom(room=other, target_temp=70.0, source="schedule")
     engine._active_rooms[other.id] = served
+    engine._run_called = {other.id}  # it called earlier in the run
 
     def state(closed, target=70.0):
         return {other.id: SimpleNamespace(vent_closed_at=closed, target_temp=target)}
