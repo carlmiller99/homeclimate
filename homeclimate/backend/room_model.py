@@ -47,6 +47,8 @@ READY_WINDOWS = 6 * 48  # six days of them before the room counts as ready
 MODE_HOURS = 3.0  # hours of sustained heating (or cooling) before that rate is learned
 SUSTAINED = 0.75  # a half-hour counts as sustained when the mode ran this much of it
 LOSS_SPREAD_F = 3.0  # the outside-inside difference must have varied this much (std dev)
+EARLY_START_MIN_MIN = 15  # a room is started at least this early, and
+EARLY_START_MAX_MIN = 180  # at most this early
 MAX_RATE_F_PER_H = 12.0  # a faster change is a sensor glitch, not the room
 MAX_STEP_F = MAX_RATE_F_PER_H * STEP_S / 3600 * 2  # between two readings five minutes apart
 

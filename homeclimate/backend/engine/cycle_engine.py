@@ -22,7 +22,7 @@ from typing import Any
 
 import aiosqlite
 
-from .. import db, eco, house
+from .. import db, eco, house, learning, room_model
 from .. import heat_pump as hp_rules
 from ..event_logger import EventLogger
 from ..ha_client import HAClient
@@ -208,6 +208,7 @@ class CycleEngine:
         self._hp_strips = False
         # Early warm-ups already announced, keyed by (room id, block label).
         self._hp_warmups_logged: set[tuple[str, str]] = set()
+        self._early_starts_logged: set[tuple[str, str, str]] = set()
 
         self._state = CycleState.IDLE
         self._cycle_log: CycleLog | None = None
@@ -743,6 +744,7 @@ class CycleEngine:
         await self._heat_pump_strips_expected(conn)
         if not in_vacation:
             new_active = await self._heat_pump_warmups(conn, new_active)
+            new_active = await self._early_starts(conn, new_active)
         # Door and window pausing (Smart Control): an open door or window
         # removes demand exactly like an unscheduled room — for the whole zone
         # or for one room. Safety rooms below still breach through, so a paused
@@ -6253,6 +6255,106 @@ class CycleEngine:
                     f"Warming {room.name} early for {label} ({target:g}°F) so the heat pump "
                     "can arrive without auxiliary heat",
                     {"thermostat": self.thermostat_entity_id, "room": room.id, "target": target},
+                )
+        return out
+
+    async def _early_starts(
+        self, conn: aiosqlite.Connection, active: list[ActiveRoom], now: datetime | None = None
+    ) -> list[ActiveRoom]:
+        """Start rooms early so they are at their next schedule's target when it begins.
+
+        How early comes from each room's own model (``room_model``): the time
+        it has learned the room takes to get there in this weather, between 15
+        minutes and 3 hours. Only for a rate the model has learned, only for
+        rooms with nothing more specific to follow, and never against the side
+        the building is on. On Watch Only it is logged and nothing is started.
+        """
+        level = learning.EARLY_START_LEVELS[
+            (await learning.get_settings(conn))["early_start_level"]
+        ]
+        if level == "off":
+            return active
+        now = now or datetime.now(UTC)
+        models = await room_model.load(conn)
+        outside = await self._read_outside_temp(conn)
+        if not models or outside is None:
+            return active
+        side, obey_side = (
+            self._get_building_side() if self._get_building_side is not None else (None, False)
+        )
+        the_house = await house.load(conn)
+        tc = await self._load_tc(conn)
+        have = {ar.room.id for ar in active if ar.source != "house"}
+        by_room: dict[str, list] = {}
+        for sched in await db.get_all_schedules(conn):
+            by_room.setdefault(sched.room_id, []).append(sched)
+        out = list(active)
+        for room in await db.get_rooms_for_thermostat(conn, self.thermostat_entity_id):
+            switches = the_house.switches(room.id)
+            model = models.get(room.id)
+            if (
+                model is None
+                or room.id in have
+                or not switches.in_use
+                or not switches.use_schedules
+            ):
+                continue
+            upcoming = _next_schedule_start(by_room.get(room.id, []), now)
+            avg = self._get_avg_temp(room)
+            if upcoming is None or avg is None:
+                continue
+            secs, target, label = upcoming
+            temp = avg + room.temp_offset
+            deadband = _effective_deadband(room, tc.deadband)
+            if target - temp > deadband:
+                mode = "heating"
+            elif temp - target > deadband:
+                mode = "cooling"
+            else:
+                continue
+            if not model.learned["heat" if mode == "heating" else "cool"]:
+                continue
+            if mode == "cooling" and any(
+                ("schedule", s.id) in the_house.targets for s in by_room.get(room.id, [])
+            ):
+                # The coming block may be a band, whose target here is its
+                # heat-to: cooling toward that would overshoot the band.
+                continue
+            if obey_side and side in ("heating", "cooling", "hold", "off") and side != mode:
+                continue
+            lead = model.minutes_to(
+                temp,
+                target,
+                outside,
+                mode,
+                limit_min=room_model.EARLY_START_MAX_MIN,
+                zone=self._thermo_ambient_f(),
+            )
+            # A room the model says would not arrive within three hours gets all three.
+            lead = room_model.EARLY_START_MAX_MIN if lead is None else lead
+            lead = max(room_model.EARLY_START_MIN_MIN, lead)
+            if secs > lead * 60:
+                continue
+            if level == "on":
+                out = [ar for ar in out if ar.room.id != room.id]
+                out.append(ActiveRoom(room=room, target_temp=target, source="schedule"))
+            key = (room.id, label, level)
+            if self._logger and key not in self._early_starts_logged:
+                if len(self._early_starts_logged) > 200:
+                    self._early_starts_logged.clear()
+                self._early_starts_logged.add(key)
+                does = "Starting" if level == "on" else "Would start (watching only)"
+                await self._logger.log(
+                    "info",
+                    "engine",
+                    f"{does} {mode} {room.name} {lead} min early for {label} ({target:g}°F),"
+                    " from what the room has taught",
+                    {
+                        "thermostat": self.thermostat_entity_id,
+                        "room": room.id,
+                        "target": target,
+                        "lead_min": lead,
+                    },
                 )
         return out
 

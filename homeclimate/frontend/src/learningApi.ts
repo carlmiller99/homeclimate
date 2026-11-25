@@ -3,7 +3,11 @@ import { api } from "./api";
 export interface LearningSettings {
   sampling_enabled: boolean;
   sample_retention_days: number;
+  /** Start rooms early from what their model has learned: 0 off, 1 watch only, 2 on. */
+  early_start_level: 0 | 1 | 2;
 }
+
+export const EARLY_START_LABELS = ["Off", "Watch Only", "On"] as const;
 
 /** How a room warms and cools, as last fitted. Rates are °F deltas per hour. */
 export interface RoomModel {

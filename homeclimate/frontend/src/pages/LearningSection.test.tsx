@@ -44,7 +44,7 @@ const ROOM: la.LearningRoom = {
 
 function data(over: Partial<la.Learning> = {}): la.Learning {
   return {
-    settings: { sampling_enabled: true, sample_retention_days: 60 },
+    settings: { sampling_enabled: true, sample_retention_days: 60, early_start_level: 0 },
     samples: 3600,
     collecting_since: "2026-01-01T00:00:00+00:00",
     last_sample_at: "2026-01-13T12:00:00+00:00",
@@ -211,7 +211,11 @@ describe("Smart Learning section", () => {
     await waitFor(() => expect(input).toBeDisabled());
     fireEvent.click(toggle); // ignored: one save at a time
     expect(la.updateLearningSettings).toHaveBeenCalledTimes(1);
-    finish(data({ settings: { sampling_enabled: false, sample_retention_days: 60 } }));
+    finish(
+      data({
+        settings: { sampling_enabled: false, sample_retention_days: 60, early_start_level: 0 },
+      })
+    );
     await waitFor(() => expect(input).not.toBeDisabled());
 
     vi.mocked(la.updateLearningSettings).mockRejectedValueOnce(new Error("Not allowed"));
@@ -267,6 +271,17 @@ describe("Smart Learning section", () => {
     vi.mocked(la.fitLearning).mockRejectedValueOnce("x");
     fireEvent.click(screen.getByRole("button", { name: "Work It Out Now" }));
     expect(await screen.findByText("Could not work it out")).toBeInTheDocument();
+  });
+
+  it("sets how far Start Rooms Early may go", async () => {
+    render(<LearningSection />);
+    const level = await screen.findByLabelText("Start Rooms Early");
+    expect(level).toHaveValue("0");
+    fireEvent.change(level, { target: { value: "1" } });
+    await waitFor(() =>
+      expect(la.updateLearningSettings).toHaveBeenCalledWith({ early_start_level: 1 })
+    );
+    await waitFor(() => expect(level).toHaveValue("1"));
   });
 
   it("describes a model in the house's unit, as differences", () => {

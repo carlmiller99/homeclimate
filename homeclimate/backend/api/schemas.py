@@ -1048,6 +1048,9 @@ class ForecastSchema(Schema):
 class LearningSettingsSchema(Schema):
     sampling_enabled = fields.Bool()
     sample_retention_days = fields.Int()
+    early_start_level = fields.Int(
+        metadata={"description": "Start rooms early from the model: 0 off, 1 watch only, 2 on"}
+    )
 
 
 class NotifySettingsSchema(Schema):

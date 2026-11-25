@@ -70,6 +70,19 @@ Limits worth knowing:
 
 The fit takes well under a second per room, and stores one row per room (`room_models`).
 
+## Start Rooms Early
+
+**Smart Control → Smart Learning → Start Rooms Early** uses the model to have a room at its next schedule block's target when the block begins, instead of starting from cold at that moment.
+
+- **Off** (the default), **Watch Only** (writes to the log what it would start and when, and starts nothing) or **On**.
+- How early is the time the room's model says it needs in the current weather, never less than 15 minutes and never more than 3 hours.
+- Only for a room whose heating rate (for a warm-up) or cooling rate (for a cool-down) has been learned, with an outside temperature reading, and with nothing more specific to follow at the time. A hold, an active schedule or occupancy is left alone.
+- Never against the side its building is on, never for a room that is not in use or has its schedules switched off, and not for a paused room or one a lit fireplace has set aside.
+- A cool-down is not started early for a room that has a band on any of its blocks, because the block's target there is its Heat To.
+- Heat pump zones keep their own early warm-up and their capped climb; this can start them earlier, not faster.
+
+Each early start is logged once under Engine.
+
 ### API
 
 - `GET /api/learning` includes each room's `model` (or null before the first fit).

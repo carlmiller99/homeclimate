@@ -6,6 +6,7 @@ import { RuleRow } from "../components/SmartControlControls";
 import { useUnit } from "../contexts";
 import {
   describeModel,
+  EARLY_START_LABELS,
   fitLearning,
   GRADE_LABELS,
   describeCollected,
@@ -155,8 +156,8 @@ export default function LearningSection() {
         <h2 className="sc-section-title">Smart Learning</h2>
         <p className="sc-section-lead">
           HomeClimate records how each room heats and cools, and each night works out how fast each
-          room warms, cools and drifts. Learning features will be built on this; for now it does not
-          change how your home is controlled.
+          room warms, cools and drifts. The one thing that uses it so far is Start Rooms Early,
+          below, which is off until you turn it on.
         </p>
         <RuleRow
           id="learning-sampling"
@@ -243,6 +244,25 @@ export default function LearningSection() {
           window was open, a fire was lit or auxiliary heat ran. A room is Ready after about six
           days of usable readings across a spread of weather.
         </p>
+        <RuleRow
+          id="learning-early-start"
+          title="Start Rooms Early"
+          help="Starts heating or cooling a room ahead of its next schedule block, by as long as the room has taught it takes in this weather (15 minutes to 3 hours), so it is ready on time. Only for rooms whose rate has been learned. Watch Only logs what it would do."
+        >
+          <select
+            className="form-control"
+            aria-label="Start Rooms Early"
+            value={s.early_start_level}
+            disabled={saving}
+            onChange={(e) => void set({ early_start_level: Number(e.target.value) as 0 | 1 | 2 })}
+          >
+            {EARLY_START_LABELS.map((label, level) => (
+              <option key={label} value={level}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </RuleRow>
         {fitErr && <p className="form-error">{fitErr}</p>}
         {data.rooms.length === 0 && (
           <p className="page-subtitle">Add rooms in My Home to start collecting.</p>
