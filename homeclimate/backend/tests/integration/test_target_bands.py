@@ -324,3 +324,17 @@ async def test_the_zones_default_occupancy_target_is_never_a_band(client, room):
         ),
     )
     assert await _following(client) == ("presence", 68.0, None, None)
+
+
+async def test_an_edit_that_leaves_the_target_alone_never_drops_its_band(client, room):
+    url = f"/api/rooms/{room}/schedules"
+    made = await (await client.post(url, json={**ALL_DAY, "target_temp": 70, "cool_to": 74})).json()
+    await client.put(f"/api/rooms/{room}", json={"system_wide_temp": 70, "presence_cool_to": 74})
+    # The zone's safety limits are tightened afterwards, so the band would not be
+    # accepted today. Renaming the block or the room is not the moment to take it away.
+    resp = await client.put(f"/api/thermostats/{T1}", json={"min_setpoint": 74})
+    assert resp.status == 200, await resp.text()
+    resp = await client.put(f"{url}/{made['id']}", json={"name": "Day"})
+    assert (await resp.json())["cool_to"] == 74.0
+    resp = await client.put(f"/api/rooms/{room}", json={"notes": "x"})
+    assert (await resp.json())["presence_cool_to"] == 74.0

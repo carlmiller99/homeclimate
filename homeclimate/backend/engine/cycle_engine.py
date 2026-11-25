@@ -5876,10 +5876,10 @@ class CycleEngine:
         Two kinds of banded room are left out rather than given a target:
 
         - One following the house band with no temperature reading of its own.
-          Its place in the band is unknown, and a cycle started on a stand-in
-          reading could never be judged finished. A room already part of the
+          Its place in the band is unknown. A room already part of the
           running cycle stays. (A banded hold, schedule or occupancy target
-          goes by the thermostat's reading instead.)
+          was asked for by name, so it goes by the thermostat's reading
+          instead, exactly as a single target with no reading does.)
         - With a cycle running or about to start, one that is not already part
           of it and is not short of the edge the cycle works toward. Without
           this a room resting in its band would hop in and out of every cycle
@@ -5895,14 +5895,13 @@ class CycleEngine:
                 # A hold, a schedule or occupancy was set on purpose: with no
                 # reading of the room's own it goes by the thermostat's, as a
                 # single target does, rather than quietly doing nothing.
-                # Read plainly: the checked reading keeps state of its own
-                # that must not be disturbed from here.
-                try:
-                    temp = float(
-                        ((thermo_state or {}).get("attributes") or {})["current_temperature"]
-                    )
-                except (KeyError, TypeError, ValueError):
-                    temp = None
+                # Read plainly (the checked reading keeps state of its own that
+                # must not be disturbed from here), in °F like every reading.
+                proxy = _climate_temp_to_f(
+                    ((thermo_state or {}).get("attributes") or {}).get("current_temperature"),
+                    self._ha.ha_temp_unit,
+                )
+                temp = None if proxy is None else proxy + ar.room.temp_offset
             if room_id not in self._active_rooms:
                 if temp is None:
                     del active_rooms[room_id]

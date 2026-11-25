@@ -23,7 +23,10 @@ class RoomSchema(class_schema(models.Room)):  # type: ignore[misc]
 RoomSensorSchema = class_schema(models.RoomSensor)
 RoomVentSchema = class_schema(models.RoomVent)
 RoomPresenceSensorSchema = class_schema(models.RoomPresenceSensor)
-_COOL_TO = {"description": "°F. With it, the target is the heat-to of a band; null for one target"}
+_COOL_TO = {
+    "description": "With it, the target is the heat-to of a band; null for one target."
+    " Sent in the display unit, returned in °F"
+}
 
 
 class ScheduleSchema(class_schema(models.Schedule)):  # type: ignore[misc]

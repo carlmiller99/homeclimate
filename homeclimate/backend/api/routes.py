@@ -1553,7 +1553,11 @@ async def _carried_cool_to(
         return None
     conn = await get_conn(request)
     cool_f = (await house.load(conn)).cool_to(kind, ref_id, old_target)
-    if cool_f is None or await house.cool_to_problem(conn, target, cool_f) is not None:
+    if cool_f is None:
+        return None
+    if abs(old_target - target) <= 0.01:
+        return cool_f  # the target did not move: nothing about the band is re-judged
+    if await house.cool_to_problem(conn, target, cool_f) is not None:
         return None
     return cool_f
 

@@ -85,6 +85,28 @@ async def test_with_no_reading_of_its_own_a_banded_hold_goes_by_the_thermostat()
     targets, mode = _started(started)
     assert (targets["r1"], mode) == (72.0, "cooling")
     await conn.close()
+    # Home Assistant in °C: the thermostat's 26 °C is 78.8 °F, still above the band.
+    conn, engine, started = await _banded(temps, ambient=26.0)
+    engine._ha.ha_temp_unit = "C"
+    await db.set_room_override(conn, RoomOverride("r1", 68.0, expires))
+    await house.set_target_band(conn, "hold", "r1", 68.0, 72.0, house.hold_stamp(expires))
+    await engine._do_tick(conn)
+    targets, mode = _started(started)
+    assert (targets["r1"], mode) == (72.0, "cooling")
+    await conn.close()
+    # The room's offset counts on the stand-in reading, as it does for a single target:
+    # 71 °F at the thermostat, +3 °F, is past a 72 °F cool-to.
+    conn, engine, started = await _banded(temps, ambient=71.0)
+    for sched in await db.get_schedules_for_room(conn, "r2"):
+        await db.delete_schedule(conn, sched.id)  # leave r1 as the zone's only demand
+    room = await db.get_room(conn, "r1")
+    room.temp_offset = 3.0
+    await db.upsert_room(conn, room)
+    await db.set_room_override(conn, RoomOverride("r1", 68.0, expires))
+    await house.set_target_band(conn, "hold", "r1", 68.0, 72.0, house.hold_stamp(expires))
+    await engine._do_tick(conn)
+    assert "r1" in _started(started)[0]
+    await conn.close()
     # A room following the house band still sits out: nobody asked for it by name.
     conn, engine, started = await _banded({"r1": None, "r2": None}, ambient=78.0)
     for sched in await db.get_schedules_for_room(conn, "r1"):
