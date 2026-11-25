@@ -318,3 +318,106 @@ async def test_a_real_balancing_run_ends_by_itself_when_its_call_lapses(client, 
     ) as cur:
         reasons = [r["ended_reason"] for r in await cur.fetchall()]
     assert len(reasons) == 1 and not str(reasons[0]).startswith("aborted")
+
+
+@pytest.mark.parametrize("ambient", [66.0, 70.0, 72.0, 73.4, 76.0, 78.0])
+async def test_a_hold_in_the_lagging_zone_is_served_whatever_the_thermostat_reads(
+    client, fake_ha, tick, ambient
+):
+    """One room held at 74 °F and reading 80; two more, at 66, called to heat for balance.
+
+    With real engines, and the building's direction coming from the other
+    zone's heating run: the zone must never heat for the balancing rooms while
+    the hold wants cooling, at any thermostat reading.
+    """
+    lead, lag = "climate.bal2_lead", "climate.bal2_lag"
+    ids = {}
+    for tid, name, temp in (
+        (lead, "kitchen", "77.0"),
+        (lag, "hot", "80.0"),
+        (lag, "one", "66.0"),
+        (lag, "two", "66.0"),
+    ):
+        amb = 77.0 if tid == lead else ambient
+        fake_ha.seed_state(
+            tid,
+            "heat_cool",
+            {"current_temperature": amb, "temperature": amb, "hvac_action": "idle"},
+        )
+        fake_ha.seed_state(f"sensor.bal2_{name}", temp, {"unit_of_measurement": "°F"})
+        fake_ha.seed_state(f"cover.bal2_{name}", "open", {})
+        resp = await client.post("/api/rooms", json={"name": name, "thermostat_entity_id": tid})
+        ids[name] = (await resp.json())["id"]
+        await client.post(
+            f"/api/rooms/{ids[name]}/sensors", json={"entity_id": f"sensor.bal2_{name}"}
+        )
+        await client.post(
+            f"/api/rooms/{ids[name]}/vents",
+            json={"entity_id": f"cover.bal2_{name}", "control_method": "open_close"},
+        )
+    main = (await (await client.post("/api/buildings", json={"name": "Main House"})).json())["id"]
+    for tid in (lead, lag):
+        await client.put(f"/api/zones/{tid}", json={"building_id": main})
+    await client.post(
+        f"/api/rooms/{ids['kitchen']}/override", json={"target_temp": 80, "duration_hours": 8}
+    )
+    await client.post(
+        f"/api/rooms/{ids['hot']}/override", json={"target_temp": 74, "duration_hours": 8}
+    )
+    scheduler = client.app["scheduler"]
+    await tick()  # the other zone starts heating: that is the building's direction
+    assert scheduler._engines[lead].cycle_mode == "heating"
+    await _set(client, main, level="on")
+    await tick()
+    await tick()
+    eng = scheduler._engines[lag]
+    # Asked to heat for balance, unless it is already cooling for the hold.
+    assert lag in scheduler.balance_calls or eng.cycle_mode == "cooling"
+    assert eng.cycle_mode != "heating"
+    assert all(ar.source != "balance" for ar in eng._active_rooms.values())
+
+
+async def test_a_hold_that_arrives_during_a_balancing_run_ends_it(client, fake_ha, tick):
+    """A run for nothing but balancing rooms does not keep a hold waiting."""
+    lead, lag = "climate.bal3_lead", "climate.bal3_lag"
+    ids = {}
+    for tid, name, temp in (
+        (lead, "kitchen", "77.0"),
+        (lag, "hot", "80.0"),
+        (lag, "one", "66.0"),
+    ):
+        amb = 77.0 if tid == lead else 70.0
+        fake_ha.seed_state(
+            tid,
+            "heat_cool",
+            {"current_temperature": amb, "temperature": amb, "hvac_action": "idle"},
+        )
+        fake_ha.seed_state(f"sensor.bal3_{name}", temp, {"unit_of_measurement": "°F"})
+        fake_ha.seed_state(f"cover.bal3_{name}", "open", {})
+        resp = await client.post("/api/rooms", json={"name": name, "thermostat_entity_id": tid})
+        ids[name] = (await resp.json())["id"]
+        await client.post(
+            f"/api/rooms/{ids[name]}/sensors", json={"entity_id": f"sensor.bal3_{name}"}
+        )
+        await client.post(
+            f"/api/rooms/{ids[name]}/vents",
+            json={"entity_id": f"cover.bal3_{name}", "control_method": "open_close"},
+        )
+    main = (await (await client.post("/api/buildings", json={"name": "Main House"})).json())["id"]
+    for tid in (lead, lag):
+        await client.put(f"/api/zones/{tid}", json={"building_id": main})
+    await client.post(
+        f"/api/rooms/{ids['kitchen']}/override", json={"target_temp": 80, "duration_hours": 8}
+    )
+    await tick()
+    await _set(client, main, level="on")
+    await tick()
+    eng = client.app["scheduler"]._engines[lag]
+    assert [ar.source for ar in eng._active_rooms.values()] == ["balance"]
+    await client.post(
+        f"/api/rooms/{ids['hot']}/override", json={"target_temp": 74, "duration_hours": 8}
+    )
+    await tick()
+    await tick()
+    assert all(ar.source != "balance" for ar in eng._active_rooms.values())
+    assert eng.cycle_mode != "heating"
