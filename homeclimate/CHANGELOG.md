@@ -3,7 +3,7 @@
 ## 0.5.6
 
 - Dashboard: each building has a mode, Auto, Heat Only, Cool Only or Off, with a line saying what the building is doing and which zones are waiting. Safety limits still act in every mode.
-- Smart Control → Forecasts → One Side Per Building: Auto can keep every zone in a building heating or cooling together, switching sides only after the running cycle ends, a 10-minute wait, 4 hours since the last switch and a forecast that does not rule it out. Off by default; Watch Only logs what it would do without holding anything. See docs/building-mode.md.
+- Smart Control → Forecasts → One Side Per Building: Auto can keep every zone in a building heating or cooling together, switching sides only after the running cycle ends, a 10-minute wait, 4 hours since the last switch, no more than twice a day, and a forecast that does not rule it out. A room 2 °F past where it would start switches it sooner. Off by default; Watch Only logs what it would do without holding anything. See docs/building-mode.md.
 
 ## 0.5.5
 

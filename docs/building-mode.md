@@ -17,7 +17,13 @@ Each building on the Dashboard has a mode:
 
 The line beside the mode says what the building is doing and names any zone that is waiting.
 
-**Safety limits are never held back.** A room past its minimum or maximum safety temperature is heated or cooled whatever the building's mode or side, including Off. A fixed mode does not stop a hold, a schedule or occupancy from asking; it only stops the zone from running the other way.
+**Safety limits are never held back.** A room past its minimum or maximum safety temperature is heated or cooled whatever the building's mode or side, including Off, and whatever the room follows. A fixed mode does not stop a hold, a schedule or occupancy from asking; it only stops the zone from running the other way.
+
+Things to know:
+
+- **A cycle that is already running is allowed to finish.** Change a building to Heat Only while a zone is cooling and that zone finishes its cycle first. Until it has, no other zone in the building starts a new cycle, and the Dashboard says what it is waiting for.
+- **Off is the exception.** It ends running cycles on the next check, the same way an open door or window does.
+- Vacation Mode's own hold on each thermostat is separate from building mode and is not changed by it.
 
 ## Auto (Smart Control → Forecasts)
 
@@ -29,7 +35,7 @@ Auto has three levels for each building:
 
 ### How the side is chosen
 
-The building takes the side of the first cycle that runs in it. After that it switches only when all of these are true:
+The building takes the side of the first cycle that starts in it. After that it switches only when all of these are true:
 
 1. A zone wants the other side and no cycle on the current side is still running. A running cycle is always allowed to finish.
 2. That zone has been waiting at least 10 minutes.
@@ -37,9 +43,11 @@ The building takes the side of the first cycle that runs in it. After that it sw
 4. The building has switched fewer than 2 times today.
 5. The forecast does not rule it out. A switch to cooling needs at least 2 of the next 6 forecast hours above the house band's Cool To; a switch to heating needs 2 below its Heat To. With no house band the limits are 70 °F and 60 °F. With no forecast, this check is skipped.
 
-One exception: when a room is 2 °F (1.1 °C) or more past the target it is waiting for, the building switches as soon as the running cycle ends, without checks 2 to 5.
+One exception: when a room has been 2 °F (1.1 °C) or more past the point where it would normally start for 3 minutes, the building switches without checks 2 to 5. That exception has limits of its own: at least 1 hour since the last switch, and no more than 6 switches in a day.
 
-While a zone waits, its rooms that need the building's current side are still served. The side is remembered across a restart.
+A zone only asks for a switch it could use. A zone whose thermostat has no cooling mode, or whose cooling is locked out because it is too cold outside, does not make the building switch to cooling.
+
+While a zone waits, its rooms that need the building's current side are still served. The side is remembered across a restart. Setting a fixed mode, or setting Auto to Off, forgets it; Auto starts again from the next cycle.
 
 Each switch is written to the Logs under Engine ("Main House is now on cooling"), and so is each wait, once per wait.
 

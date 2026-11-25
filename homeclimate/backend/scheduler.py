@@ -1054,6 +1054,7 @@ class Scheduler:
             get_openings=functools.partial(self._pause_for, tid),
             get_fireplace_rooms=lambda: frozenset(self._fireplaces.set_aside_rooms()),
             get_building_side=functools.partial(self._building_side, tid),
+            claim_building_side=functools.partial(self._building_plan_claim, tid),
             get_heat_pump=functools.partial(self._heat_pumps.get, tid),
         )
 
@@ -1638,7 +1639,11 @@ class Scheduler:
             )
 
     def _building_side(self, thermostat_entity_id: str) -> tuple[str | None, bool]:
-        return self._building_plan.side_for(thermostat_entity_id)
+        running = {tid: e.cycle_mode for tid, e in self._engines.items() if e.cycle_mode}
+        return self._building_plan.live_side(thermostat_entity_id, running)
+
+    def _building_plan_claim(self, thermostat_entity_id: str, direction: str) -> str | None:
+        return self._building_plan.claim(thermostat_entity_id, direction)
 
     @property
     def building_plan(self) -> building_mode.Planner:

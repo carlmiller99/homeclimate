@@ -52,7 +52,7 @@ export const setBuildingMode = (
 /** One line saying what a building is doing about heating and cooling. */
 export function describeBuilding(b: BuildingMode): string {
   if (b.mode === "off") {
-    return "Off. Nothing here is heated or cooled; safety limits still apply.";
+    return "Off. No room here asks for heating or cooling; safety limits still apply.";
   }
   if (b.mode === "heat_only") return "Heating only. A room that wants cooling waits.";
   if (b.mode === "cool_only") return "Cooling only. A room that wants heating waits.";

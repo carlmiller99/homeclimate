@@ -29,6 +29,7 @@ running cycle ends). Safety cycles are never held to a side.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -46,6 +47,11 @@ WAIT_BEFORE_SWITCH = timedelta(minutes=10)
 MIN_BETWEEN_SWITCHES = timedelta(hours=4)
 MAX_SWITCHES_A_DAY = 2
 URGENT_EXCESS_F = 2.0
+# An urgent switch skips the ordinary limits but keeps looser ones of its own,
+# so two zones that want opposite sides cannot flip the building all day.
+URGENT_WAIT = timedelta(minutes=3)
+URGENT_MIN_BETWEEN_SWITCHES = timedelta(hours=1)
+URGENT_MAX_SWITCHES_A_DAY = 6
 FORECAST_LOOKAHEAD_HOURS = 6
 FORECAST_HOURS_NEEDED = 2
 # Outdoor °F below/above which an hour counts as needing heating/cooling when
@@ -133,6 +139,12 @@ async def update(conn: aiosqlite.Connection, building_id: str, body: dict[str, A
     current = modes[building_id]
     current.mode = body.get("mode", current.mode)
     current.auto_level = body.get("auto_level", current.auto_level)
+    if current.mode != "auto" or current.auto_level == "off":
+        # Auto is no longer choosing. Forget the side it was on, so that when
+        # it is turned back on it starts from what the building is doing then
+        # rather than from a side chosen weeks ago.
+        current.side = None
+        current.switched_at = None
     await _save(conn, current)
 
 
@@ -175,6 +187,8 @@ class Planner:
     def __init__(self) -> None:
         self._decisions: dict[str, Decision] = {}
         self._zone_building: dict[str, str] = {}
+        self._claims: dict[str, str] = {}
+        self._lock = asyncio.Lock()
 
     def side_for(self, thermostat_entity_id: str) -> tuple[str | None, bool]:
         """(side, obey) for a zone; (None, False) for a zone in no building."""
@@ -183,6 +197,45 @@ class Planner:
 
     def building_of(self, thermostat_entity_id: str) -> str | None:
         return self._zone_building.get(thermostat_entity_id)
+
+    def claim(self, thermostat_entity_id: str, direction: str) -> str | None:
+        """A zone is about to start the first cycle of a building with no side.
+
+        The first zone to ask sets the side until the next plan; every zone is
+        told that side. Without this, two idle zones wanting opposite sides
+        would both start in the same minute. Returns None when the building is
+        already on a side, is not obeyed, or the zone is in no building.
+        """
+        building = self._zone_building.get(thermostat_entity_id, "")
+        decision = self._decisions.get(building)
+        if decision is None or not decision.obey or decision.side is not None:
+            return None
+        return self._claims.setdefault(building, direction)
+
+    def live_side(
+        self, thermostat_entity_id: str, running: dict[str, str]
+    ) -> tuple[str | None, bool]:
+        """(side, obey) for a zone, given what every zone is running right now.
+
+        ``side`` is "hold" when another zone of the building is still running
+        the other way: nothing new starts until that cycle has finished.
+        """
+        side, obey = self.side_for(thermostat_entity_id)
+        if not obey or side == "off":
+            return side, obey
+        building = self._zone_building[thermostat_entity_id]
+        others = {
+            direction
+            for tid, direction in running.items()
+            if tid != thermostat_entity_id and self._zone_building.get(tid) == building
+        }
+        if side is None:
+            if len(others) == 2:
+                return "hold", True
+            return (next(iter(others)) if others else self._claims.get(building)), True
+        if ("cooling" if side == "heating" else "heating") in others:
+            return "hold", True
+        return side, True
 
     def decisions(self) -> dict[str, Decision]:
         return dict(self._decisions)
@@ -196,6 +249,17 @@ class Planner:
         now: datetime,
     ) -> list[tuple[str, str]]:
         """Decide every building's side. Returns (building_id, new side) for each switch."""
+        async with self._lock:
+            return await self._plan(conn, zones_now, hours, band, now)
+
+    async def _plan(
+        self,
+        conn: aiosqlite.Connection,
+        zones_now: list[ZoneNow],
+        hours: list[Any],
+        band: Any,
+        now: datetime,
+    ) -> list[tuple[str, str]]:
         profiles = await zones.list_zone_profiles(conn)
         self._zone_building = {
             p.thermostat_entity_id: p.building_id for p in profiles if p.building_id
@@ -215,6 +279,7 @@ class Planner:
             if decision.switched_to:
                 switched.append((building_id, decision.switched_to))
         self._decisions = decisions
+        self._claims = {}
         return switched
 
     async def _decide(
@@ -226,12 +291,15 @@ class Planner:
         band: Any,
         now: datetime,
     ) -> Decision:
+        running = {z.running for z in its_zones if z.running}
         if m.mode in FIXED_SIDE:
-            return Decision(FIXED_SIDE[m.mode], True, "")
+            fixed_side = FIXED_SIDE[m.mode]
+            against = {"heating": "cooling", "cooling": "heating"}.get(fixed_side)
+            note = f"Waiting for {against} to finish" if against in running else ""
+            return Decision(fixed_side, True, note)
         if m.auto_level == "off":
             return Decision(None, False, "")
         obey = m.auto_level == "on"
-        running = {z.running for z in its_zones if z.running}
         if m.side is None:
             # Not on a side yet: take the side of the first cycle that runs.
             if len(running) != 1:
@@ -247,15 +315,23 @@ class Planner:
             return Decision(m.side, obey, "")
         if m.side in running:
             return Decision(m.side, obey, f"Waiting for {m.side} to finish")
-        urgent = any(w["excess"] >= URGENT_EXCESS_F for w in waits)
         today = tz.to_local(now).date().isoformat()
         switches_today = m.switches if m.switch_day == today else 0
+        # A clock set backwards must not lock the building until it catches up.
+        since_switch = (
+            now - m.switched_at if m.switched_at is not None and m.switched_at <= now else None
+        )
+        urgent = (
+            any(w["excess"] >= URGENT_EXCESS_F and now - w["since"] >= URGENT_WAIT for w in waits)
+            and (since_switch is None or since_switch >= URGENT_MIN_BETWEEN_SWITCHES)
+            and switches_today < URGENT_MAX_SWITCHES_A_DAY
+        )
         if not urgent:
             longest = max(now - w["since"] for w in waits)
             if longest < WAIT_BEFORE_SWITCH:
                 return Decision(m.side, obey, f"A zone wants {other}; waiting 10 minutes")
-            if m.switched_at is not None and now - m.switched_at < MIN_BETWEEN_SWITCHES:
-                left = MIN_BETWEEN_SWITCHES - (now - m.switched_at)
+            if since_switch is not None and since_switch < MIN_BETWEEN_SWITCHES:
+                left = MIN_BETWEEN_SWITCHES - since_switch
                 mins = int(left.total_seconds() // 60) + 1
                 return Decision(
                     m.side, obey, f"A zone wants {other}; {mins} min until a switch is allowed"

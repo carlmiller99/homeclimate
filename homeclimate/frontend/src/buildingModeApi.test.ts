@@ -36,7 +36,7 @@ describe("buildingModeApi", () => {
   });
 
   it("describes what a building is doing", () => {
-    expect(describeBuilding({ ...B, mode: "off" })).toMatch(/^Off\. Nothing here/);
+    expect(describeBuilding({ ...B, mode: "off" })).toMatch(/^Off\. No room here asks/);
     expect(describeBuilding({ ...B, mode: "heat_only" })).toMatch(/^Heating only/);
     expect(describeBuilding({ ...B, mode: "cool_only" })).toMatch(/^Cooling only/);
     expect(describeBuilding({ ...B, auto_level: "off" })).toBe(

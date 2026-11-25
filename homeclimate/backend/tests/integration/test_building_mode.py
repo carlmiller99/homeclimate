@@ -174,9 +174,14 @@ async def test_no_more_than_two_switches_a_day_unless_a_room_is_far_out(client, 
     planner, switched = await _plan(client, [_zone(T2, wants="cooling")])
     assert switched == []
     assert planner.decisions()[site].note == "A zone wants cooling; already switched twice today"
-    # …unless a room is 2 °F past its target, which switches at once.
+    # …unless a room is 2 °F past where it would start, and has been for 3 minutes.
+    far = {"excess": 2.0}
     planner, switched = await _plan(
-        client, [_zone(T2, wants="cooling", excess=2.0, since=NOW - timedelta(minutes=1))]
+        client, [_zone(T2, wants="cooling", since=NOW - timedelta(minutes=1), **far)]
+    )
+    assert switched == []
+    planner, switched = await _plan(
+        client, [_zone(T2, wants="cooling", since=NOW - timedelta(minutes=3), **far)]
     )
     assert switched == [(site, "cooling")]
     # Even then a cycle still running on the old side is allowed to finish first.
@@ -259,3 +264,90 @@ async def test_validation_and_failures(client, site, monkeypatch, caplog):
     monkeypatch.setattr(scheduler, "replan_buildings_now", boom)
     assert (await client.put(url, json={"mode": "off"})).status == 200
     assert "Could not apply the building mode straight away" in caplog.text
+
+
+async def test_an_urgent_switch_keeps_looser_limits_of_its_own(client, site):
+    await _on_heating(client, site, at=NOW - timedelta(minutes=30))
+    far = {"excess": 4.0, "since": NOW - timedelta(minutes=20)}
+    # Half an hour after the last switch is too soon, however far out the room is.
+    planner, switched = await _plan(client, [_zone(T2, wants="cooling", **far)])
+    assert switched == []
+    assert planner.decisions()[site].note == (
+        "A zone wants cooling; 211 min until a switch is allowed"
+    )
+    # An hour after it, the urgent room switches the building.
+    later = NOW + timedelta(minutes=31)
+    planner, switched = await _plan(client, [_zone(T2, wants="cooling", **far)], now=later)
+    assert switched == [(site, "cooling")]
+    # Two zones pulling opposite ways cannot flip it more than six times a day.
+    at, side = later, "cooling"
+    flips = 1
+    for _ in range(12):
+        at += timedelta(hours=1, minutes=1)
+        if tz_day(at) != tz_day(later):
+            break
+        want = "heating" if side == "cooling" else "cooling"
+        _p, switched = await _plan(
+            client, [_zone(T2, wants=want, excess=4.0, since=at - timedelta(minutes=20))], now=at
+        )
+        if switched:
+            side, flips = want, flips + 1
+    assert flips <= bm.URGENT_MAX_SWITCHES_A_DAY
+
+
+def tz_day(at):
+    from backend import tz
+
+    return tz.to_local(at).date()
+
+
+async def test_a_clock_set_backwards_does_not_lock_the_building(client, site):
+    await _on_heating(client, site, at=NOW + timedelta(days=3))
+    planner, switched = await _plan(client, [_zone(T2, wants="cooling")])
+    assert switched == [(site, "cooling")]
+
+
+async def test_leaving_auto_forgets_the_side_it_was_on(client, site):
+    await _on_heating(client, site)
+    assert (await _mode(client, site, mode="cool_only"))["side"] == "cooling"
+    back = await _mode(client, site, mode="auto")
+    assert (back["side"], back["note"]) == (None, "Not on a side yet")
+    await _on_heating(client, site)
+    await _mode(client, site, auto_level="off")
+    assert (await _mode(client, site, auto_level="watch"))["side"] is None
+
+
+async def test_nothing_new_starts_against_a_cycle_that_is_still_running(client, site):
+    planner = client.app["scheduler"].building_plan
+    await _mode(client, site, mode="heat_only")
+    assert planner.live_side(T1, {}) == ("heating", True)
+    assert planner.live_side(T1, {T1: "cooling"}) == ("heating", True)  # its own cycle
+    assert planner.live_side(T1, {T2: "cooling"}) == ("hold", True)
+    assert planner.live_side(T1, {T3: "cooling"}) == ("heating", True)  # another building
+    assert planner.live_side(T3, {T1: "cooling"}) == (None, False)
+    _p, _s = await _plan(client, [_zone(T2, "cooling")])
+    assert planner.decisions()[site].note == "Waiting for cooling to finish"
+    await _mode(client, site, mode="off")
+    assert planner.live_side(T1, {T2: "cooling"}) == ("off", True)
+
+
+async def test_a_building_with_no_side_takes_the_first_zone_to_start(client, site):
+    planner = client.app["scheduler"].building_plan
+    assert planner.claim(T1, "cooling") is None  # Auto is off: nothing to claim
+    await _mode(client, site, auto_level="on")
+    assert planner.live_side(T1, {}) == (None, True)
+    assert planner.claim(T3, "cooling") is None  # in no building
+    assert planner.claim(T1, "cooling") == "cooling"
+    assert planner.claim(T2, "heating") == "cooling"  # the second zone is told the first's side
+    assert planner.live_side(T2, {}) == ("cooling", True)
+    # What is actually running outranks a claim; two ways at once holds everything.
+    assert planner.live_side(T2, {T1: "heating"}) == ("heating", True)
+    assert planner.live_side(T3, {}) == (None, False)
+    scheduler = client.app["scheduler"]
+    assert scheduler._building_plan_claim(T2, "heating") == "cooling"
+    assert scheduler._building_side(T2) == ("cooling", True)
+    # A claim lasts until the next plan.
+    await _plan(client, [_zone(T1), _zone(T2)])
+    assert planner.live_side(T2, {}) == (None, True)
+    await _on_heating(client, site)
+    assert planner.claim(T1, "cooling") is None  # already on a side

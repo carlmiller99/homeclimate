@@ -125,7 +125,7 @@ describe("Dashboard building mode", () => {
     fireEvent.change(select, { target: { value: "off" } });
     await waitFor(() => expect(bm.setBuildingMode).toHaveBeenCalledWith("b1", { mode: "off" }));
     await waitFor(() => expect(screen.getByLabelText("Mode for Main House")).toHaveValue("off"));
-    expect(screen.getByText(/Nothing here is heated or cooled/)).toBeInTheDocument();
+    expect(screen.getByText(/No room here asks for heating or cooling/)).toBeInTheDocument();
   });
 
   it("says why a mode change failed and keeps the old mode", async () => {
