@@ -284,7 +284,14 @@ async def test_banking_never_outvotes_a_hold(client, fake_ha, tick, monkeypatch,
 
 @pytest.mark.parametrize(
     "scene",
-    ["alone", "hold at its target", "hold inside its deadband", "late caller", "late past a limit"],
+    [
+        "alone",
+        "hold at its target",
+        "hold inside its deadband",
+        "hold that starts to call",
+        "late caller",
+        "late past a limit",
+    ],
 )
 async def test_a_banking_run_neither_sets_nor_holds_the_buildings_side(
     client, fake_ha, tick, monkeypatch, scene
@@ -295,7 +302,8 @@ async def test_a_banking_run_neither_sets_nor_holds_the_buildings_side(
     to be, or resting inside its deadband: it is swept into the run, but it
     is not what keeps the run going. And the same when a room in the banking
     zone asks for cooling during the run's last stretch: it does not join the
-    run and so keep it going, unless it is past a safety limit.
+    run and so keep it going, unless it is past a safety limit. Nor does a
+    room already swept into the run make it its own by starting to ask then.
     """
     rooms = {"den": 75.5}
     if scene.startswith("hold"):
@@ -353,6 +361,10 @@ async def test_a_banking_run_neither_sets_nor_holds_the_buildings_side(
     assert scheduler._building_waiting(T) == "heating"
     assert scheduler._building_waiting(other) is None
     assert eng._side_for_optional() == ("heating", True) and eng.cycle_mode == "cooling"
+    if scene == "hold that starts to call":
+        fake_ha.seed_state("sensor.peak_nook", "73.0", {"unit_of_measurement": "°F"})
+        await tick()
+        assert eng.optional_only
     if scene.startswith("late"):
         from backend import house
 
@@ -385,6 +397,25 @@ async def test_a_banking_run_neither_sets_nor_holds_the_buildings_side(
         "SELECT COUNT(*) AS n FROM cycle_logs WHERE thermostat_entity_id = ?", (T,)
     ) as cur:
         assert (await cur.fetchone())["n"] == 1
+
+
+async def test_after_a_restart_a_runs_own_rooms_are_taken_to_have_called(
+    client, fake_ha, tick, monkeypatch
+):
+    ids, eng = await _peak_site(client, fake_ha, monkeypatch, {"den": 75.5, "nook": 78.0})
+    await client.post(
+        f"/api/rooms/{ids['nook']}/override", json={"target_temp": 74, "duration_hours": 2}
+    )
+    await tick()
+    await tick()
+    assert eng.cycle_mode == "cooling" and eng._run_called == {ids["nook"]}
+    assert not eng.optional_only
+    # The same engine, as it would be after a restart: only the banked room
+    # is a convenience; the hold is why the run is going.
+    eng._run_called, eng._active_rooms = set(), {}
+    await eng.restore_from_db(await client.app["scheduler"].get_db())
+    assert {ar.source for ar in eng._active_rooms.values()} == {"bank", "override"}
+    assert eng._run_called == {ids["nook"]}
 
 
 async def test_a_banking_room_past_a_safety_limit_is_still_protected(

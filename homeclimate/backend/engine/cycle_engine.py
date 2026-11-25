@@ -6711,7 +6711,15 @@ class CycleEngine:
                 for rid, ar in active.items()
                 if ar.source not in OPTIONAL_SOURCES and wants(ar) is not None
             }
-        else:
+        elif not (
+            side in ("heating", "cooling")
+            and side != self._cycle_mode
+            and self._only_conveniences_keep_run(tc)
+        ):
+            # (Not while the run is on its way out against the building's
+            # side: a room that starts to ask then, from inside the run or
+            # out, waits for it to end like any other and must not turn it
+            # into a run of its own that takes the side.)
             mode = self._cycle_mode or ""
             for rid, ar in self._active_rooms.items():
                 rcs = self._room_cycle_states.get(rid)
@@ -6777,12 +6785,17 @@ class CycleEngine:
             # calling (it was resting inside its deadband) must not now be
             # what the run carries on for: with the conveniences off it would
             # have had no run. It is left out for this tick, so the run ends.
+            # Never a room past a safety limit.
+            with_a_say = {
+                rid: ar for rid, ar in active.items() if ar.source not in OPTIONAL_SOURCES
+            }
+            past_limit = set().union(*self._safety_breaches(with_a_say, tc).values())
             for rid, ar in self._active_rooms.items():
                 if (
                     ar.source not in OPTIONAL_SOURCES
                     and rid not in self._run_called
-                    and rid in active
-                    and active[rid].source not in OPTIONAL_SOURCES
+                    and rid in with_a_say
+                    and rid not in past_limit
                 ):
                     del active[rid]
 
