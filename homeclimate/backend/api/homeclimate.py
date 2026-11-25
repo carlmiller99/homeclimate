@@ -7,6 +7,7 @@ and CSRF middleware, MCP tools and the API-spec enforcement test for free.
 from __future__ import annotations
 
 import logging
+import math
 from datetime import date, datetime, time, timedelta
 
 from aiohttp import web
@@ -25,7 +26,6 @@ from .. import (
     zones,
 )
 from ..units import delta_to_f, from_f, to_f
-from ..units import from_f_delta as delta_from_f
 from ..user_errors import UserError, safe_text
 from . import schemas
 from .openapi import docs, query_params, request_schema, response_schema
@@ -482,21 +482,32 @@ async def update_house(request: web.Request) -> web.Response:
     body = await _json_object(request)
     if set(body) - {"house_heat_to", "house_cool_to"}:
         return error("Unknown house setting")
-    heat, cool = body.get("house_heat_to"), body.get("house_cool_to")
-    problem = house.check_band(heat, cool)
+    problem = house.check_band(body)
     if problem is not None:
         return error(problem)
+    heat, cool = body["house_heat_to"], body["house_cool_to"]
     unit = request.app["scheduler"].get_temperature_unit()
     conn = await get_conn(request)
-    if heat is None or cool is None:
+    if heat is None:
         await house.set_band(conn, None, None)
     else:
         heat_f, cool_f = to_f(heat, unit), to_f(cool, unit)
         if not house.band_in_range(heat_f, cool_f):
-            gap = delta_from_f(house.MIN_GAP_F, unit)
+            # Bounds shown rounded inward, so the numbers in the message are accepted.
+            scale = 5 / 9 if unit == "C" else 1.0
+            shift = 32 if unit == "C" else 0
+            low = math.ceil(round((house.LOW_F - shift) * scale, 6) * 10) / 10
+            high = math.floor(round((house.HIGH_F - shift) * scale, 6) * 10) / 10
+            gap = math.ceil(round(house.MIN_GAP_F * scale, 6) * 10) / 10
             return error(
-                f"Heat-to and cool-to must be between {from_f(house.LOW_F, unit)} and"
-                f" {from_f(house.HIGH_F, unit)}°{unit}, at least {gap}° apart"
+                f"Heat-to and cool-to must be between {low} and {high}°{unit},"
+                f" at least {gap}° apart"
+            )
+        top, bottom = await house.safety_window(conn)
+        if heat_f > top or cool_f < bottom:
+            return error(
+                f"The band must sit inside every zone's safety limits: Heat To at most"
+                f" {from_f(top, unit)}°{unit} and Cool To at least {from_f(bottom, unit)}°{unit}"
             )
         await house.set_band(conn, heat_f, cool_f)
     await emit(request, "info", "api", "House band changed", body)
@@ -516,7 +527,14 @@ async def update_room_switches(request: web.Request) -> web.Response:
     except UserError as exc:
         text = safe_text(exc)
         return error(text, status=404 if text == house.ROOM_UNKNOWN else 400)
-    await emit(request, "info", "api", "Room switches changed", body)
+    room = await db.get_room(conn, request.match_info["room_id"])
+    await emit(
+        request,
+        "info",
+        "api",
+        f"What {room.name if room else 'a room'} follows changed",
+        {"room": request.match_info["room_id"], **body},
+    )
     await _tick_everything(request)
     return json_response(await _house_snapshot(request))
 

@@ -4,7 +4,7 @@ import { render, screen, fireEvent, waitFor, within } from "@testing-library/rea
 import Dashboard from "./Dashboard";
 import * as api from "../api";
 import * as ha from "../houseApi";
-import { UnitContext, buildUnitContext } from "../contexts";
+import { SystemContext, UnitContext, buildUnitContext } from "../contexts";
 
 vi.mock("../api");
 vi.mock("../houseApi", async (orig) => ({
@@ -134,7 +134,14 @@ describe("Dashboard house band", () => {
     fireEvent.change(screen.getByLabelText("Cool To (°F)"), { target: { value: "74" } });
     fireEvent.click(set);
     await waitFor(() => expect(ha.setHouseBand).toHaveBeenCalledWith(68, 74));
+    // Turning it off ends cycles, so it asks first.
     fireEvent.click(await screen.findByRole("button", { name: "Turn Off" }));
+    expect(screen.getByText("Turn off the house band?")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(ha.setHouseBand).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Turn Off" }));
+    const dialog = screen.getByText("Turn off the house band?").closest(".modal") as HTMLElement;
+    fireEvent.click(within(dialog).getByRole("button", { name: "Turn Off" }));
     await waitFor(() => expect(ha.setHouseBand).toHaveBeenLastCalledWith(null, null));
     expect(await screen.findByRole("button", { name: "Set House Band" })).toBeInTheDocument();
   });
@@ -150,6 +157,36 @@ describe("Dashboard house band", () => {
     vi.mocked(ha.setHouseBand).mockRejectedValueOnce("nope");
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(await screen.findByText("Could not save the house band")).toBeInTheDocument();
+  });
+
+  it("shows what was stored after a save that reads the same as before", async () => {
+    vi.mocked(ha.setHouseBand).mockResolvedValue(house());
+    show();
+    const heat = await screen.findByLabelText("Heat To (°F)");
+    fireEvent.change(heat, { target: { value: "68.0" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(ha.setHouseBand).toHaveBeenCalledWith(68, 75.2));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save" })).toBeDisabled());
+  });
+
+  it("keeps the band and an unsaved edit when a refresh fails", async () => {
+    show();
+    const heat = await screen.findByLabelText("Heat To (°F)");
+    fireEvent.change(heat, { target: { value: "65" } });
+    vi.mocked(ha.getHouse).mockRejectedValueOnce(new Error("blip"));
+    fireEvent.click(screen.getByRole("button", { name: /Refresh/ }));
+    await waitFor(() => expect(ha.getHouse).toHaveBeenCalledTimes(2));
+    expect(screen.getByLabelText("Heat To (°F)")).toHaveValue(65);
+    expect(screen.getByRole("button", { name: "Options for Kitchen" })).toBeInTheDocument();
+  });
+
+  it("shows a band that was changed somewhere else", async () => {
+    show();
+    await screen.findByLabelText("Heat To (°F)");
+    vi.mocked(ha.getHouse).mockResolvedValue(house({ house_heat_to: 64, house_cool_to: 70 }));
+    fireEvent.click(screen.getByRole("button", { name: /Refresh/ }));
+    await waitFor(() => expect(screen.getByLabelText("Heat To (°F)")).toHaveValue(64));
+    expect(screen.getByLabelText("Cool To (°F)")).toHaveValue(70);
   });
 
   it("keeps an unsaved edit when the dashboard refreshes with the same band", async () => {
@@ -231,5 +268,38 @@ describe("Dashboard room options", () => {
     await screen.findByTestId("dash-room-kitchen");
     expect(screen.queryByLabelText("Heat To (°F)")).toBeNull();
     expect(screen.queryByRole("button", { name: "Options for Kitchen" })).toBeNull();
+  });
+});
+
+describe("Dashboard system switch", () => {
+  it("turns the whole system off and on, asking first", async () => {
+    const toggle = vi.fn().mockResolvedValue(undefined);
+    const view = render(
+      <SystemContext.Provider value={{ enabled: true, toggle }}>
+        <Dashboard />
+      </SystemContext.Provider>
+    );
+    const sw = await screen.findByRole("switch", { name: "System On" });
+    expect(sw).toHaveAttribute("aria-checked", "true");
+    fireEvent.click(sw);
+    expect(screen.getByText("Turn the system off?")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(toggle).not.toHaveBeenCalled();
+    fireEvent.click(sw);
+    fireEvent.click(screen.getByRole("button", { name: "Turn System Off" }));
+    expect(toggle).toHaveBeenCalledTimes(1);
+    view.unmount();
+
+    render(
+      <SystemContext.Provider value={{ enabled: false, toggle }}>
+        <Dashboard />
+      </SystemContext.Provider>
+    );
+    const off = await screen.findByRole("switch", { name: "System Off" });
+    expect(off).toHaveAttribute("aria-checked", "false");
+    fireEvent.click(off);
+    expect(screen.getByText("Turn the system on?")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Turn System On" }));
+    expect(toggle).toHaveBeenCalledTimes(2);
   });
 });

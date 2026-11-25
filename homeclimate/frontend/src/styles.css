@@ -2712,3 +2712,16 @@ button.sc-nav-item {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+.dash-header-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.dash-header-actions .system-toggle-dot {
+  margin-right: 0.4rem;
+}
+.system-toggle-state {
+  margin-left: 0.3rem;
+  font-weight: 600;
+}

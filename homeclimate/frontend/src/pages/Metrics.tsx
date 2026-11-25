@@ -385,7 +385,7 @@ export default function Metrics() {
     <div>
       <div className="page-header">
         <div>
-          <div className="page-title">Metrics</div>
+          <div className="page-title">Analytics</div>
           <div className="page-subtitle">
             Heating &amp; cooling analytics for the home and individual thermostats, including Eco
             Mode impact.

@@ -20,6 +20,7 @@ Temperatures are °F here; the API converts at its write boundary.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -28,10 +29,14 @@ import aiosqlite
 from . import db
 from .user_errors import UserError, fixed
 
-HEAT_TO_SETTING = "house_heat_to"
-COOL_TO_SETTING = "house_cool_to"
-# °F. The gap keeps a heating cycle's overshoot from ever reaching cool-to.
+# Both edges in one setting ("68.00,74.00"), so a reader never sees half a change.
+BAND_SETTING = "house_band"
+# °F. A band narrower than this is no longer two different targets once the
+# deadband on each edge is counted.
 MIN_GAP_F = 3.0
+# °F a band edge must stay inside a zone's safety limits, so a cycle working
+# toward it can always finish.
+SAFETY_MARGIN_F = 1.0
 LOW_F, HIGH_F = 45.0, 95.0
 SWITCHES = ("in_use", "use_schedules", "use_presence")
 
@@ -40,7 +45,7 @@ class HouseError(UserError):
     """A request the caller can fix; the message is one of the constants below."""
 
 
-BOTH_OR_NEITHER = fixed("Set both house_heat_to and house_cool_to, or clear both")
+BOTH_OR_NEITHER = fixed("Send both house_heat_to and house_cool_to: two numbers, or two nulls")
 NOT_NUMBERS = fixed("house_heat_to and house_cool_to must be numbers")
 UNKNOWN_SWITCH = fixed("Unknown room switch")
 SWITCH_NOT_BOOL = fixed("Room switches must be true or false")
@@ -85,17 +90,17 @@ class House:
         return self.rooms.get(room_id, RoomSwitches())
 
 
-def _stored(value: str) -> float | None:
+def _stored(value: str) -> Band | None:
     try:
-        return float(value)
+        heat, cool = (float(part) for part in value.split(","))
     except ValueError:
         return None
+    # Anything that is not a usable band is no band.
+    return Band(heat, cool) if band_in_range(heat, cool) else None
 
 
 async def load(conn: aiosqlite.Connection) -> House:
-    heat = _stored(await db.get_system_setting(conn, HEAT_TO_SETTING, ""))
-    cool = _stored(await db.get_system_setting(conn, COOL_TO_SETTING, ""))
-    band = Band(heat, cool) if heat is not None and cool is not None else None
+    band = _stored(await db.get_system_setting(conn, BAND_SETTING, ""))
     async with conn.execute("SELECT * FROM room_switches") as cur:
         rooms = {
             r["room_id"]: RoomSwitches(
@@ -106,14 +111,25 @@ async def load(conn: aiosqlite.Connection) -> House:
     return House(band, rooms)
 
 
-def check_band(heat_to: Any, cool_to: Any) -> str | None:
-    """Why a band (in °F) is not acceptable, or None. Both None clears the band."""
+def check_band(body: dict[str, Any]) -> str | None:
+    """Why a request body is not a band or a clear, or None.
+
+    Both keys must be present: two numbers set the band, two nulls clear it.
+    """
+    if "house_heat_to" not in body or "house_cool_to" not in body:
+        return BOTH_OR_NEITHER
+    heat_to, cool_to = body["house_heat_to"], body["house_cool_to"]
     if heat_to is None and cool_to is None:
         return None
     if heat_to is None or cool_to is None:
         return BOTH_OR_NEITHER
     for value in (heat_to, cool_to):
-        if isinstance(value, bool) or not isinstance(value, int | float):
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, int | float)
+            or abs(value) > 1000
+            or not math.isfinite(value)
+        ):
             return NOT_NUMBERS
     return None
 
@@ -122,12 +138,25 @@ def band_in_range(heat_to: float, cool_to: float) -> bool:
     return heat_to >= LOW_F and cool_to <= HIGH_F and cool_to - heat_to >= MIN_GAP_F - 1e-6
 
 
+async def safety_window(conn: aiosqlite.Connection) -> tuple[float, float]:
+    """(highest heat-to, lowest cool-to) every zone's safety limits allow, in °F.
+
+    Heating toward heat-to needs a setpoint below the zone's maximum, and
+    cooling toward cool-to one above its minimum; outside that a cycle could
+    never finish.
+    """
+    configs = await db.get_all_thermostat_configs(conn)
+    top = min((tc.max_setpoint for tc in configs), default=HIGH_F + SAFETY_MARGIN_F)
+    bottom = max((tc.min_setpoint for tc in configs), default=LOW_F - SAFETY_MARGIN_F)
+    return top - SAFETY_MARGIN_F, bottom + SAFETY_MARGIN_F
+
+
 async def set_band(
     conn: aiosqlite.Connection, heat_to: float | None, cool_to: float | None
 ) -> None:
     """Store the band (°F, already validated), or clear it with two Nones."""
-    await db.set_system_setting(conn, HEAT_TO_SETTING, "" if heat_to is None else f"{heat_to:.2f}")
-    await db.set_system_setting(conn, COOL_TO_SETTING, "" if cool_to is None else f"{cool_to:.2f}")
+    value = "" if heat_to is None or cool_to is None else f"{heat_to:.2f},{cool_to:.2f}"
+    await db.set_system_setting(conn, BAND_SETTING, value)
 
 
 async def set_switches(conn: aiosqlite.Connection, room_id: str, body: dict[str, Any]) -> None:

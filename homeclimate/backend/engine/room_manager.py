@@ -378,6 +378,7 @@ async def get_room_active_status(
     room: Room,
     schedules: list[Schedule],
     now: datetime | None = None,
+    the_house: house.House | None = None,
 ) -> dict:
     """
     Return detailed active status for a single room, suitable for the UI.
@@ -401,7 +402,10 @@ async def get_room_active_status(
         # keep real time — only what the UI *displays* is pinned (see tz.now_utc).
         now = tz.now_utc()
 
-    resolved = await _resolve_room(conn, room, schedules, now)
+    if the_house is None:
+        the_house = await house.load(conn)
+    switches = the_house.switches(room.id)
+    resolved = await _resolve_room(conn, room, schedules, now, the_house)
 
     ends_in_seconds: int | None = None
     current_schedule_id: str | None = None
@@ -414,7 +418,11 @@ async def get_room_active_status(
     # after the user zeroes presence_holdover_hours must not show the room as
     # presence-active in the UI while the engine ignores it.
     presence_holdover_active = (
-        room.presence_holdover_hours > 0 and holdover is not None and holdover.expires_at > now
+        switches.in_use
+        and switches.use_presence
+        and room.presence_holdover_hours > 0
+        and holdover is not None
+        and holdover.expires_at > now
     )
 
     override_respect_eco: bool | None = None
@@ -434,7 +442,12 @@ async def get_room_active_status(
         ends_in_seconds = max(0, int((holdover.expires_at - now).total_seconds()))
 
     # Find next upcoming schedule
-    next_sched = _next_schedule_start(schedules, now, exclude_id=current_schedule_id)
+    # A room whose schedules are skipped has no "next" one to look forward to.
+    next_sched = (
+        _next_schedule_start(schedules, now, exclude_id=current_schedule_id)
+        if switches.in_use and switches.use_schedules
+        else None
+    )
 
     return {
         "room_id": room.id,

@@ -25,11 +25,12 @@ import {
   type Building,
   type ZoneProfile,
 } from "../zonesApi";
+import ConfirmDialog from "../components/ConfirmDialog";
 import HouseBandCard from "../components/HouseBandCard";
 import RoomFollowDialog from "../components/RoomFollowDialog";
 import { getHouse, switchesFor, type House } from "../houseApi";
 import { getSmartControl, type SmartControl } from "../smartControlApi";
-import { useTimeZone, useUnit } from "../contexts";
+import { useSystem, useTimeZone, useUnit } from "../contexts";
 import { onStateChanged } from "../stateEvents";
 import { Frozen, FROZEN } from "../ci";
 import AirflowConfigBanner from "../components/AirflowConfigBanner";
@@ -543,6 +544,8 @@ export default function Dashboard() {
   });
   const [smart, setSmart] = useState<SmartControl | null>(null);
   const [house, setHouse] = useState<House | null>(null);
+  const system = useSystem();
+  const [confirmSystem, setConfirmSystem] = useState(false);
   const [optionsFor, setOptionsFor] = useState<{ id: string; name: string } | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [actionError, setActionError] = useState("");
@@ -573,7 +576,9 @@ export default function Dashboard() {
       getSensorHealth().catch(() => null),
       getHouse().catch(() => null),
     ]);
-    setHouse(hs ?? null);
+    // A failed refresh keeps the last good house: blanking it would drop an
+    // unsaved band edit and close an open Options dialog.
+    if (hs) setHouse(hs);
     setBuildings(b);
     setProfiles(zp);
     setSmart(sc ?? null);
@@ -705,10 +710,43 @@ export default function Dashboard() {
               )}
             </div>
           </div>
-          <button className="btn btn-secondary" onClick={load}>
-            ↻ Refresh
-          </button>
+          <div className="dash-header-actions">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={system.enabled}
+              className={`btn ${system.enabled ? "btn-secondary" : "btn-danger"}`}
+              title="Turn all of HomeClimate's heating and cooling control on or off"
+              onClick={() => setConfirmSystem(true)}
+            >
+              <span
+                className="system-toggle-dot"
+                style={{ background: system.enabled ? "var(--green)" : "#fff" }}
+              />
+              <span>System</span>
+              <strong className="system-toggle-state">{system.enabled ? "On" : "Off"}</strong>
+            </button>
+            <button className="btn btn-secondary" onClick={load}>
+              ↻ Refresh
+            </button>
+          </div>
         </div>
+        {confirmSystem && (
+          <ConfirmDialog
+            title={system.enabled ? "Turn the system off?" : "Turn the system on?"}
+            message={
+              system.enabled
+                ? "HomeClimate stops controlling every thermostat and vent until you turn it back on. Running cycles end."
+                : "HomeClimate takes control of every thermostat and vent again."
+            }
+            confirmLabel={system.enabled ? "Turn System Off" : "Turn System On"}
+            onCancel={() => setConfirmSystem(false)}
+            onConfirm={() => {
+              setConfirmSystem(false);
+              void system.toggle();
+            }}
+          />
+        )}
 
         <AirflowConfigBanner />
         <UnavailableThermostatsBanner />

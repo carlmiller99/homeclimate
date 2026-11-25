@@ -165,7 +165,7 @@ describe("Metrics Page", () => {
 
   it("renders the metrics page and summary stats", async () => {
     render(<Metrics />);
-    expect(await screen.findByText(/Metrics/i)).toBeInTheDocument();
+    expect(await screen.findByText("Analytics")).toBeInTheDocument();
     expect(await screen.findByText("1h 0m")).toBeInTheDocument(); // heating
     expect(await screen.findByText("2h 0m")).toBeInTheDocument(); // cooling
     expect(await screen.findByText("15.5%")).toBeInTheDocument(); // duty cycle
@@ -235,7 +235,7 @@ describe("Metrics Page", () => {
       rooms: [],
     });
     render(<Metrics />);
-    await screen.findByText(/Metrics/i);
+    await screen.findByText("Analytics");
     await waitFor(() => {
       expect(api.getMetricsEcoImpact).toHaveBeenCalled();
     });

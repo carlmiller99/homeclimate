@@ -1,4 +1,5 @@
 import { useState } from "react";
+import ConfirmDialog from "./ConfirmDialog";
 import { useUnit } from "../contexts";
 import { setHouseBand, type House } from "../houseApi";
 
@@ -34,6 +35,7 @@ export default function HouseBandCard({
   }
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmOff, setConfirmOff] = useState(false);
 
   const isSet = house.house_heat_to !== null;
   const heat = form.heat.trim() === "" ? NaN : Number(form.heat);
@@ -46,7 +48,12 @@ export default function HouseBandCard({
     setError(null);
     setSaving(true);
     try {
-      onSaved(await setHouseBand(h, c));
+      const saved = await setHouseBand(h, c);
+      // Show what was stored, even when it reads the same as before ("67.0" → "67").
+      const next = shownBand(saved, toDisplay);
+      setDerived(next);
+      setForm(next);
+      onSaved(saved);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not save the house band");
     } finally {
@@ -73,7 +80,7 @@ export default function HouseBandCard({
             className="form-control house-band-input"
             type="number"
             inputMode="decimal"
-            step="0.5"
+            step="any"
             value={form.heat}
             disabled={saving}
             onChange={(e) => setForm({ ...form, heat: e.target.value })}
@@ -85,7 +92,7 @@ export default function HouseBandCard({
             className="form-control house-band-input"
             type="number"
             inputMode="decimal"
-            step="0.5"
+            step="any"
             value={form.cool}
             disabled={saving}
             onChange={(e) => setForm({ ...form, cool: e.target.value })}
@@ -104,7 +111,7 @@ export default function HouseBandCard({
             type="button"
             className="btn btn-secondary"
             disabled={saving}
-            onClick={() => void send(null, null)}
+            onClick={() => setConfirmOff(true)}
           >
             Turn Off
           </button>
@@ -112,6 +119,18 @@ export default function HouseBandCard({
       </div>
       <p className="house-band-hint">{`Cool To must be at least ${gap}° above Heat To.`}</p>
       {error && <p className="form-error">{error}</p>}
+      {confirmOff && (
+        <ConfirmDialog
+          title="Turn off the house band?"
+          message="Rooms that only follow the house band stop asking for heating or cooling straight away, which ends any cycle running just for them."
+          confirmLabel="Turn Off"
+          onCancel={() => setConfirmOff(false)}
+          onConfirm={() => {
+            setConfirmOff(false);
+            void send(null, null);
+          }}
+        />
+      )}
     </section>
   );
 }

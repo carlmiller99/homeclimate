@@ -5491,22 +5491,33 @@ class CycleEngine:
     def _apply_bands(
         self, active_rooms: dict[str, ActiveRoom], mode: str | None, thermo_state: dict | None
     ) -> None:
-        """Give every banded room its single target for this tick (house.Band)."""
+        """Give every banded room its single target for this tick (house.Band).
+
+        With a cycle running or about to start, a banded room that is not
+        already part of it only takes part if it is short of the edge the cycle
+        works toward. A room resting inside its band is simply left out:
+        without this it would hop in and out of every cycle as it drifted
+        across the deadband, opening and closing its vents each time.
+        """
         ambient: float | None = None
         if thermo_state:
             ambient = _climate_temp_to_f(
                 thermo_state.get("attributes", {}).get("current_temperature"),
                 self._ha.ha_temp_unit,
             )
-        for ar in active_rooms.values():
+        in_cycle = mode in ("heating", "cooling")
+        for room_id, ar in list(active_rooms.items()):
             if ar.heat_to is None or ar.cool_to is None:
                 continue
-            temp: float | None = None
-            if mode not in ("heating", "cooling"):
-                avg = self._get_avg_temp(ar.room)
-                if avg is None:
-                    avg = ambient  # the same stand-in the mode vote uses
-                temp = None if avg is None else avg + ar.room.temp_offset
+            avg = self._get_avg_temp(ar.room)
+            if avg is None:
+                avg = ambient  # the same stand-in the mode vote uses
+            temp = None if avg is None else avg + ar.room.temp_offset
+            if in_cycle and room_id not in self._active_rooms and temp is not None:
+                short = temp < ar.heat_to if mode == "heating" else temp > ar.cool_to
+                if not short:
+                    del active_rooms[room_id]
+                    continue
             ar.target_temp = house.Band(ar.heat_to, ar.cool_to).target_for(mode, temp)
 
     async def _fire_is_warming_this_zone(self, conn: aiosqlite.Connection) -> bool:
@@ -5818,13 +5829,17 @@ class CycleEngine:
         if hp is None or not hp.avoid_aux or self._hp_strips or state != "heat":
             return active
         now = now or datetime.now(UTC)
-        have = {ar.room.id for ar in active}
+        the_house = await house.load(conn)
+        # A room following the house band has nothing more specific yet, so an
+        # early warm-up may take it over; any other source is left alone.
+        have = {ar.room.id for ar in active if ar.source != "house"}
         by_room: dict[str, list] = {}
         for sched in await db.get_all_schedules(conn):
             by_room.setdefault(sched.room_id, []).append(sched)
         out = list(active)
         for room in await db.get_rooms_for_thermostat(conn, self.thermostat_entity_id):
-            if room.id in have:
+            switches = the_house.switches(room.id)
+            if room.id in have or not switches.in_use or not switches.use_schedules:
                 continue
             upcoming = _next_schedule_start(by_room.get(room.id, []), now)
             temp = self._get_avg_temp(room)
@@ -5836,6 +5851,7 @@ class CycleEngine:
             lead_hours = min((target - temp) / hp.recovery_f_per_hr, hp_rules.WARMUP_MAX_LEAD_HOURS)
             if secs > lead_hours * 3600:
                 continue
+            out = [ar for ar in out if ar.room.id != room.id]
             out.append(ActiveRoom(room=room, target_temp=target, source="schedule"))
             key = (room.id, label)
             if self._logger and key not in self._hp_warmups_logged:
