@@ -304,9 +304,15 @@ async def test_before_a_cycle_is_chosen_balancing_rooms_give_way_to_any_room_tha
     assert running == {room.id: was, other.id: hold}
     # Not for a call the building's side rules out, which no cycle could
     # answer: ending the run would only start it again a minute later.
+    # That is only so where the side is the building's own setting. Where the
+    # building chooses, the run ends, so the zone can wait for it to switch.
     running = asked(hold)
     engine._optional_rooms_yield(running, tc, "heating")
-    assert running[room.id].source == "balance"
+    assert running[room.id] is was
+    engine._get_side_fixed = lambda: True
+    running = asked(hold)
+    engine._optional_rooms_yield(running, tc, "heating")
+    assert running[room.id].source == "balance" and engine.optional_only
     # A room past a safety limit is answered whatever the side, and so is a
     # call for the side itself.
     temps[other.id] = tc.max_setpoint + 1
@@ -317,6 +323,15 @@ async def test_before_a_cycle_is_chosen_balancing_rooms_give_way_to_any_room_tha
     running = asked(hold)
     engine._optional_rooms_yield(running, tc, "cooling")
     assert running[room.id] is was
+    # A run for nothing but balancing rooms that finds itself against the
+    # building's side ends too, with nobody calling, so no zone waits on it.
+    temps[other.id] = 74.2
+    for side, stays in (("heating", True), (None, True), ("hold", True), ("cooling", False)):
+        running = asked(hold)
+        engine._optional_rooms_yield(running, tc, side)
+        assert (running[room.id].source == "balance") is stays
+    temps[other.id] = 80.0
+    engine._get_side_fixed = None
     # A room that wants the same direction simply joins the run.
     temps[other.id] = 70.0
     running = asked(hold)
@@ -388,6 +403,20 @@ async def test_before_a_cycle_is_chosen_balancing_rooms_give_way_to_any_room_tha
     active = {other.id: hold}
     engine._optional_rooms_yield(active, tc)
     assert active == {other.id: hold}
+    await conn.close()
+
+
+async def test_nothing_new_is_asked_while_a_call_in_the_zone_waits_to_coast():
+    conn, engine, room, _temps = await _setup()
+    other = Room.create(name="Craft Room", thermostat_entity_id=THERMO_ID)
+    await db.upsert_room(conn, other)
+    assert not engine.optional_only
+    engine._coast_wait = {"another-room": (NOW, "cooling", 74.0)}
+    assert await engine._balance(conn, []) == []
+    # A run already going is not a wait any more, and its rooms are kept.
+    asked = [ActiveRoom(room=room, target_temp=67.0, source="balance")]
+    _run(engine, asked)
+    assert _targets(await engine._balance(conn, [])) == [(67.0, "balance"), (67.0, "balance")]
     await conn.close()
 
 

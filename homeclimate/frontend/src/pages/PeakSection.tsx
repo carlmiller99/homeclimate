@@ -139,7 +139,12 @@ export default function PeakSection() {
           value={data.start}
           onCommit={(start) => void set({ start })}
         />
-        <TimeField label="Peak ends" value={data.end} onCommit={(end) => void set({ end })} />
+        <TimeField
+          id="peak-hours-end"
+          label="Peak ends"
+          value={data.end}
+          onCommit={(end) => void set({ end })}
+        />
         <ZoneHint />
       </RuleRow>
       <fieldset className="notify-categories" disabled={busy}>

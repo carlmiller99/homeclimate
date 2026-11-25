@@ -86,6 +86,10 @@ async def test_before_a_cold_peak_it_is_warmed_instead_and_a_mild_one_does_nothi
 
 async def test_what_is_never_banked(monkeypatch):
     conn, engine, room, band, temps = await _setup(monkeypatch)
+    # While a call in the zone is waiting to coast, no run is started to bank.
+    engine._coast_wait = {"another-room": (BANKING, "heating", 70.0)}
+    assert await engine._bank(conn, band, now=BANKING) == band
+    engine._coast_wait = {}
     # A hold, banded or not, and a single target.
     for own in (
         [ActiveRoom(room=room, target_temp=70.0, source="override", heat_to=70.0, cool_to=76.0)],

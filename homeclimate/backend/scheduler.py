@@ -170,6 +170,11 @@ class Scheduler:
         self._zone_profiles: dict[str, zones.ZoneProfile] = {}
         # Zone Balance: each zone's balancing call and whether it is obeyed.
         self._balance_calls: dict[str, tuple[zone_balance.Call, bool]] = {}
+        # Which way each zone was waiting to go when its building was last
+        # planned (thermostat → direction). Read from this, not the engines:
+        # an engine clears its wait at the top of each tick, and zones tick
+        # side by side.
+        self._waiting_at_plan: dict[str, str] = {}
         self._balance_said: dict[str, tuple[str, bool]] = {}
         self._aux = heat_pump.AuxMonitor()
         self._shades = shades.ShadeController()
@@ -1076,6 +1081,8 @@ class Scheduler:
             get_openings=functools.partial(self._pause_for, tid),
             get_fireplace_rooms=lambda: frozenset(self._fireplaces.set_aside_rooms()),
             get_building_side=functools.partial(self._building_side, tid),
+            get_side_fixed=functools.partial(self._building_plan.side_is_fixed, tid),
+            get_building_waiting=functools.partial(self._building_waiting, tid),
             claim_building_side=functools.partial(self._building_plan_claim, tid),
             get_heat_pump=functools.partial(self._heat_pumps.get, tid),
             get_balance=functools.partial(self._balance_call, tid),
@@ -1709,6 +1716,20 @@ class Scheduler:
         running = {tid: e.cycle_mode for tid, e in self._engines.items() if e.cycle_mode}
         return self._building_plan.live_side(thermostat_entity_id, running)
 
+    def _building_waiting(self, thermostat_entity_id: str) -> str | None:
+        """The direction another zone of this zone's building was waiting to go, if any.
+
+        As of the last plan. Convenience rooms (Zone Balance and the like)
+        read it while their building is on no side yet: a zone waiting to go
+        one way is what the building wants, and no convenience run is started
+        or kept going against it.
+        """
+        building = self._building_plan.building_of(thermostat_entity_id)
+        for tid, direction in self._waiting_at_plan.items():
+            if tid != thermostat_entity_id and self._building_plan.building_of(tid) == building:
+                return direction
+        return None
+
     def _building_plan_claim(self, thermostat_entity_id: str, direction: str) -> str | None:
         return self._building_plan.claim(thermostat_entity_id, direction)
 
@@ -1719,7 +1740,11 @@ class Scheduler:
     def zones_now(self) -> list[building_mode.ZoneNow]:
         return [
             building_mode.ZoneNow(
-                tid, engine.cycle_mode, engine.building_wait, engine.protecting_only
+                tid,
+                engine.cycle_mode,
+                engine.building_wait,
+                # Neither kind of run says which side the building wants.
+                engine.protecting_only or engine.optional_only,
             )
             for tid, engine in self._engines.items()
         ]
@@ -1732,9 +1757,11 @@ class Scheduler:
             if (await forecast.get_settings(self._db_conn))["correct"]:
                 hours = (await forecast_bias.load(self._db_conn)).correct(hours)
             band = (await house.load(self._db_conn)).band
-            switched = await self._building_plan.plan(
-                self._db_conn, self.zones_now(), hours, band, now
-            )
+            zones_now = self.zones_now()
+            self._waiting_at_plan = {
+                z.thermostat_entity_id: z.wait["direction"] for z in zones_now if z.wait
+            }
+            switched = await self._building_plan.plan(self._db_conn, zones_now, hours, band, now)
             if switched and self._event_logger is not None:
                 names = {b.id: b.name for b in await zones.list_buildings(self._db_conn)}
                 for building_id, side in switched:
