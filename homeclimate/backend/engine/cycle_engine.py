@@ -3013,10 +3013,8 @@ class CycleEngine:
                 needs_cool += 1
             elif vote == "heat":
                 needs_heat += 1
-        with_a_say = [ar for ar in active_rooms.values() if ar.source not in OPTIONAL_SOURCES]
         if needs_cool == 0 and needs_heat == 0:
             needs_cool, needs_heat = optional_cool, optional_heat
-            with_a_say = list(active_rooms.values())
 
         if only is not None:
             return only if (needs_heat if only == "heating" else needs_cool) > 0 else "off"
@@ -3035,8 +3033,8 @@ class CycleEngine:
         # "heating" but the thermostat itself is already warmer than every room
         # target) means sensors are stale, offset-skewed, or in a microclimate.
         # Override the vote and warn so the operator can investigate.
-        if thermo_ambient is not None and with_a_say:
-            all_targets = [ar.target_temp for ar in with_a_say]
+        if thermo_ambient is not None and active_rooms:
+            all_targets = [ar.target_temp for ar in active_rooms.values()]
             if inferred == "heating" and thermo_ambient > max(all_targets) + deadband:
                 corrected = "cooling"
             elif inferred == "cooling" and thermo_ambient < min(all_targets) - deadband:
@@ -6694,8 +6692,9 @@ class CycleEngine:
         now = now or datetime.now(UTC)
         held: dict[str, float] = {}
         if self._state != CycleState.IDLE:
-            held = self._bank_latch or {
-                # The target asked for, not one Eco has since relaxed.
+            # Read from the run itself: only a room that really joined it is
+            # kept. The target is the one asked for, not one Eco has relaxed.
+            held = {
                 rid: ar.target_temp if ar.requested_target is None else ar.requested_target
                 for rid, ar in self._active_rooms.items()
                 if ar.source == "bank"
@@ -6703,11 +6702,10 @@ class CycleEngine:
         win = peak.window(settings, now) if settings.enabled else None
         banking = win is not None and win.banking(now)
         tc = await self._load_tc(conn)
-        if held and not banking and self._cycle_runtime_satisfied(tc):
-            # The peak has begun (or banking was switched off) and the run has
-            # had its minimum: banking is not worth peak-priced energy. The
-            # rooms go back to their bands and the run ends by the usual rules.
-            held = {}
+        # The peak has begun (or banking was switched off) and the run has had
+        # its minimum: banking is not worth peak-priced energy. Its rooms are
+        # taken to be where they should be, so the run ends by the usual rules.
+        wind_up = bool(held) and not banking and self._cycle_runtime_satisfied(tc)
         if not banking and not held:
             self._bank_latch = {}
             return active
@@ -6730,6 +6728,9 @@ class CycleEngine:
                 continue
             if room.id in held:
                 target = held[room.id]
+                reading = self._get_avg_temp(room, refresh=False) if wind_up else None
+                if reading is not None:
+                    target = reading + room.temp_offset
             elif not banking or win is None:
                 continue
             else:
@@ -6753,6 +6754,7 @@ class CycleEngine:
                 if short <= deadband:
                     continue
             latched[room.id] = target
+            self._optional_replaced[room.id] = ar
             out = [a for a in out if a.room.id != room.id]
             out.append(
                 ActiveRoom(

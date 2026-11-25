@@ -132,8 +132,18 @@ async def test_a_banded_schedule_is_banked_too_within_the_zones_limits(monkeypat
 
 async def test_a_run_begun_for_banking_is_not_cut_short_when_the_peak_begins(monkeypatch):
     conn, engine, room, band, temps = await _setup(monkeypatch)
-    await engine._bank(conn, band, now=BANKING)
-    engine._state, engine._cycle_mode = CycleState.RUNNING, "cooling"
+
+    def running(target=74.0, **more):
+        engine._state, engine._cycle_mode = CycleState.RUNNING, "cooling"
+        engine._active_rooms = {
+            room.id: ActiveRoom(room=room, target_temp=target, source="bank", **more)
+        }
+
+    started = await engine._bank(conn, band, now=BANKING)
+    assert _targets(started) == [(74.0, "bank")]
+    running()
+    assert engine.bank_rooms == [room.id]
+    assert engine.get_zone_status().bank_rooms == [room.id]
     temps["now"] = 74.3  # inside the deadband, and the peak has begun
     peak_now = BANKING + timedelta(hours=1, minutes=5)
     assert _targets(await engine._bank(conn, band, now=peak_now)) == [(74.0, "bank")]
@@ -148,31 +158,31 @@ async def test_a_run_begun_for_banking_is_not_cut_short_when_the_peak_begins(mon
         (74.0, "bank"),
     ]
     # Once the run has had its minimum runtime, banking is not carried on at
-    # peak prices: the room goes back to its band and the run ends by itself.
+    # peak prices: the room is taken to be where it should be, part-way or
+    # not, so the run ends by the usual rules rather than being cut off.
     engine._cycle_runtime_satisfied = lambda _tc, now=None: True
-    assert await engine._bank(conn, band, now=peak_now) == band
-    assert engine._bank_latch == {}
+    temps["now"] = 74.9
+    assert _targets(await engine._bank(conn, band, now=peak_now)) == [(74.9, "bank")]
+    temps["now"] = None  # with no reading it keeps the target it had
+    assert _targets(await engine._bank(conn, band, now=peak_now)) == [(74.0, "bank")]
+    temps["now"] = 74.3
     engine._cycle_runtime_satisfied = lambda _tc, now=None: False
-    engine._bank_latch = {room.id: 74.0}
     # A hold takes the room over; a room no longer asked for anything leaves the run.
     hold = [ActiveRoom(room=room, target_temp=72.0, source="override")]
     assert await engine._bank(conn, hold, now=peak_now) == hold
     assert engine._bank_latch == {}
-    # After a restart the run is read back and carried on, at what was asked
-    # for rather than what Eco had relaxed it to.
-    engine._active_rooms = {
-        room.id: ActiveRoom(room=room, target_temp=75.0, source="bank", requested_target=74.0)
-    }
-    assert engine.bank_rooms == [room.id]
-    assert engine.get_zone_status().bank_rooms == [room.id]
+    # A run carried on (after a restart, say) keeps what was asked for rather
+    # than what Eco had relaxed it to.
+    running(75.0, requested_target=74.0)
     assert _targets(await engine._bank(conn, band, now=peak_now)) == [(74.0, "bank")]
-    engine._bank_latch = {}
-    engine._active_rooms = {room.id: ActiveRoom(room=room, target_temp=74.0, source="bank")}
-    assert _targets(await engine._bank(conn, band, now=peak_now)) == [(74.0, "bank")]
+    # A room asked while the zone ran for someone else never joined, and is not kept.
+    engine._active_rooms = {other.id: ActiveRoom(room=other, target_temp=70.0, source="override")}
+    assert await engine._bank(conn, band, now=peak_now) == band
     # Once the run is over nothing more is asked during the peak.
+    running()
     engine._state = CycleState.IDLE
     assert await engine._bank(conn, band, now=peak_now) == band
-    assert engine._bank_latch == {}
+    assert engine._bank_latch == {} and engine.bank_rooms == []
     assert await engine._bank(conn, band) == band  # and by the real clock, months later
     await conn.close()
 

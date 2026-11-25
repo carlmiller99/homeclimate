@@ -102,6 +102,7 @@ async def test_the_settings_are_read_changed_and_checked(client):
         ({"start": "+1:00"}, peak.BAD_TIME),
         ({"start": " 1:00"}, peak.BAD_TIME),
         ({"start": "１５:00"}, peak.BAD_TIME),
+        ({"start": "1２:00"}, peak.BAD_TIME),
         ({"end": "12:60"}, peak.BAD_TIME),
         ({"end": "15:00"}, peak.BAD_TIME),  # the same as the start
         ({"end": 1500}, peak.BAD_TIME),
@@ -221,12 +222,44 @@ async def test_a_real_banking_run_cools_into_the_band_and_ends_by_itself(
     assert len(reasons) == 1 and not str(reasons[0]).startswith("aborted")
 
 
-async def test_banking_never_outvotes_a_room_past_a_safety_limit(
+async def test_a_real_banking_run_is_wound_up_cleanly_when_the_peak_begins(
     client, fake_ha, tick, monkeypatch
+):
+    """Part-way to its banked target when the peak starts: the run ends, it is not aborted."""
+    _ids, eng = await _peak_site(client, fake_ha, monkeypatch, {"den": 75.5})
+    await tick()
+    await tick()
+    assert [(ar.source, ar.target_temp) for ar in eng._active_rooms.values()] == [("bank", 74.0)]
+    await fake_ha.set_entity_state("sensor.peak_den", "74.9", {"unit_of_measurement": "°F"})
+    # The peak begins now, and the run has had its minimum runtime.
+    now = tz.to_local(datetime.now(UTC))
+    resp = await client.put(
+        "/api/peak-hours",
+        json={
+            "start": (now - timedelta(minutes=1)).strftime("%H:%M"),
+            "end": (now + timedelta(hours=2)).strftime("%H:%M"),
+        },
+    )
+    assert resp.status == 200, await resp.text()
+    eng._cycle_log.started_at -= timedelta(minutes=16)
+    for _ in range(3):
+        await tick()
+    assert eng.cycle_state.value == "idle"
+    conn = await client.app["scheduler"].get_db()
+    async with conn.execute(
+        "SELECT ended_reason FROM cycle_logs WHERE thermostat_entity_id = ?", (T,)
+    ) as cur:
+        reasons = [r["ended_reason"] for r in await cur.fetchall()]
+    assert len(reasons) == 1 and not str(reasons[0]).startswith("aborted")
+
+
+@pytest.mark.parametrize("ambient", [60.0, 62.0, 66.0, 70.0, 75.0])
+async def test_banking_never_outvotes_a_room_past_a_safety_limit(
+    client, fake_ha, tick, monkeypatch, ambient
 ):
     """Two rooms would be cooled for the peak; a third is too cold. The zone must heat."""
     ids, eng = await _peak_site(
-        client, fake_ha, monkeypatch, {"cold": 57.0, "one": 75.5, "two": 75.5}, ambient=60.5
+        client, fake_ha, monkeypatch, {"cold": 57.0, "one": 75.5, "two": 75.5}, ambient=ambient
     )
     await client.put(f"/api/house/rooms/{ids['cold']}", json={"in_use": False})
     await tick()
@@ -235,9 +268,10 @@ async def test_banking_never_outvotes_a_room_past_a_safety_limit(
     assert {ar.source for ar in eng._active_rooms.values()} == {"safety"}
 
 
-async def test_banking_never_outvotes_a_hold(client, fake_ha, tick, monkeypatch):
+@pytest.mark.parametrize("ambient", [60.0, 66.0, 70.0, 73.0, 73.6, 75.0])
+async def test_banking_never_outvotes_a_hold(client, fake_ha, tick, monkeypatch, ambient):
     ids, eng = await _peak_site(
-        client, fake_ha, monkeypatch, {"held": 70.0, "one": 75.5, "two": 75.5}, ambient=73.0
+        client, fake_ha, monkeypatch, {"held": 70.0, "one": 75.5, "two": 75.5}, ambient=ambient
     )
     await client.post(
         f"/api/rooms/{ids['held']}/override", json={"target_temp": 73, "duration_hours": 2}

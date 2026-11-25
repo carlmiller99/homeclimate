@@ -41,7 +41,7 @@ MAX_DEPTH_F = 5.0
 MIN_LEAD_MIN = 30
 MAX_LEAD_MIN = 180
 FAR_EDGE_MARGIN_F = 1.0  # how close to the band's far edge banking may go, plus the deadband
-_TIME = re.compile(r"([01]\d|2[0-3]):[0-5]\d")
+_TIME = re.compile(r"([01][0-9]|2[0-3]):[0-5][0-9]")
 
 
 class PeakError(UserError):
