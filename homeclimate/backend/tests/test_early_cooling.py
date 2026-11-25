@@ -103,6 +103,26 @@ async def test_a_banded_room_about_to_pass_its_cool_to_is_cooled_a_little_now(mo
     for reading in (74.9, 76.8):
         temps["now"] = reading
         assert await engine._cool_early(conn, band, now=NOW) == band
+    # A sensor offset is applied to the reading that is judged, and taken back
+    # out of what the model (fitted on raw readings) is asked.
+    asked = {}
+    real = early_cooling.breach_in
+
+    def spy(model, **kw):
+        asked.update(temp=kw["temp"], cool_to=kw["cool_to"])
+        return real(model, **kw)
+
+    monkeypatch.setattr(early_cooling, "breach_in", spy)
+    room.temp_offset = -1.0
+    await db.upsert_room(conn, room)
+    temps["now"] = 76.4  # reads 75.4 once corrected
+    assert _targets(await engine._cool_early(conn, band, now=NOW)) == [(74.5, "precool")]
+    assert asked == {"temp": 76.4, "cool_to": 77.0}
+    temps["now"] = 75.4  # 74.4 corrected: cool enough
+    assert await engine._cool_early(conn, band, now=NOW) == band
+    room.temp_offset = 0.0
+    await db.upsert_room(conn, room)
+    monkeypatch.setattr(early_cooling, "breach_in", real)
     # A room's own deadband and the zone's limits are kept.
     temps["now"] = 75.4
     tc = await db.get_thermostat_config(conn, THERMO_ID)

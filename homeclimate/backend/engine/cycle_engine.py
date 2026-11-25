@@ -274,6 +274,9 @@ class CycleEngine:
         # when they were read, and the arrivals already written to the log.
         self._usual_hours: tuple[datetime, dict[str, frozenset[tuple[int, int]]]] | None = None
         self._arrivals_logged: set[tuple[str, str, str]] = set()
+        # When each room being got ready stops being worth it: half an hour
+        # into its hour with nobody there.
+        self._arrival_until: dict[str, datetime] = {}
         # Early Cooling (``backend/early_cooling.py``): rooms it has spoken of
         # in the log, and when, so a warm afternoon is one line and not sixty.
         self._early_cool_logged: dict[tuple[str, str], datetime] = {}
@@ -6930,9 +6933,12 @@ class CycleEngine:
         more specific than the house band, that uses occupancy and has no
         schedule for that hour; only when the weather and the building's side
         agree with the direction; never on a heat pump's strips. If nobody has
-        arrived half an hour into the hour it is no longer asked. A room that
-        has started a run is kept in it until the run ends. On Watch Only it is
-        logged and nothing is started.
+        arrived half an hour into the hour it is no longer asked, and a run
+        already going for it is wound up: once the run has had its minimum
+        runtime the room is taken to be where it should be, so the run ends
+        by the usual rules rather than heating an empty room to the end. The
+        same when this is switched off mid-run. On Watch Only it is logged
+        and nothing is started.
         """
         level = arrivals.LEVELS[(await learning.get_settings(conn))["arrival_level"]]
         held: dict[str, float] = {}
@@ -6942,6 +6948,7 @@ class CycleEngine:
                 for rid, ar in self._active_rooms.items()
                 if ar.source == "arrival"
             }
+        self._arrival_until = {r: t for r, t in self._arrival_until.items() if r in held}
         if level == "off" and not held:
             self._usual_hours = None
             return active
@@ -6965,6 +6972,7 @@ class CycleEngine:
         models = await room_model.load(conn) if usual else {}
         outside = await self._read_outside_temp(conn) if usual else None
         following = {ar.room.id: ar for ar in active}
+        ambient = self._thermo_ambient_f()
         by_room: dict[str, list] = {}
         if usual:
             for sched in await db.get_all_schedules(conn):
@@ -6982,8 +6990,21 @@ class CycleEngine:
             lead: int | None = None
             mode = ""
             start = local_now
+            grace_ends = now
             if room.id in held:
                 target = held[room.id]
+                until = self._arrival_until.get(room.id)
+                rcs = self._room_cycle_states.get(room.id)
+                if (
+                    # Nobody came, or this was switched off (or a restart lost
+                    # track of the hour): not worth running on for.
+                    (level != "on" or until is None or now >= until)
+                    and self._cycle_runtime_satisfied(tc)
+                    # Once: a room whose vent has closed is done already.
+                    and (rcs is None or rcs.vent_closed_at is None)
+                    and (reading := self._get_avg_temp(room, refresh=False)) is not None
+                ):
+                    target = reading + room.temp_offset
             else:
                 coming = arrivals.next_arrival(usual.get(room.id, frozenset()), local_now)
                 presence_temp = (
@@ -7001,6 +7022,7 @@ class CycleEngine:
                     continue
                 start, secs = coming
                 at = now + timedelta(seconds=max(secs, 0.0))
+                grace_ends = now + timedelta(seconds=secs, minutes=arrivals.GRACE_MIN)
                 if (
                     switches.use_schedules
                     and _find_matching_schedule(by_room.get(room.id, []), at) is not None
@@ -7043,6 +7065,14 @@ class CycleEngine:
                     or (obey and side is not None and side != mode)
                     # A run going the other way for someone else.
                     or (self._state != CycleState.IDLE and self._cycle_mode != mode)
+                    # The thermostat's own reading says the zone is already
+                    # past the target: it would refuse the cycle every minute.
+                    or (
+                        ambient is not None
+                        and (
+                            ambient > target + deadband if heating else ambient < target - deadband
+                        )
+                    )
                 ):
                     continue
                 model = models.get(room.id)
@@ -7068,6 +7098,8 @@ class CycleEngine:
                 if secs > lead * 60:
                     continue
             if level == "on" or room.id in held:
+                if room.id not in held:
+                    self._arrival_until[room.id] = grace_ends
                 self._optional_replaced[room.id] = ar
                 out = [a for a in out if a.room.id != room.id]
                 out.append(ActiveRoom(room=room, target_temp=target, source="arrival"))

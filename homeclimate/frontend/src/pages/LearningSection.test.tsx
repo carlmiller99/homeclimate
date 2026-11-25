@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as la from "../learningApi";
-import { buildUnitContext } from "../contexts";
+import { buildUnitContext, UnitContext } from "../contexts";
 import LearningSection from "./LearningSection";
 
 vi.mock("../learningApi", async (orig) => ({
@@ -351,6 +351,20 @@ describe("Smart Learning section", () => {
       "It switched itself back to Watch Only on 2026-01-13T09:00:00+00:00, after 3 waits in a week ended with the room well short."
     );
     expect(la.describeCoasting(back, () => "Jan 13")).toMatch(/Watch Only on Jan 13,/);
+  });
+
+  it("gives the fixed margins in the house's unit", async () => {
+    const { unmount } = render(<LearningSection />);
+    expect(await screen.findByText(/is kept 1\.5° below its Cool To/)).toBeInTheDocument();
+    expect(screen.getByText(/never once a room is 2° off/)).toBeInTheDocument();
+    unmount();
+    render(
+      <UnitContext.Provider value={buildUnitContext("C")}>
+        <LearningSection />
+      </UnitContext.Provider>
+    );
+    expect(await screen.findByText(/is kept 0\.8° below its Cool To/)).toBeInTheDocument();
+    expect(screen.getByText(/never once a room is 1\.1° off/)).toBeInTheDocument();
   });
 
   it("describes a model in the house's unit, as differences", () => {
