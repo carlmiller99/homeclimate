@@ -57,11 +57,13 @@ export function Switch({
   id,
   checked,
   label,
+  disabled,
   onChange,
 }: {
   id: string;
   checked: boolean;
   label?: string;
+  disabled?: boolean;
   onChange: (v: boolean) => void;
 }) {
   return (
@@ -71,6 +73,7 @@ export function Switch({
       type="checkbox"
       role="switch"
       checked={checked}
+      disabled={disabled}
       aria-label={label}
       onChange={(e) => onChange(e.target.checked)}
     />

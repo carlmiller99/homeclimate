@@ -488,8 +488,8 @@ function RoomSettings({
           </label>
           {!hasOutsideSensor && (
             <div className="form-hint" style={{ color: "var(--orange)" }}>
-              Add an outside temperature sensor on the <strong>Thermostats</strong> page to use this
-              — it cannot be turned on without one.
+              Add an outside temperature sensor in <strong>Settings</strong>, Sensors to use this —
+              it cannot be turned on without one.
             </div>
           )}
           <div className="form-hint">
@@ -626,17 +626,17 @@ function RoomSettings({
           </select>
           {!hasOutsideSensor && (
             <div className="form-hint" style={{ color: "var(--orange)" }}>
-              Eco Mode needs an outside-temperature sensor — configure one on the{" "}
-              <strong>Thermostats</strong> page to force it on here. No physical outdoor thermometer
-              in Home Assistant? Add a free weather integration such as{" "}
+              Eco Mode needs an outside-temperature sensor — configure one in{" "}
+              <strong>Settings</strong>, Sensors to force it on here. No physical outdoor
+              thermometer in Home Assistant? Add a free weather integration such as{" "}
               <strong>PirateWeather</strong> and point the outside-temperature setting at it.
             </div>
           )}
           <div className="form-hint">
-            &ldquo;Inherit&rdquo; follows the thermostat&rsquo;s Eco toggle. Choose &ldquo;On&rdquo;
-            to relax this room even when the thermostat has Eco off, or &ldquo;Off&rdquo; to opt
-            this room out. Each field below is blank by default and inherits the thermostat; enter a
-            value to override just that field.
+            &ldquo;Inherit&rdquo; follows the zone&rsquo;s Eco Mode switch in Smart Control. Choose
+            &ldquo;On&rdquo; to relax this room even when the thermostat has Eco off, or
+            &ldquo;Off&rdquo; to opt this room out. Each field below is blank by default and
+            inherits the thermostat; enter a value to override just that field.
           </div>
         </div>
         <div

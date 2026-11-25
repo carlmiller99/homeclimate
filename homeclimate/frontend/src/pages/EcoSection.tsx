@@ -26,17 +26,19 @@ function EcoZoneCard({
 }) {
   const { unitLabel, toDisplay, toDisplayDelta } = useUnit();
   const tid = config.thermostat_entity_id;
+  const title = config.name || tid;
   // The form holds display units and submits them as typed; the backend converts.
-  const derived: EcoForm = {
-    eco_mode_enabled: config.eco_mode_enabled ?? false,
-    eco_cooling_outdoor_threshold: toDisplay(config.eco_cooling_outdoor_threshold),
-    eco_cooling_full_drift_temp: toDisplay(config.eco_cooling_full_drift_temp),
-    eco_cooling_max_drift: toDisplayDelta(config.eco_cooling_max_drift),
-    eco_heating_outdoor_threshold: toDisplay(config.eco_heating_outdoor_threshold),
-    eco_heating_full_drift_temp: toDisplay(config.eco_heating_full_drift_temp),
-    eco_heating_max_drift: toDisplayDelta(config.eco_heating_max_drift),
-    eco_hysteresis_band: toDisplayDelta(config.eco_hysteresis_band),
-  };
+  const derive = (cfg: ThermostatConfig): EcoForm => ({
+    eco_mode_enabled: cfg.eco_mode_enabled ?? false,
+    eco_cooling_outdoor_threshold: toDisplay(cfg.eco_cooling_outdoor_threshold),
+    eco_cooling_full_drift_temp: toDisplay(cfg.eco_cooling_full_drift_temp),
+    eco_cooling_max_drift: toDisplayDelta(cfg.eco_cooling_max_drift),
+    eco_heating_outdoor_threshold: toDisplay(cfg.eco_heating_outdoor_threshold),
+    eco_heating_full_drift_temp: toDisplay(cfg.eco_heating_full_drift_temp),
+    eco_heating_max_drift: toDisplayDelta(cfg.eco_heating_max_drift),
+    eco_hysteresis_band: toDisplayDelta(cfg.eco_hysteresis_band),
+  });
+  const derived = derive(config);
   const [form, setForm] = useState(derived);
   const [lastDerived, setLastDerived] = useState(derived);
   if (!sameForm(lastDerived, derived)) {
@@ -48,14 +50,27 @@ function EcoZoneCard({
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const dirty = !sameForm(form, lastDerived);
+  const changed = (Object.keys(form) as (keyof EcoForm)[]).filter(
+    (k) => !Object.is(form[k], lastDerived[k])
+  );
+  const dirty = changed.length > 0;
 
   const save = async () => {
     setError(null);
     setSaved(false);
     setSaving(true);
     try {
-      onSaved(await updateThermostat(tid, form));
+      // Only what was changed is sent. A value left alone is not rewritten
+      // from its rounded display form, so it cannot drift or be refused.
+      const updated = await updateThermostat(
+        tid,
+        Object.fromEntries(changed.map((k) => [k, form[k]]))
+      );
+      // Show what was stored, even where it rounds to what was already shown.
+      const stored = derive(updated);
+      setLastDerived(stored);
+      setForm(stored);
+      onSaved(updated);
       setSaved(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not save");
@@ -64,17 +79,19 @@ function EcoZoneCard({
     }
   };
 
-  const blocked = form.eco_mode_enabled && !hasOutsideSensor;
+  // Only turning it on needs the sensor; a zone already on can still be tuned.
+  const blocked = form.eco_mode_enabled && !lastDerived.eco_mode_enabled && !hasOutsideSensor;
   return (
-    <div className="card" role="group" aria-label={config.name}>
+    <div className="card" role="group" aria-label={title}>
       <div className="eco-zone-head">
-        <h3 className="card-title">{config.name}</h3>
+        <h3 className="card-title">{title}</h3>
         <label className="eco-zone-switch" htmlFor={`eco-${tid}-enabled`}>
           <span>Eco Mode</span>
           <Switch
             id={`eco-${tid}-enabled`}
             checked={form.eco_mode_enabled}
-            label={`Eco Mode for ${config.name}`}
+            label={`Eco Mode for ${title}`}
+            disabled={saving}
             onChange={(v) => {
               setSaved(false);
               setForm((f) => ({ ...f, eco_mode_enabled: v }));

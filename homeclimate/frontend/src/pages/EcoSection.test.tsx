@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { StrictMode } from "react";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import EcoSection from "./EcoSection";
 import * as api from "../api";
@@ -15,28 +16,51 @@ const zone = (over: Partial<api.ThermostatConfig> = {}): api.ThermostatConfig =>
     ...over,
   }) as api.ThermostatConfig;
 
-const show = (unit: "F" | "C" = "F") =>
-  render(
+const show = (unit: "F" | "C" = "F") => {
+  houseUnit = unit;
+  return render(
     <UnitContext.Provider value={buildUnitContext(unit)}>
       <EcoSection />
     </UnitContext.Provider>
   );
+};
 
 const card = () => screen.findByRole("group", { name: "Upstairs" });
 
+const DELTAS = ["eco_cooling_max_drift", "eco_heating_max_drift", "eco_hysteresis_band"];
+let houseUnit: "F" | "C" = "F";
+let stored: api.ThermostatConfig;
+
+/** What the backend does: convert what was typed to °F (2dp) and return the whole zone. */
+const store = (patch: Record<string, unknown>) => {
+  const next: Record<string, unknown> = { ...stored };
+  for (const [key, value] of Object.entries(patch)) {
+    if (typeof value !== "number" || houseUnit === "F") {
+      next[key] = typeof value === "number" ? Math.round(value * 100) / 100 : value;
+    } else {
+      const f = DELTAS.includes(key) ? (value * 9) / 5 : (value * 9) / 5 + 32;
+      next[key] = Math.round(f * 100) / 100;
+    }
+  }
+  stored = next as unknown as api.ThermostatConfig;
+  return stored;
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.mocked(api.getThermostats).mockResolvedValue([zone()]);
+  houseUnit = "F";
+  stored = zone();
+  vi.mocked(api.getThermostats).mockImplementation(async () => [stored]);
   vi.mocked(api.getOutsideTempEntity).mockResolvedValue({
     entity_id: "sensor.outside",
   } as Awaited<ReturnType<typeof api.getOutsideTempEntity>>);
   vi.mocked(api.updateThermostat).mockImplementation(async (_id, patch) =>
-    zone(patch as Partial<api.ThermostatConfig>)
+    store(patch as Record<string, unknown>)
   );
 });
 
 describe("Smart Control → Eco Mode", () => {
-  it("shows each zone's settings and saves only the Eco fields", async () => {
+  it("shows each zone's settings and saves only what was changed", async () => {
     show();
     expect(screen.getByText("Loading the zones…")).toBeInTheDocument();
     const c = await card();
@@ -54,16 +78,8 @@ describe("Smart Control → Eco Mode", () => {
     await waitFor(() => expect(api.updateThermostat).toHaveBeenCalled());
     const [id, payload] = vi.mocked(api.updateThermostat).mock.calls[0];
     expect(id).toBe("climate.up");
-    expect(payload).toEqual({
-      eco_mode_enabled: true,
-      eco_cooling_outdoor_threshold: 92,
-      eco_cooling_full_drift_temp: 100,
-      eco_cooling_max_drift: 4,
-      eco_heating_outdoor_threshold: 40,
-      eco_heating_full_drift_temp: 0,
-      eco_heating_max_drift: 4,
-      eco_hysteresis_band: 2,
-    });
+    // Only what was changed is sent; the other six numbers are left alone.
+    expect(payload).toEqual({ eco_mode_enabled: true, eco_cooling_outdoor_threshold: 92 });
     expect(await within(c).findByText("Saved")).toBeInTheDocument();
     expect(within(c).getByRole("button", { name: "Save" })).toBeDisabled();
     // Editing again clears the confirmation.
@@ -83,8 +99,84 @@ describe("Smart Control → Eco Mode", () => {
     fireEvent.click(within(c).getByRole("button", { name: "Save" }));
     await waitFor(() => expect(api.updateThermostat).toHaveBeenCalled());
     const [, payload] = vi.mocked(api.updateThermostat).mock.calls[0];
-    expect(payload.eco_cooling_outdoor_threshold).toBe(31);
-    expect(payload.eco_heating_max_drift).toBe(2);
+    expect(payload).toEqual({ eco_cooling_outdoor_threshold: 31, eco_heating_max_drift: 2 });
+    // The backend stored 87.8 °F and 3.6 °F; the form still shows what was typed.
+    expect(await within(c).findByText("Saved")).toBeInTheDocument();
+    expect(stored.eco_cooling_outdoor_threshold).toBe(87.8);
+    expect(within(c).getByLabelText(/Cooling — outdoor threshold/)).toHaveDisplayValue("31");
+    expect(within(c).getByLabelText(/Heating — max drift/)).toHaveDisplayValue("2");
+    expect(within(c).getByRole("button", { name: "Save" })).toBeDisabled();
+  });
+
+  it("does not rewrite a Celsius zone's untouched values when only the switch changes", async () => {
+    // 100 °F shows as 37.8 °C, which would store back as 100.04 °F if it were resent.
+    show("C");
+    const c = await card();
+    fireEvent.click(within(c).getByRole("switch"));
+    fireEvent.click(within(c).getByRole("button", { name: "Save" }));
+    await within(c).findByText("Saved");
+    expect(vi.mocked(api.updateThermostat).mock.calls[0][1]).toEqual({ eco_mode_enabled: true });
+    expect(stored.eco_cooling_full_drift_temp).toBe(100);
+  });
+
+  it("settles after a save even when what was typed rounds to what was shown", async () => {
+    show();
+    const c = await card();
+    const field = within(c).getByLabelText(/Cooling — outdoor threshold/);
+    fireEvent.change(field, { target: { value: "86.004" } });
+    fireEvent.click(within(c).getByRole("button", { name: "Save" }));
+    expect(await within(c).findByText("Saved")).toBeInTheDocument();
+    expect(field).toHaveDisplayValue("86");
+    expect(within(c).getByRole("button", { name: "Save" })).toBeDisabled();
+  });
+
+  it("locks the switch and the numbers while a save is on its way", async () => {
+    let finish: (z: api.ThermostatConfig) => void = () => {};
+    vi.mocked(api.updateThermostat).mockReturnValueOnce(new Promise((r) => (finish = r)));
+    show();
+    const c = await card();
+    fireEvent.change(within(c).getByLabelText(/Hysteresis band/), { target: { value: "3" } });
+    fireEvent.click(within(c).getByRole("button", { name: "Save" }));
+    expect(within(c).getByRole("switch")).toBeDisabled();
+    expect(within(c).getByLabelText(/Hysteresis band/)).toBeDisabled();
+    expect(within(c).getByRole("button", { name: "Saving…" })).toBeDisabled();
+    finish(store({ eco_hysteresis_band: 3 }));
+    await within(c).findByText("Saved");
+    expect(within(c).getByRole("switch")).toBeEnabled();
+  });
+
+  it("keeps an edit through React's double render", async () => {
+    render(
+      <StrictMode>
+        <UnitContext.Provider value={buildUnitContext("F")}>
+          <EcoSection />
+        </UnitContext.Provider>
+      </StrictMode>
+    );
+    const c = await card();
+    fireEvent.change(within(c).getByLabelText(/Hysteresis band/), { target: { value: "3" } });
+    expect(within(c).getByLabelText(/Hysteresis band/)).toHaveDisplayValue("3");
+    expect(within(c).getByRole("button", { name: "Save" })).toBeEnabled();
+  });
+
+  it("shows the house's unit once it is known, when that arrives after the zones", async () => {
+    const view = show();
+    const c = await card();
+    expect(within(c).getByLabelText(/Cooling — outdoor threshold/)).toHaveDisplayValue("86");
+    view.rerender(
+      <UnitContext.Provider value={buildUnitContext("C")}>
+        <EcoSection />
+      </UnitContext.Provider>
+    );
+    expect(within(c).getByLabelText(/Cooling — outdoor threshold/)).toHaveDisplayValue("30");
+    expect(within(c).getByRole("button", { name: "Save" })).toBeDisabled();
+  });
+
+  it("names a zone with no name by its thermostat", async () => {
+    stored = zone({ name: "" });
+    show();
+    const c = await screen.findByRole("group", { name: "climate.up" });
+    expect(within(c).getByRole("switch", { name: "Eco Mode for climate.up" })).toBeInTheDocument();
   });
 
   it("will not turn Eco on without an outside temperature sensor", async () => {
@@ -97,6 +189,18 @@ describe("Smart Control → Eco Mode", () => {
     fireEvent.click(within(c).getByRole("switch"));
     expect(within(c).getByText(/Eco Mode needs an outside temperature sensor/)).toBeInTheDocument();
     expect(within(c).getByRole("button", { name: "Save" })).toBeDisabled();
+  });
+
+  it("still lets a zone that is already on be tuned without a sensor", async () => {
+    vi.mocked(api.getOutsideTempEntity).mockRejectedValue(new Error("down"));
+    stored = zone({ eco_mode_enabled: true });
+    show();
+    const c = await card();
+    fireEvent.change(within(c).getByLabelText(/Hysteresis band/), { target: { value: "3" } });
+    expect(within(c).queryByText(/Eco Mode needs an outside/)).not.toBeInTheDocument();
+    fireEvent.click(within(c).getByRole("button", { name: "Save" }));
+    await within(c).findByText("Saved");
+    expect(vi.mocked(api.updateThermostat).mock.calls[0][1]).toEqual({ eco_hysteresis_band: 3 });
   });
 
   it("treats a failed sensor lookup as no sensor, and still lists the zones", async () => {
@@ -128,13 +232,8 @@ describe("Smart Control → Eco Mode", () => {
     expect(await within(c).findByText("Could not save")).toBeInTheDocument();
   });
 
-  it("shows blanks for a zone stored without Eco values", async () => {
-    vi.mocked(api.getThermostats).mockResolvedValue([
-      zone({
-        eco_mode_enabled: null,
-        eco_hysteresis_band: null,
-      } as unknown as Partial<api.ThermostatConfig>),
-    ]);
+  it("shows the switch off for a zone stored without an Eco setting", async () => {
+    stored = zone({ eco_mode_enabled: null } as unknown as Partial<api.ThermostatConfig>);
     show();
     const c = await card();
     expect(within(c).getByRole("switch")).not.toBeChecked();
