@@ -88,6 +88,22 @@ The fit takes well under a second per room, and stores one row per room (`room_m
 
 Each early start is logged once under Engine.
 
+## Let Rooms Coast
+
+**Smart Control → Smart Learning → Let Rooms Coast** lets a call wait when the room is only a little short of its target and will drift there by itself soon: a room at 68.4 °F asked for 70 °F on a morning that is already 80 °F outside does not need the equipment started for it.
+
+- **Off** (the default), **Watch Only** (logs what it would do and holds nothing back) or **On**.
+- Whether a room will get there comes from its own model and the forecast for the next hour or two, shifted to agree with the outside sensor now. It needs a model fitted within the last week that has learned the room's heat loss, and an outside reading.
+- Only a schedule or presence call with a single target waits. A hold never waits. Neither does a room following a band, or one being started early for a coming block.
+- Only while nothing is running in the zone. If the equipment starts for another room, a waiting room is served with it.
+- A room 2 °F or more from its target is never kept waiting.
+- A wait lasts 45 minutes at most. Where heating is electric strip heat (a conventional zone with electric heat, or a heat pump below its compressor lockout) it is three times that, because a start avoided there saves the most.
+- A call gets one wait. If the room has not arrived when it ends, or the model stops expecting it to, the equipment starts as usual.
+- A wait that ends with the room 1.5 °F or more from its target is a miss. Three in a week switch the setting back to Watch Only, with a warning in the log (which Notifications can send). The section shows how many there have been this week.
+- Safety protection is never delayed. Paused rooms, the fireplace, Vacation Mode and Eco Mode work as before.
+
+Each wait is logged under Engine when it begins and when it ends: reached by coasting, or not.
+
 ### API
 
 - `GET /api/learning` includes each room's `model` (or null before the first fit).

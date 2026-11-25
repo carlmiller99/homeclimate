@@ -7,6 +7,7 @@ import { useUnit } from "../contexts";
 import {
   describeModel,
   EARLY_START_LABELS,
+  describeCoasting,
   fitLearning,
   GRADE_LABELS,
   describeCollected,
@@ -255,6 +256,25 @@ export default function LearningSection() {
             value={s.early_start_level}
             disabled={saving}
             onChange={(e) => void set({ early_start_level: Number(e.target.value) as 0 | 1 | 2 })}
+          >
+            {EARLY_START_LABELS.map((label, level) => (
+              <option key={label} value={level}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </RuleRow>
+        <RuleRow
+          id="learning-coast"
+          title="Let Rooms Coast"
+          help={`When a room is a little short of its target but will drift there on its own soon, the call waits instead of starting the equipment: up to 45 minutes, or three times that for electric strip heat. Never for a hold, and never once a room is 2° off. ${describeCoasting(data.coasting)}`}
+        >
+          <select
+            className="form-control"
+            aria-label="Let Rooms Coast"
+            value={s.coast_level}
+            disabled={saving}
+            onChange={(e) => void set({ coast_level: Number(e.target.value) as 0 | 1 | 2 })}
           >
             {EARLY_START_LABELS.map((label, level) => (
               <option key={label} value={level}>

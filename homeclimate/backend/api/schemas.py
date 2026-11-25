@@ -1051,6 +1051,12 @@ class LearningSettingsSchema(Schema):
     early_start_level = fields.Int(
         metadata={"description": "Start rooms early from the model: 0 off, 1 watch only, 2 on"}
     )
+    coast_level = fields.Int(
+        metadata={
+            "description": "Let a call wait when the room will get there on its own: "
+            "0 off, 1 watch only, 2 on"
+        }
+    )
 
 
 class NotifySettingsSchema(Schema):
@@ -1113,6 +1119,14 @@ class LearningRoomSchema(Schema):
     model = fields.Nested(RoomModelSchema, allow_none=True)
 
 
+class CoastingSchema(Schema):
+    level = fields.Int()
+    misses_this_week = fields.Int(
+        metadata={"description": "Waits that ended 1.5 °F or more from the target, last 7 days"}
+    )
+    misses_to_watch_only = fields.Int()
+
+
 class LearningSchema(Schema):
     settings = fields.Nested(LearningSettingsSchema)
     samples = fields.Int()
@@ -1121,6 +1135,7 @@ class LearningSchema(Schema):
     sample_every_min = fields.Int()
     checked_at = fields.Str()
     rooms = fields.List(fields.Nested(LearningRoomSchema))
+    coasting = fields.Nested(CoastingSchema)
 
 
 class AuxSummarySchema(Schema):

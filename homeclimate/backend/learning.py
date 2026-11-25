@@ -34,6 +34,9 @@ SETTINGS: dict[str, tuple[str, Any, int, int]] = {
     # Start rooms early so they are ready when a schedule block begins, using
     # what each room's model has learned: 0 off, 1 watch only, 2 on.
     "early_start_level": ("int", 0, 0, 2),
+    # Let a call wait when the room will reach its target on its own
+    # (``coasting``): 0 off, 1 watch only, 2 on.
+    "coast_level": ("int", 0, 0, 2),
 }
 EARLY_START_LEVELS = ("off", "watch", "on")
 
@@ -47,6 +50,7 @@ _SETTING_MESSAGES = {
     "sampling_enabled": fixed("sampling_enabled must be true or false"),
     "sample_retention_days": fixed("sample_retention_days must be a whole number from 30 to 365"),
     "early_start_level": fixed("early_start_level must be 0 (off), 1 (watch only) or 2 (on)"),
+    "coast_level": fixed("coast_level must be 0 (off), 1 (watch only) or 2 (on)"),
 }
 
 

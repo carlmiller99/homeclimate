@@ -14,6 +14,7 @@ from aiohttp import web
 
 from .. import (
     building_mode,
+    coasting,
     db,
     fireplace,
     forecast,
@@ -417,6 +418,9 @@ async def _learning_snapshot(request: web.Request) -> dict:
     for room in snap["rooms"]:
         found = models.get(room["room_id"])
         room["model"] = room_model.describe(found) if found is not None else None
+    snap["coasting"] = coasting.describe(
+        snap["settings"]["coast_level"], await coasting.misses(conn, now=datetime.now(tz.UTC))
+    )
     return snap
 
 
