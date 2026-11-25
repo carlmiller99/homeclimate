@@ -369,11 +369,29 @@ async def test_a_protection_cycle_stays_cut_down_for_its_whole_life():
         await engine._do_tick(conn)
         assert now() == {"r1": ("safety", inset)}
     assert len([c for c in engine._logger.log.await_args_list if "safety limit" in c.args[2]]) == 1
+    # A second room falls below the limit meanwhile: it joins, to the same inset target.
+    temps["r2"] = 59.0
+    await engine._do_tick(conn)
+    assert now() == {"r1": ("safety", inset), "r2": ("safety", inset)}
+    temps["r2"] = 70.0
+    # After a restart the engine has the running cycle but not why it runs.
+    engine._protecting = None
+    await engine._do_tick(conn)
+    assert engine.protecting_only and set(now().values()) == {("safety", inset)}
     # The building comes round to heating: the room's own schedule takes over.
     engine._get_building_side = lambda: ("heating", True)
     await engine._do_tick(conn)
     assert engine._protecting is None
     assert now()["r1"] == ("schedule", 72.0)
+    await conn.close()
+
+
+async def test_a_protection_start_that_is_put_off_is_announced_once():
+    conn, engine, started = await _scheduled({"r1": 40.0, "r2": 70.0}, "cooling", ambient=40.0)
+    for _ in range(4):  # the start is mocked, so the zone stays idle and asks again
+        await engine._do_tick(conn)
+    said = [c for c in engine._logger.log.await_args_list if "safety limit" in c.args[2]]
+    assert len(said) == 1
     await conn.close()
 
 

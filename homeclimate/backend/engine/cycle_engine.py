@@ -194,6 +194,7 @@ class CycleEngine:
         # safety limit: (direction, room ids). Kept for the life of that cycle
         # so it stays cut down to those rooms on every tick, not just its first.
         self._protecting: tuple[str, frozenset[str]] | None = None
+        self._protect_said_at: datetime | None = None
         # Set while this zone has demand its building's side does not allow.
         self.building_wait: dict | None = None
         # Heat pump protection: guards for this zone, or None (conventional).
@@ -771,14 +772,32 @@ class CycleEngine:
         # vacation this is the sole source of demand, `new_active_map` having
         # been seeded empty just above.
         await self._add_safety_rooms(conn, new_active_map)
+        against = obey_side and side in ("heating", "cooling", "hold")
+        if (
+            self._protecting is None
+            and self._state != CycleState.IDLE
+            and against
+            and self._cycle_mode in ("heating", "cooling")
+            and side != self._cycle_mode
+            and self._active_rooms
+            and all(ar.source == "safety" for ar in self._active_rooms.values())
+        ):
+            # A cycle of nothing but safety rooms is running against the
+            # building's side with no record of why: a restart mid-cycle, or a
+            # cycle the safety limits started themselves. Either way it stays a
+            # protection cycle and takes on no ordinary demand.
+            self._protecting = (self._cycle_mode, frozenset(self._active_rooms))
         if self._protecting is not None:
-            against = obey_side and side in ("heating", "cooling", "hold")
             if self._state == CycleState.IDLE or not against or side == self._protecting[0]:
                 # The cycle is over, or the building no longer disagrees.
                 self._protecting = None
             else:
                 way, room_ids = self._protecting
-                self._protect_only(new_active_map, set(room_ids), way, await self._load_tc(conn))
+                tc_now = await self._load_tc(conn)
+                # A room that goes past the same limit meanwhile joins it.
+                room_ids = room_ids | self._safety_breaches(new_active_map, tc_now).get(way, set())
+                self._protecting = (way, room_ids)
+                self._protect_only(new_active_map, set(room_ids), way, tc_now)
         # Rooms following a band (the house band) get this tick's single
         # target: the edge the running cycle is working toward, or with no
         # cycle running, their own temperature held inside the band.
@@ -5662,8 +5681,13 @@ class CycleEngine:
     ) -> None:
         """Start a protection-only cycle against the building's side, and say so."""
         self._protect_only(active_rooms, room_ids, direction, tc)
-        fresh = self._protecting is None
         self._protecting = (direction, frozenset(room_ids))
+        # Said once per episode. A start that is put off (the compressor's
+        # off-time, say) comes back through here every tick.
+        now = datetime.now(UTC)
+        said = self._protect_said_at
+        self._protect_said_at = now
+        fresh = said is None or not timedelta(0) <= now - said <= timedelta(minutes=3)
         if fresh and self._logger:
             names = ", ".join(
                 sorted(active_rooms[r].room.name for r in room_ids if r in active_rooms)
@@ -5678,12 +5702,8 @@ class CycleEngine:
 
     @property
     def protecting_only(self) -> bool:
-        """A cycle is running only to bring rooms back inside their safety limits."""
-        return (
-            self._state != CycleState.IDLE
-            and bool(self._active_rooms)
-            and all(ar.source == "safety" for ar in self._active_rooms.values())
-        )
+        """A cycle is running against the building's side, only to protect rooms."""
+        return self._state != CycleState.IDLE and self._protecting is not None
 
     async def _could_start(
         self,
