@@ -7031,6 +7031,9 @@ class CycleEngine:
         outside = await self._read_outside_temp(conn) if usual else None
         following = {ar.room.id: ar for ar in active}
         ambient = self._thermo_ambient_f()
+        # What the other rooms of the zone are asked to, each way.
+        others_heat = [a.target_temp if a.heat_to is None else a.heat_to for a in active]
+        others_cool = [a.target_temp if a.cool_to is None else a.cool_to for a in active]
         by_room: dict[str, list] = {}
         if usual:
             for sched in await db.get_all_schedules(conn):
@@ -7052,11 +7055,16 @@ class CycleEngine:
             if room.id in held:
                 target = held[room.id]
                 until = self._arrival_until.get(room.id)
+                if until is None and level == "on":
+                    # A restart lost track of the hour. The run is given the
+                    # length of the grace from here rather than stopped and
+                    # started again.
+                    until = now + timedelta(minutes=arrivals.GRACE_MIN)
+                    self._arrival_until[room.id] = until
                 rcs = self._room_cycle_states.get(room.id)
                 if (
-                    # Nobody came, or this was switched off (or a restart lost
-                    # track of the hour): not worth running on for.
-                    (level != "on" or until is None or now >= until)
+                    # Nobody came, or this was switched off: not worth running on for.
+                    (until is None or level != "on" or now >= until)
                     and self._cycle_runtime_satisfied(tc)
                     # Once: a room whose vent has closed is done already.
                     and (rcs is None or rcs.vent_closed_at is None)
@@ -7124,11 +7132,15 @@ class CycleEngine:
                     # A run going the other way for someone else.
                     or (self._state != CycleState.IDLE and self._cycle_mode != mode)
                     # The thermostat's own reading says the zone is already
-                    # past the target: it would refuse the cycle every minute.
+                    # past every target in it: the mode check would refuse the
+                    # cycle every minute (it judges by the zone's deadband and
+                    # the furthest target asked for, so this does too).
                     or (
                         ambient is not None
                         and (
-                            ambient > target + deadband if heating else ambient < target - deadband
+                            ambient > max([target, *others_heat]) + tc.deadband
+                            if heating
+                            else ambient < min([target, *others_cool]) - tc.deadband
                         )
                     )
                 ):

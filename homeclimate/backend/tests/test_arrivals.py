@@ -172,6 +172,17 @@ async def test_what_is_left_alone(monkeypatch):
     assert await engine._arrive(conn, [], now=MON) == []
     engine._thermo_ambient_f = lambda: 70.4
     assert len(await engine._arrive(conn, [], now=MON)) == 1
+    # Judged as the engine's own mode check judges: by the zone's deadband, not
+    # the room's, and against the furthest target any room of the zone has.
+    room.deadband_override = 1.5
+    await db.upsert_room(conn, room)
+    engine._thermo_ambient_f = lambda: 71.0
+    assert await engine._arrive(conn, [], now=MON) == []
+    warm = Room.create(name="Loft", thermostat_entity_id=THERMO_ID)
+    loft = ActiveRoom(room=warm, target_temp=68.0, source="house", heat_to=72.0, cool_to=78.0)
+    assert len(await engine._arrive(conn, [loft], now=MON)) == 2
+    room.deadband_override = None
+    await db.upsert_room(conn, room)
     engine._thermo_ambient_f = lambda: None
     assert len(await engine._arrive(conn, [], now=MON)) == 1
     # A sensor that reads low by a known amount is corrected before it is judged.
@@ -271,8 +282,12 @@ async def test_a_room_that_started_a_run_is_kept_in_it_to_the_end(monkeypatch):
         assert _targets(await engine._arrive(conn, [], now=soon)) == [(66.0, "arrival")]
     await learning.update_settings(conn, {"arrival_level": 2})
     assert _targets(await engine._arrive(conn, [], now=soon)) == [(70.0, "arrival")]
+    # A restart loses track of the hour: the run is given the grace from then.
     engine._arrival_until = {}
-    assert _targets(await engine._arrive(conn, [], now=soon)) == [(66.0, "arrival")]
+    assert _targets(await engine._arrive(conn, [], now=soon)) == [(70.0, "arrival")]
+    assert engine._arrival_until == {room.id: soon + timedelta(minutes=30)}
+    after = soon + timedelta(minutes=31)
+    assert _targets(await engine._arrive(conn, [], now=after)) == [(66.0, "arrival")]
     # Someone arrives: occupancy has the room from here.
     here = ActiveRoom(room=room, target_temp=70.0, source="presence")
     assert await engine._arrive(conn, [here], now=later) == [here]
