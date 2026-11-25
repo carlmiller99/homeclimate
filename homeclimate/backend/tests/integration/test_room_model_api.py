@@ -53,7 +53,8 @@ async def test_fit_now_fits_every_room_and_says_how_far_each_has_got(client, roo
     snap = await (await client.post("/api/learning/fit")).json()
     by_id = {r["room_id"]: r["model"] for r in snap["rooms"]}
     assert by_id[bunk]["grade"] == "ready"
-    assert by_id[bunk]["learned"] == {"loss": True, "pull": True, "heat": True, "cool": False}
+    assert by_id[bunk]["learned"] == {"loss": True, "heat": True, "cool": False}
+    assert by_id[bunk]["pinned"] == []
     assert by_id[bunk]["heat"] == pytest.approx(4.0, rel=0.2)
     assert by_id[bunk]["fitted_at"] is not None and by_id[bunk]["hours"] > 200
     # A room with nothing recorded keeps the starting values and says so.
@@ -87,7 +88,21 @@ async def test_a_failed_fit_never_escapes_the_job(client, rooms, monkeypatch, ca
     monkeypatch.setattr(rm, "fit_all", boom)
     assert await client.app["scheduler"].fit_room_models() == 0
     assert "Could not fit the room models" in caplog.text
-    assert (await client.post("/api/learning/fit")).status == 200
+    # Asked for by hand, a failure is said, not passed off as done.
+    resp = await client.post("/api/learning/fit")
+    assert (resp.status, (await resp.json())["error"]) == (
+        500,
+        "Could not work out the room models",
+    )
+
+
+async def test_two_fits_at_once_do_not_collide(client, rooms):
+    import asyncio
+
+    conn = await client.app["scheduler"].get_db()
+    now = datetime.now(UTC)
+    await asyncio.gather(rm.fit_all(conn, now=now), rm.fit_all(conn, now=now))
+    assert set(await rm.load(conn)) == set(rooms)
 
 
 async def test_the_fit_is_scheduled_for_the_small_hours(client):

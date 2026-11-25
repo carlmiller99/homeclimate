@@ -25,7 +25,8 @@ const MODEL: la.RoomModel = {
   cool_hours: 0,
   out_spread: 30,
   rmse: 0.2,
-  learned: { loss: true, pull: true, heat: true, cool: false },
+  learned: { loss: true, heat: true, cool: false },
+  pinned: [],
   grade: "ready",
 };
 
@@ -253,7 +254,7 @@ describe("Smart Learning section", () => {
     const bunk = await screen.findByRole("listitem", { name: "Bunk Room model" });
     expect(bunk).toHaveTextContent("Ready");
     expect(bunk).toHaveTextContent(
-      "Heats about 3.6°F an hour. Cooling rate not learned yet (needs about 3 hours of cooling). Drifts about 0.5°F an hour toward outside for every 10°F of difference."
+      "Heats about 3.6°F an hour. Cooling rate not learned yet (needs about 3 hours of long cooling runs). Drifts about 0.5°F an hour toward outside for every 10°F of difference."
     );
     const craft = screen.getByRole("listitem", { name: "Craft Room model" });
     expect(craft).toHaveTextContent("Not worked out yet.");
@@ -273,13 +274,14 @@ describe("Smart Learning section", () => {
     // 3.6 °F an hour is 2.0 °C an hour: a rate is a difference, with no 32° offset.
     expect(la.describeModel(MODEL, c.toDisplayDelta, c.unitLabel)).toEqual([
       "Heats about 2.0°C an hour",
-      "Cooling rate not learned yet (needs about 3 hours of cooling)",
-      "Drifts about 0.3°C an hour toward outside for every 6°C of difference",
+      "Cooling rate not learned yet (needs about 3 hours of long cooling runs)",
+      // 0.05 per °F is 0.45 °F an hour per 9 °F, which is 0.25 °C an hour per 5 °C.
+      "Drifts about 0.3°C an hour toward outside for every 5°C of difference",
     ]);
     const f = buildUnitContext("F");
-    const all = { ...MODEL, learned: { loss: false, pull: true, heat: false, cool: true } };
+    const all = { ...MODEL, learned: { loss: false, heat: false, cool: true } };
     expect(la.describeModel(all, f.toDisplayDelta, f.unitLabel)).toEqual([
-      "Heating rate not learned yet (needs about 3 hours of heating)",
+      "Heating rate not learned yet (needs about 3 hours of long heating runs)",
       "Cools about 2.7°F an hour",
       "Heat loss not learned yet (needs more varied weather)",
     ]);
@@ -297,9 +299,7 @@ describe("Smart Learning section", () => {
   it("points to My Home when there are no rooms", async () => {
     vi.mocked(la.getLearning).mockResolvedValue(data({ rooms: [] }));
     render(<LearningSection />);
-    expect(
-      await screen.findByText("Add rooms in My Home to start collecting.")
-    ).toBeInTheDocument();
+    expect(await screen.findAllByText("Add rooms in My Home to start collecting.")).toHaveLength(2);
   });
 
   it("ignores a response that arrives after it is gone", async () => {

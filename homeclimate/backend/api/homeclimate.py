@@ -445,7 +445,11 @@ async def update_learning_settings(request: web.Request) -> web.Response:
 @response_schema(schemas.LearningSchema)
 @routes.post("/api/learning/fit")
 async def fit_learning(request: web.Request) -> web.Response:
-    await request.app["scheduler"].fit_room_models()
+    try:
+        await request.app["scheduler"].fit_room_models_now()
+    except Exception:
+        log.exception("Could not fit the room models on request")
+        return error("Could not work out the room models", status=500)
     return json_response(await _learning_snapshot(request))
 
 

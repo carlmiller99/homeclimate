@@ -20,6 +20,7 @@ times, suggestions) read.
 
 from __future__ import annotations
 
+import asyncio
 import math
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
@@ -43,9 +44,23 @@ TERMS = tuple(PRIOR)
 
 MIN_WINDOWS = 48  # a day of usable half-hours before anything is fitted
 READY_WINDOWS = 6 * 48  # six days of them before the room counts as ready
-MODE_HOURS = 3.0  # hours of heating (or cooling) before that rate counts as learned
-LOSS_SPREAD_F = 5.0  # the outside-inside difference must have varied this much
+MODE_HOURS = 3.0  # hours of sustained heating (or cooling) before that rate is learned
+SUSTAINED = 0.75  # a half-hour counts as sustained when the mode ran this much of it
+LOSS_SPREAD_F = 3.0  # the outside-inside difference must have varied this much (std dev)
 MAX_RATE_F_PER_H = 12.0  # a faster change is a sensor glitch, not the room
+MAX_STEP_F = MAX_RATE_F_PER_H * STEP_S / 3600 * 2  # between two readings five minutes apart
+
+# What the thermostat says it is doing, as the model sees it. Anything not
+# listed here (defrosting, drying, an action from a newer Home Assistant)
+# moves heat in a way the model does not describe, so that half-hour is left out.
+ACTIONS = {
+    "heating": "heating",
+    "preheating": "heating",
+    "cooling": "cooling",
+    "idle": "idle",
+    "off": "idle",
+    "fan": "idle",
+}
 
 
 @dataclass(frozen=True)
@@ -69,28 +84,47 @@ class RoomModel:
     heat: float
     cool: float
     drift: float
-    heat_hours: float
+    heat_hours: float  # hours of half-hours in which heating ran most of the time
     cool_hours: float
-    out_spread: float
+    out_spread: float  # standard deviation of outside minus room, °F
     rmse: float | None
+    pinned: tuple[str, ...] = ()  # terms the fit got backwards, held at their starting value
 
     @property
     def learned(self) -> dict[str, bool]:
-        """Which terms come from this room's own data rather than a starting value."""
+        """Which terms come from this room's own data rather than a starting value.
+
+        The heating and cooling rates need sustained runs: a room held steady
+        by short bursts says how loss and heating balance, but not how fast
+        either is, so its rate is not trusted for timing a warm-up.
+        """
         enough = self.windows >= MIN_WINDOWS
+
+        def ok(term: str, test: bool) -> bool:
+            return enough and test and term not in self.pinned
+
         return {
-            "loss": enough and self.out_spread >= LOSS_SPREAD_F,
-            "pull": enough,
-            "heat": enough and self.heat_hours >= MODE_HOURS,
-            "cool": enough and self.cool_hours >= MODE_HOURS,
+            "loss": ok("loss", self.out_spread >= LOSS_SPREAD_F),
+            "heat": ok("heat", self.heat_hours >= MODE_HOURS),
+            "cool": ok("cool", self.cool_hours >= MODE_HOURS),
         }
 
     @property
     def grade(self) -> str:
-        """ "none" (too little to fit), "learning", or "ready"."""
+        """ "none" (too little to fit), "learning", or "ready".
+
+        Ready means enough readings, heat loss learned, and at least one of
+        the heating and cooling rates learned.
+        """
         if self.windows < MIN_WINDOWS:
             return "none"
-        return "ready" if self.windows >= READY_WINDOWS and self.learned["loss"] else "learning"
+        learned = self.learned
+        ready = (
+            self.windows >= READY_WINDOWS
+            and learned["loss"]
+            and (learned["heat"] or learned["cool"])
+        )
+        return "ready" if ready else "learning"
 
     def rate(
         self, room: float, outside: float, zone: float | None = None, mode: str | None = None
@@ -106,16 +140,34 @@ class RoomModel:
         return value
 
     def minutes_to(
-        self, start: float, target: float, outside: float, mode: str | None, limit_min: int = 360
+        self,
+        start: float,
+        target: float,
+        outside: float,
+        mode: str | None,
+        limit_min: int = 360,
+        zone: float | None = None,
     ) -> int | None:
-        """Minutes for the room to go from ``start`` to ``target``, or None if it won't.
+        """Minutes for the room to go from ``start`` to ``target``; None if it won't in time.
 
+        0 when it is already there: at or above the target when heating, at or
+        below it when cooling, and for a room left alone, when the two are equal.
         Stepped five minutes at a time so the loss changes as the room moves.
+        ``zone`` is the thermostat's reading, taken to stay where it is.
         """
-        rising = target > start
+        if mode == "heating":
+            rising = True
+        elif mode == "cooling":
+            rising = False
+        elif target == start:
+            return 0
+        else:
+            rising = target > start
+        if (start >= target) if rising else (start <= target):
+            return 0
         temp = start
         for step in range(1, limit_min // learning.SAMPLE_EVERY_MIN + 1):
-            temp += self.rate(temp, outside, None, mode) * STEP_S / 3600
+            temp += self.rate(temp, outside, zone, mode) * STEP_S / 3600
             if (temp >= target) if rising else (temp <= target):
                 return step * learning.SAMPLE_EVERY_MIN
         return None
@@ -140,8 +192,16 @@ def windows_from(samples: list[learning.RoomSample]) -> list[Window]:
                 and not s.opening
                 and not s.fireplace
                 and not s.aux_heat
-                and s.hvac_action != "unknown"
+                and s.hvac_action in ACTIONS
+                and s.thermostat_entity_id == first.thermostat_entity_id
                 for s in run[:-1]
+            )
+            # A spike in the middle would skew the window's averages.
+            and all(
+                a.room_temp is None
+                or b.room_temp is None
+                or abs(b.room_temp - a.room_temp) <= MAX_STEP_F
+                for a, b in zip(run, run[1:], strict=False)
             )
         )
         if not usable:
@@ -161,7 +221,7 @@ def windows_from(samples: list[learning.RoomSample]) -> list[Window]:
             return sum(
                 (1.0 if s.vent_open is None else s.vent_open)
                 for s in body
-                if s.hvac_action == action
+                if ACTIONS[s.hvac_action] == action
             ) / len(body)
 
         if abs(rate) <= MAX_RATE_F_PER_H:
@@ -187,93 +247,141 @@ def _solve(a: list[list[float]], b: list[float]) -> list[float]:
     return x
 
 
+def _std(values: list[float]) -> float:
+    if len(values) < 2:
+        return 0.0
+    mean = sum(values) / len(values)
+    return math.sqrt(sum((v - mean) ** 2 for v in values) / len(values))
+
+
+def _least_squares(
+    rows: list[tuple[float, ...]], rates: list[float], pinned: dict[str, float]
+) -> dict[str, float]:
+    """Fit the terms not pinned, each held toward its starting value; pinned ones stay put."""
+    free = [i for i, term in enumerate(TERMS) if term not in pinned]
+    # What the pinned terms already explain is taken out of what is left to fit.
+    left = [
+        rate - sum(pinned[TERMS[i]] * r[i] for i in range(len(TERMS)) if TERMS[i] in pinned)
+        for r, rate in zip(rows, rates, strict=True)
+    ]
+    ata = [[sum(r[i] * r[j] for r in rows) for j in free] for i in free]
+    atb = [sum(r[i] * y for r, y in zip(rows, left, strict=True)) for i in free]
+    for k, i in enumerate(free):
+        ata[k][k] += PRIOR_WEIGHT[TERMS[i]]
+        atb[k] += PRIOR_WEIGHT[TERMS[i]] * PRIOR[TERMS[i]]
+    solved = dict(zip((TERMS[i] for i in free), _solve(ata, atb), strict=True))
+    return {**pinned, **solved}
+
+
+def _backwards(beta: dict[str, float]) -> str | None:
+    """A term whose sign defies physics: walls don't gain heat from the cold,
+    heating doesn't cool, and a room isn't pushed away from the rest of its zone."""
+    if beta["loss"] <= 0:
+        return "loss"
+    if beta["heat"] <= 0:
+        return "heat"
+    if beta["cool"] >= 0:
+        return "cool"
+    if beta["pull"] < 0:
+        return "pull"
+    return None
+
+
 def fit(room_id: str, windows: list[Window], *, now: datetime) -> RoomModel:
-    """Least squares, with each term held toward its starting value until data outweighs it."""
-    heat_hours = sum(w.heat for w in windows) * WINDOW_H
-    cool_hours = sum(w.cool for w in windows) * WINDOW_H
-    diffs = [w.out_diff for w in windows]
-    spread = (max(diffs) - min(diffs)) if diffs else 0.0
+    """Least squares, with each term held toward its starting value until data outweighs it.
+
+    A term that comes out backwards is held at its starting value (zero for
+    the zone pull) and the rest are fitted again around it, so the model stays
+    consistent with itself. Such a term is reported as not learned.
+    """
+    heat_hours = sum(WINDOW_H for w in windows if w.heat >= SUSTAINED)
+    cool_hours = sum(WINDOW_H for w in windows if w.cool >= SUSTAINED)
+    spread = _std([w.out_diff for w in windows])
     if len(windows) < MIN_WINDOWS:
         return RoomModel(
             room_id,
             None,
             len(windows),
-            **PRIOR,
+            loss=PRIOR["loss"],
+            pull=PRIOR["pull"],
+            heat=PRIOR["heat"],
+            cool=PRIOR["cool"],
+            drift=PRIOR["drift"],
             heat_hours=round(heat_hours, 2),
             cool_hours=round(cool_hours, 2),
             out_spread=round(spread, 2),
             rmse=None,
         )
-    rows = [(w.out_diff, w.zone_diff, w.heat, w.cool, 1.0) for w in windows]
-    n = len(TERMS)
-    ata = [[sum(r[i] * r[j] for r in rows) for j in range(n)] for i in range(n)]
-    atb = [sum(r[i] * w.rate for r, w in zip(rows, windows, strict=True)) for i in range(n)]
-    for i, term in enumerate(TERMS):
-        ata[i][i] += PRIOR_WEIGHT[term]
-        atb[i] += PRIOR_WEIGHT[term] * PRIOR[term]
-    loss, pull, heat, cool, drift = _solve(ata, atb)
-    # Physics, not statistics: walls don't gain heat from the cold, and
-    # heating doesn't cool. A fit that says otherwise keeps the starting value.
-    if loss <= 0:
-        loss = PRIOR["loss"]
-    if pull < 0:
-        pull = 0.0
-    if heat <= 0:
-        heat = PRIOR["heat"]
-    if cool >= 0:
-        cool = PRIOR["cool"]
-    beta = (loss, pull, heat, cool, drift)
+    rows: list[tuple[float, ...]] = [
+        (w.out_diff, w.zone_diff, w.heat, w.cool, 1.0) for w in windows
+    ]
+    rates = [w.rate for w in windows]
+    pinned: dict[str, float] = {}
+    beta = _least_squares(rows, rates, pinned)
+    while (wrong := _backwards(beta)) is not None:
+        pinned[wrong] = 0.0 if wrong == "pull" else PRIOR[wrong]
+        beta = _least_squares(rows, rates, pinned)
     sq = sum(
-        (w.rate - sum(c * x for c, x in zip(beta, r, strict=True))) ** 2
-        for r, w in zip(rows, windows, strict=True)
+        (rate - sum(beta[term] * x for term, x in zip(TERMS, r, strict=True))) ** 2
+        for r, rate in zip(rows, rates, strict=True)
     )
     return RoomModel(
         room_id=room_id,
         fitted_at=now,
         windows=len(windows),
-        loss=round(loss, 5),
-        pull=round(pull, 4),
-        heat=round(heat, 3),
-        cool=round(cool, 3),
-        drift=round(drift, 3),
+        loss=round(beta["loss"], 5),
+        pull=round(beta["pull"], 4),
+        heat=round(beta["heat"], 3),
+        cool=round(beta["cool"], 3),
+        drift=round(beta["drift"], 3),
         heat_hours=round(heat_hours, 2),
         cool_hours=round(cool_hours, 2),
         out_spread=round(spread, 2),
         rmse=round(math.sqrt(sq / len(windows)), 3),
+        pinned=tuple(pinned),
     )
+
+
+_fitting = asyncio.Lock()
 
 
 async def fit_all(conn: aiosqlite.Connection, *, now: datetime) -> list[RoomModel]:
     """Fit every room from its last 30 days and store the result."""
-    since = now - timedelta(days=FIT_DAYS)
-    models = []
-    for room in await db.get_all_rooms(conn):
-        samples = await learning.load(conn, room_id=room.id, since=since)
-        models.append(fit(room.id, windows_from(samples), now=now))
-    await conn.execute("DELETE FROM room_models")
-    await conn.executemany(
-        "INSERT INTO room_models(room_id, fitted_at, windows, loss, pull, heat, cool, drift,"
-        " heat_hours, cool_hours, out_spread, rmse) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
-        [
-            (
-                m.room_id,
-                None if m.fitted_at is None else int(m.fitted_at.timestamp()),
-                m.windows,
-                m.loss,
-                m.pull,
-                m.heat,
-                m.cool,
-                m.drift,
-                m.heat_hours,
-                m.cool_hours,
-                m.out_spread,
-                m.rmse,
-            )
-            for m in models
-        ],
-    )
-    await conn.commit()
-    return models
+    async with _fitting:
+        since = now - timedelta(days=FIT_DAYS)
+        models = []
+        for room in await db.get_all_rooms(conn):
+            samples = await learning.load(conn, room_id=room.id, since=since)
+            models.append(fit(room.id, windows_from(samples), now=now))
+        # Replaced row by row, so a failure part-way leaves the old rows alone.
+        await conn.executemany(
+            "INSERT OR REPLACE INTO room_models(room_id, fitted_at, windows, loss, pull, heat,"
+            " cool, drift, heat_hours, cool_hours, out_spread, rmse, pinned)"
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            [
+                (
+                    m.room_id,
+                    None if m.fitted_at is None else int(m.fitted_at.timestamp()),
+                    m.windows,
+                    m.loss,
+                    m.pull,
+                    m.heat,
+                    m.cool,
+                    m.drift,
+                    m.heat_hours,
+                    m.cool_hours,
+                    m.out_spread,
+                    m.rmse,
+                    ",".join(m.pinned),
+                )
+                for m in models
+            ],
+        )
+        keep = [m.room_id for m in models]
+        marks = ",".join("?" * len(keep))
+        await conn.execute(f"DELETE FROM room_models WHERE room_id NOT IN ({marks})", keep)
+        await conn.commit()
+        return models
 
 
 async def load(conn: aiosqlite.Connection) -> dict[str, RoomModel]:
@@ -295,6 +403,7 @@ async def load(conn: aiosqlite.Connection) -> dict[str, RoomModel]:
             r["cool_hours"],
             r["out_spread"],
             r["rmse"],
+            tuple(t for t in r["pinned"].split(",") if t),
         )
         for r in rows
     }
@@ -304,6 +413,7 @@ def describe(model: RoomModel) -> dict[str, Any]:
     """A model as the Smart Learning section shows it. Rates are °F deltas per hour."""
     data = asdict(model)
     data["fitted_at"] = None if model.fitted_at is None else model.fitted_at.isoformat()
+    data["pinned"] = list(model.pinned)
     data["hours"] = round(model.windows * WINDOW_H, 1)
     data["learned"] = model.learned
     data["grade"] = model.grade

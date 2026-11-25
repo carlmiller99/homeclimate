@@ -355,7 +355,8 @@ CREATE TABLE IF NOT EXISTS room_models (
     heat_hours REAL NOT NULL,
     cool_hours REAL NOT NULL,
     out_spread REAL NOT NULL,
-    rmse REAL
+    rmse REAL,
+    pinned TEXT NOT NULL DEFAULT ''
 );
 
 -- How far the forecast is usually off, as a running average for each hour of

@@ -244,6 +244,9 @@ export default function LearningSection() {
           days of usable readings across a spread of weather.
         </p>
         {fitErr && <p className="form-error">{fitErr}</p>}
+        {data.rooms.length === 0 && (
+          <p className="page-subtitle">Add rooms in My Home to start collecting.</p>
+        )}
         {data.rooms.length > 0 && (
           <ul className="learning-rooms">
             {data.rooms.map((r) => (

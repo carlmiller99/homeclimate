@@ -20,7 +20,9 @@ export interface RoomModel {
   cool_hours: number;
   out_spread: number;
   rmse: number | null;
-  learned: { loss: boolean; pull: boolean; heat: boolean; cool: boolean };
+  learned: { loss: boolean; heat: boolean; cool: boolean };
+  /** Terms the fit got backwards and held at a starting value. */
+  pinned: string[];
   grade: "none" | "learning" | "ready";
 }
 
@@ -88,15 +90,18 @@ export function describeModel(
   const out = [
     m.learned.heat
       ? `Heats about ${per(m.heat)}`
-      : "Heating rate not learned yet (needs about 3 hours of heating)",
+      : "Heating rate not learned yet (needs about 3 hours of long heating runs)",
     m.learned.cool
       ? `Cools about ${per(m.cool)}`
-      : "Cooling rate not learned yet (needs about 3 hours of cooling)",
+      : "Cooling rate not learned yet (needs about 3 hours of long cooling runs)",
   ];
-  // Shown per 10 °F of difference: easier to picture than a tiny coefficient.
+  // Shown per 10 °F (or a round 5 °C) of difference: easier to picture than a
+  // tiny coefficient. `delta(9)` is exactly 5 in Celsius and 9 in Fahrenheit.
+  const celsius = delta(9) === 5;
+  const across = celsius ? 9 : 10;
   out.push(
     m.learned.loss
-      ? `Drifts about ${per(m.loss * 10)} toward outside for every ${delta(10).toFixed(0)}${unitLabel} of difference`
+      ? `Drifts about ${per(m.loss * across)} toward outside for every ${celsius ? 5 : 10}${unitLabel} of difference`
       : "Heat loss not learned yet (needs more varied weather)"
   );
   return out;

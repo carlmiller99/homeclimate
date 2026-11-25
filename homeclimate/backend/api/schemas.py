@@ -1052,7 +1052,6 @@ class LearningSettingsSchema(Schema):
 
 class RoomModelLearnedSchema(Schema):
     loss = fields.Bool()
-    pull = fields.Bool()
     heat = fields.Bool()
     cool = fields.Bool()
 
@@ -1067,9 +1066,12 @@ class RoomModelSchema(Schema):
     heat = fields.Float(metadata={"description": "°F per hour while heating, vent open"})
     cool = fields.Float(metadata={"description": "°F per hour while cooling (negative)"})
     drift = fields.Float(metadata={"description": "°F per hour from everything else"})
-    heat_hours = fields.Float()
-    cool_hours = fields.Float()
-    out_spread = fields.Float(metadata={"description": "°F delta"})
+    heat_hours = fields.Float(metadata={"description": "Hours of sustained heating seen"})
+    cool_hours = fields.Float(metadata={"description": "Hours of sustained cooling seen"})
+    out_spread = fields.Float(metadata={"description": "°F delta, standard deviation"})
+    pinned = fields.List(
+        fields.Str(), metadata={"description": "Terms the fit got backwards, held at a start value"}
+    )
     rmse = fields.Float(allow_none=True, metadata={"description": "°F per hour"})
     learned = fields.Nested(RoomModelLearnedSchema)
     grade = fields.Str(metadata={"description": "none, learning or ready"})

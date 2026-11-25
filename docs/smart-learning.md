@@ -52,18 +52,26 @@ The readings are grouped into half-hours, and for each one the model explains ho
 | Cooling rate | The same for cooling | 3 °F an hour |
 | Everything else | People, appliances, sun | 0 |
 
-A term the readings can't speak to keeps its starting value and is shown as not learned yet: the heating rate needs about 3 hours of heating in the period, the cooling rate 3 hours of cooling, and heat loss needs the difference between inside and outside to have varied by at least 5 °F. A fitted value that makes no physical sense (heating that cools, walls that gain heat from the cold) is discarded for the starting value.
+A term the readings can't speak to keeps its starting value and is shown as not learned yet:
 
-Half-hours are left out when a door or window was open, a fireplace was lit or cooling down, auxiliary heat ran, a reading was missing, or the temperature jumped more than 12 °F an hour (a sensor glitch).
+- The **heating rate** needs about 3 hours of half-hours in which heating ran at least three quarters of the time; the **cooling rate** the same for cooling. A room held steady by short bursts shows how loss and heating balance but not how fast either is, so it does not count however long it goes on. Morning recoveries from a night setback are what teach it.
+- **Heat loss** needs the difference between inside and outside to have varied (a standard deviation of at least 3 °F).
+- A fitted value that makes no physical sense (heating that cools, walls that gain heat from the cold) is held at its starting value, the other terms are fitted again around it, and it is shown as not learned.
 
-**Grades**: *Not enough yet* (under a day of usable half-hours), *Learning*, and *Ready* (six days of usable half-hours with heat loss learned).
+Half-hours are left out when a door or window was open, a fireplace was lit or cooling down, auxiliary heat ran, a reading was missing, the room changed zone, the thermostat reported something other than heating, preheating, cooling, idle, off or fan (defrosting, for example), or the temperature jumped more than a room can (a sensor glitch). A thermostat that does not report what it is doing at all gives the model nothing to use.
 
-Sun through windows is not modelled yet; it is part of "everything else".
+**Grades**: *Not enough yet* (under a day of usable half-hours), *Learning*, and *Ready* (six days of usable half-hours, heat loss learned, and the heating or cooling rate learned).
+
+Limits worth knowing:
+
+- Sun through windows is not modelled yet; it is part of "everything else".
+- A sensor that reports in whole degrees, or that lags the room by several minutes, makes the rates come out low.
+- The model is fitted from snapshots every five minutes, so heating that runs in bursts shorter than that is under-counted.
 
 The fit takes well under a second per room, and stores one row per room (`room_models`).
 
 ### API
 
 - `GET /api/learning` includes each room's `model` (or null before the first fit).
-- `POST /api/learning/fit` fits every room now.
+- `POST /api/learning/fit` fits every room now, and answers 500 if it could not.
 

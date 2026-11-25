@@ -293,8 +293,6 @@ class Scheduler:
             max_instances=1,
             coalesce=True,
         )
-        # Daily metrics rollup at 00:05 local — recomputes yesterday + today so
-        # cycles that crossed midnight or arrived late are picked up. (#85 1d)
         # Smart Learning: fit each room's model from its readings, at 3:20 AM
         # house time. Read-only: nothing is commanded from it.
         self._apscheduler.add_job(
@@ -306,6 +304,8 @@ class Scheduler:
             max_instances=1,
             coalesce=True,
         )
+        # Daily metrics rollup at 00:05 local — recomputes yesterday + today so
+        # cycles that crossed midnight or arrived late are picked up. (#85 1d)
         self._apscheduler.add_job(
             self._rollup_daily_metrics_job,
             "cron",
@@ -1614,10 +1614,14 @@ class Scheduler:
     async def fit_room_models(self) -> int:
         """Fit every room's model; never raises. Returns how many rooms were fitted."""
         try:
-            models = await room_model.fit_all(self._db_conn, now=datetime.now(UTC))
+            return await self.fit_room_models_now()
         except Exception:
             log.exception("Could not fit the room models")
             return 0
+
+    async def fit_room_models_now(self) -> int:
+        """Fit every room's model, letting a failure through to the caller."""
+        models = await room_model.fit_all(self._db_conn, now=datetime.now(UTC))
         fitted = sum(1 for m in models if m.fitted_at is not None)
         if self._event_logger is not None:
             await self._event_logger.log(
