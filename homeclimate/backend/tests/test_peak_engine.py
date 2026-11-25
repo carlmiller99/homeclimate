@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -165,6 +166,13 @@ async def test_a_run_begun_for_banking_is_not_cut_short_when_the_peak_begins(mon
     assert _targets(await engine._bank(conn, band, now=peak_now)) == [(74.9, "bank")]
     temps["now"] = None  # with no reading it keeps the target it had
     assert _targets(await engine._bank(conn, band, now=peak_now)) == [(74.0, "bank")]
+    # A room whose vent has already closed is done: its target is left alone.
+    temps["now"] = 74.9
+    engine._room_cycle_states = {room.id: SimpleNamespace(vent_closed_at=peak_now)}
+    assert _targets(await engine._bank(conn, band, now=peak_now)) == [(74.0, "bank")]
+    engine._room_cycle_states = {room.id: SimpleNamespace(vent_closed_at=None)}
+    assert _targets(await engine._bank(conn, band, now=peak_now)) == [(74.9, "bank")]
+    engine._room_cycle_states = {}
     temps["now"] = 74.3
     engine._cycle_runtime_satisfied = lambda _tc, now=None: False
     # A hold takes the room over; a room no longer asked for anything leaves the run.
@@ -175,6 +183,14 @@ async def test_a_run_begun_for_banking_is_not_cut_short_when_the_peak_begins(mon
     # than what Eco had relaxed it to.
     running(75.0, requested_target=74.0)
     assert _targets(await engine._bank(conn, band, now=peak_now)) == [(74.0, "bank")]
+    # While the zone runs the other way for someone else, nothing is asked.
+    engine._cycle_mode = "heating"
+    engine._active_rooms = {other.id: ActiveRoom(room=other, target_temp=80.0, source="override")}
+    temps["now"] = 75.5
+    assert await engine._bank(conn, band, now=BANKING) == band
+    engine._cycle_mode = "cooling"
+    assert _targets(await engine._bank(conn, band, now=BANKING)) == [(74.0, "bank")]
+    temps["now"] = 74.3
     # A room asked while the zone ran for someone else never joined, and is not kept.
     engine._active_rooms = {other.id: ActiveRoom(room=other, target_temp=70.0, source="override")}
     assert await engine._bank(conn, band, now=peak_now) == band

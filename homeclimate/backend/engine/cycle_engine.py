@@ -5538,7 +5538,7 @@ class CycleEngine:
             # A room following the house band is not "already conditioned": it
             # asks for nothing while inside its band, and the band may be wider
             # than this zone's safety limits. A breach replaces it below.
-            # Nor is a room a convenience added (Zone Balance): its target is
+            # Nor is a room a convenience added (Zone Balance, Peak Hours): its target is
             # not a protection, and a breach replaces that too.
             if (
                 current is not None
@@ -6751,7 +6751,13 @@ class CycleEngine:
                 continue
             if room.id in held:
                 target = held[room.id]
-                reading = self._get_avg_temp(room, refresh=False) if wind_up else None
+                state = self._room_cycle_states.get(room.id)
+                # Once: a room whose vent has closed is done, and following
+                # its reading further would only rewrite the run every minute.
+                still_going = state is None or state.vent_closed_at is None
+                reading = (
+                    self._get_avg_temp(room, refresh=False) if wind_up and still_going else None
+                )
                 if reading is not None:
                     target = reading + room.temp_offset
             elif not banking or win is None:
@@ -6762,6 +6768,9 @@ class CycleEngine:
                     way is None
                     or (obey and side is not None and side != way)
                     or (way == "heating" and self._hp_strips)
+                    # A run going the other way for someone else: not asked
+                    # this tick, rather than asked and turned away every minute.
+                    or (self._state != CycleState.IDLE and self._cycle_mode != way)
                 ):
                     continue
                 deadband = _effective_deadband(room, tc.deadband, ar.deadband_override)

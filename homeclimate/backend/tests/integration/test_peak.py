@@ -280,3 +280,19 @@ async def test_banking_never_outvotes_a_hold(client, fake_ha, tick, monkeypatch,
     await tick()
     assert eng.cycle_mode == "heating"
     assert [ar.source for ar in eng._active_rooms.values()] == ["override"]
+
+
+async def test_a_banking_room_past_a_safety_limit_is_still_protected(
+    client, fake_ha, tick, monkeypatch
+):
+    """A band wider than the zone's limits: the room is cooled as a safety room, not a banked one."""
+    from backend import house
+
+    _ids, eng = await _peak_site(client, fake_ha, monkeypatch, {"hot": 78.0}, ambient=78.0)
+    conn = await client.app["scheduler"].get_db()
+    await client.put(f"/api/thermostats/{T}", json={"max_setpoint": 77.0})
+    await house.set_band(conn, 64.0, 82.0)
+    await tick()
+    await tick()
+    assert eng.cycle_mode == "cooling"
+    assert [ar.source for ar in eng._active_rooms.values()] == ["safety"]
