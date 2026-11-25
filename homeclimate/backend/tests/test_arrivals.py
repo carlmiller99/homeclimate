@@ -112,6 +112,17 @@ async def test_too_warm_a_room_is_cooled_to_the_top_of_what_occupancy_would_allo
     assert _targets(await engine._arrive(conn, [], now=MON)) == [(75.0, "arrival")]
     engine._thermo_ambient_f = lambda: 74.4  # the thermostat reads cooler than that already
     assert await engine._arrive(conn, [], now=MON) == []
+    # Not if another room of the zone is asked lower still, and by the zone's
+    # deadband whatever the room's own.
+    cooler = Room.create(name="Loft", thermostat_entity_id=THERMO_ID)
+    low = ActiveRoom(room=cooler, target_temp=72.0, source="override")
+    assert len(await engine._arrive(conn, [low], now=MON)) == 2
+    room.deadband_override = 0.2
+    await db.upsert_room(conn, room)
+    engine._thermo_ambient_f = lambda: 74.7  # past the room's own 0.2, not the zone's 0.5
+    assert len(await engine._arrive(conn, [], now=MON)) == 1
+    room.deadband_override = None
+    await db.upsert_room(conn, room)
     engine._thermo_ambient_f = lambda: 80.0
     # Never past the zone's own limits.
     tc = await db.get_thermostat_config(conn, THERMO_ID)
@@ -178,9 +189,20 @@ async def test_what_is_left_alone(monkeypatch):
     await db.upsert_room(conn, room)
     engine._thermo_ambient_f = lambda: 71.0
     assert await engine._arrive(conn, [], now=MON) == []
+    # A neighbour in a band counts at its own temperature held inside the band
+    # (its edge when it has no reading); a neighbour on a single target at that.
     warm = Room.create(name="Loft", thermostat_entity_id=THERMO_ID)
-    loft = ActiveRoom(room=warm, target_temp=68.0, source="house", heat_to=72.0, cool_to=78.0)
-    assert len(await engine._arrive(conn, [loft], now=MON)) == 2
+    loft = ActiveRoom(room=warm, target_temp=68.0, source="house", heat_to=68.0, cool_to=76.0)
+    readings = {room.id: 64.0, warm.id: 72.0}
+    engine._get_avg_temp = lambda r, **_k: readings[r.id]
+    assert len(await engine._arrive(conn, [loft], now=MON)) == 2  # 71 is not past 72 + 0.5
+    readings[warm.id] = 70.2
+    assert await engine._arrive(conn, [loft], now=MON) == [loft]
+    readings[warm.id] = None
+    assert await engine._arrive(conn, [loft], now=MON) == [loft]  # counted at its 68
+    hold = ActiveRoom(room=warm, target_temp=72.0, source="override")
+    assert len(await engine._arrive(conn, [hold], now=MON)) == 2
+    engine._get_avg_temp = lambda _room, **_k: temps["now"]
     room.deadband_override = None
     await db.upsert_room(conn, room)
     engine._thermo_ambient_f = lambda: None
@@ -282,12 +304,15 @@ async def test_a_room_that_started_a_run_is_kept_in_it_to_the_end(monkeypatch):
         assert _targets(await engine._arrive(conn, [], now=soon)) == [(66.0, "arrival")]
     await learning.update_settings(conn, {"arrival_level": 2})
     assert _targets(await engine._arrive(conn, [], now=soon)) == [(70.0, "arrival")]
-    # A restart loses track of the hour: the run is given the grace from then.
+    # A restart loses track of the hour. While the arrival is still current
+    # it is found again, with the same end of grace; once it has passed, the
+    # run is wound up.
     engine._arrival_until = {}
     assert _targets(await engine._arrive(conn, [], now=soon)) == [(70.0, "arrival")]
-    assert engine._arrival_until == {room.id: soon + timedelta(minutes=30)}
-    after = soon + timedelta(minutes=31)
-    assert _targets(await engine._arrive(conn, [], now=after)) == [(66.0, "arrival")]
+    assert engine._arrival_until == {room.id: MON + timedelta(minutes=50)}
+    engine._arrival_until = {}
+    assert _targets(await engine._arrive(conn, [], now=later)) == [(66.0, "arrival")]
+    assert engine._arrival_until == {room.id: later}
     # Someone arrives: occupancy has the room from here.
     here = ActiveRoom(room=room, target_temp=70.0, source="presence")
     assert await engine._arrive(conn, [here], now=later) == [here]

@@ -7044,9 +7044,24 @@ class CycleEngine:
         outside = await self._read_outside_temp(conn) if usual else None
         following = {ar.room.id: ar for ar in active}
         ambient = self._thermo_ambient_f()
-        # What the other rooms of the zone are asked to, each way.
-        others_heat = [a.target_temp if a.heat_to is None else a.heat_to for a in active]
-        others_cool = [a.target_temp if a.cool_to is None else a.cool_to for a in active]
+        # What the other rooms of the zone count as asking for, as the mode
+        # check sees them: a single target, or for a room in a band its own
+        # temperature held inside the band (the edge if it has no reading).
+        others_heat: list[float] = []
+        others_cool: list[float] = []
+        for a in active:
+            if a.heat_to is None or a.cool_to is None:
+                others_heat.append(a.target_temp)
+                others_cool.append(a.target_temp)
+                continue
+            reading = self._get_avg_temp(a.room, refresh=False)
+            if reading is None:
+                others_heat.append(a.heat_to)
+                others_cool.append(a.cool_to)
+            else:
+                held_in = min(max(reading + a.room.temp_offset, a.heat_to), a.cool_to)
+                others_heat.append(held_in)
+                others_cool.append(held_in)
         by_room: dict[str, list] = {}
         if usual:
             for sched in await db.get_all_schedules(conn):
@@ -7069,10 +7084,15 @@ class CycleEngine:
                 target = held[room.id]
                 until = self._arrival_until.get(room.id)
                 if until is None and level == "on":
-                    # A restart lost track of the hour. The run is given the
-                    # length of the grace from here rather than stopped and
-                    # started again.
-                    until = now + timedelta(minutes=arrivals.GRACE_MIN)
+                    # A restart lost track of the hour. If the room's arrival
+                    # is still coming or in its grace, that is the hour; if
+                    # not, there is nothing left to get ready for.
+                    again = arrivals.next_arrival(usual.get(room.id, frozenset()), local_now)
+                    until = (
+                        now
+                        if again is None
+                        else now + timedelta(seconds=again[1], minutes=arrivals.GRACE_MIN)
+                    )
                     self._arrival_until[room.id] = until
                 rcs = self._room_cycle_states.get(room.id)
                 if (
