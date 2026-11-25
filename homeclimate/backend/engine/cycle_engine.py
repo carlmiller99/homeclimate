@@ -841,7 +841,9 @@ class CycleEngine:
         # vacation this is the sole source of demand, `new_active_map` having
         # been seeded empty just above.
         await self._add_safety_rooms(conn, new_active_map)
-        self._optional_rooms_yield(new_active_map, await self._load_tc(conn))
+        self._optional_rooms_yield(
+            new_active_map, await self._load_tc(conn), side if obey_side else None
+        )
         against = obey_side and side in ("heating", "cooling", "hold")
         if (
             self._protecting is None
@@ -6555,7 +6557,9 @@ class CycleEngine:
             return not _drifted_past_deadband(temp, state.target_temp, mode, band)
         return mode in ("heating", "cooling") and _is_at_target(temp, state.target_temp, mode)
 
-    def _optional_rooms_yield(self, active: dict[str, ActiveRoom], tc: ThermostatConfig) -> None:
+    def _optional_rooms_yield(
+        self, active: dict[str, ActiveRoom], tc: ThermostatConfig, side: str | None = None
+    ) -> None:
         """Rooms added by a convenience give way to any room that calls for itself.
 
         Before a cycle is chosen: if a room with a say of its own (a safety
@@ -6571,7 +6575,10 @@ class CycleEngine:
         runtime, a room that calls for the other direction ends it the same
         way, rather than waiting out a run nobody asked for. A cycle still
         working for a room with a say of its own is left alone; the
-        conveniences may join it if it suits them.
+        conveniences may join it if it suits them. A call for the direction
+        the building's side (``side``, when it is being obeyed) rules out does
+        not end a run, since no cycle could answer it; a room past a safety
+        limit is the exception, as it is for the side itself.
         """
         optional = [rid for rid, ar in active.items() if ar.source in OPTIONAL_SOURCES]
         if not optional:
@@ -6599,8 +6606,15 @@ class CycleEngine:
         if self._state == CycleState.IDLE:
             give_way = bool(calling)
         else:
+            others = calling - {self._cycle_mode}
+            if others and side in ("heating", "cooling"):
+                with_a_say = {
+                    rid: ar for rid, ar in active.items() if ar.source not in OPTIONAL_SOURCES
+                }
+                breaches = self._safety_breaches(with_a_say, tc)
+                others = {way for way in others if way == side or way in breaches}
             give_way = (
-                bool(calling - {self._cycle_mode})
+                bool(others)
                 and all(
                     ar.source in OPTIONAL_SOURCES or self._done_in_this_run(ar, tc)
                     for ar in self._active_rooms.values()
