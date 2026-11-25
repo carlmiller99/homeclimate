@@ -1,6 +1,6 @@
 # Forecasts
 
-HomeClimate can fetch the hourly weather forecast from Home Assistant, keep using it through outages, and archive it. This is the groundwork for forecast-aware control. **For now the forecast is only shown and recorded; it does not change how your home is controlled.**
+HomeClimate can fetch the hourly weather forecast from Home Assistant, keep using it through outages, and archive it. This is the groundwork for forecast-aware control. Its one use in control so far is [building mode](./building-mode.md): with a building's Auto set to On, the forecast can stop a switch between heating and cooling. Everything else about the forecast is shown and recorded only.
 
 Find it under **Smart Control → Forecasts**.
 

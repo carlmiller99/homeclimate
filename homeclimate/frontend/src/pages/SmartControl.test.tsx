@@ -18,6 +18,8 @@ vi.mock("./Schedules", () => ({ default: () => <p>schedules page</p> }));
 vi.mock("./RoomCalendarsCard", () => ({ default: () => <p>room calendars</p> }));
 vi.mock("./LearningSection", () => ({ default: () => <p>learning section</p> }));
 vi.mock("./ForecastSection", () => ({ default: () => <p>forecast section</p> }));
+vi.mock("./BuildingAutoCard", () => ({ default: () => <p>building auto</p> }));
+vi.mock("./EcoSection", () => ({ default: () => <p>eco section</p> }));
 vi.mock("./FireplaceSection", () => ({ default: () => <p>fireplace section</p> }));
 vi.mock("./ShadesSection", () => ({
   default: ({ rooms }: { rooms: { name: string }[] }) => (
@@ -152,8 +154,13 @@ describe("Smart Control", () => {
     // Nothing is waiting to be built: every section is a link.
     expect(sc.PLANNED_SECTIONS).toEqual([]);
     expect(within(nav).queryByText("Planned")).toBeNull();
-    expect(within(nav).getAllByRole("link")).toHaveLength(5);
+    expect(within(nav).getAllByRole("link")).toHaveLength(6);
     expect(sc.getSmartControl).not.toHaveBeenCalled();
+  });
+
+  it("opens the Eco Mode section", () => {
+    renderAt("/smart-control?section=eco-mode");
+    expect(screen.getByText("eco section")).toBeInTheDocument();
   });
 
   it("falls back to Schedules for an unknown section", () => {

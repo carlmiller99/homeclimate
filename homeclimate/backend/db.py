@@ -277,6 +277,18 @@ CREATE TABLE IF NOT EXISTS room_calendars (
     in_use INTEGER NOT NULL DEFAULT 1
 );
 
+-- Building mode (backend/building_mode.py): each building's mode, and for
+-- Auto the side it is on and when it last switched (Unix seconds).
+CREATE TABLE IF NOT EXISTS building_modes (
+    building_id TEXT PRIMARY KEY,
+    mode TEXT NOT NULL DEFAULT 'auto',
+    auto_level TEXT NOT NULL DEFAULT 'off',
+    side TEXT,
+    switched_at INTEGER,
+    switch_day TEXT NOT NULL DEFAULT '',
+    switches INTEGER NOT NULL DEFAULT 0
+);
+
 -- Fireplaces (backend/fireplace.py): the entity that says one is lit, the
 -- rooms it warms, and what to do about it. last_lit_at is Unix seconds, so a
 -- cool-down survives a restart.

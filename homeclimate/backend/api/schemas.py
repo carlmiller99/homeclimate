@@ -868,6 +868,33 @@ class ShadesSchema(Schema):
     shades = fields.List(fields.Nested(ShadeSchema))
 
 
+class BuildingModeWriteSchema(Schema):
+    mode = fields.Str(metadata={"description": "auto, heat_only, cool_only or off"})
+    auto_level = fields.Str(
+        metadata={"description": "For Auto: off, watch or on (hold zones to one side)"}
+    )
+
+
+class BuildingWaitSchema(Schema):
+    thermostat_entity_id = fields.Str()
+    direction = fields.Str(metadata={"description": "What the zone wants: heating or cooling"})
+    since = fields.Str()
+    obeyed = fields.Bool(metadata={"description": "False when the side is only being watched"})
+
+
+class BuildingModeSchema(BuildingModeWriteSchema):
+    building_id = fields.Str()
+    name = fields.Str()
+    side = fields.Str(allow_none=True, metadata={"description": "heating, cooling, off or null"})
+    obey = fields.Bool(metadata={"description": "Zones are held to the side"})
+    note = fields.Str(metadata={"description": "Why a wanted switch has not happened yet"})
+    waiting = fields.List(fields.Nested(BuildingWaitSchema))
+
+
+class BuildingModesSchema(Schema):
+    buildings = fields.List(fields.Nested(BuildingModeSchema))
+
+
 class HouseBandSchema(Schema):
     house_heat_to = fields.Float(
         allow_none=True, metadata={"description": "Heat rooms below this. Display unit in, °F out."}

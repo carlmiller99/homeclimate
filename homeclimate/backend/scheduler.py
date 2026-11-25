@@ -20,7 +20,19 @@ from datetime import UTC, datetime, timedelta
 import aiosqlite
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from . import db, fireplace, forecast, heat_pump, house, learning, openings, shades, tz, zones
+from . import (
+    building_mode,
+    db,
+    fireplace,
+    forecast,
+    heat_pump,
+    house,
+    learning,
+    openings,
+    shades,
+    tz,
+    zones,
+)
 from .engine import room_manager
 from .engine.cycle_engine import SENSOR_STALE_AFTER_MIN, CycleEngine
 from .engine.vent_controller import VentController
@@ -153,6 +165,7 @@ class Scheduler:
         self._forecast = forecast.Forecast()
         self._fireplaces = fireplace.FireplaceMonitor()
         self._calendars = house.CalendarWatch()
+        self._building_plan = building_mode.Planner()
 
     def _spawn_bg(self, coro: Coroutine) -> asyncio.Task:
         """Create a background task and keep a strong reference until it
@@ -1040,6 +1053,8 @@ class Scheduler:
             get_eco_suspended=functools.partial(self.is_eco_suspended, tid),
             get_openings=functools.partial(self._pause_for, tid),
             get_fireplace_rooms=lambda: frozenset(self._fireplaces.set_aside_rooms()),
+            get_building_side=functools.partial(self._building_side, tid),
+            claim_building_side=functools.partial(self._building_plan_claim, tid),
             get_heat_pump=functools.partial(self._heat_pumps.get, tid),
         )
 
@@ -1327,6 +1342,7 @@ class Scheduler:
         await self._refresh_continuous_presence()
         await self._refresh_reported_states()
         await self._evaluate_openings()
+        await self._plan_buildings()
         await self._refresh_room_calendars()
         await self._evaluate_fireplaces()
         await self._load_heat_pumps()
@@ -1621,6 +1637,51 @@ class Scheduler:
                 f"Moved {moved} door or window sensor(s) from their zone into a room",
                 {"count": moved},
             )
+
+    def _building_side(self, thermostat_entity_id: str) -> tuple[str | None, bool]:
+        running = {tid: e.cycle_mode for tid, e in self._engines.items() if e.cycle_mode}
+        return self._building_plan.live_side(thermostat_entity_id, running)
+
+    def _building_plan_claim(self, thermostat_entity_id: str, direction: str) -> str | None:
+        return self._building_plan.claim(thermostat_entity_id, direction)
+
+    @property
+    def building_plan(self) -> building_mode.Planner:
+        return self._building_plan
+
+    def zones_now(self) -> list[building_mode.ZoneNow]:
+        return [
+            building_mode.ZoneNow(
+                tid, engine.cycle_mode, engine.building_wait, engine.protecting_only
+            )
+            for tid, engine in self._engines.items()
+        ]
+
+    async def _plan_buildings(self) -> None:
+        """Decide each building's side before its zones tick; never raises."""
+        try:
+            now = datetime.now(UTC)
+            hours, _fetched = await forecast.load(self._db_conn, now=now)
+            band = (await house.load(self._db_conn)).band
+            switched = await self._building_plan.plan(
+                self._db_conn, self.zones_now(), hours, band, now
+            )
+            if switched and self._event_logger is not None:
+                names = {b.id: b.name for b in await zones.list_buildings(self._db_conn)}
+                for building_id, side in switched:
+                    await self._event_logger.log(
+                        "info",
+                        "engine",
+                        f"{names.get(building_id, 'A building')} is now on {side}",
+                        {"building": building_id, "side": side},
+                    )
+        except Exception:
+            log.exception("Could not plan building modes")
+
+    async def replan_buildings_now(self) -> None:
+        """After a building's mode changes: decide again and apply it at once."""
+        await self._plan_buildings()
+        await self.tick_all_now()
 
     async def _refresh_room_calendars(self) -> None:
         """Bring rooms that follow a calendar in and out of use, and say so."""

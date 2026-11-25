@@ -13,11 +13,15 @@ off, the engine behaves exactly as it did before this feature existed.
 > cooling setpoint is roughly 3–5 % less cooling energy. Heating is the mirror
 > image on cold days. Background analysis: issues #402 and #404.
 
+## Where it is set
+
+Eco Mode is tuned for each zone in **Smart Control → Eco Mode**: the switch, the outdoor thresholds and the drift limits, with a worked example that follows what you type. A single room can be given its own Eco settings in its room settings under **My Home**. Suspending Eco for a while is done from the **Dashboard**, or from a zone's header in My Home.
+
 ## Requires an outside-temperature sensor
 
 Eco Mode is entirely driven by the outdoor temperature, so **it cannot be turned
 on until the house-wide outside-temperature entity is configured** (set it in
-**Settings → Sensors**). The UI disables the Eco toggle until then, and the
+**Settings → Sensors**). Until then the UI will not save Eco Mode switched on, and the
 API rejects enabling it without a sensor.
 
 If you do not have a physical outdoor thermometer in Home Assistant, add a free

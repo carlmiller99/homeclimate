@@ -13,6 +13,11 @@ vi.mock("../houseApi", async (orig) => ({
   setHouseBand: vi.fn(),
   setRoomSwitches: vi.fn(),
 }));
+// Building modes have their own tests (Dashboard.buildings.test.tsx); here they never load.
+vi.mock("../buildingModeApi", async (orig) => ({
+  ...(await orig<typeof import("../buildingModeApi")>()),
+  getBuildingModes: () => Promise.reject(new Error("building modes not loaded")),
+}));
 vi.mock("../smartControlApi", async (orig) => ({
   ...(await orig<typeof import("../smartControlApi")>()),
   getSmartControl: () => Promise.reject(new Error("not needed")),

@@ -2751,3 +2751,57 @@ button.sc-nav-item {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* Dashboard → building mode */
+.building-mode {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.9rem;
+  align-items: center;
+  margin: 0 0 0.75rem;
+}
+.building-mode-pick select {
+  width: auto;
+  min-width: 8.5rem;
+}
+.building-mode-status {
+  font-size: 0.875rem;
+  color: var(--gray-600);
+}
+.building-mode-wait {
+  color: var(--state-paused-text);
+}
+
+/* Smart Control → Eco Mode */
+.eco-zone-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+.eco-zone-head .card-title {
+  margin: 0;
+}
+.eco-zone-switch {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.eco-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+.eco-grid .form-group {
+  margin-bottom: 0;
+}
+.eco-zone-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}

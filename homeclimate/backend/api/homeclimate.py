@@ -13,6 +13,7 @@ from datetime import date, datetime, time, timedelta
 from aiohttp import web
 
 from .. import (
+    building_mode,
     db,
     fireplace,
     forecast,
@@ -431,6 +432,75 @@ async def update_learning_settings(request: web.Request) -> web.Response:
         return error(safe_text(exc))
     await emit(request, "info", "api", "Smart Learning settings updated", body)
     return json_response(await _learning_snapshot(request))
+
+
+async def _building_modes_snapshot(request: web.Request) -> dict:
+    conn = await get_conn(request)
+    scheduler = request.app["scheduler"]
+    modes = await building_mode.load(conn)
+    decisions = scheduler.building_plan.decisions()
+    waits: dict[str, list[dict]] = {}
+    for zone in scheduler.zones_now():
+        building_id = scheduler.building_plan.building_of(zone.thermostat_entity_id)
+        if zone.wait and building_id:
+            waits.setdefault(building_id, []).append(
+                {
+                    "thermostat_entity_id": zone.thermostat_entity_id,
+                    "direction": zone.wait["direction"],
+                    "since": zone.wait["since"].isoformat(),
+                    "obeyed": zone.wait["obeyed"],
+                }
+            )
+    out = []
+    for building in await zones.list_buildings(conn):
+        m = modes[building.id]
+        decision = decisions.get(building.id)
+        out.append(
+            {
+                "building_id": building.id,
+                "name": building.name,
+                "mode": m.mode,
+                "auto_level": m.auto_level,
+                "side": decision.side if decision else building_mode.FIXED_SIDE.get(m.mode, m.side),
+                "obey": decision.obey if decision else m.mode != "auto" or m.auto_level == "on",
+                "note": decision.note if decision else "",
+                "waiting": waits.get(building.id, []),
+            }
+        )
+    return {"buildings": out}
+
+
+@docs(tags=["buildings"], summary="Each building's mode, the side it is on, and zones waiting")
+@response_schema(schemas.BuildingModesSchema)
+@routes.get("/api/building-modes")
+async def get_building_modes(request: web.Request) -> web.Response:
+    return json_response(await _building_modes_snapshot(request))
+
+
+@docs(tags=["buildings"], summary="Set a building's mode, or how Auto chooses a side")
+@request_schema(schemas.BuildingModeWriteSchema)
+@response_schema(schemas.BuildingModesSchema)
+@routes.put("/api/building-modes/{building_id}")
+async def update_building_mode(request: web.Request) -> web.Response:
+    body = await _json_object(request)
+    conn = await get_conn(request)
+    try:
+        await building_mode.update(conn, request.match_info["building_id"], body)
+    except UserError as exc:
+        text = safe_text(exc)
+        return error(text, status=404 if text == building_mode.BUILDING_UNKNOWN else 400)
+    await emit(
+        request,
+        "info",
+        "api",
+        "Building mode changed",
+        {"building": request.match_info["building_id"], **body},
+    )
+    try:
+        await request.app["scheduler"].replan_buildings_now()
+    except Exception:
+        log.exception("Could not apply the building mode straight away")
+    return json_response(await _building_modes_snapshot(request))
 
 
 async def _house_snapshot(request: web.Request) -> dict:
