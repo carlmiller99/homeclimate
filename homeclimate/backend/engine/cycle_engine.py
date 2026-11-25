@@ -5533,7 +5533,13 @@ class CycleEngine:
             # A room following the house band is not "already conditioned": it
             # asks for nothing while inside its band, and the band may be wider
             # than this zone's safety limits. A breach replaces it below.
-            if current is not None and current.heat_to is None:
+            # Nor is a room a convenience added (Zone Balance): its target is
+            # not a protection, and a breach replaces that too.
+            if (
+                current is not None
+                and current.heat_to is None
+                and current.source not in OPTIONAL_SOURCES
+            ):
                 continue  # already conditioned via override/schedule/presence
             avg = self._get_avg_temp(room)
             if avg is None:
@@ -6528,6 +6534,27 @@ class CycleEngine:
         self._early_latch = latched
         return out
 
+    def _done_in_this_run(self, ar: ActiveRoom, tc: ThermostatConfig) -> bool:
+        """Whether the running cycle has nothing more to do for this room.
+
+        The same judgement ``_monitor_rooms`` makes: a room with no reading
+        cannot hold a run open; one whose vent has closed is done unless it
+        has drifted back past its deadband; one whose vent is still open (the
+        airflow floor may be keeping it so) is done once it is at its target.
+        """
+        state = self._room_cycle_states.get(ar.room.id)
+        if state is None:
+            return False
+        avg = self._get_avg_temp(ar.room, refresh=False)
+        if avg is None:
+            return True
+        temp = avg + ar.room.temp_offset
+        mode = self._cycle_mode or ""
+        if state.vent_closed_at is not None:
+            band = _effective_deadband(ar.room, tc.deadband, ar.deadband_override)
+            return not _drifted_past_deadband(temp, state.target_temp, mode, band)
+        return mode in ("heating", "cooling") and _is_at_target(temp, state.target_temp, mode)
+
     def _optional_rooms_yield(self, active: dict[str, ActiveRoom], tc: ThermostatConfig) -> None:
         """Rooms added by a convenience give way to any room that calls for itself.
 
@@ -6539,11 +6566,12 @@ class CycleEngine:
         other way or starve the room that called. A room with no reading
         counts as calling.
 
-        While a cycle runs for nothing but convenience rooms: once it has had
-        its minimum runtime, a room that calls for the other direction ends
-        it the same way, rather than waiting out a run nobody asked for.
-        A cycle that is serving a room with a say of its own is left alone;
-        the conveniences may join it if it suits them.
+        While a cycle runs with nothing left to do but convenience rooms (every
+        other room in it has reached its target): once it has had its minimum
+        runtime, a room that calls for the other direction ends it the same
+        way, rather than waiting out a run nobody asked for. A cycle still
+        working for a room with a say of its own is left alone; the
+        conveniences may join it if it suits them.
         """
         optional = [rid for rid, ar in active.items() if ar.source in OPTIONAL_SOURCES]
         if not optional:
@@ -6551,6 +6579,11 @@ class CycleEngine:
 
         def wants(ar: ActiveRoom) -> str | None:
             avg = self._get_avg_temp(ar.room, refresh=False)
+            if avg is None:
+                if ar.source == "house":
+                    return None  # with no reading it does not follow the band at all
+                # As the vote does: the thermostat's own reading stands in.
+                avg = self._thermo_ambient_f()
             if avg is None:
                 return "either"
             temp = avg + ar.room.temp_offset
@@ -6568,7 +6601,10 @@ class CycleEngine:
         else:
             give_way = (
                 bool(calling - {self._cycle_mode})
-                and all(ar.source in OPTIONAL_SOURCES for ar in self._active_rooms.values())
+                and all(
+                    ar.source in OPTIONAL_SOURCES or self._done_in_this_run(ar, tc)
+                    for ar in self._active_rooms.values()
+                )
                 and self._cycle_runtime_satisfied(tc)
             )
         if not give_way:
@@ -6633,7 +6669,11 @@ class CycleEngine:
                 continue
             if room.id in held:
                 target = held[room.id]
-            elif call is None:
+            elif call is None or (
+                # A run going the other way for someone else: not asked this
+                # tick, rather than asked and turned away every minute.
+                self._state != CycleState.IDLE and self._cycle_mode != call.mode
+            ):
                 continue
             else:
                 heating = call.mode == "heating"
