@@ -52,9 +52,12 @@ async def test_a_schedule_can_have_a_band_or_a_single_target(client, room):
     resp = await client.put(f"{url}/{single['id']}", json={"target_temp": 70})
     assert (resp.status, (await resp.json())["cool_to"]) == (200, 74.0)
     assert await _following(client) == ("schedule", 70.0, 70.0, 74.0)
+    # A move that would leave less than 3 °F drops the band rather than refuse the
+    # change: a client that knows nothing of bands must still be able to move a target.
     resp = await client.put(f"{url}/{single['id']}", json={"target_temp": 72})
-    assert resp.status == 400
-    assert "at least 3.0° above the target" in (await resp.json())["error"]
+    assert (resp.status, (await resp.json())["cool_to"]) == (200, None)
+    assert await _following(client) == ("schedule", 72.0, None, None)
+    await client.put(f"{url}/{single['id']}", json={"target_temp": 70, "cool_to": 74})
     # A change that leaves the target alone does not re-check anything.
     assert (await client.put(f"{url}/{single['id']}", json={"name": "Day"})).status == 200
     assert await _following(client) == ("schedule", 70.0, 70.0, 74.0)
@@ -174,7 +177,8 @@ async def test_an_occupancy_target_can_be_a_band(client, room):
     assert (await resp.json())["presence_cool_to"] == 74.0
     assert await _following(client) == ("presence", 70.0, 70.0, 74.0)
     resp = await client.put(url, json={"system_wide_temp": 73})
-    assert resp.status == 400
+    assert (resp.status, (await resp.json())["presence_cool_to"]) == (200, None)
+    await client.put(url, json={"system_wide_temp": 70, "presence_cool_to": 74})
     # …is untouched by an unrelated change, and goes when the target does.
     assert (await (await client.put(url, json={"notes": "x"})).json())["presence_cool_to"] == 74.0
     resp = await client.put(url, json={"presence_cool_to": None})
@@ -194,7 +198,129 @@ async def test_the_dashboard_status_shows_the_band(client, room):
     status = (await resp.json())[room]
     assert (status["source"], status["target_temp"], status["heat_to"], status["cool_to"]) == (
         "schedule",
-        None,
+        68.0,  # still there, as the heat-to, for readers that know nothing of bands
         68.0,
         74.0,
     )
+
+
+async def test_copying_a_block_copies_its_band(client, room, fake_ha):
+    other = (
+        await (
+            await client.post("/api/rooms", json={"name": "Craft Room", "thermostat_entity_id": T1})
+        ).json()
+    )["id"]
+    made = await (
+        await client.post(
+            f"/api/rooms/{room}/schedules", json={**ALL_DAY, "target_temp": 68, "cool_to": 76}
+        )
+    ).json()
+    plain = await (
+        await client.post(
+            f"/api/rooms/{other}/schedules",
+            json={
+                "days_of_week": [0],
+                "start_time": "01:00",
+                "end_time": "02:00",
+                "target_temp": 70,
+            },
+        )
+    ).json()
+    resp = await client.post(
+        f"/api/rooms/{room}/schedules/{made['id']}/copy", json={"target_room_ids": [other]}
+    )
+    assert resp.status == 200, await resp.text()
+    copies = {s["id"]: s for s in await (await client.get(f"/api/rooms/{other}/schedules")).json()}
+    copied = copies[(await resp.json())[0]["schedule_id"]]
+    assert (copied["target_temp"], copied["cool_to"]) == (68.0, 76.0)
+    # A single-target block copies as one.
+    resp = await client.post(
+        f"/api/rooms/{other}/schedules/{plain['id']}/copy", json={"target_room_ids": [room]}
+    )
+    back = (await resp.json())[0]["schedule_id"]
+    mine = {s["id"]: s for s in await (await client.get(f"/api/rooms/{room}/schedules")).json()}
+    assert mine[back]["cool_to"] is None
+    resp = await client.post(
+        f"/api/rooms/{room}/schedules/nope/copy", json={"target_room_ids": [other]}
+    )
+    assert resp.status == 404
+
+
+async def test_a_band_left_behind_by_another_writer_is_never_revived(client, room):
+    url = f"/api/rooms/{room}/schedules"
+    made = await (await client.post(url, json={**ALL_DAY, "target_temp": 68, "cool_to": 76})).json()
+    conn = await client.app["scheduler"].get_db()
+    # Something that knows nothing of bands moves the target straight in the database.
+    (block,) = await db.get_schedules_for_room(conn, room)
+    block.target_temp = 72.0
+    await db.upsert_schedule(conn, block)
+    assert (await (await client.get(url)).json())[0]["cool_to"] is None
+    # A later unrelated edit must not bring the old cool-to back onto the new target.
+    resp = await client.put(f"{url}/{made['id']}", json={"name": "Day"})
+    assert (await resp.json())["cool_to"] is None
+    assert await _following(client) == ("schedule", 72.0, None, None)
+    assert (await house.load(conn)).targets == {}
+
+    # The same for a room's occupancy target.
+    room_url = f"/api/rooms/{room}"
+    await client.put(room_url, json={"system_wide_temp": 68, "presence_cool_to": 74})
+    stored = await db.get_room(conn, room)
+    stored.system_wide_temp = 71.0
+    await db.upsert_room(conn, stored)
+    resp = await client.put(room_url, json={"notes": "x"})
+    assert (await resp.json())["presence_cool_to"] is None
+
+
+async def test_a_refused_band_changes_nothing_else(client, room, fake_ha):
+    fake_ha.seed_state("climate.new", "heat", {"current_temperature": 70})
+    # A second room, so that moving this one does not empty its zone.
+    await client.post("/api/rooms", json={"name": "Craft Room", "thermostat_entity_id": T1})
+    resp = await client.put(
+        f"/api/rooms/{room}",
+        json={
+            "thermostat_entity_id": "climate.new",
+            "system_wide_temp": 68,
+            "presence_cool_to": 69,
+        },
+    )
+    assert resp.status == 400
+    zones = await (await client.get("/api/zones")).json()
+    assert "climate.new" not in [z["thermostat_entity_id"] for z in zones]
+
+
+async def test_bands_go_when_what_they_belong_to_goes(client, room):
+    conn = await client.app["scheduler"].get_db()
+    await client.post(
+        f"/api/rooms/{room}/schedules", json={**ALL_DAY, "target_temp": 68, "cool_to": 76}
+    )
+    await client.put(f"/api/rooms/{room}", json={"system_wide_temp": 68, "presence_cool_to": 74})
+    await client.post(f"/api/rooms/{room}/override", json={"target_temp": 66, "cool_to": 72})
+    assert len((await house.load(conn)).targets) == 3
+    await client.delete(f"/api/rooms/{room}/override")
+    assert ("hold", room) not in (await house.load(conn)).targets
+    # Every writer goes through the same deletes, not only the HTTP handlers.
+    (block,) = await db.get_schedules_for_room(conn, room)
+    await db.delete_schedule(conn, block.id)
+    assert ("schedule", block.id) not in (await house.load(conn)).targets
+    await client.post(
+        f"/api/rooms/{room}/schedules", json={**ALL_DAY, "target_temp": 68, "cool_to": 76}
+    )
+    await db.delete_room(conn, room)
+    assert (await house.load(conn)).targets == {}
+
+
+async def test_the_zones_default_occupancy_target_is_never_a_band(client, room):
+    conn = await client.app["scheduler"].get_db()
+    await client.put(f"/api/rooms/{room}", json={"system_wide_temp": 68, "presence_cool_to": 74})
+    stored = await db.get_room(conn, room)
+    stored.system_wide_temp = None
+    await db.upsert_room(conn, stored)
+    await client.put(f"/api/thermostats/{T1}", json={"default_temp": 68})
+    now = datetime.now(UTC)
+    await db.upsert_holdover_state(
+        conn,
+        PresenceHoldoverState(
+            room_id=room, last_detected_at=now, expires_at=now + timedelta(hours=1)
+        ),
+    )
+    assert await _following(client) == ("presence", 68.0, None, None)

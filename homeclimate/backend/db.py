@@ -1512,6 +1512,11 @@ async def delete_room(conn: aiosqlite.Connection, room_id: str) -> None:
     await conn.execute("DELETE FROM fireplace_rooms WHERE room_id=?", (room_id,))
     await conn.execute("DELETE FROM room_switches WHERE room_id=?", (room_id,))
     await conn.execute("DELETE FROM room_calendars WHERE room_id=?", (room_id,))
+    await conn.execute(
+        "DELETE FROM target_bands WHERE ref_id=? OR (kind='schedule' AND ref_id NOT IN"
+        " (SELECT id FROM schedules))",
+        (room_id,),
+    )
     await conn.commit()
 
 
@@ -1702,6 +1707,9 @@ async def upsert_schedule(conn: aiosqlite.Connection, s: Schedule) -> None:
 
 async def delete_schedule(conn: aiosqlite.Connection, schedule_id: str) -> None:
     await conn.execute("DELETE FROM schedules WHERE id=?", (schedule_id,))
+    await conn.execute(
+        "DELETE FROM target_bands WHERE kind='schedule' AND ref_id=?", (schedule_id,)
+    )
     await conn.commit()
 
 
@@ -1969,6 +1977,7 @@ async def set_room_override(conn: aiosqlite.Connection, override: RoomOverride) 
 
 async def clear_room_override(conn: aiosqlite.Connection, room_id: str) -> None:
     await conn.execute("DELETE FROM room_overrides WHERE room_id=?", (room_id,))
+    await conn.execute("DELETE FROM target_bands WHERE kind='hold' AND ref_id=?", (room_id,))
     await conn.commit()
 
 

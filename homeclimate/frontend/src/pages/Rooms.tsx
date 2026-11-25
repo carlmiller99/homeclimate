@@ -171,6 +171,10 @@ function RoomSettings({
       setError("Room name must contain at least one letter or number");
       return;
     }
+    if (presenceCoolTo.trim() !== "" && !sysTemp) {
+      setError("Cool To needs a presence-triggered temperature to pair with");
+      return;
+    }
     const clash = rooms.find(
       (r) => r.id !== room?.id && sanitizeRoomName(r.name) === sanitizeRoomName(name)
     );

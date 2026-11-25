@@ -121,6 +121,19 @@ describe("HoldModal (Issue #576)", () => {
     expect(screen.getByLabelText(/Cool To/i)).toHaveValue(75);
   });
 
+  it("does not carry one room's Cool To over to a room with no hold", () => {
+    render(
+      <HoldModal
+        rooms={ROOMS}
+        holds={{ "room-1": makeHold({ room_id: "room-1", target_temp: 66, cool_to: 72 }) }}
+        onClose={() => {}}
+        onChanged={() => {}}
+      />
+    );
+    fireEvent.change(screen.getByLabelText("Room"), { target: { value: "room-2" } });
+    expect(screen.getByLabelText(/Cool To/i)).toHaveValue(null);
+  });
+
   it("rejects an out-of-bounds temperature without calling the API", async () => {
     render(<HoldModal rooms={ROOMS} holds={{}} onClose={() => {}} onChanged={() => {}} />);
     fireEvent.change(screen.getByLabelText(/Hold temperature/i), { target: { value: "95" } });

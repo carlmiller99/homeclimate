@@ -138,7 +138,12 @@ async def _resolve_room(
                 tc = await db.get_thermostat_config(conn, room.thermostat_entity_id)
                 presence_temp = tc.default_temp
             if presence_temp is not None:
-                cool_to = the_house.cool_to("presence", room.id, presence_temp)
+                # Only the room's own target can be a band, not the zone default.
+                cool_to = (
+                    the_house.cool_to("presence", room.id, presence_temp)
+                    if room.system_wide_temp is not None
+                    else None
+                )
                 return ActiveRoom(
                     room=room,
                     target_temp=presence_temp,
@@ -467,10 +472,10 @@ async def get_room_active_status(
     return {
         "room_id": room.id,
         "source": resolved.source,
-        # A band has no single target: heat_to and cool_to say what it is.
-        "target_temp": (
-            resolved.target_temp if resolved.source != "idle" and resolved.heat_to is None else None
-        ),
+        # The house band has no single target. A band on a hold, a schedule or
+        # an occupancy target keeps that target here, as its heat-to, so a
+        # reader that knows nothing of bands still sees what was set.
+        "target_temp": (resolved.target_temp if resolved.source not in ("idle", "house") else None),
         "heat_to": resolved.heat_to,
         "cool_to": resolved.cool_to,
         "ends_in_seconds": ends_in_seconds,

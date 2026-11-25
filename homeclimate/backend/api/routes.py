@@ -1078,6 +1078,7 @@ async def update_room(request: web.Request) -> web.Response:
     room = await db.get_room(conn, request.match_info["room_id"])
     if not room:
         return error("Room not found", 404)
+    old_presence = room.system_wide_temp
     body = await request.json()
     unit = request.app["scheduler"].get_temperature_unit()
 
@@ -1170,9 +1171,6 @@ async def update_room(request: web.Request) -> web.Response:
         setattr(room, attr, value)
     for attr, value in eco_updates.items():
         setattr(room, attr, value)
-    # A room moved to a thermostat that is not a zone yet gets its zone here,
-    # after every check that could still reject the update.
-    await _ensure_zone(request, conn, room.thermostat_entity_id)
     presence_cool_f, err = await _read_cool_to(
         request, body, "presence_cool_to", room.system_wide_temp
     )
@@ -1180,18 +1178,12 @@ async def update_room(request: web.Request) -> web.Response:
         return err
     if presence_cool_f is _UNCHANGED:
         # The occupancy target may have moved: its band moves with it.
-        was = (await house.load(conn)).targets.get(("presence", room.id))
-        presence_cool_f = was.cool_to if was is not None else None
-        if room.system_wide_temp is None:
-            presence_cool_f = None
-        elif (
-            presence_cool_f is not None and was is not None and was.heat_to != room.system_wide_temp
-        ):
-            presence_cool_f, err = await _check_cool_to(
-                request, "presence_cool_to", room.system_wide_temp, presence_cool_f
-            )
-            if err:
-                return err
+        presence_cool_f = await _carried_cool_to(
+            request, "presence", room.id, old_presence, room.system_wide_temp
+        )
+    # A room moved to a thermostat that is not a zone yet gets its zone here,
+    # after every check that could still reject the update.
+    await _ensure_zone(request, conn, room.thermostat_entity_id)
     await db.upsert_room(conn, room)
     await house.set_target_band(
         conn, "presence", room.id, room.system_wide_temp or 0.0, presence_cool_f
@@ -1547,6 +1539,25 @@ async def _check_cool_to(
     return cool_f, None
 
 
+async def _carried_cool_to(
+    request: web.Request, kind: str, ref_id: str, old_target: float | None, target: float | None
+) -> float | None:
+    """The cool-to a target keeps when a request changes it without naming one.
+
+    Only a band that belonged to the target as it was is carried: a leftover
+    from a target changed by some other route is not revived. A band that the
+    new target would make invalid is dropped, so a client that knows nothing
+    of bands (MQTT, an automation) can still move the target.
+    """
+    if old_target is None or target is None:
+        return None
+    conn = await get_conn(request)
+    cool_f = (await house.load(conn)).cool_to(kind, ref_id, old_target)
+    if cool_f is None or await house.cool_to_problem(conn, target, cool_f) is not None:
+        return None
+    return cool_f
+
+
 def _schedule_to_dict(s: Schedule, cool_to: float | None = None) -> dict:
     return {
         # °F, or null for a single target. With it, target_temp is the heat-to.
@@ -1670,6 +1681,7 @@ async def update_schedule(request: web.Request) -> web.Response:
     schedule = next((s for s in schedules if s.id == sid), None)
     if not schedule:
         return error("Schedule not found", 404)
+    old_target = schedule.target_temp
     body = await request.json()
     unit = request.app["scheduler"].get_temperature_unit()
     if "days_of_week" in body:
@@ -1740,12 +1752,9 @@ async def update_schedule(request: web.Request) -> web.Response:
     if cool_f is _UNCHANGED:
         # The target may have moved: a band already on this block moves with
         # it, and must still be a band the rules allow.
-        was = (await house.load(conn)).targets.get(("schedule", schedule.id))
-        cool_f = was.cool_to if was is not None else None
-        if cool_f is not None and was is not None and was.heat_to != schedule.target_temp:
-            cool_f, err = await _check_cool_to(request, "cool_to", schedule.target_temp, cool_f)
-            if err:
-                return err
+        cool_f = await _carried_cool_to(
+            request, "schedule", schedule.id, old_target, schedule.target_temp
+        )
     await db.upsert_schedule(conn, schedule)
     await house.set_target_band(conn, "schedule", schedule.id, schedule.target_temp, cool_f)
     return json_response(_schedule_to_dict(schedule, cool_f))
@@ -1783,6 +1792,11 @@ async def copy_schedule(request: web.Request) -> web.Response:
     sid = request.match_info["schedule_id"]
     src_schedules = await db.get_schedules_for_room(conn, src_room_id)
     source = next((s for s in src_schedules if s.id == sid), None)
+    source_cool_to = (
+        (await house.load(conn)).cool_to("schedule", source.id, source.target_temp)
+        if source
+        else None
+    )
     if not source:
         return error("Schedule not found", 404)
 
@@ -1820,6 +1834,8 @@ async def copy_schedule(request: web.Request) -> web.Response:
             status = "created"
             conflict_with = None
         await db.upsert_schedule(conn, copy)
+        # A band is part of what the block asks for: it goes with the copy.
+        await house.set_target_band(conn, "schedule", copy.id, copy.target_temp, source_cool_to)
         results.append(
             {
                 "room_id": target_room_id,

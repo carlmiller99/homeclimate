@@ -12,13 +12,31 @@ from .. import models
 
 # --- Base Model Schemas (Auto-generated from models.py) ---
 
-RoomSchema = class_schema(models.Room)
+
+class RoomSchema(class_schema(models.Room)):  # type: ignore[misc]
+    presence_cool_to = fields.Float(
+        allow_none=True,
+        metadata={"description": "°F. With it, system_wide_temp is the heat-to of a band"},
+    )
+
+
 RoomSensorSchema = class_schema(models.RoomSensor)
 RoomVentSchema = class_schema(models.RoomVent)
 RoomPresenceSensorSchema = class_schema(models.RoomPresenceSensor)
-ScheduleSchema = class_schema(models.Schedule)
+_COOL_TO = {"description": "°F. With it, the target is the heat-to of a band; null for one target"}
+
+
+class ScheduleSchema(class_schema(models.Schedule)):  # type: ignore[misc]
+    cool_to = fields.Float(allow_none=True, metadata=_COOL_TO)
+
+
 ThermostatConfigSchema = class_schema(models.ThermostatConfig)
-RoomOverrideSchema = class_schema(models.RoomOverride)
+
+
+class RoomOverrideSchema(class_schema(models.RoomOverride)):  # type: ignore[misc]
+    cool_to = fields.Float(allow_none=True)
+
+
 ZoneStatusSchema = class_schema(models.ZoneStatus)
 RoomLiveStateSchema = class_schema(models.RoomLiveState)
 CycleTempSampleSchema = class_schema(models.CycleTempSample)
@@ -63,7 +81,7 @@ class UpdatedSchema(Schema):
     updated = fields.Bool(dump_default=True)
 
 
-class RoomResponseSchema(RoomSchema):  # type: ignore[misc, valid-type]
+class RoomResponseSchema(RoomSchema):
     sensors = fields.List(fields.Nested(RoomSensorSchema))
     vents = fields.List(fields.Nested(RoomVentSchema))
     presence_sensors = fields.List(fields.Nested(RoomPresenceSensorSchema))

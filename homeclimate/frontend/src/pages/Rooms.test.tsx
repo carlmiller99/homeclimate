@@ -678,6 +678,18 @@ describe("Rooms Page", () => {
     });
     vi.mocked(api.updateRoom).mockClear();
     fireEvent.click(await screen.findByRole("button", { name: "Room Settings" }));
+    // A Cool To with no temperature to pair with is refused before anything is sent.
+    fireEvent.change(screen.getByLabelText(/Presence-triggered temperature/i), {
+      target: { value: "" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Save changes/i }));
+    expect(
+      await screen.findByText("Cool To needs a presence-triggered temperature to pair with")
+    ).toBeInTheDocument();
+    expect(api.updateRoom).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText(/Presence-triggered temperature/i), {
+      target: { value: "68" },
+    });
     fireEvent.change(screen.getByLabelText(/Cool To/i), { target: { value: "" } });
     fireEvent.click(screen.getByRole("button", { name: /Save changes/i }));
     await waitFor(() => {

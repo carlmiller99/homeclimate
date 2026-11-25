@@ -803,7 +803,9 @@ class CycleEngine:
         # target: the edge the running cycle is working toward, or with no
         # cycle running, their own temperature held inside the band.
         self._apply_bands(
-            new_active_map, self._cycle_mode if self._state != CycleState.IDLE else None
+            new_active_map,
+            self._cycle_mode if self._state != CycleState.IDLE else None,
+            thermo_state,
         )
 
         # Surface room-sensor staleness before any decisions are made off the
@@ -974,7 +976,7 @@ class CycleEngine:
             # A cycle is about to start in this direction: banded rooms now
             # work to that edge, so a room inside its band is filtered out below
             # like any room that needs the other direction.
-            self._apply_bands(new_active_map, inferred)
+            self._apply_bands(new_active_map, inferred, thermo_state)
         else:
             effective_mode = self._cycle_mode or hvac_mode
 
@@ -5863,14 +5865,21 @@ class CycleEngine:
             only=side,
         )
 
-    def _apply_bands(self, active_rooms: dict[str, ActiveRoom], mode: str | None) -> None:
+    def _apply_bands(
+        self,
+        active_rooms: dict[str, ActiveRoom],
+        mode: str | None,
+        thermo_state: dict | None = None,
+    ) -> None:
         """Give every banded room its single target for this tick (house.Band).
 
         Two kinds of banded room are left out rather than given a target:
 
-        - One with no temperature reading of its own. Its place in the band is
-          unknown, and a cycle started on a stand-in reading could never be
-          judged finished. A room already part of the running cycle stays.
+        - One following the house band with no temperature reading of its own.
+          Its place in the band is unknown, and a cycle started on a stand-in
+          reading could never be judged finished. A room already part of the
+          running cycle stays. (A banded hold, schedule or occupancy target
+          goes by the thermostat's reading instead.)
         - With a cycle running or about to start, one that is not already part
           of it and is not short of the edge the cycle works toward. Without
           this a room resting in its band would hop in and out of every cycle
@@ -5882,6 +5891,18 @@ class CycleEngine:
                 continue
             avg = self._get_avg_temp(ar.room)
             temp = None if avg is None else avg + ar.room.temp_offset
+            if temp is None and ar.source != "house":
+                # A hold, a schedule or occupancy was set on purpose: with no
+                # reading of the room's own it goes by the thermostat's, as a
+                # single target does, rather than quietly doing nothing.
+                # Read plainly: the checked reading keeps state of its own
+                # that must not be disturbed from here.
+                try:
+                    temp = float(
+                        ((thermo_state or {}).get("attributes") or {})["current_temperature"]
+                    )
+                except (KeyError, TypeError, ValueError):
+                    temp = None
             if room_id not in self._active_rooms:
                 if temp is None:
                     del active_rooms[room_id]

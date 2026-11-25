@@ -56,6 +56,8 @@ export default function HoldModal({ rooms, initialRoom, holds, onClose, onChange
     setSelected(roomId);
     setError("");
     const hold = holds[roomId];
+    // A band belongs to one room's hold; it is not carried to the next room.
+    if (!hold) setCoolTo("");
     if (hold) {
       setTemp(String(toDisplay(hold.target_temp)));
       setCoolTo(hold.cool_to != null ? String(toDisplay(hold.cool_to)) : "");
