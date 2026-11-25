@@ -5533,7 +5533,13 @@ class CycleEngine:
             # A room following the house band is not "already conditioned": it
             # asks for nothing while inside its band, and the band may be wider
             # than this zone's safety limits. A breach replaces it below.
-            if current is not None and current.heat_to is None:
+            # Nor is a room a convenience added (Zone Balance): its target is
+            # not a protection, and a breach replaces that too.
+            if (
+                current is not None
+                and current.heat_to is None
+                and current.source not in OPTIONAL_SOURCES
+            ):
                 continue  # already conditioned via override/schedule/presence
             avg = self._get_avg_temp(room)
             if avg is None:
@@ -6539,11 +6545,12 @@ class CycleEngine:
         other way or starve the room that called. A room with no reading
         counts as calling.
 
-        While a cycle runs for nothing but convenience rooms: once it has had
-        its minimum runtime, a room that calls for the other direction ends
-        it the same way, rather than waiting out a run nobody asked for.
-        A cycle that is serving a room with a say of its own is left alone;
-        the conveniences may join it if it suits them.
+        While a cycle runs with nothing left to do but convenience rooms (every
+        other room in it has reached its target): once it has had its minimum
+        runtime, a room that calls for the other direction ends it the same
+        way, rather than waiting out a run nobody asked for. A cycle still
+        working for a room with a say of its own is left alone; the
+        conveniences may join it if it suits them.
         """
         optional = [rid for rid, ar in active.items() if ar.source in OPTIONAL_SOURCES]
         if not optional:
@@ -6551,6 +6558,11 @@ class CycleEngine:
 
         def wants(ar: ActiveRoom) -> str | None:
             avg = self._get_avg_temp(ar.room, refresh=False)
+            if avg is None:
+                if ar.source == "house":
+                    return None  # with no reading it does not follow the band at all
+                # As the vote does: the thermostat's own reading stands in.
+                avg = self._thermo_ambient_f()
             if avg is None:
                 return "either"
             temp = avg + ar.room.temp_offset
@@ -6568,7 +6580,14 @@ class CycleEngine:
         else:
             give_way = (
                 bool(calling - {self._cycle_mode})
-                and all(ar.source in OPTIONAL_SOURCES for ar in self._active_rooms.values())
+                and all(
+                    ar.source in OPTIONAL_SOURCES
+                    or (
+                        (state := self._room_cycle_states.get(rid)) is not None
+                        and state.vent_closed_at is not None
+                    )
+                    for rid, ar in self._active_rooms.items()
+                )
                 and self._cycle_runtime_satisfied(tc)
             )
         if not give_way:
@@ -6633,7 +6652,11 @@ class CycleEngine:
                 continue
             if room.id in held:
                 target = held[room.id]
-            elif call is None:
+            elif call is None or (
+                # A run going the other way for someone else: not asked this
+                # tick, rather than asked and turned away every minute.
+                self._state != CycleState.IDLE and self._cycle_mode != call.mode
+            ):
                 continue
             else:
                 heating = call.mode == "heating"
