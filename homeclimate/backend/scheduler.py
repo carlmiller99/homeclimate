@@ -29,7 +29,9 @@ from . import (
     heat_pump,
     house,
     learning,
+    notify,
     openings,
+    room_model,
     shades,
     tz,
     zones,
@@ -114,6 +116,9 @@ class Scheduler:
         self._db_path = db_path
         self._broadcast = broadcast
         self._event_logger = event_logger
+        self._notifier = notify.Notifier()
+        if event_logger is not None:
+            event_logger.set_listener(self._on_logged_event)
         self._vent_ctrl: VentController | None = None
         self._engines: dict[str, CycleEngine] = {}
         # Serializes _sync_engines against concurrent invocation (#434).
@@ -289,6 +294,17 @@ class Scheduler:
             "interval",
             seconds=60,
             id="schedule_expiry_sweep",
+            max_instances=1,
+            coalesce=True,
+        )
+        # Smart Learning: fit each room's model from its readings, at 3:20 AM
+        # house time. Read-only: nothing is commanded from it.
+        self._apscheduler.add_job(
+            self.fit_room_models,
+            "cron",
+            hour=3,
+            minute=20,
+            id="room_model_fit",
             max_instances=1,
             coalesce=True,
         )
@@ -1333,7 +1349,28 @@ class Scheduler:
     # Tick
     # ------------------------------------------------------------------
 
+    @property
+    def notifier(self) -> notify.Notifier:
+        return self._notifier
+
+    async def _on_logged_event(self, level: str, category: str, message: str) -> None:
+        """Pass a logged event to the notifier, which decides whether to send it."""
+        if self._db_conn is None:
+            return
+        await self._notifier.on_event(
+            self._db_conn,
+            self._ha,
+            level=level,
+            category=category,
+            message=message,
+            dev_mode=self._dev_mode,
+            now=datetime.now(UTC),
+        )
+
     async def _tick_all(self) -> None:
+        await self._notifier.daily(
+            self._db_conn, self._ha, dev_mode=self._dev_mode, now=datetime.now(UTC)
+        )
         await self._check_vacation_start()
         await self._check_welcome_home()
         await self._check_vacation_expiry()
@@ -1598,6 +1635,27 @@ class Scheduler:
             await learning.purge(self._db_conn, now=now, keep_days=keep)
         except Exception:
             log.exception("Could not clear old Smart Learning readings")
+
+    async def fit_room_models(self) -> int:
+        """Fit every room's model; never raises. Returns how many rooms were fitted."""
+        try:
+            return await self.fit_room_models_now()
+        except Exception:
+            log.exception("Could not fit the room models")
+            return 0
+
+    async def fit_room_models_now(self) -> int:
+        """Fit every room's model, letting a failure through to the caller."""
+        models = await room_model.fit_all(self._db_conn, now=datetime.now(UTC))
+        fitted = sum(1 for m in models if m.fitted_at is not None)
+        if self._event_logger is not None:
+            await self._event_logger.log(
+                "info",
+                "engine",
+                f"Smart Learning fitted {fitted} of {len(models)} rooms",
+                {"rooms": len(models), "fitted": fitted},
+            )
+        return fitted
 
     async def _run_shades(self) -> None:
         """Move shades for the sun, after the engines have settled their modes."""

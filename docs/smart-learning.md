@@ -37,3 +37,59 @@ The section lists each room with how many days of readings it has and when the l
 - `PUT /api/learning/settings` changes `sampling_enabled` and `sample_retention_days`.
 
 Both are also MCP tools. Readings live in the `room_readings` table, with `room_reading_keys` holding the names.
+
+## What each room has taught
+
+Each night at 3:20 AM (house time) HomeClimate fits a small model to each room's last 30 days of readings. **Work It Out Now** in the section does the same on request. Nothing is controlled from it yet; coasting, start times and suggestions will read it.
+
+The readings are grouped into half-hours, and for each one the model explains how fast the room's temperature moved:
+
+| Term | What it is | Starting value |
+| --- | --- | --- |
+| Heat loss | Drift toward the outside temperature, per degree of difference | 1 °F an hour per 30 °F |
+| Zone pull | Drift toward the thermostat's reading, from air mixing with the rest of the zone | 0.1 °F an hour per °F |
+| Heating rate | How fast the room warms while the zone heats, scaled by how far its vent is open | 3 °F an hour |
+| Cooling rate | The same for cooling | 3 °F an hour |
+| Everything else | People, appliances, sun | 0 |
+
+A term the readings can't speak to keeps its starting value and is shown as not learned yet:
+
+- The **heating rate** needs about 3 hours of half-hours in which heating ran at least three quarters of the time; the **cooling rate** the same for cooling. A room held steady by short bursts shows how loss and heating balance but not how fast either is, so it does not count however long it goes on. Morning recoveries from a night setback are what teach it.
+- **Heat loss** needs the difference between inside and outside to have varied (a standard deviation of at least 3 °F).
+- A fitted value that makes no physical sense (heating that cools, walls that gain heat from the cold) is held at its starting value, the other terms are fitted again around it, and it is shown as not learned.
+
+Half-hours are left out when a door or window was open, a fireplace was lit or cooling down, auxiliary heat ran, a reading was missing, the room changed zone, the thermostat reported something other than heating, preheating, cooling, idle, off or fan (defrosting, for example), or the temperature jumped more than a room can (a sensor glitch). A thermostat that does not report what it is doing at all gives the model nothing to use.
+
+**Grades**: *Not enough yet* (under a day of usable half-hours), *Learning*, and *Ready* (six days of usable half-hours, heat loss learned, and the heating or cooling rate learned).
+
+Limits worth knowing:
+
+- Sun through windows is not modelled yet; it is part of "everything else".
+- A sensor that reports in whole degrees, or that lags the room by several minutes, makes the rates come out low.
+- The model is fitted from snapshots every five minutes, so heating that runs in bursts shorter than that is under-counted.
+
+The fit takes well under a second per room, and stores one row per room (`room_models`).
+
+## Start Rooms Early
+
+**Smart Control → Smart Learning → Start Rooms Early** uses the model to have a room at its next schedule block's target when the block begins, instead of starting from cold at that moment.
+
+- **Off** (the default), **Watch Only** (logs what it would do and starts nothing) or **On**.
+- How early is the time the room's model says it needs in the current weather, never less than 15 minutes and never more than 3 hours.
+- Only for a rate the room has taught (see the grades above), and only from a model fitted within the last week. It needs an outside temperature reading, and the room has to be in use with its schedules switched on.
+- The weather and the thermostat have to agree with the direction: heating early only when it is colder outside than the target, cooling early only when it is warmer, and never heating on a thermostat set to cool or cooling on one set to heat. So a night setback is never "prepared for" by running the other equipment.
+- A room with nothing scheduled right now can be started early. So can a room that is in a block already, when the next block asks for more of the same: warmer when heating (62 °F overnight, then 70 °F at 7:00), cooler when cooling. A hold, presence, or a block with a band is left alone.
+- Once a room is started early it stays started until its block begins, even if it warms faster than expected, so the equipment is not switched off and on again on the way. The run ends when the room reaches the target, by the same rules as any other run. If it gets there early, it is kept at that target until the block begins.
+- Never against the side its building is on.
+- A cool-down is not started early toward a block with a band, because the block's target there is its Heat To.
+- The coming block's own deadband is used, if it has one.
+- Heat pump zones keep their own early warm-up and their capped climb; this can start them earlier, not faster. It does not start heating early while auxiliary heat is expected.
+- A room that is paused for an open door or window, or set aside for the fireplace, is not started. Nothing is started early in Vacation Mode.
+
+Each early start is logged once under Engine.
+
+### API
+
+- `GET /api/learning` includes each room's `model` (or null before the first fit).
+- `POST /api/learning/fit` fits every room now, and answers 500 if it could not.
+

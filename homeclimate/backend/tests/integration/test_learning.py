@@ -154,6 +154,7 @@ async def test_sampling_can_be_turned_off_and_old_samples_age_out(client, fake_h
     assert (await resp.json())["settings"] == {
         "sampling_enabled": False,
         "sample_retention_days": 30,
+        "early_start_level": 0,
     }
     await scheduler._sample_rooms()
     async with conn.execute("SELECT COUNT(*) AS n FROM room_readings") as cur:
@@ -373,7 +374,11 @@ async def test_the_sampler_is_scheduled_every_five_minutes(client):
 
 async def test_status_reports_progress_per_room(client, fake_ha, house):
     empty = await (await client.get("/api/learning")).json()
-    assert empty["settings"] == {"sampling_enabled": True, "sample_retention_days": 60}
+    assert empty["settings"] == {
+        "sampling_enabled": True,
+        "sample_retention_days": 60,
+        "early_start_level": 0,
+    }
     assert (empty["samples"], empty["collecting_since"], empty["sample_every_min"]) == (0, None, 5)
     assert empty["last_sample_at"] is None
     assert [r["name"] for r in empty["rooms"]] == ["Bunk Room", "Craft Room", "Den"]
@@ -386,6 +391,7 @@ async def test_status_reports_progress_per_room(client, fake_ha, house):
         "with_temperature_pct": 0,
         "first_sample_at": None,
         "last_sample_at": None,
+        "model": None,
     }
 
     conn = await client.app["scheduler"].get_db()
@@ -448,7 +454,11 @@ async def test_settings_are_validated_with_fixed_messages(client):
     )
     assert resp.status == 400
     settings = (await (await client.get("/api/learning")).json())["settings"]
-    assert settings == {"sampling_enabled": True, "sample_retention_days": 60}
+    assert settings == {
+        "sampling_enabled": True,
+        "sample_retention_days": 60,
+        "early_start_level": 0,
+    }
     assert (await client.put("/api/learning/settings", json=[1])).status == 400
 
 

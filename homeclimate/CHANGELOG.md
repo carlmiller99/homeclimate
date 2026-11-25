@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.8
+
+- Settings → Notifications: send the warnings and errors you choose, and an optional daily summary, to your phone through a Home Assistant notify service. Off until you turn it on. Each message is sent once, with a limit of six warnings and six errors an hour. See docs/notifications.md.
+- Smart Control → Smart Learning → Start Rooms Early: start a room ahead of its next schedule block by as long as its model says it takes, so it is ready on time. Off by default; Watch Only logs what it would do. See docs/smart-learning.md.
+- Heat pumps: an early warm-up, once started, is kept until its block begins, so a room that warms faster than the recovery rate no longer drops out and comes back.
+- Smart Learning now works out, each night, how fast each room heats, cools and drifts toward the outside temperature, from its recorded readings. Smart Control → Smart Learning shows what each room has taught and how ready it is. Nothing is controlled from it yet. See docs/smart-learning.md.
+
 ## 0.5.7
 
 - Smart Control → Forecasts now shows how far off the forecast has been against your outside sensor, and after two days of comparisons corrects it for each hour of the day. On by default; **Correct the Forecast From Experience** turns it off. See docs/forecasts.md.

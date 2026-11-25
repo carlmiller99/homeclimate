@@ -31,7 +31,11 @@ SETTING_PREFIX = "learning_"
 SETTINGS: dict[str, tuple[str, Any, int, int]] = {
     "sampling_enabled": ("bool", True, 0, 1),
     "sample_retention_days": ("int", 60, 30, 365),
+    # Start rooms early so they are ready when a schedule block begins, using
+    # what each room's model has learned: 0 off, 1 watch only, 2 on.
+    "early_start_level": ("int", 0, 0, 2),
 }
+EARLY_START_LEVELS = ("off", "watch", "on")
 
 
 class LearningError(UserError):
@@ -42,6 +46,7 @@ UNKNOWN_SETTING = fixed("Unknown learning setting")
 _SETTING_MESSAGES = {
     "sampling_enabled": fixed("sampling_enabled must be true or false"),
     "sample_retention_days": fixed("sample_retention_days must be a whole number from 30 to 365"),
+    "early_start_level": fixed("early_start_level must be 0 (off), 1 (watch only) or 2 (on)"),
 }
 
 

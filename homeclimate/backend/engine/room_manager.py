@@ -350,6 +350,19 @@ def _next_schedule_start(
     Returns (seconds_until_start, target_temp, label) or None.
     Label example: "Mon 10:00 PM"
     """
+    found = _next_schedule_block(schedules, now, exclude_id)
+    return None if found is None else (found[0], found[1].target_temp, found[2])
+
+
+def _next_schedule_block(
+    schedules: list[Schedule],
+    now: datetime,
+    exclude_id: str | None = None,
+) -> tuple[int, Schedule, str] | None:
+    """As ``_next_schedule_start``, but returns the block itself.
+
+    A block that expires before its next start is passed over: it will never run.
+    """
     # Disabled blocks are inert (Issue #359).
     schedules = [s for s in schedules if s.enabled]
     if not schedules:
@@ -359,7 +372,7 @@ def _next_schedule_start(
     # naive datetime.combine(...) below lines up with `now`.
     local_now = tz.to_local_naive(now)
 
-    candidates: list[tuple[float, float, str]] = []
+    candidates: list[tuple[float, Schedule, str]] = []
 
     for s in schedules:
         if exclude_id and s.id == exclude_id:
@@ -376,21 +389,23 @@ def _next_schedule_start(
             start_dt = datetime.combine(candidate_date, s.start_time)
             if start_dt <= local_now:
                 continue  # already passed
+            if s.expires_at is not None and s.expires_at <= start_dt:
+                break  # expires first: it will never run again
             secs = (start_dt - local_now).total_seconds()
             h = s.start_time.hour
             m = s.start_time.minute
             am_pm = "AM" if h < 12 else "PM"
             h12 = h % 12 or 12
             label = f"{DAYS_SHORT[candidate_weekday]} {h12}:{m:02d} {am_pm}"
-            candidates.append((secs, s.target_temp, label))
+            candidates.append((secs, s, label))
             break  # take only the soonest occurrence of this schedule
 
     if not candidates:
         return None
 
     candidates.sort(key=lambda x: x[0])
-    secs, target, label = candidates[0]
-    return (int(secs), target, label)
+    secs, block, label = candidates[0]
+    return (int(secs), block, label)
 
 
 async def get_room_active_status(
