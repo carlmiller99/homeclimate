@@ -3202,7 +3202,7 @@ class TestVacationVentPolicy:
             )
             ha = _make_ha()
             engine = _make_engine(ha, AsyncMock(), vacation=True)
-            engine._get_avg_temp = lambda room: 90.0  # breaches the 85 ceiling
+            engine._get_avg_temp = lambda room, **_k: 90.0  # breaches the 85 ceiling
             engine._filter_rooms_for_mode = AsyncMock(return_value={})
             engine._apply_vacation_hold = AsyncMock()
             engine._enforce_safety_setpoint = AsyncMock()

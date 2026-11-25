@@ -110,6 +110,20 @@ async def test_too_warm_a_room_is_cooled_to_the_top_of_what_occupancy_would_allo
     # With a band for occupancy, to its cool-to.
     await house.set_target_band(conn, "presence", room.id, 70.0, 75.0)
     assert _targets(await engine._arrive(conn, [], now=MON)) == [(75.0, "arrival")]
+    engine._thermo_ambient_f = lambda: 74.4  # the thermostat reads cooler than that already
+    assert await engine._arrive(conn, [], now=MON) == []
+    # Not if another room of the zone is asked lower still, and by the zone's
+    # deadband whatever the room's own.
+    cooler = Room.create(name="Loft", thermostat_entity_id=THERMO_ID)
+    low = ActiveRoom(room=cooler, target_temp=72.0, source="override")
+    assert len(await engine._arrive(conn, [low], now=MON)) == 2
+    room.deadband_override = 0.2
+    await db.upsert_room(conn, room)
+    engine._thermo_ambient_f = lambda: 74.7  # past the room's own 0.2, not the zone's 0.5
+    assert len(await engine._arrive(conn, [], now=MON)) == 1
+    room.deadband_override = None
+    await db.upsert_room(conn, room)
+    engine._thermo_ambient_f = lambda: 80.0
     # Never past the zone's own limits.
     tc = await db.get_thermostat_config(conn, THERMO_ID)
     tc.min_setpoint = 76.0
@@ -164,6 +178,41 @@ async def test_what_is_left_alone(monkeypatch):
     engine._cycle_mode = "heating"  # a run the same way may be joined
     assert len(await engine._arrive(conn, [], now=MON)) == 1
     engine._state = CycleState.IDLE
+    # The thermostat itself already reads past the target: it would refuse the cycle.
+    engine._thermo_ambient_f = lambda: 70.6
+    assert await engine._arrive(conn, [], now=MON) == []
+    engine._thermo_ambient_f = lambda: 70.4
+    assert len(await engine._arrive(conn, [], now=MON)) == 1
+    # Judged as the engine's own mode check judges: by the zone's deadband, not
+    # the room's, and against the furthest target any room of the zone has.
+    room.deadband_override = 1.5
+    await db.upsert_room(conn, room)
+    engine._thermo_ambient_f = lambda: 71.0
+    assert await engine._arrive(conn, [], now=MON) == []
+    # A neighbour in a band counts at its own temperature held inside the band
+    # (its edge when it has no reading); a neighbour on a single target at that.
+    warm = Room.create(name="Loft", thermostat_entity_id=THERMO_ID)
+    loft = ActiveRoom(room=warm, target_temp=68.0, source="house", heat_to=68.0, cool_to=76.0)
+    readings = {room.id: 64.0, warm.id: 72.0}
+    engine._get_avg_temp = lambda r, **_k: readings[r.id]
+    assert len(await engine._arrive(conn, [loft], now=MON)) == 2  # 71 is not past 72 + 0.5
+    readings[warm.id] = 70.2
+    assert await engine._arrive(conn, [loft], now=MON) == [loft]
+    readings[warm.id] = None
+    assert await engine._arrive(conn, [loft], now=MON) == [loft]  # counted at its 68
+    hold = ActiveRoom(room=warm, target_temp=72.0, source="override")
+    assert len(await engine._arrive(conn, [hold], now=MON)) == 2
+    engine._get_avg_temp = lambda _room, **_k: temps["now"]
+    room.deadband_override = None
+    await db.upsert_room(conn, room)
+    engine._thermo_ambient_f = lambda: None
+    assert len(await engine._arrive(conn, [], now=MON)) == 1
+    # A sensor that reads low by a known amount is corrected before it is judged.
+    room.temp_offset = 6.0
+    await db.upsert_room(conn, room)
+    assert await engine._arrive(conn, [], now=MON) == []  # 64 + 6 is 70: warm enough
+    room.temp_offset = 0.0
+    await db.upsert_room(conn, room)
     # The room's switches, and a room that does not follow occupancy at all.
     await house.set_switches(conn, room.id, {"in_use": False})
     assert await engine._arrive(conn, [], now=MON) == []
@@ -219,20 +268,57 @@ async def test_a_room_that_started_a_run_is_kept_in_it_to_the_end(monkeypatch):
     engine._state, engine._cycle_mode = CycleState.RUNNING, "heating"
     engine._active_rooms = {room.id: asked[0]}
     assert engine.arrival_rooms == [room.id]
-    # Warm now, the hour long gone, even switched off: the run ends by the usual rules.
-    temps["now"] = 70.5
-    later = MON + timedelta(hours=2)
-    assert _targets(await engine._arrive(conn, [], now=later)) == [(70.0, "arrival")]
-    await learning.update_settings(conn, {"arrival_level": 0})
-    assert _targets(await engine._arrive(conn, [], now=later)) == [(70.0, "arrival")]
-    # The target is the one asked for, not one Eco has since relaxed.
+    assert engine._arrival_until == {room.id: MON + timedelta(minutes=50)}
+    # Kept while the hour may still be used, at the target it was asked to.
+    # (The one asked for, not one Eco has since relaxed.)
+    temps["now"] = 66.0
+    soon = MON + timedelta(minutes=40)
+    assert _targets(await engine._arrive(conn, [], now=soon)) == [(70.0, "arrival")]
     engine._active_rooms[room.id].requested_target = 71.0
-    assert _targets(await engine._arrive(conn, [], now=later)) == [(71.0, "arrival")]
+    assert _targets(await engine._arrive(conn, [], now=soon)) == [(71.0, "arrival")]
+    engine._active_rooms[room.id].requested_target = None
+    # Half an hour into the hour with nobody there, the run is wound up: the
+    # room is taken to be where it should be, so the run ends by the usual
+    # rules. Not before its minimum runtime, and once its vent has closed
+    # there is nothing left to wind up.
+    later = MON + timedelta(minutes=51)
+    engine._cycle_runtime_satisfied = lambda _tc, now=None: False
+    assert _targets(await engine._arrive(conn, [], now=later)) == [(70.0, "arrival")]
+    engine._cycle_runtime_satisfied = lambda _tc, now=None: True
+    assert _targets(await engine._arrive(conn, [], now=later)) == [(66.0, "arrival")]
+    room.temp_offset = 1.0
+    await db.upsert_room(conn, room)
+    assert _targets(await engine._arrive(conn, [], now=later)) == [(67.0, "arrival")]
+    room.temp_offset = 0.0
+    await db.upsert_room(conn, room)
+    engine._room_cycle_states = {room.id: SimpleNamespace(vent_closed_at=later)}
+    assert _targets(await engine._arrive(conn, [], now=later)) == [(70.0, "arrival")]
+    engine._room_cycle_states = {room.id: SimpleNamespace(vent_closed_at=None)}
+    temps["now"] = None
+    assert _targets(await engine._arrive(conn, [], now=later)) == [(70.0, "arrival")]
+    temps["now"] = 66.0
+    # The same when this is switched off, or watched only, mid-run, and after
+    # a restart has lost track of the hour.
+    for level in (0, 1):
+        await learning.update_settings(conn, {"arrival_level": level})
+        assert _targets(await engine._arrive(conn, [], now=soon)) == [(66.0, "arrival")]
+    await learning.update_settings(conn, {"arrival_level": 2})
+    assert _targets(await engine._arrive(conn, [], now=soon)) == [(70.0, "arrival")]
+    # A restart loses track of the hour. While the arrival is still current
+    # it is found again, with the same end of grace; once it has passed, the
+    # run is wound up.
+    engine._arrival_until = {}
+    assert _targets(await engine._arrive(conn, [], now=soon)) == [(70.0, "arrival")]
+    assert engine._arrival_until == {room.id: MON + timedelta(minutes=50)}
+    engine._arrival_until = {}
+    assert _targets(await engine._arrive(conn, [], now=later)) == [(66.0, "arrival")]
+    assert engine._arrival_until == {room.id: later}
     # Someone arrives: occupancy has the room from here.
     here = ActiveRoom(room=room, target_temp=70.0, source="presence")
     assert await engine._arrive(conn, [here], now=later) == [here]
     engine._state = CycleState.IDLE
     assert await engine._arrive(conn, [], now=later) == []
+    assert engine._arrival_until == {}
     await conn.close()
 
 
@@ -249,6 +335,18 @@ async def test_the_lead_comes_from_the_rooms_model_once_it_has_one(monkeypatch):
     early = MON - timedelta(minutes=30)  # 50 minutes ahead
     assert len(await engine._arrive(conn, [], now=early)) == 1
     assert engine._logger.log.await_args.args[3]["lead_min"] == 60
+    # The model was fitted on raw readings, so it is asked in those.
+    seen = {}
+    model.minutes_to = lambda start, target, *_a, **_k: (
+        seen.update(start=start, target=target) or 60
+    )
+    room.temp_offset = 2.0
+    await db.upsert_room(conn, room)
+    await engine._arrive(conn, [], now=early)
+    assert seen == {"start": 64.0, "target": 68.0}
+    room.temp_offset = 0.0
+    await db.upsert_room(conn, room)
+    model.minutes_to = lambda *_a, **_k: minutes["to"]
     # A room that would not get there in time is given the longest lead, and no more.
     minutes["to"] = None
     assert len(await engine._arrive(conn, [], now=MON - timedelta(minutes=70))) == 1

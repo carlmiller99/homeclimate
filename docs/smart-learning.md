@@ -131,9 +131,10 @@ How it decides:
 What it will not do:
 
 - Take a room that has a hold, a schedule block or occupancy already, or a schedule for the arrival hour (Start Rooms Early covers that), or a room switched out of use or set not to follow occupancy.
-- Go against the weather (heating toward a temperature it is already warmer than outdoors, or the reverse), against the thermostat's mode, against the side the building is held to, or onto a heat pump's strips.
+- Go against the weather (heating toward a temperature it is already warmer than outdoors, or the reverse; with no outside sensor this check is skipped), against the thermostat's mode, against the side the building is held to, or onto a heat pump's strips.
 - Get in the way. A room being got ready gives way to any room that asks for itself, exactly as Zone Balance and Peak Hours rooms do: the zone chooses its direction as if this were off, and a run that is only getting rooms ready ends for a room that calls the other way once it has had its minimum runtime.
-- Keep going for nobody. Thirty minutes into the hour with nobody there, the room is no longer asked. A run already started finishes by the usual rules.
+- Keep going for nobody. Thirty minutes into the hour with nobody there, the room is no longer asked, and a run already going for it is wound up: once it has had its minimum runtime the run ends normally, wherever the room has got to. The same happens if you switch this off mid-run.
+- Start a run the thermostat would refuse. If the thermostat's own reading is already past the temperature the room is being brought to, nothing is started.
 
 The Dashboard marks such a room **Getting Ready**, and the cycle detail in Logs says "getting ready for a usual arrival".
 
@@ -156,7 +157,7 @@ A room is cooled early only when all of these hold:
 - The room's own model, fitted in the last week with its heat loss learned, says the room would pass its Cool To within those three hours if nothing ran.
 - The thermostat is not in heat mode and the building is not held to heating.
 
-It is cooled to 1.5 °F (0.8 °C) below its Cool To, never closer than 1 °F and the room's deadband to its Heat To, and inside the zone's setpoint limits. Once it is there it is left until it drifts back past its deadband.
+While those hold, its Cool To is in effect 1.5 °F (0.8 °C) lower: it is cooled to 1.5 °F (0.8 °C) below its Cool To, never closer than 1 °F and the room's deadband to its Heat To, and inside the zone's setpoint limits. Once it is there it is left until it drifts back past its deadband.
 
 Like the other conveniences it gives way to any room that asks for itself, never sets or holds a building's side, starts nothing while a call in the zone is waiting to coast, and a room that has started a run stays in it until the run ends. Peak Hours and Zone Balance take a room first when they want it. The Dashboard marks such a room **Cooling Early**; the cycle detail in Logs says "early cooling". The Engine log says it once per room every three hours.
 

@@ -287,7 +287,7 @@ export default function LearningSection() {
         <RuleRow
           id="learning-arrivals"
           title="Get Rooms Ready for Usual Arrivals"
-          help="Once a room's occupancy sensors have shown, for two weeks or more, the hours of the week it is usually used, it is brought to its occupied temperature shortly before the first of them: half an hour ahead, or the time the room has taught, up to an hour and a half. Only a room with nothing more specific to follow and no schedule for that hour. It gives way to any room that asks for itself, and is let go if nobody has arrived half an hour in. Watch Only writes what it would do to the Engine log."
+          help="Once a room's occupancy sensors have shown, for two weeks or more, the hours of the week it is usually used, it is brought to its occupied temperature shortly before the first of them: half an hour ahead, or the time the room has taught, up to an hour and a half. Only a room with nothing more specific to follow and no schedule for that hour. It gives way to any room that asks for itself, and is let go if nobody has arrived half an hour in: a run already going for it is then wound up. Watch Only writes what it would do to the Engine log."
         >
           <select
             className="form-control"
@@ -306,7 +306,7 @@ export default function LearningSection() {
         <RuleRow
           id="learning-early-cool"
           title="Early Cooling"
-          help={`On a day the forecast says is still warming, a room following a band is cooled ${isCelsius ? "0.8°" : "1.5°"} below its Cool To when its own model says it would pass it within three hours if left alone, rather than waiting for the warmest part of the afternoon. Never a hold, never outside the band, and it gives way to any room that asks for itself. It moves cooling earlier and may use a little more of it. Watch Only writes what it would do to the Engine log.`}
+          help={`On a day the forecast says is still warming, a room following a band is kept ${isCelsius ? "0.8°" : "1.5°"} below its Cool To for as long as its own model says it would pass it within three hours if left alone, rather than waiting for the warmest part of the afternoon. Never a hold, never outside the band, and it gives way to any room that asks for itself. It moves cooling earlier and may use a little more of it. Watch Only writes what it would do to the Engine log.`}
         >
           <select
             className="form-control"

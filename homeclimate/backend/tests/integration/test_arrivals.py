@@ -118,6 +118,38 @@ async def test_a_room_is_warmed_before_its_usual_hour_and_the_run_ends_by_itself
     assert len(reasons) == 1 and not str(reasons[0]).startswith("aborted")
 
 
+@pytest.mark.parametrize("why", ["nobody came", "switched off"])
+async def test_a_run_for_an_empty_room_is_wound_up_not_run_to_the_end(
+    client, fake_ha, tick, monkeypatch, why
+):
+    ids, eng = await _site(client, fake_ha, monkeypatch, {"bunk": 64.0})
+    await tick()
+    await tick()
+    assert eng.cycle_mode == "heating" and eng.arrival_rooms == [ids["bunk"]]
+    # Still cold, and it stays in the run while the hour may yet be used.
+    eng._cycle_log.started_at -= timedelta(minutes=16)
+    await tick()
+    assert eng.cycle_mode == "heating"
+    if why == "nobody came":
+        eng._arrival_until = {ids["bunk"]: datetime.now(UTC) - timedelta(minutes=1)}
+        monkeypatch.setattr(arrivals, "next_arrival", lambda _usual, _now: None)
+    else:
+        await client.put("/api/learning/settings", json={"arrival_level": 0})
+    for _ in range(3):
+        await tick()
+    assert eng.cycle_state.value == "idle"
+    conn = await client.app["scheduler"].get_db()
+    async with conn.execute(
+        "SELECT ended_reason FROM cycle_logs WHERE thermostat_entity_id = ?", (T,)
+    ) as cur:
+        reasons = [r["ended_reason"] for r in await cur.fetchall()]
+    assert len(reasons) == 1 and not str(reasons[0]).startswith("aborted")
+    # And it is not begun again for the same empty hour.
+    for _ in range(2):
+        await tick()
+    assert eng.cycle_state.value == "idle"
+
+
 async def test_watching_only_starts_nothing(client, fake_ha, tick, monkeypatch):
     _ids, eng = await _site(client, fake_ha, monkeypatch, {"bunk": 64.0}, level=1)
     await tick()
