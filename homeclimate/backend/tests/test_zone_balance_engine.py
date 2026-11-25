@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -18,6 +20,7 @@ from .test_heat_pump import THERMO_ID, _conn
 pytestmark = pytest.mark.asyncio
 
 HEAT = Call("heating", 67.0, "climate.other", 6.0)
+NOW = datetime(2026, 1, 5, 12, 0, tzinfo=UTC)
 
 
 async def _setup(temp=64.0, call=HEAT):
@@ -304,15 +307,96 @@ async def test_before_a_cycle_is_chosen_balancing_rooms_give_way_to_any_room_tha
     running = asked(hold)
     engine._optional_rooms_yield(running, tc)
     assert running[room.id].source == "balance"
-    # And a run that is serving a room with a say of its own is left alone.
+    # And a run still working for a room with a say of its own is left alone...
     temps[other.id] = 80.0
     running = asked(hold)
-    engine._active_rooms[other.id] = hold
+    # (`other` is in the heating run with a target of 70 °F, and now reads 80:
+    # it wants cooling as a hold, and is long done as far as this run goes.)
+    served = ActiveRoom(room=other, target_temp=70.0, source="schedule")
+    engine._active_rooms[other.id] = served
+
+    def state(closed, target=70.0):
+        return {other.id: SimpleNamespace(vent_closed_at=closed, target_temp=target)}
+
+    # Not yet started for that room, or still short of its target: left alone.
+    engine._room_cycle_states = {}
     engine._optional_rooms_yield(running, tc)
     assert running[room.id].source == "balance"
-    engine._state, engine._active_rooms = CycleState.IDLE, {}
+    engine._room_cycle_states = state(None, target=85.0)
+    engine._optional_rooms_yield(running, tc)
+    assert running[room.id].source == "balance"
+    # ...but not once that room is done and only the balancing rooms keep the
+    # run going: at its target with its vent held open by the airflow floor,
+    running = asked(hold)
+    engine._room_cycle_states = state(None)
+    engine._optional_rooms_yield(running, tc)
+    assert running[room.id] is was
+    # with its vent closed,
+    running = asked(hold)
+    engine._room_cycle_states = state(NOW)
+    engine._optional_rooms_yield(running, tc)
+    assert running[room.id] is was
+    # or with no reading to hold the run open at all.
+    temps[other.id] = None
+    engine._thermo_ambient_f = lambda: 80.0
+    running = asked(hold)
+    engine._optional_rooms_yield(running, tc)
+    assert running[room.id] is was
+    del engine._thermo_ambient_f
+    # A served room that has drifted back past its deadband still needs the run.
+    temps[other.id] = 80.0
+    third_hold = ActiveRoom(room=third, target_temp=60.0, source="override")
+    engine._active_rooms = {room.id: asked()[room.id], other.id: served}
+    engine._room_cycle_states = state(NOW, target=85.0)
+    running = asked(third_hold)
+    del running[third.id]
+    running[third.id] = third_hold
+    engine._optional_rooms_yield(running, tc)
+    assert running[room.id].source == "balance"
+    engine._state, engine._active_rooms, engine._room_cycle_states = CycleState.IDLE, {}, {}
+    # With no reading: a house band room asks for nothing; another goes by the
+    # thermostat's reading (64 °F here, so a hold at 74 calls and one at 64 does
+    # not); and with no thermostat reading either, it counts as calling.
+    temps[other.id] = None
+    active = asked(banded)
+    engine._optional_rooms_yield(active, tc)
+    assert active[room.id].source == "balance"
+    cool_hold = ActiveRoom(room=other, target_temp=64.0, source="override")
+    active = asked(cool_hold)
+    engine._optional_rooms_yield(active, tc)
+    assert active[room.id].source == "balance"
+    engine._thermo_ambient_f = lambda: None
+    active = asked(cool_hold)
+    engine._optional_rooms_yield(active, tc)
+    assert active[room.id] is was
     # And with no balancing rooms there is nothing to do.
     active = {other.id: hold}
     engine._optional_rooms_yield(active, tc)
     assert active == {other.id: hold}
+    await conn.close()
+
+
+async def test_a_balancing_room_past_a_safety_limit_is_still_protected():
+    """Its balancing target is not a protection: a breach takes the room over."""
+    conn, engine, room, temps = await _setup(temp=86.0)  # the zone's maximum is 80 °F
+    active = {room.id: ActiveRoom(room=room, target_temp=67.0, source="balance")}
+    await engine._add_safety_rooms(conn, active)
+    assert active[room.id].source == "safety" and active[room.id].target_temp < 80.0
+    # A hold, a schedule or occupancy is already looking after its room, as before.
+    active = {room.id: ActiveRoom(room=room, target_temp=67.0, source="override")}
+    await engine._add_safety_rooms(conn, active)
+    assert active[room.id].source == "override"
+    await conn.close()
+
+
+async def test_while_the_zone_runs_the_other_way_for_someone_else_nothing_is_asked():
+    conn, engine, room, _temps = await _setup()
+    other = Room.create(name="Craft Room", thermostat_entity_id=THERMO_ID)
+    await db.upsert_room(conn, other)
+    hold = ActiveRoom(room=other, target_temp=60.0, source="override")
+    _run(engine, [hold], mode="cooling")
+    assert await engine._balance(conn, [hold]) == [hold]
+    # The same way, it may join.
+    _run(engine, [hold], mode="heating")
+    assert len(await engine._balance(conn, [hold])) == 2
     await conn.close()
