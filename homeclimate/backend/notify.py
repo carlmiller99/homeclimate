@@ -13,7 +13,10 @@ nothing else.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
+import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -28,18 +31,21 @@ SETTING_PREFIX = "notify_"
 # What can be chosen, with the words the Settings section shows for each.
 CATEGORIES: dict[str, str] = {
     "engine": "Heating and cooling (safety limits, stuck cycles, sensors)",
-    "ha": "Home Assistant connection",
+    "reconcile": "Something outside HomeClimate changed a vent or a thermostat",
     "fireplace": "Fireplace",
-    "openings": "Doors and windows",
     "forecast": "Weather forecast",
-    "shades": "Shades",
+    "auth": "Sign-in problems",
     "system": "HomeClimate itself",
 }
 LEVELS = ("warning", "error")
-DEFAULT_CATEGORIES = ("engine", "ha", "fireplace")
+DEFAULT_CATEGORIES = ("engine", "fireplace")
 REPEAT_AFTER = timedelta(hours=6)
 MAX_AN_HOUR = 6
 MAX_LEN = 240
+SEND_TIMEOUT_S = 10
+SUMMARY_TRIES = 3
+_NUMBER = re.compile(r"\d+(?:\.\d+)?")
+_SERVICE = re.compile(r"^notify\.[a-z0-9_]+$")
 
 
 class NotifyError(UserError):
@@ -53,6 +59,7 @@ BAD_LEVEL = fixed("level must be warning or error")
 BAD_CATEGORIES = fixed("categories must be a list of known categories")
 BAD_HOUR = fixed("summary_hour must be a whole hour from 0 to 23")
 NO_SERVICE = fixed("Choose a notify service first")
+NOT_CONNECTED = fixed("Home Assistant is not connected, so nothing can be sent right now")
 SEND_FAILED = fixed("Home Assistant did not accept the notification. Check the service name.")
 
 BOOLS = ("enabled", "daily_summary", "in_dev_mode")
@@ -68,9 +75,10 @@ def _parse(name: str, value: Any) -> str:
             return ""
         if (
             not isinstance(value, str)
-            or not value.startswith("notify.")
             or len(value) > 120
-            or not value[7:].replace("_", "").isalnum()
+            or not _SERVICE.match(value)
+            # The action for notify entities needs a target this does not send.
+            or value == "notify.send_message"
         ):
             raise NotifyError(BAD_SERVICE)
         return value
@@ -122,11 +130,15 @@ async def summary(conn: aiosqlite.Connection, *, now: datetime) -> str:
     end_local = start_local + timedelta(days=1)
     start = start_local.astimezone(UTC).replace(tzinfo=None).isoformat()
     end = end_local.astimezone(UTC).replace(tzinfo=None).isoformat()
+    # A cycle counts for the part of it that fell inside yesterday: one still
+    # running, or one that crossed midnight, is clipped to the day.
+    until = now.astimezone(UTC).replace(tzinfo=None).isoformat()
     async with conn.execute(
         "SELECT mode, COUNT(*) AS n,"
-        " SUM((julianday(COALESCE(ended_at, ?)) - julianday(started_at)) * 1440) AS minutes"
-        " FROM cycle_logs WHERE started_at >= ? AND started_at < ? GROUP BY mode",
-        (end, start, end),
+        " SUM((julianday(MIN(COALESCE(ended_at, ?), ?)) - julianday(MAX(started_at, ?))) * 1440)"
+        " AS minutes FROM cycle_logs"
+        " WHERE started_at < ? AND COALESCE(ended_at, ?) > ? GROUP BY mode",
+        (until, end, start, end, until, start),
     ) as cur:
         modes = {r["mode"]: (r["n"], r["minutes"] or 0.0) for r in await cur.fetchall()}
     async with conn.execute(
@@ -160,19 +172,30 @@ async def summary(conn: aiosqlite.Connection, *, now: datetime) -> str:
 
 
 class Notifier:
-    """Decides what to send, and sends it. Never raises into its callers."""
+    """Decides what to send, and sends it. Never raises into its callers.
+
+    Sending is handed to a task of its own with a time limit, so a slow Home
+    Assistant never holds up whatever logged the event.
+    """
 
     def __init__(self) -> None:
         self._sent: dict[str, datetime] = {}
         self._recent: list[datetime] = []
+        self._recent_errors: list[datetime] = []
         self._limited = False
         self._summary_day: str | None = None
+        self._summary_tries: tuple[str, int] = ("", 0)
+        self._summary_busy = False
+        self._tasks: set[asyncio.Future] = set()
         self.last_error = False
 
     async def _deliver(self, ha: Any, service: str, title: str, message: str) -> bool:
         try:
-            await ha.call_service(
-                "notify", service.split(".", 1)[1], {"title": title, "message": message}
+            await asyncio.wait_for(
+                ha.call_service(
+                    "notify", service.split(".", 1)[1], {"title": title, "message": message}
+                ),
+                SEND_TIMEOUT_S,
             )
         except Exception:
             log.warning("Could not send a notification through %s", service, exc_info=True)
@@ -180,6 +203,16 @@ class Notifier:
             return False
         self.last_error = False
         return True
+
+    def _detach(self, coro: Any) -> None:
+        task = asyncio.ensure_future(coro)
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+
+    async def drain(self) -> None:
+        """Wait for anything still being sent (for tests and shutdown)."""
+        while self._tasks:
+            await asyncio.gather(*list(self._tasks), return_exceptions=True)
 
     async def on_event(
         self,
@@ -192,7 +225,10 @@ class Notifier:
         dev_mode: bool,
         now: datetime,
     ) -> bool:
-        """Send a logged event if it is one of those chosen. Returns whether it was sent."""
+        """Queue a logged event for sending if it is one of those chosen. Returns whether it was."""
+        # Most events are neither: decided before anything is read.
+        if level not in LEVELS or category not in CATEGORIES:
+            return False
         try:
             settings = await get_settings(conn)
             if not settings["enabled"] or not settings["service"]:
@@ -201,31 +237,54 @@ class Notifier:
                 return False
             if category not in settings["categories"]:
                 return False
-            if level not in LEVELS or (settings["level"] == "error" and level != "error"):
+            if settings["level"] == "error" and level != "error":
                 return False
-            if not getattr(ha, "is_connected", True):
+            if ha is None or not getattr(ha, "is_connected", True):
                 return False
-            last = self._sent.get(message)
+            # The same thing with different numbers in it is the same thing:
+            # "deferred 5.0 min", then 4.0, then 3.0, is one message.
+            key = _NUMBER.sub("#", message)
+            last = self._sent.get(key)
             if last is not None and now - last < REPEAT_AFTER:
                 return False
-            self._recent = [t for t in self._recent if now - t < timedelta(hours=1)]
+            hour = timedelta(hours=1)
+            self._recent = [t for t in self._recent if now - t < hour]
+            self._recent_errors = [t for t in self._recent_errors if now - t < hour]
             self._sent = {m: t for m, t in self._sent.items() if now - t < REPEAT_AFTER}
-            if len(self._recent) >= MAX_AN_HOUR:
+            if not self._recent and not self._recent_errors:
+                self._limited = False
+            # Errors have an allowance of their own, so a run of warnings can
+            # never crowd one out.
+            bucket = self._recent_errors if level == "error" else self._recent
+            if len(bucket) >= MAX_AN_HOUR:
                 if not self._limited:
                     self._limited = True
-                    await self._deliver(
-                        ha,
-                        settings["service"],
-                        "HomeClimate",
-                        "More is happening than can be sent. See the log in HomeClimate.",
+                    self._detach(
+                        self._deliver(
+                            ha,
+                            settings["service"],
+                            "HomeClimate",
+                            "More is happening than can be sent. See the log in HomeClimate.",
+                        )
                     )
                 return False
-            self._limited = False
-            self._sent[message] = now
-            self._recent.append(now)
+            self._sent[key] = now
+            bucket.append(now)
             title = "HomeClimate" if level == "warning" else "HomeClimate: problem"
             text = message if len(message) <= MAX_LEN else message[: MAX_LEN - 1] + "…"
-            return await self._deliver(ha, settings["service"], title, text)
+            service = settings["service"]
+
+            async def send() -> None:
+                if not await self._deliver(ha, service, title, text):
+                    # Not sent after all: it may be said again, and does not count.
+                    self._sent.pop(key, None)
+                    # The lists are rebuilt as they are pruned, so look again.
+                    current = self._recent_errors if level == "error" else self._recent
+                    with contextlib.suppress(ValueError):
+                        current.remove(now)
+
+            self._detach(send())
+            return True
         except Exception:
             log.exception("Could not handle a notification")
             return False
@@ -233,31 +292,47 @@ class Notifier:
     async def daily(
         self, conn: aiosqlite.Connection, ha: Any, *, dev_mode: bool, now: datetime
     ) -> bool:
-        """Send yesterday's summary once, at or after the chosen hour. Called every minute."""
+        """Queue yesterday's summary once, at or after the chosen hour. Called every minute."""
         try:
-            settings = await get_settings(conn)
             local = tz.to_local(now)
             today = local.date().isoformat()
+            if self._summary_day == today or self._summary_busy:
+                return False
+            settings = await get_settings(conn)
             if (
                 not settings["enabled"]
                 or not settings["daily_summary"]
                 or not settings["service"]
                 or (dev_mode and not settings["in_dev_mode"])
-                or local.hour != settings["summary_hour"]
-                or self._summary_day == today
+                # At the hour, or later the same day if it was missed.
+                or local.hour < settings["summary_hour"]
+                or ha is None
                 or not getattr(ha, "is_connected", True)
             ):
                 return False
-            stored = await db.get_system_setting(conn, SETTING_PREFIX + "summary_sent", "")
-            if stored == today:
+            if await db.get_system_setting(conn, SETTING_PREFIX + "summary_sent", "") == today:
                 self._summary_day = today
                 return False
-            # Marked first: a summary that fails to send is not retried all hour.
-            self._summary_day = today
-            await db.set_system_setting(conn, SETTING_PREFIX + "summary_sent", today)
-            return await self._deliver(
-                ha, settings["service"], "HomeClimate: yesterday", await summary(conn, now=now)
-            )
+            day, tries = self._summary_tries
+            tries = tries + 1 if day == today else 1
+            self._summary_tries = (today, tries)
+            if tries > SUMMARY_TRIES:
+                self._summary_day = today  # given up for today
+                return False
+            text = await summary(conn, now=now)
+            service = settings["service"]
+            self._summary_busy = True
+
+            async def send() -> None:
+                try:
+                    if await self._deliver(ha, service, "HomeClimate: yesterday", text):
+                        self._summary_day = today
+                        await db.set_system_setting(conn, SETTING_PREFIX + "summary_sent", today)
+                finally:
+                    self._summary_busy = False
+
+            self._detach(send())
+            return True
         except Exception:
             log.exception("Could not send the daily summary")
             return False
@@ -267,6 +342,8 @@ class Notifier:
         settings = await get_settings(conn)
         if not settings["service"]:
             raise NotifyError(NO_SERVICE)
+        if ha is None or not getattr(ha, "is_connected", True):
+            raise NotifyError(NOT_CONNECTED)
         if not await self._deliver(
             ha, settings["service"], "HomeClimate", "This is a test notification from HomeClimate."
         ):

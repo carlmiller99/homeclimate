@@ -32,7 +32,9 @@ async def _on(client, **more):
 
 
 async def _log(client, level, category, message):
-    await client.app["scheduler"]._event_logger.log(level, category, message)
+    scheduler = client.app["scheduler"]
+    await scheduler._event_logger.log(level, category, message)
+    await scheduler.notifier.drain()  # sending is handed off; wait for it here
 
 
 async def test_off_by_default_and_nothing_is_sent(client, fake_ha):
@@ -41,7 +43,7 @@ async def test_off_by_default_and_nothing_is_sent(client, fake_ha):
         "enabled": False,
         "service": "",
         "level": "warning",
-        "categories": ["engine", "ha", "fireplace"],
+        "categories": ["engine", "fireplace"],
         "daily_summary": False,
         "summary_hour": 7,
         "in_dev_mode": False,
@@ -58,14 +60,14 @@ async def test_off_by_default_and_nothing_is_sent(client, fake_ha):
 async def test_chosen_warnings_and_errors_are_sent_once_each(client, fake_ha):
     await _on(client)
     await _log(client, "warning", "engine", "Bunk Room is past a safety limit")
-    await _log(client, "error", "ha", "Home Assistant disconnected")
+    await _log(client, "error", "engine", "Tick failed")
     await _log(client, "info", "engine", "Cycle started")  # not a problem
-    await _log(client, "warning", "shades", "A shade did not move")  # not chosen
+    await _log(client, "warning", "forecast", "Forecast fetch failed")  # not chosen
     await _log(client, "warning", "api", "Not a category that notifies")
     await _log(client, "warning", "engine", "Bunk Room is past a safety limit")  # said already
     assert _sent(fake_ha) == [
         ("HomeClimate", "Bunk Room is past a safety limit"),
-        ("HomeClimate: problem", "Home Assistant disconnected"),
+        ("HomeClimate: problem", "Tick failed"),
     ]
     # Errors only.
     await _on(client, level="error")
@@ -75,26 +77,43 @@ async def test_chosen_warnings_and_errors_are_sent_once_each(client, fake_ha):
     scheduler = client.app["scheduler"]
     conn = await scheduler.get_db()
     notifier = scheduler.notifier
-    args = {"level": "error", "category": "ha", "message": "Home Assistant disconnected"}
+    args = {"level": "error", "category": "engine", "message": "Tick failed"}
     later = datetime.now(UTC) + timedelta(hours=5)
     assert not await notifier.on_event(conn, fake_ha, dev_mode=False, now=later, **args)
     later += timedelta(hours=2)
     assert await notifier.on_event(conn, fake_ha, dev_mode=False, now=later, **args)
     # A very long message is cut short.
     await notifier.on_event(
-        conn, fake_ha, level="error", category="ha", message="x" * 500, dev_mode=False, now=later
+        conn,
+        fake_ha,
+        level="error",
+        category="engine",
+        message="x" * 500,
+        dev_mode=False,
+        now=later,
     )
+    await notifier.drain()
     assert len(_sent(fake_ha)[-1][1]) == notify.MAX_LEN
 
 
-async def test_a_bad_night_cannot_flood_a_phone(client, fake_ha):
+async def test_the_same_thing_with_different_numbers_is_said_once(client, fake_ha):
     await _on(client)
-    for i in range(10):
-        await _log(client, "warning", "engine", f"Problem {i}")
+    for left in ("5.0", "4.0", "3.0", "2.0"):
+        await _log(client, "warning", "engine", f"Compressor off-time lockout: deferred {left} min")
+    assert _sent(fake_ha) == [("HomeClimate", "Compressor off-time lockout: deferred 5.0 min")]
+
+
+async def test_a_bad_night_cannot_flood_a_phone_but_an_error_still_gets_through(client, fake_ha):
+    await _on(client)
+    for name in "abcdefghij":
+        await _log(client, "warning", "engine", f"Problem {name}")
     sent = _sent(fake_ha)
     assert len(sent) == notify.MAX_AN_HOUR + 1
     assert sent[-1][1] == "More is happening than can be sent. See the log in HomeClimate."
-    # An hour on, messages flow again.
+    # An error has an allowance of its own: warnings can never crowd it out.
+    await _log(client, "error", "engine", "Safety protection could not act")
+    assert _sent(fake_ha)[-1] == ("HomeClimate: problem", "Safety protection could not act")
+    # An hour on, warnings flow again.
     scheduler = client.app["scheduler"]
     conn = await scheduler.get_db()
     later = datetime.now(UTC) + timedelta(hours=1, minutes=1)
@@ -107,6 +126,47 @@ async def test_a_bad_night_cannot_flood_a_phone(client, fake_ha):
         dev_mode=False,
         now=later,
     )
+    await scheduler.notifier.drain()
+
+
+async def test_a_slow_home_assistant_never_holds_up_whatever_logged_the_event(
+    client, fake_ha, monkeypatch
+):
+    import asyncio
+
+    await _on(client)
+    release = asyncio.Event()
+
+    async def slow(*_a, **_k):
+        await release.wait()
+        return {}
+
+    monkeypatch.setattr(fake_ha, "call_service", slow)
+    scheduler = client.app["scheduler"]
+    # log() returns although the send has not finished.
+    await asyncio.wait_for(scheduler._event_logger.log("warning", "engine", "Problem"), 1)
+    assert scheduler.notifier._tasks
+    release.set()
+    await scheduler.notifier.drain()
+    assert not scheduler.notifier._tasks
+
+
+async def test_a_message_that_could_not_be_sent_is_tried_again_and_does_not_count(
+    client, fake_ha, monkeypatch
+):
+    await _on(client)
+    real = fake_ha.call_service
+
+    async def refuse(*_a, **_k):
+        raise RuntimeError("timeout")
+
+    monkeypatch.setattr(fake_ha, "call_service", refuse)
+    await _log(client, "warning", "engine", "Problem")
+    notifier = client.app["scheduler"].notifier
+    assert notifier._sent == {} and notifier._recent == [] and notifier.last_error
+    monkeypatch.setattr(fake_ha, "call_service", real)
+    await _log(client, "warning", "engine", "Problem")
+    assert _sent(fake_ha) == [("HomeClimate", "Problem")]
 
 
 async def test_nothing_is_sent_in_dev_mode_unless_asked_or_while_disconnected(client, fake_ha):
@@ -122,8 +182,19 @@ async def test_nothing_is_sent_in_dev_mode_unless_asked_or_while_disconnected(cl
         assert not await scheduler.notifier.on_event(
             conn, fake_ha, message="b", dev_mode=False, **args
         )
+        assert not await scheduler.notifier.on_event(
+            conn, None, message="c", dev_mode=False, **args
+        )
+        await client.put("/api/notifications/settings", json={"daily_summary": True})
+        assert not await scheduler.notifier.daily(conn, fake_ha, dev_mode=False, now=NOW)
+        resp = await client.post("/api/notifications/test")
+        assert (resp.status, (await resp.json())["error"]) == (
+            400,
+            "Home Assistant is not connected, so nothing can be sent right now",
+        )
     finally:
         fake_ha._connected.set()
+    await scheduler.notifier.drain()
 
 
 async def test_a_failed_send_is_reported_and_never_escapes(client, fake_ha, monkeypatch, caplog):
@@ -151,7 +222,7 @@ async def test_a_failed_send_is_reported_and_never_escapes(client, fake_ha, monk
 
     monkeypatch.setattr(notify, "get_settings", broken)
     assert not await scheduler.notifier.on_event(
-        conn, fake_ha, level="error", category="ha", message="m", dev_mode=False, now=NOW
+        conn, fake_ha, level="error", category="engine", message="m", dev_mode=False, now=NOW
     )
     assert not await scheduler.notifier.daily(conn, fake_ha, dev_mode=False, now=NOW)
     # A listener that fails never disturbs logging.
@@ -186,6 +257,7 @@ async def test_the_daily_summary_is_sent_once_at_the_chosen_hour(client, fake_ha
     assert not await notifier.daily(conn, fake_ha, dev_mode=False, now=early)
     assert not await notifier.daily(conn, fake_ha, dev_mode=True, now=NOW)
     assert await notifier.daily(conn, fake_ha, dev_mode=False, now=NOW)
+    await notifier.drain()
     assert _sent(fake_ha)[-1] == (
         "HomeClimate: yesterday",
         "Yesterday heating ran 2 times for 1 h 15 min. The log has 1 warning.",
@@ -194,14 +266,53 @@ async def test_the_daily_summary_is_sent_once_at_the_chosen_hour(client, fake_ha
     assert not await notifier.daily(conn, fake_ha, dev_mode=False, now=NOW + timedelta(minutes=1))
     scheduler._notifier = notify.Notifier()
     assert not await scheduler.notifier.daily(conn, fake_ha, dev_mode=False, now=NOW)
-    assert await scheduler.notifier.daily(
-        conn, fake_ha, dev_mode=False, now=NOW + timedelta(days=1)
-    )
-    assert _sent(fake_ha)[-1][1] == "Yesterday nothing ran. No warnings."
+    # If the chosen hour was missed (HomeClimate was down), it goes later that day.
+    late = NOW + timedelta(days=1, hours=3)
+    if tz.to_local(late).date() == tz.to_local(NOW + timedelta(days=1)).date():
+        assert await scheduler.notifier.daily(conn, fake_ha, dev_mode=False, now=late)
+        await scheduler.notifier.drain()
+        assert _sent(fake_ha)[-1][1] == "Yesterday nothing ran. No warnings."
     # Switched off, nothing is sent.
     await _on(client, daily_summary=False)
     assert not await scheduler.notifier.daily(
         conn, fake_ha, dev_mode=False, now=NOW + timedelta(days=2)
+    )
+
+
+async def test_a_summary_that_could_not_be_sent_is_tried_a_few_times(client, fake_ha, monkeypatch):
+    scheduler = client.app["scheduler"]
+    conn = await scheduler.get_db()
+    await _on(client, daily_summary=True, summary_hour=tz.to_local(NOW).hour)
+
+    async def refuse(*_a, **_k):
+        raise RuntimeError("timeout")
+
+    monkeypatch.setattr(fake_ha, "call_service", refuse)
+    notifier = scheduler.notifier
+    for minute in range(notify.SUMMARY_TRIES):
+        assert await notifier.daily(
+            conn, fake_ha, dev_mode=False, now=NOW + timedelta(minutes=minute)
+        )
+        await notifier.drain()
+    # After that it gives up for the day rather than try every minute.
+    assert not await notifier.daily(conn, fake_ha, dev_mode=False, now=NOW + timedelta(minutes=9))
+    assert await db.get_system_setting(conn, "notify_summary_sent", "") == ""
+
+
+async def test_the_summary_counts_only_the_part_of_a_cycle_inside_yesterday(client):
+    conn = await client.app["scheduler"].get_db()
+    local_midnight = tz.to_local(NOW).replace(hour=0, minute=0, second=0, microsecond=0)
+    # One that began the day before and ran an hour into yesterday; one still running
+    # since 23:00 yesterday.
+    crossing = CycleLog.create(thermostat_entity_id="climate.x", mode="heating", rooms_json="{}")
+    crossing.started_at = (local_midnight - timedelta(days=1, hours=1)).astimezone(UTC)
+    crossing.ended_at = (local_midnight - timedelta(days=1) + timedelta(hours=1)).astimezone(UTC)
+    await db.insert_cycle_log(conn, crossing)
+    running = CycleLog.create(thermostat_entity_id="climate.x", mode="heating", rooms_json="{}")
+    running.started_at = (local_midnight - timedelta(hours=1)).astimezone(UTC)
+    await db.insert_cycle_log(conn, running)
+    assert await notify.summary(conn, now=NOW) == (
+        "Yesterday heating ran 2 times for 2 h 0 min. No warnings."
     )
 
 
@@ -235,6 +346,8 @@ async def test_settings_are_validated_with_fixed_messages(client):
         ({"enabled": "yes"}, "enabled, daily_summary and in_dev_mode must be true or false"),
         ({"service": "light.kitchen"}, notify.BAD_SERVICE),
         ({"service": "notify.bad name!"}, notify.BAD_SERVICE),
+        ({"service": "notify.Phone"}, notify.BAD_SERVICE),
+        ({"service": "notify.send_message"}, notify.BAD_SERVICE),
         ({"service": 5}, notify.BAD_SERVICE),
         ({"level": "info"}, "level must be warning or error"),
         ({"categories": ["engine", "nope"]}, "categories must be a list of known categories"),
@@ -246,10 +359,10 @@ async def test_settings_are_validated_with_fixed_messages(client):
         resp = await client.put("/api/notifications/settings", json=body)
         assert (resp.status, (await resp.json())["error"]) == (400, str(message)), body
     settings = await _on(
-        client, categories=["shades", "engine"], summary_hour=21, level="error", service=None
+        client, categories=["system", "engine"], summary_hour=21, level="error", service=None
     )
     assert (settings["categories"], settings["summary_hour"], settings["service"]) == (
-        ["engine", "shades"],
+        ["engine", "system"],
         21,
         "",
     )

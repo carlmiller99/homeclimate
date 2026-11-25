@@ -13,16 +13,20 @@ Nothing is sent until **Send Notifications** is on and a service is set.
 ## What is sent
 
 - **How Serious**: warnings and errors, or errors only. Warnings include things that fixed themselves.
-- **About**: which parts of HomeClimate to hear from. Heating and cooling, the Home Assistant connection and the fireplace are chosen to start with.
-- **Daily Summary**: one message a day at the hour you choose (house time), saying how long heating and cooling ran yesterday and how many warnings and errors were logged.
+- **About**: which parts of HomeClimate to hear from. Heating and cooling (which is where safety limits are) and the fireplace are chosen to start with. The others are changes made from outside HomeClimate to a vent or thermostat, the weather forecast, sign-in problems, and HomeClimate itself.
+- **Daily Summary**: one message a day at the hour you choose (house time), saying how long heating and cooling ran yesterday and how many warnings and errors were logged. If HomeClimate was not running at that hour it is sent later the same day.
 
 ## So it stays useful
 
-- The same message is not sent again for six hours.
-- No more than six messages are sent in an hour. When that limit is reached, one last message says there is more in the log.
+- The same message is not sent again for six hours. Messages that differ only in their numbers ("deferred 5 min", then "4 min") count as the same.
+- No more than six warnings are sent in an hour, and when that limit is reached one last message says there is more in the log. Errors have six of their own, so a run of warnings can never crowd one out.
+- Sending never holds anything up: a message is handed off and given ten seconds; one that could not be sent may be sent when it next comes up.
+- After a restart, a standing problem is reported again.
 - Nothing is sent while Dev Mode is on, unless **Also Send in Dev Mode** is on.
 - Nothing is sent while Home Assistant is disconnected, because the message would have nowhere to go.
-- If Home Assistant refuses a message (a wrong service name, usually), the section says the last notification could not be sent.
+- If Home Assistant refuses a message (a wrong service name, usually), the section says so the next time it is opened.
+- Only notify services and notify groups are supported (`notify.mobile_app_…`, `notify.notify`, a group you made). The newer notify entities, sent to with `notify.send_message`, are not.
+- Notifications are real messages even in Dev Mode: Dev Mode stops HomeClimate commanding your equipment, not your phone. That is why they are off in Dev Mode unless you ask.
 
 ## API
 

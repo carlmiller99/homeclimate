@@ -16,7 +16,7 @@ function data(over: Partial<na.NotifySettings> = {}, failed = false): na.Notific
       enabled: true,
       service: "notify.mobile_app_phone",
       level: "warning",
-      categories: ["engine", "ha"],
+      categories: ["engine", "reconcile"],
       daily_summary: false,
       summary_hour: 7,
       in_dev_mode: false,
@@ -24,7 +24,7 @@ function data(over: Partial<na.NotifySettings> = {}, failed = false): na.Notific
     },
     categories: [
       { id: "engine", label: "Heating and cooling" },
-      { id: "ha", label: "Home Assistant connection" },
+      { id: "reconcile", label: "Outside changes" },
       { id: "fireplace", label: "Fireplace" },
     ],
     last_send_failed: failed,
@@ -49,11 +49,11 @@ describe("Settings → Notifications", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: "Fireplace" }));
     await waitFor(() =>
       expect(na.updateNotifySettings).toHaveBeenCalledWith({
-        categories: ["engine", "ha", "fireplace"],
+        categories: ["engine", "reconcile", "fireplace"],
       })
     );
     await waitFor(() => expect(screen.getByRole("checkbox", { name: "Fireplace" })).toBeChecked());
-    fireEvent.click(screen.getByRole("checkbox", { name: "Home Assistant connection" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Outside changes" }));
     await waitFor(() =>
       expect(na.updateNotifySettings).toHaveBeenLastCalledWith({
         categories: ["engine", "fireplace"],
@@ -136,15 +136,22 @@ describe("Settings → Notifications", () => {
     expect(na.hourLabel(21)).toBe("9 PM");
   });
 
-  it("holds the controls while a save is on its way", async () => {
+  it("keeps a click made while a save is on its way, and sends it next", async () => {
     let finish: (d: na.Notifications) => void = () => {};
     vi.mocked(na.updateNotifySettings).mockReturnValueOnce(new Promise((r) => (finish = r)));
     render(<NotificationsSection />);
-    fireEvent.click(await screen.findByRole("checkbox", { name: "Fireplace" }));
+    // Typing the service and then switching notifications on, without waiting.
+    const field = await screen.findByLabelText("Notify Service");
+    fireEvent.change(field, { target: { value: "notify.family" } });
+    fireEvent.blur(field);
     expect(screen.getByLabelText("How Serious")).toBeDisabled();
     fireEvent.click(screen.getByRole("switch", { name: /Send Notifications/ }));
+    await waitFor(() => expect(na.updateNotifySettings).toHaveBeenCalledTimes(1));
+    await Promise.resolve();
     expect(na.updateNotifySettings).toHaveBeenCalledTimes(1);
-    finish(data());
+    finish(data({ service: "notify.family" }));
+    await waitFor(() => expect(na.updateNotifySettings).toHaveBeenCalledTimes(2));
+    expect(na.updateNotifySettings).toHaveBeenLastCalledWith({ enabled: false });
     await waitFor(() => expect(screen.getByLabelText("How Serious")).toBeEnabled());
   });
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { RuleRow } from "../components/SmartControlControls";
 import {
   getNotifications,
@@ -21,6 +21,8 @@ export default function NotificationsSection() {
   // The service is typed, then saved on blur or Enter.
   const [service, setService] = useState("");
   const [shownService, setShownService] = useState<string | null>(null);
+  const queue = useRef<Promise<void>>(Promise.resolve());
+  const pending = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -46,21 +48,26 @@ export default function NotificationsSection() {
     setService(s.service);
   }
 
-  const run = async (call: () => Promise<Notifications>, done?: string) => {
-    if (busy) return;
-    setErr(null);
-    setNote(null);
+  // One request at a time, in the order they were asked for: a click made
+  // while a save is on its way waits its turn rather than being lost.
+  const run = (call: () => Promise<Notifications>, done?: string) => {
+    pending.current += 1;
     setBusy(true);
-    try {
-      setData(await call());
-      if (done) setNote(done);
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "Could not save");
-    } finally {
-      setBusy(false);
-    }
+    queue.current = queue.current.then(async () => {
+      setErr(null);
+      setNote(null);
+      try {
+        setData(await call());
+        if (done) setNote(done);
+      } catch (e) {
+        setErr(e instanceof Error ? e.message : "Could not save");
+      } finally {
+        pending.current -= 1;
+        if (pending.current === 0) setBusy(false);
+      }
+    });
   };
-  const set = (patch: Partial<NotifySettings>) => void run(() => updateNotifySettings(patch));
+  const set = (patch: Partial<NotifySettings>) => run(() => updateNotifySettings(patch));
   const commitService = () => {
     const typed = service.trim();
     if (typed === s.service) return;
@@ -77,7 +84,7 @@ export default function NotificationsSection() {
         <h2 className="sc-section-title">Notifications</h2>
         <p className="sc-section-lead">
           HomeClimate can send the problems it logs to your phone through Home Assistant. Each
-          message is sent once, and no more than six in an hour.
+          message is sent once, and no more than six warnings and six errors in an hour.
         </p>
         <RuleRow
           id="notify-enabled"
@@ -116,7 +123,7 @@ export default function NotificationsSection() {
               type="button"
               className="btn btn-secondary"
               disabled={busy || !s.service}
-              onClick={() => void run(sendTestNotification, "Test sent. Check your phone.")}
+              onClick={() => run(sendTestNotification, "Test sent. Check your phone.")}
             >
               Send a Test
             </button>

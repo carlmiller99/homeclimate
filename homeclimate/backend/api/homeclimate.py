@@ -492,7 +492,7 @@ async def test_notification(request: web.Request) -> web.Response:
     conn = await get_conn(request)
     scheduler = request.app["scheduler"]
     try:
-        await scheduler.notifier.test(conn, scheduler._ha)
+        await scheduler.notifier.test(conn, request.app["ha"])
     except UserError as exc:
         return error(safe_text(exc))
     return json_response(await _notifications_snapshot(request))
