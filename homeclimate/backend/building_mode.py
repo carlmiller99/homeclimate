@@ -187,7 +187,11 @@ class Planner:
     def __init__(self) -> None:
         self._decisions: dict[str, Decision] = {}
         self._zone_building: dict[str, str] = {}
-        self._claims: dict[str, str] = {}
+        self._claims: dict[str, tuple[str, str]] = {}  # building → (side, claiming zone)
+        # Zones whose claim came to nothing last time: they sit the next one out.
+        self._sat_out: set[str] = set()
+        # When a watched building was first seen running against its side.
+        self._watched_since: dict[str, datetime] = {}
         self._lock = asyncio.Lock()
 
     def side_for(self, thermostat_entity_id: str) -> tuple[str | None, bool]:
@@ -210,7 +214,13 @@ class Planner:
         decision = self._decisions.get(building)
         if decision is None or not decision.obey or decision.side is not None:
             return None
-        return self._claims.setdefault(building, direction)
+        if building not in self._claims:
+            if thermostat_entity_id in self._sat_out:
+                # It claimed the side last time and then did not start. Give
+                # the other zones this turn rather than block them again.
+                return "hold"
+            self._claims[building] = (direction, thermostat_entity_id)
+        return self._claims[building][0]
 
     def live_side(
         self, thermostat_entity_id: str, running: dict[str, str]
@@ -232,7 +242,8 @@ class Planner:
         if side is None:
             if len(others) == 2:
                 return "hold", True
-            return (next(iter(others)) if others else self._claims.get(building)), True
+            claimed = self._claims.get(building)
+            return (next(iter(others)) if others else claimed[0] if claimed else None), True
         if ("cooling" if side == "heating" else "heating") in others:
             return "hold", True
         return side, True
@@ -279,6 +290,9 @@ class Planner:
             if decision.switched_to:
                 switched.append((building_id, decision.switched_to))
         self._decisions = decisions
+        # A zone that claimed a side and is not running it gives way next time.
+        running_now = {z.thermostat_entity_id: z.running for z in zones_now}
+        self._sat_out = {tid for side, tid in self._claims.values() if running_now.get(tid) != side}
         self._claims = {}
         return switched
 
@@ -311,8 +325,18 @@ class Planner:
 
         other = "cooling" if m.side == "heating" else "heating"
         waits = [z.wait for z in its_zones if z.wait and z.wait["direction"] == other]
+        if not obey and other in running:
+            # Watching holds nothing, so a zone that wants the other side just
+            # runs it. Count that as the wait it would have been.
+            since = self._watched_since.setdefault(m.building_id, now)
+            waits.append({"direction": other, "since": since, "excess": 0.0, "obeyed": False})
+            running = running - {other}
+        else:
+            self._watched_since.pop(m.building_id, None)
         if not waits:
-            return Decision(m.side, obey, "")
+            return Decision(
+                m.side, obey, f"Waiting for {other} to finish" if other in running else ""
+            )
         if m.side in running:
             return Decision(m.side, obey, f"Waiting for {m.side} to finish")
         today = tz.to_local(now).date().isoformat()

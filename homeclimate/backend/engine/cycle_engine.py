@@ -11,6 +11,7 @@ State machine:
 from __future__ import annotations
 
 import asyncio
+import copy
 import dataclasses
 import json
 import logging
@@ -864,11 +865,13 @@ class CycleEngine:
             if inferred == "off":
                 # All rooms within deadband — park the setpoint so the HVAC
                 # goes idle, then skip starting a new cycle.
-                await self._reset_setpoint_to_ambient(thermo_state, tc)
                 # Held back by the building's side: the zone's own reading is
                 # still checked against the safety limits, as it is whenever
-                # nothing is asking.
+                # nothing is asking. When that commands the thermostat, the
+                # setpoint is not parked as well; the two would undo each other.
                 held = wanted != "off" and await self._enforce_safety_setpoint(conn, thermo_state)
+                if not held:
+                    await self._reset_setpoint_to_ambient(thermo_state, tc)
                 await self._maybe_reconcile(conn, in_vacation=in_vacation, backstop_fired=held)
                 await self._maybe_broadcast()
                 return
@@ -5582,8 +5585,8 @@ class CycleEngine:
 
     def _safety_breaches(
         self, active_rooms: dict[str, ActiveRoom], tc: ThermostatConfig
-    ) -> set[str]:
-        """Directions in which an active room is past a safety limit.
+    ) -> dict[str, set[str]]:
+        """Rooms past a safety limit, by the direction that would bring them back.
 
         ``_add_safety_rooms`` only adds rooms that have no demand of their own;
         a room with a schedule, occupancy or a hold is protected by the hard
@@ -5593,25 +5596,60 @@ class CycleEngine:
         fire_rooms = (
             self._get_fireplace_rooms() if self._get_fireplace_rooms is not None else frozenset()
         )
-        breaches: set[str] = set()
-        for ar in active_rooms.values():
+        breaches: dict[str, set[str]] = {}
+        for room_id, ar in active_rooms.items():
             avg = self._get_avg_temp(ar.room)
             if avg is None:
                 continue
+            effective = avg + ar.room.temp_offset
             if ar.source == "safety":
                 # Already found past a limit; its target says which way.
-                over = avg + ar.room.temp_offset > ar.target_temp
-                breaches.add("cooling" if over else "heating")
-                continue
-            effective = avg + ar.room.temp_offset
-            if effective < tc.min_setpoint:
-                breaches.add("heating")
-            if effective > tc.max_setpoint and ar.room.id not in fire_rooms:
-                breaches.add("cooling")
+                way = "cooling" if effective > ar.target_temp else "heating"
+                breaches.setdefault(way, set()).add(room_id)
+            elif effective < tc.min_setpoint:
+                breaches.setdefault("heating", set()).add(room_id)
+            elif effective > tc.max_setpoint and room_id not in fire_rooms:
+                breaches.setdefault("cooling", set()).add(room_id)
         return breaches
 
+    def _protect_only(
+        self,
+        active_rooms: dict[str, ActiveRoom],
+        room_ids: set[str],
+        direction: str,
+        tc: ThermostatConfig,
+    ) -> None:
+        """Cut demand down to protecting the rooms past a safety limit.
+
+        Used when a cycle runs against the building's side because of a breach:
+        it brings those rooms back inside their limits, as a safety room would,
+        and does not go on to their comfort targets or serve other rooms.
+        """
+        for room_id in list(active_rooms):
+            if room_id not in room_ids:
+                del active_rooms[room_id]
+                continue
+            ar = active_rooms[room_id]
+            if ar.source == "safety":
+                continue
+            deadband = _effective_deadband(ar.room, tc.deadband, ar.deadband_override)
+            ar.target_temp = (
+                min(tc.max_setpoint, tc.min_setpoint + deadband)
+                if direction == "heating"
+                else max(tc.min_setpoint, tc.max_setpoint - deadband)
+            )
+            ar.heat_to = ar.cool_to = None
+            ar.source = "safety"
+
     async def _could_start(
-        self, conn: aiosqlite.Connection, direction: str, tc: ThermostatConfig, thermo_state: Any
+        self,
+        conn: aiosqlite.Connection,
+        direction: str,
+        active_rooms: dict[str, ActiveRoom],
+        tc: ThermostatConfig,
+        thermo_state: Any,
+        outside_temp: float | None,
+        off_schedule_ok: dict[str, bool] | None,
     ) -> bool:
         """Whether a cycle in ``direction`` could start if the building allowed it."""
         modes = ((thermo_state or {}).get("attributes") or {}).get("hvac_modes")
@@ -5623,7 +5661,17 @@ class CycleEngine:
             state, _outside = await self._cooling_lockout_state(conn, tc)
             if state == "locked_out":
                 return False
-        return True
+        # Eco Mode may relax the targets far enough that nothing would run.
+        # Tried on a copy, and Eco's own state is put back afterwards.
+        trial = copy.deepcopy(active_rooms)
+        eco_state = (copy.deepcopy(self._eco_engaged), self._cycle_eco_suspended)
+        try:
+            self._apply_eco(trial, direction, outside_temp, tc)
+            return self._demand_at_relaxed_targets(
+                trial, direction, tc, outside_temp, off_schedule_ok
+            )
+        finally:
+            self._eco_engaged, self._cycle_eco_suspended = eco_state
 
     async def _keep_to_building_side(
         self,
@@ -5649,37 +5697,44 @@ class CycleEngine:
         ``side`` "hold" means another zone of the building is still running the
         other way: this zone starts nothing until that cycle has finished.
 
-        A room past a safety limit is never held back, whatever it follows.
+        A room past a safety limit is never held back, whatever it follows. A
+        cycle that runs against the building's side for that reason only
+        brings those rooms back inside their limits.
         """
         if inferred not in ("heating", "cooling"):
             self._wait_started = None
             return inferred
-        if inferred in self._safety_breaches(active_rooms, tc):
+        breaches = self._safety_breaches(active_rooms, tc)
+        if inferred in breaches:
             self._wait_started = None
+            if obey and side in ("heating", "cooling", "hold") and inferred != side:
+                self._protect_only(active_rooms, breaches[inferred], inferred, tc)
             return inferred
-        if side is None and obey and self._claim_building_side is not None:
+        claiming = side is None and obey and self._claim_building_side is not None
+        can_start = True
+        if claiming or (side in ("heating", "cooling") and inferred != side):
+            # Only worked out when the answer matters: it tries Eco on a copy.
+            can_start = await self._could_start(
+                conn, inferred, active_rooms, tc, thermo_state, outside_temp, off_schedule_ok
+            )
+        if claiming and can_start:
             # First cycle of a building with no side yet: the first zone to
             # start sets it, so a second zone cannot start the other way.
+            assert self._claim_building_side is not None
             side = self._claim_building_side(inferred)
         if side == "hold":
-            return "off" if obey else inferred
+            # Only ever given to a zone that is being held to its building.
+            if breaches:
+                # The vote went the other way, but a room is past a limit.
+                way = next(iter(breaches))
+                self._protect_only(active_rooms, breaches[way], way, tc)
+                return way
+            return "off"
         wrong_side = side in ("heating", "cooling") and inferred != side
-        if wrong_side and not await self._could_start(conn, inferred, tc, thermo_state):
-            # The zone could not run that way even if the building switched
-            # (too cold outside to cool, or the thermostat has no such mode),
-            # so it does not ask the building to switch for it.
-            self._wait_started = None
-            if not obey:
-                return inferred
-            wrong_side = False
-            inferred = "off"
-            side_only = True
-        else:
-            side_only = wrong_side and obey
-        if not wrong_side and not side_only:
+        if not wrong_side:
             self._wait_started = None
             return inferred
-        if wrong_side:
+        if can_start:
             excess = 0.0
             for ar in active_rooms.values():
                 avg = self._get_avg_temp(ar.room)
@@ -5687,7 +5742,7 @@ class CycleEngine:
                     # How far past the point where it would normally start.
                     gap = avg + ar.room.temp_offset - ar.target_temp
                     past = (gap if inferred == "cooling" else -gap) - _effective_deadband(
-                        ar.room, tc.deadband
+                        ar.room, tc.deadband, ar.deadband_override
                     )
                     excess = max(excess, past)
             now = datetime.now(UTC)
@@ -5696,8 +5751,9 @@ class CycleEngine:
                 started is None
                 or started[0] != inferred
                 or started[1] != obey
-                # Not seen for a few ticks: this is a new wait, not the old one.
-                or now - started[3] > timedelta(minutes=3)
+                # Not seen for a few ticks, or a clock that went backwards:
+                # this is a new wait, not the old one.
+                or not timedelta(0) <= now - started[3] <= timedelta(minutes=3)
             )
             since = now if fresh or started is None else started[2]
             self._wait_started = (inferred, obey, since, now)
@@ -5716,8 +5772,13 @@ class CycleEngine:
                     f" on {side}",
                     {"thermostat": self.thermostat_entity_id, "wants": inferred, "side": side},
                 )
-            if not obey:
-                return inferred
+        else:
+            # The zone could not run that way even if the building switched
+            # (too cold outside to cool, no such mode, or Eco Mode would not
+            # run it), so it does not ask the building to switch for it.
+            self._wait_started = None
+        if not obey:
+            return inferred
         # Serve any room that does need the building's side.
         assert side is not None
         return await self._infer_mode_from_room_temps(

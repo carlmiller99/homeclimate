@@ -156,9 +156,9 @@ async def test_a_fire_warmed_room_over_the_limit_is_not_a_reason_to_cool():
     from backend.engine.room_manager import get_active_rooms
 
     active = {ar.room.id: ar for ar in await get_active_rooms(conn, engine.thermostat_entity_id)}
-    assert engine._safety_breaches(active, tc) == set()
+    assert engine._safety_breaches(active, tc) == {}
     engine._get_fireplace_rooms = None
-    assert engine._safety_breaches(active, tc) == {"cooling"}
+    assert engine._safety_breaches(active, tc) == {"cooling": {"r1"}}
     await conn.close()
 
 
@@ -244,4 +244,96 @@ async def test_a_zone_that_could_not_run_the_other_way_does_not_ask_for_a_switch
     engine._ha.get_state.return_value["attributes"]["hvac_modes"] = ["heat_cool", "off"]
     await engine._do_tick(conn)
     assert engine.building_wait["direction"] == "cooling"
+    await conn.close()
+
+
+async def test_a_cycle_against_the_side_only_brings_the_room_back_inside_its_limits():
+    """Not on to its 72 °F schedule target, and not for the other room."""
+    conn, engine, started = await _scheduled({"r1": 40.0, "r2": 70.0}, "cooling", ambient=40.0)
+    await engine._do_tick(conn)
+    active = started.await_args.args[1]
+    tc = await engine._load_tc(conn)
+    assert {rid: (ar.source, ar.target_temp) for rid, ar in active.items()} == {
+        "r1": ("safety", tc.min_setpoint + tc.deadband)
+    }
+    assert started.await_args.args[2] == "heating"
+    await conn.close()
+    # Too warm, under Heat Only: cooled to just inside the maximum.
+    conn, engine, started = await _scheduled({"r1": 95.0, "r2": 72.0}, "heating", ambient=95.0)
+    await engine._do_tick(conn)
+    active = started.await_args.args[1]
+    assert {rid: ar.target_temp for rid, ar in active.items()} == {
+        "r1": tc.max_setpoint - tc.deadband
+    }
+    await conn.close()
+    # On the building's own side the room's full schedule target stands.
+    conn, engine, started = await _scheduled({"r1": 40.0, "r2": 70.0}, "heating", ambient=40.0)
+    await engine._do_tick(conn)
+    assert _started(started)[0]["r1"] == 72.0
+    await conn.close()
+
+
+async def test_a_room_past_a_limit_is_protected_during_a_hold_even_when_it_lost_the_vote():
+    conn, engine, started = await _scheduled({"r1": 59.0, "r2": 80.0}, "hold", ambient=70.0)
+    engine._infer_mode_from_room_temps = AsyncMock(return_value="cooling")
+    await engine._do_tick(conn)
+    active = started.await_args.args[1]
+    assert (set(active), started.await_args.args[2]) == ({"r1"}, "heating")
+    await conn.close()
+
+
+async def test_a_held_zone_is_not_sent_two_setpoints_at_once():
+    conn, engine, _s = await _scheduled({"r1": 75.0, "r2": 72.0}, "heating", ambient=88.0)
+    engine._enforce_safety_setpoint = AsyncMock(return_value=True)
+    await engine._do_tick(conn)
+    engine._enforce_safety_setpoint.assert_awaited()
+    engine._reset_setpoint_to_ambient.assert_not_awaited()
+    await conn.close()
+
+
+async def test_how_far_out_counts_from_the_schedules_own_deadband():
+    from backend.engine.room_manager import get_active_rooms
+
+    conn, engine, _s = await _scheduled({"r1": 75.5, "r2": 72.0}, "heating")
+    active = {ar.room.id: ar for ar in await get_active_rooms(conn, engine.thermostat_entity_id)}
+    active["r1"].deadband_override = 3.0
+    tc = await engine._load_tc(conn)
+    await engine._keep_to_building_side(
+        conn, "cooling", "heating", True, active, tc, None, None, None
+    )
+    assert engine.building_wait["excess"] == 0.5  # 3.5 °F over target, 3 °F deadband
+    await conn.close()
+
+
+async def test_a_zone_eco_would_not_run_does_not_ask_for_a_switch_and_eco_is_left_as_it_was():
+    conn, engine, started = await _scheduled({"r1": 75.0, "r2": 72.0}, "heating", ambient=75.0)
+    engine._eco_engaged = {"r1": "cooling"}
+    engine._cycle_eco_suspended = True
+
+    def relax(active, *_a, **_k):
+        engine._eco_engaged = {}
+        engine._cycle_eco_suspended = False
+
+    engine._apply_eco = relax
+    engine._demand_at_relaxed_targets = lambda *_a, **_k: False
+    await engine._do_tick(conn)
+    started.assert_not_awaited()
+    assert engine.building_wait is None
+    assert (engine._eco_engaged, engine._cycle_eco_suspended) == ({"r1": "cooling"}, True)
+    await conn.close()
+
+
+async def test_a_zone_that_cannot_start_does_not_claim_the_side_and_a_held_claim_starts_nothing():
+    conn, engine, started = await _scheduled({"r1": 75.0, "r2": 72.0}, None, ambient=75.0)
+    asked: list[str] = []
+    engine._claim_building_side = lambda d: asked.append(d) or "hold"
+    attrs = engine._ha.get_state.return_value["attributes"]
+    attrs["hvac_modes"] = ["heat", "off"]  # this thermostat cannot cool
+    await engine._do_tick(conn)
+    assert asked == []
+    started.reset_mock()
+    attrs["hvac_modes"] = ["heat", "cool", "off"]
+    await engine._do_tick(conn)
+    assert asked == ["cooling"]
+    started.assert_not_awaited()  # told to sit this one out
     await conn.close()

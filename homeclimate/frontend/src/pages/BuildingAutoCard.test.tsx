@@ -3,6 +3,7 @@ import { StrictMode } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import BuildingAutoCard from "./BuildingAutoCard";
 import * as bm from "../buildingModeApi";
+import { buildUnitContext, UnitContext } from "../contexts";
 
 vi.mock("../buildingModeApi", async (orig) => ({
   ...(await orig<typeof import("../buildingModeApi")>()),
@@ -41,6 +42,20 @@ describe("One Side Per Building", () => {
     await waitFor(() => expect(screen.getByLabelText("Auto for Main House")).toHaveValue("watch"));
     expect(screen.getByText(/but holds nothing/)).toBeInTheDocument();
     expect(screen.queryByText(/fixed mode/)).not.toBeInTheDocument();
+  });
+
+  it("gives the urgent threshold in the house's unit", async () => {
+    const { unmount } = render(<BuildingAutoCard />);
+    await screen.findByLabelText("Auto for Main House");
+    expect(screen.getByText(/2° past where it would/)).toBeInTheDocument();
+    unmount();
+    render(
+      <UnitContext.Provider value={buildUnitContext("C")}>
+        <BuildingAutoCard />
+      </UnitContext.Provider>
+    );
+    await screen.findByLabelText("Auto for Main House");
+    expect(screen.getByText(/1\.1° past where it would/)).toBeInTheDocument();
   });
 
   it("says when a fixed mode means Auto is not in use", async () => {

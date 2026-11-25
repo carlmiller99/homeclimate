@@ -51,15 +51,16 @@ export const setBuildingMode = (
 
 /** One line saying what a building is doing about heating and cooling. */
 export function describeBuilding(b: BuildingMode): string {
+  const withNote = (text: string) => (b.note ? `${text} ${b.note}.` : text);
   if (b.mode === "off") {
     return "Off. No room here asks for heating or cooling; safety limits still apply.";
   }
-  if (b.mode === "heat_only") return "Heating only. A room that wants cooling waits.";
-  if (b.mode === "cool_only") return "Cooling only. A room that wants heating waits.";
+  if (b.mode === "heat_only") return withNote("Heating only. A room that wants cooling waits.");
+  if (b.mode === "cool_only") return withNote("Cooling only. A room that wants heating waits.");
   if (b.auto_level === "off") return "Each zone chooses heating or cooling for itself.";
   if (!b.side) return "Not on a side yet; the first cycle decides.";
   const side = b.side === "heating" ? "Heating" : "Cooling";
-  const base =
-    b.auto_level === "watch" ? `Watching only: would be on ${b.side}.` : `${side} for every zone.`;
-  return b.note ? `${base} ${b.note}.` : base;
+  return withNote(
+    b.auto_level === "watch" ? `Watching only: would be on ${b.side}.` : `${side} for every zone.`
+  );
 }

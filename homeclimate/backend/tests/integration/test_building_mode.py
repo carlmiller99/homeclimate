@@ -351,3 +351,38 @@ async def test_a_building_with_no_side_takes_the_first_zone_to_start(client, sit
     assert planner.live_side(T2, {}) == (None, True)
     await _on_heating(client, site)
     assert planner.claim(T1, "cooling") is None  # already on a side
+
+
+async def test_a_zone_whose_claim_came_to_nothing_gives_way_next_time(client, site):
+    planner = client.app["scheduler"].building_plan
+    await _mode(client, site, auto_level="on")
+    assert planner.claim(T1, "cooling") == "cooling"
+    # A minute later T1 is still not running: it sits the next turn out.
+    await _plan(client, [_zone(T1), _zone(T2)])
+    assert planner.claim(T1, "cooling") == "hold"
+    assert planner.claim(T2, "heating") == "heating"
+    assert planner.claim(T1, "cooling") == "heating"  # now told the side T2 set
+    # T2 started what it claimed, so it keeps its turn; T1 may claim again too.
+    await _mode(client, site, auto_level="watch")
+    await _mode(client, site, auto_level="on")
+    assert planner.claim(T2, "heating") == "heating"
+    await _plan(client, [_zone(T1, "heating"), _zone(T2, "heating")])
+
+
+async def test_watching_follows_a_zone_that_runs_the_other_way(client, site):
+    """Nothing is held while watching, so the zone simply runs; that counts as its wait."""
+    await _on_heating(client, site)
+    await _mode(client, site, auto_level="watch")
+    planner, switched = await _plan(client, [_zone(T2, "cooling")])
+    assert switched == [] and planner.side_for(T1) == ("heating", False)
+    planner, switched = await _plan(client, [_zone(T2, "cooling")], now=NOW + timedelta(minutes=11))
+    assert switched == [(site, "cooling")]
+    # Once nothing runs the other way, the watch starts over.
+    await _plan(client, [_zone(T2)], now=NOW + timedelta(minutes=12))
+    assert site not in planner._watched_since
+
+
+async def test_auto_says_when_it_is_waiting_for_the_other_side_to_finish(client, site):
+    await _on_heating(client, site)
+    planner, _s = await _plan(client, [_zone(T2, "cooling")])
+    assert planner.decisions()[site].note == "Waiting for cooling to finish"

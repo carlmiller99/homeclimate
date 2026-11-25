@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useUnit } from "../contexts";
 import {
   AUTO_LEVEL_LABELS,
   describeBuilding,
@@ -17,6 +18,7 @@ const LEVEL_HELP: Record<AutoLevel, string> = {
 
 /** Smart Control → Forecasts: how far each building's Auto mode is allowed to go. */
 export default function BuildingAutoCard() {
+  const { isCelsius } = useUnit();
   const [buildings, setBuildings] = useState<BuildingMode[] | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -55,8 +57,9 @@ export default function BuildingAutoCard() {
         Zones that share a building share its air. Auto keeps them all heating or all cooling, so
         one zone is never cooling what another just heated. It switches sides only after the running
         cycle ends, a zone has waited 10 minutes, 4 hours have passed since the last switch, and the
-        forecast does not rule it out, and no more than twice a day. A room 2° past where it would
-        start switches it sooner. Safety limits are never held back.
+        forecast does not rule it out, and no more than twice a day. A room{" "}
+        {isCelsius ? "1.1°" : "2°"} past where it would start switches it sooner. Safety limits are
+        never held back.
       </p>
       {loadFailed && <p className="form-error">Could not load the buildings.</p>}
       {!loadFailed && !buildings && <p className="page-subtitle">Loading the buildings…</p>}
