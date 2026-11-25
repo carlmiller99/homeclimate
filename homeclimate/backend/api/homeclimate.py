@@ -11,8 +11,21 @@ from datetime import date, datetime, time, timedelta
 
 from aiohttp import web
 
-from .. import db, fireplace, forecast, ha_import, heat_pump, learning, openings, shades, tz, zones
-from ..units import delta_to_f, to_f
+from .. import (
+    db,
+    fireplace,
+    forecast,
+    ha_import,
+    heat_pump,
+    house,
+    learning,
+    openings,
+    shades,
+    tz,
+    zones,
+)
+from ..units import delta_to_f, from_f, to_f
+from ..units import from_f_delta as delta_from_f
 from ..user_errors import UserError, safe_text
 from . import schemas
 from .openapi import docs, query_params, request_schema, response_schema
@@ -418,6 +431,94 @@ async def update_learning_settings(request: web.Request) -> web.Response:
         return error(safe_text(exc))
     await emit(request, "info", "api", "Smart Learning settings updated", body)
     return json_response(await _learning_snapshot(request))
+
+
+async def _house_snapshot(request: web.Request) -> dict:
+    conn = await get_conn(request)
+    the_house = await house.load(conn)
+    band = the_house.band
+    return {
+        "house_heat_to": band.heat_to if band else None,
+        "house_cool_to": band.cool_to if band else None,
+        "min_gap": house.MIN_GAP_F,
+        "low": house.LOW_F,
+        "high": house.HIGH_F,
+        "rooms": [
+            {
+                "room_id": room.id,
+                "in_use": the_house.switches(room.id).in_use,
+                "use_schedules": the_house.switches(room.id).use_schedules,
+                "use_presence": the_house.switches(room.id).use_presence,
+            }
+            for room in await db.get_all_rooms(conn)
+        ],
+    }
+
+
+async def _tick_everything(request: web.Request) -> None:
+    """Apply a change to what rooms follow now, not at the next minute's tick."""
+    try:
+        await request.app["scheduler"].tick_all_now()
+    except Exception:
+        log.exception("Could not apply the change straight away")
+
+
+@docs(tags=["house"], summary="The house band and each room's switches")
+@response_schema(schemas.HouseSchema)
+@routes.get("/api/house")
+async def get_house(request: web.Request) -> web.Response:
+    return json_response(await _house_snapshot(request))
+
+
+@docs(
+    tags=["house"],
+    summary="Set or clear the house band",
+    description="Both temperatures in the display unit, or both null to clear the band.",
+)
+@request_schema(schemas.HouseBandSchema)
+@response_schema(schemas.HouseSchema)
+@routes.put("/api/house")
+async def update_house(request: web.Request) -> web.Response:
+    body = await _json_object(request)
+    if set(body) - {"house_heat_to", "house_cool_to"}:
+        return error("Unknown house setting")
+    heat, cool = body.get("house_heat_to"), body.get("house_cool_to")
+    problem = house.check_band(heat, cool)
+    if problem is not None:
+        return error(problem)
+    unit = request.app["scheduler"].get_temperature_unit()
+    conn = await get_conn(request)
+    if heat is None or cool is None:
+        await house.set_band(conn, None, None)
+    else:
+        heat_f, cool_f = to_f(heat, unit), to_f(cool, unit)
+        if not house.band_in_range(heat_f, cool_f):
+            gap = delta_from_f(house.MIN_GAP_F, unit)
+            return error(
+                f"Heat-to and cool-to must be between {from_f(house.LOW_F, unit)} and"
+                f" {from_f(house.HIGH_F, unit)}°{unit}, at least {gap}° apart"
+            )
+        await house.set_band(conn, heat_f, cool_f)
+    await emit(request, "info", "api", "House band changed", body)
+    await _tick_everything(request)
+    return json_response(await _house_snapshot(request))
+
+
+@docs(tags=["house"], summary="Change what one room follows")
+@request_schema(schemas.RoomSwitchesSchema)
+@response_schema(schemas.HouseSchema)
+@routes.put("/api/house/rooms/{room_id}")
+async def update_room_switches(request: web.Request) -> web.Response:
+    body = await _json_object(request)
+    conn = await get_conn(request)
+    try:
+        await house.set_switches(conn, request.match_info["room_id"], body)
+    except UserError as exc:
+        text = safe_text(exc)
+        return error(text, status=404 if text == house.ROOM_UNKNOWN else 400)
+    await emit(request, "info", "api", "Room switches changed", body)
+    await _tick_everything(request)
+    return json_response(await _house_snapshot(request))
 
 
 async def _fireplaces_snapshot(request: web.Request, *, refresh: bool = False) -> dict:

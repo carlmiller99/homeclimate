@@ -402,6 +402,25 @@ describe("Logs Page", () => {
     expect(await screen.findByText(/safety protection/i)).toBeInTheDocument();
   });
 
+  it("labels a room that ran on the house band in the cycle detail", async () => {
+    vi.mocked(api.getCycleDetail).mockResolvedValue({
+      ...mockCycleDetail,
+      rooms: [
+        {
+          ...mockCycleDetail.rooms[0],
+          source: "house",
+          trigger_detail: { source: "house", target: 68 },
+        },
+      ],
+    });
+    render(<Logs />);
+
+    fireEvent.click(screen.getByText("Cycle History"));
+    fireEvent.click(await screen.findByText(/climate\.test/i));
+
+    expect(await screen.findByText(/house band/i)).toBeInTheDocument();
+  });
+
   it("opens the temperature chart modal for a room", async () => {
     vi.mocked(api.getCycleDetail).mockResolvedValue(mockCycleDetail);
     vi.mocked(api.getCycleTempSamples).mockResolvedValue(mockTempSamples);

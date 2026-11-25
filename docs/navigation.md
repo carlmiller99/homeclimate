@@ -16,6 +16,8 @@ Zones are grouped by building, and every room is listed under its zone with its 
 
 Manual controls live here and nowhere else:
 
+- The **House** band at the top: one Heat To and Cool To for every room. See [House band](./house-band.md).
+- **Options** on each room: whether it is in use, and whether it follows its schedules and occupancy or the house band.
 - **Hold** and **Cancel Hold** on each room, and the page-level **Temporary hold** button. See [Temperature holds](./temperature-holds.md).
 - **Clear Presence** on a room that presence is holding active.
 - **Suspend Eco**, for the house or for one zone. See [Eco Mode](./eco-mode.md).

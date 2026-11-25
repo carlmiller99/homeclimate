@@ -7,6 +7,11 @@ import { SystemContext, DevModeContext } from "../contexts";
 import { notifyStateChanged } from "../stateEvents";
 
 vi.mock("../api");
+// The house band has its own tests (Dashboard.house.test.tsx); here it never loads.
+vi.mock("../houseApi", async (orig) => ({
+  ...(await orig<typeof import("../houseApi")>()),
+  getHouse: () => Promise.reject(new Error("house not loaded")),
+}));
 vi.mock("../smartControlApi", async (orig) => ({
   ...(await orig<typeof import("../smartControlApi")>()),
   getSmartControl: vi
@@ -116,7 +121,7 @@ describe("Dashboard Page", () => {
       </SystemContext.Provider>
     );
 
-    expect(await screen.findByText(/Dashboard/i)).toBeInTheDocument();
+    expect(await screen.findByText("Dashboard")).toBeInTheDocument();
     expect(await screen.findByText(/Main HVAC/i)).toBeInTheDocument();
     expect(screen.getByText("75.2°F")).toBeInTheDocument();
     expect(screen.getByText("72.0°F")).toBeInTheDocument();

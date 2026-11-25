@@ -10,6 +10,11 @@ import { within, render, screen } from "@testing-library/react";
 // re-import with a fresh module registry (same approach as ci.test.tsx).
 
 vi.mock("../api");
+// The house band has its own tests (Dashboard.house.test.tsx); here it never loads.
+vi.mock("../houseApi", async (orig) => ({
+  ...(await orig<typeof import("../houseApi")>()),
+  getHouse: () => Promise.reject(new Error("house not loaded")),
+}));
 vi.mock("../smartControlApi", async (orig) => ({
   ...(await orig<typeof import("../smartControlApi")>()),
   getSmartControl: vi

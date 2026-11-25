@@ -85,6 +85,20 @@ export const TEMPERATURE_FIELDS: TempField[] = [
     endpoints: ["POST /api/thermostats", "PUT /api/thermostats/{id}"],
   },
 
+  // ── House band — PUT /api/house (Dashboard)
+  {
+    field: "house_heat_to",
+    kind: "absolute_nullable",
+    ui: true,
+    endpoints: ["PUT /api/house"],
+  },
+  {
+    field: "house_cool_to",
+    kind: "absolute_nullable",
+    ui: true,
+    endpoints: ["PUT /api/house"],
+  },
+
   // ── Room — POST /api/rooms, PUT /api/rooms/{id}
   {
     field: "system_wide_temp",

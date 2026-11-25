@@ -479,6 +479,9 @@ TEMPERATURE_FIELDS: dict[str, str] = {
     "deadband": "delta",
     "overshoot_delta": "delta",
     "cooling_lockout_below_f": "absolute_nullable",
+    # House band (backend/house.py) — PUT /api/house
+    "house_heat_to": "absolute_nullable",
+    "house_cool_to": "absolute_nullable",
     # Room
     "system_wide_temp": "absolute_nullable",
     "temp_offset": "delta",

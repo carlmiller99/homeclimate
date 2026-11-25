@@ -258,6 +258,15 @@ CREATE TABLE IF NOT EXISTS room_readings (
     PRIMARY KEY (room_key, ts)
 ) WITHOUT ROWID;
 
+-- Per-room switches for what a room follows (backend/house.py). A room with
+-- no row has every switch on.
+CREATE TABLE IF NOT EXISTS room_switches (
+    room_id TEXT PRIMARY KEY,
+    in_use INTEGER NOT NULL DEFAULT 1,
+    use_schedules INTEGER NOT NULL DEFAULT 1,
+    use_presence INTEGER NOT NULL DEFAULT 1
+);
+
 -- Fireplaces (backend/fireplace.py): the entity that says one is lit, the
 -- rooms it warms, and what to do about it. last_lit_at is Unix seconds, so a
 -- cool-down survives a restart.
@@ -1465,6 +1474,7 @@ async def upsert_room(conn: aiosqlite.Connection, room: Room) -> None:
 async def delete_room(conn: aiosqlite.Connection, room_id: str) -> None:
     await conn.execute("DELETE FROM rooms WHERE id=?", (room_id,))
     await conn.execute("DELETE FROM fireplace_rooms WHERE room_id=?", (room_id,))
+    await conn.execute("DELETE FROM room_switches WHERE room_id=?", (room_id,))
     await conn.commit()
 
 

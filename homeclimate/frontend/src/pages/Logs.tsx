@@ -165,6 +165,9 @@ function triggerSummary(
   if (source === "safety") {
     return "safety protection";
   }
+  if (source === "house") {
+    return "house band";
+  }
   return source ?? "";
 }
 

@@ -17,7 +17,7 @@ from datetime import UTC, datetime, time, timedelta
 
 import aiosqlite
 
-from .. import db, tz
+from .. import db, house, tz
 from ..models import PresenceHoldoverState, Room, Schedule
 
 log = logging.getLogger(__name__)
@@ -48,6 +48,12 @@ class ActiveRoom:
     # via their own branch, and the default preserves #419 for restored
     # snapshots that predate the flag.
     respect_eco: bool = False
+    # A band instead of one target (the house band, Smart Control). When set,
+    # ``target_temp`` is derived from it each tick by the engine: heat-to in a
+    # heating cycle, cool-to in a cooling cycle (see ``house.Band.target_for``).
+    # ``None`` for every single-target source.
+    heat_to: float | None = None
+    cool_to: float | None = None
 
 
 async def get_active_rooms(
@@ -65,9 +71,10 @@ async def get_active_rooms(
     for s in all_schedules:
         schedules_by_room.setdefault(s.room_id, []).append(s)
 
+    the_house = await house.load(conn)
     active: list[ActiveRoom] = []
     for room in rooms:
-        result = await _resolve_room(conn, room, schedules_by_room.get(room.id, []), now)
+        result = await _resolve_room(conn, room, schedules_by_room.get(room.id, []), now, the_house)
         if result.source != "idle":
             active.append(result)
     return active
@@ -78,7 +85,18 @@ async def _resolve_room(
     room: Room,
     schedules: list[Schedule],
     now: datetime,
+    the_house: house.House | None = None,
 ) -> ActiveRoom:
+    """What a room is following right now, most specific first.
+
+    Hold, then schedule, then occupancy, then the house band. The room's
+    switches (``house.RoomSwitches``) can take the schedule and occupancy steps
+    out, and a room that is not in use follows nothing but a hold.
+    """
+    if the_house is None:
+        the_house = await house.load(conn)
+    switches = the_house.switches(room.id)
+
     # 1. Override
     override = await db.get_room_override(conn, room.id)
     if override and override.expires_at > now:
@@ -89,8 +107,11 @@ async def _resolve_room(
             respect_eco=override.respect_eco,
         )
 
+    if not switches.in_use:
+        return ActiveRoom(room=room, target_temp=0.0, source="idle")
+
     # 2. Schedule
-    match = _find_matching_schedule(schedules, now)
+    match = _find_matching_schedule(schedules, now) if switches.use_schedules else None
     if match is not None:
         return ActiveRoom(
             room=room,
@@ -100,7 +121,7 @@ async def _resolve_room(
         )
 
     # 3. Presence holdover
-    if room.presence_holdover_hours > 0:
+    if switches.use_presence and room.presence_holdover_hours > 0:
         holdover = await db.get_holdover_state(conn, room.id)
         if holdover and holdover.expires_at > now:
             # Room-level temp takes priority; fall back to thermostat default_temp
@@ -116,6 +137,17 @@ async def _resolve_room(
                     "(set room system_wide_temp or thermostat default_temp) — skipping",
                     room.name,
                 )
+
+    # 4. The house band
+    band = the_house.band
+    if band is not None:
+        return ActiveRoom(
+            room=room,
+            target_temp=band.heat_to,
+            source="house",
+            heat_to=band.heat_to,
+            cool_to=band.cool_to,
+        )
 
     return ActiveRoom(room=room, target_temp=0.0, source="idle")
 
@@ -353,7 +385,8 @@ async def get_room_active_status(
     Shape:
     {
         "room_id": str,
-        "source": "schedule" | "presence" | "override" | "idle",
+        "source": "schedule" | "presence" | "override" | "house" | "idle",
+        "heat_to": float | None, "cool_to": float | None,  # only for source="house"
         "target_temp": float | None,
         "ends_in_seconds": int | None,
         "override_respect_eco": bool | None,  # non-None only for source="override"
@@ -406,7 +439,9 @@ async def get_room_active_status(
     return {
         "room_id": room.id,
         "source": resolved.source,
-        "target_temp": resolved.target_temp if resolved.source != "idle" else None,
+        "target_temp": (resolved.target_temp if resolved.source not in ("idle", "house") else None),
+        "heat_to": resolved.heat_to,
+        "cool_to": resolved.cool_to,
         "ends_in_seconds": ends_in_seconds,
         "override_respect_eco": override_respect_eco,
         "presence_holdover_active": presence_holdover_active,

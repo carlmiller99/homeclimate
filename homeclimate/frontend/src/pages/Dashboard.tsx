@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import {
   getStatus,
   getRooms,
@@ -25,6 +25,9 @@ import {
   type Building,
   type ZoneProfile,
 } from "../zonesApi";
+import HouseBandCard from "../components/HouseBandCard";
+import RoomFollowDialog from "../components/RoomFollowDialog";
+import { getHouse, switchesFor, type House } from "../houseApi";
 import { getSmartControl, type SmartControl } from "../smartControlApi";
 import { useTimeZone, useUnit } from "../contexts";
 import { onStateChanged } from "../stateEvents";
@@ -98,6 +101,12 @@ function modeLabel(action: string, state: string): string {
   return state;
 }
 
+/** The house band's per-room switches, and how to open a room's options. Null until loaded. */
+const HouseContext = createContext<{
+  house: House;
+  openOptions: (room: { id: string; name: string }) => void;
+} | null>(null);
+
 function RoomRow({
   room,
   active,
@@ -121,6 +130,8 @@ function RoomRow({
   onCancelHold: () => void;
   onClearPresence: () => void;
 }) {
+  const houseCtx = useContext(HouseContext);
+  const notInUse = houseCtx !== null && !switchesFor(houseCtx.house, room.id).in_use;
   const { fmtTemp } = useUnit();
   const ventEntries = Object.entries(active?.vent_states ?? {});
   const openCount = ventEntries.filter(([, s]) => s === "open").length;
@@ -158,6 +169,15 @@ function RoomRow({
           {paused && (
             <span className="badge badge-orange" role="status" title={pausedText(paused)}>
               Paused
+            </span>
+          )}
+          {notInUse && (
+            <span
+              className="badge badge-gray"
+              role="status"
+              title="This room is not in use: only a hold or its safety limits will heat or cool it"
+            >
+              Not In Use
             </span>
           )}
           {fireplace && (
@@ -228,6 +248,16 @@ function RoomRow({
             onClick={onHold}
           >
             Hold
+          </button>
+        )}
+        {houseCtx && (
+          <button
+            className="btn btn-sm btn-secondary"
+            title="Choose whether this room is in use, and whether it follows its schedules and occupancy or the house band."
+            aria-label={`Options for ${room.name}`}
+            onClick={() => houseCtx.openOptions(room)}
+          >
+            Options
           </button>
         )}
         {active?.presence_active && (
@@ -512,6 +542,8 @@ export default function Dashboard() {
     map: {},
   });
   const [smart, setSmart] = useState<SmartControl | null>(null);
+  const [house, setHouse] = useState<House | null>(null);
+  const [optionsFor, setOptionsFor] = useState<{ id: string; name: string } | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [actionError, setActionError] = useState("");
 
@@ -534,12 +566,14 @@ export default function Dashboard() {
     setLoadFailed(false);
     // Building layout, pauses and idle-room temperatures are extras: a failure
     // here leaves the zone cards ungrouped and idle rooms showing "—".
-    const [b, zp, sc, health] = await Promise.all([
+    const [b, zp, sc, health, hs] = await Promise.all([
       getBuildings().catch(() => [] as Building[]),
       getZones().catch(() => [] as ZoneProfile[]),
       getSmartControl().catch(() => null),
       getSensorHealth().catch(() => null),
+      getHouse().catch(() => null),
     ]);
+    setHouse(hs ?? null);
     setBuildings(b);
     setProfiles(zp);
     setSmart(sc ?? null);
@@ -651,209 +685,223 @@ export default function Dashboard() {
       </div>
     );
 
+  const houseCtx = house ? { house, openOptions: setOptionsFor } : null;
   return (
-    <div>
-      <div className="page-header">
-        <div>
-          <div className="page-title">Dashboard</div>
-          <div className="page-subtitle">
-            {zones.length} zone{zones.length !== 1 ? "s" : ""} · {rooms.length} room
-            {rooms.length !== 1 ? "s" : ""}
-            {lastUpdate && (
-              <>
-                {" · Updated "}
-                <Frozen>
-                  <Time value={lastUpdate} kind="time" />
-                </Frozen>
-              </>
-            )}
+    <HouseContext.Provider value={houseCtx}>
+      <div>
+        <div className="page-header">
+          <div>
+            <div className="page-title">Dashboard</div>
+            <div className="page-subtitle">
+              {zones.length} zone{zones.length !== 1 ? "s" : ""} · {rooms.length} room
+              {rooms.length !== 1 ? "s" : ""}
+              {lastUpdate && (
+                <>
+                  {" · Updated "}
+                  <Frozen>
+                    <Time value={lastUpdate} kind="time" />
+                  </Frozen>
+                </>
+              )}
+            </div>
           </div>
-        </div>
-        <button className="btn btn-secondary" onClick={load}>
-          ↻ Refresh
-        </button>
-      </div>
-
-      <AirflowConfigBanner />
-      <UnavailableThermostatsBanner />
-      <StaleSensorsBanner />
-
-      {/* Vacation mode + Eco Suspend buttons — sit above climate cards */}
-      <div style={{ marginBottom: "1rem" }}>
-        <div style={{ display: "flex", gap: ".5rem", flexWrap: "wrap" }}>
-          <button
-            className={`btn ${vacationMode.enabled ? "btn-warning" : "btn-secondary"}`}
-            onClick={() => setShowVacationModal(true)}
-            style={{ display: "flex", alignItems: "center", gap: ".5rem" }}
-          >
-            {`✈ ${
-              vacationMode.enabled
-                ? "Vacation mode active"
-                : vacationState(vacationMode) === "scheduled"
-                  ? "Vacation scheduled"
-                  : "Enable vacation mode"
-            }`}
+          <button className="btn btn-secondary" onClick={load}>
+            ↻ Refresh
           </button>
-          {/* Only shown when Eco is in play somewhere: a thermostat has Eco
+        </div>
+
+        <AirflowConfigBanner />
+        <UnavailableThermostatsBanner />
+        <StaleSensorsBanner />
+
+        {house && <HouseBandCard house={house} onSaved={setHouse} />}
+
+        {/* Vacation mode + Eco Suspend buttons — sit above climate cards */}
+        <div style={{ marginBottom: "1rem" }}>
+          <div style={{ display: "flex", gap: ".5rem", flexWrap: "wrap" }}>
+            <button
+              className={`btn ${vacationMode.enabled ? "btn-warning" : "btn-secondary"}`}
+              onClick={() => setShowVacationModal(true)}
+              style={{ display: "flex", alignItems: "center", gap: ".5rem" }}
+            >
+              {`✈ ${
+                vacationMode.enabled
+                  ? "Vacation mode active"
+                  : vacationState(vacationMode) === "scheduled"
+                    ? "Vacation scheduled"
+                    : "Enable vacation mode"
+              }`}
+            </button>
+            {/* Only shown when Eco is in play somewhere: a thermostat has Eco
               enabled, a room has an explicit Eco opt-in, or a suspension is
               already active (#500). */}
-          {(thermostats.some((t) => t.eco_mode_enabled || t.eco_suspend_until) ||
-            rooms.some((r) => r.eco_mode_enabled === true)) && (
-            <button
-              className="btn btn-secondary"
-              data-testid="dashboard-eco-suspend-btn"
-              onClick={() => setEcoSuspendFor({})}
-              style={{ display: "flex", alignItems: "center", gap: ".5rem" }}
-            >
-              🍃{" "}
-              {thermostats.some((t) => t.eco_suspend_until)
-                ? "Eco suspended — manage"
-                : "Suspend Eco"}
-            </button>
-          )}
-          {/* Temporary hold (#576): hold one room at an exact temperature for
+            {(thermostats.some((t) => t.eco_mode_enabled || t.eco_suspend_until) ||
+              rooms.some((r) => r.eco_mode_enabled === true)) && (
+              <button
+                className="btn btn-secondary"
+                data-testid="dashboard-eco-suspend-btn"
+                onClick={() => setEcoSuspendFor({})}
+                style={{ display: "flex", alignItems: "center", gap: ".5rem" }}
+              >
+                🍃{" "}
+                {thermostats.some((t) => t.eco_suspend_until)
+                  ? "Eco suspended — manage"
+                  : "Suspend Eco"}
+              </button>
+            )}
+            {/* Temporary hold (#576): hold one room at an exact temperature for
               1–8 hours, overriding its schedules and presence. */}
-          {rooms.length > 0 && (
-            <button
-              className="btn btn-secondary"
-              data-testid="dashboard-hold-btn"
-              onClick={() => setHoldModalFor({})}
-              style={{ display: "flex", alignItems: "center", gap: ".5rem" }}
-            >
-              🕒{" "}
-              {holds.length > 0
-                ? `${holds.length} hold${holds.length !== 1 ? "s" : ""} active — manage`
-                : "Temporary hold"}
-            </button>
-          )}
-        </div>
-        {vacationMode.enabled && vacationMode.return_at && (
-          <div
-            className="form-hint"
-            style={{ marginTop: ".4rem" }}
-            title={tz.tooltip(vacationMode.return_at)}
-          >
-            {`Schedules paused until ${tz.format(vacationMode.return_at)}`}
+            {rooms.length > 0 && (
+              <button
+                className="btn btn-secondary"
+                data-testid="dashboard-hold-btn"
+                onClick={() => setHoldModalFor({})}
+                style={{ display: "flex", alignItems: "center", gap: ".5rem" }}
+              >
+                🕒{" "}
+                {holds.length > 0
+                  ? `${holds.length} hold${holds.length !== 1 ? "s" : ""} active — manage`
+                  : "Temporary hold"}
+              </button>
+            )}
           </div>
-        )}
-        {actionError && <p className="form-error">{actionError}</p>}
-        {/* Active holds strip (#576): every live hold — including rooms that
+          {vacationMode.enabled && vacationMode.return_at && (
+            <div
+              className="form-hint"
+              style={{ marginTop: ".4rem" }}
+              title={tz.tooltip(vacationMode.return_at)}
+            >
+              {`Schedules paused until ${tz.format(vacationMode.return_at)}`}
+            </div>
+          )}
+          {actionError && <p className="form-error">{actionError}</p>}
+          {/* Active holds strip (#576): every live hold — including rooms that
             are not part of a running cycle — with a cancel next to each. The
             countdown is backend-derived and time-varying, so it is frozen for
             the visual goldens; name/target/eco tag are stable and stay live. */}
-        {holds.map((h) => {
-          const room = rooms.find((r) => r.id === h.room_id);
-          return (
-            <div
-              key={h.room_id}
-              className="form-hint"
-              data-testid={`dashboard-hold-${h.room_id}`}
-              style={{ marginTop: ".4rem", display: "flex", alignItems: "center", gap: ".5rem" }}
-            >
-              <span>
-                🕒 <strong>{room?.name ?? h.room_id}</strong> held at{" "}
-                <strong>{fmtTemp(h.target_temp)}</strong> · ends in{" "}
-                <Frozen>{formatCountdown(h.ends_in_seconds)}</Frozen> ·{" "}
-                {h.respect_eco ? "Eco may relax" : "ignores Eco"}
-              </span>
-              <button
-                className="btn btn-sm btn-outline-danger"
-                style={{ padding: "0 .5rem", fontSize: ".75rem" }}
-                title="End the hold now — the room returns to its schedules and presence."
-                onClick={() => cancelHold(h.room_id)}
+          {holds.map((h) => {
+            const room = rooms.find((r) => r.id === h.room_id);
+            return (
+              <div
+                key={h.room_id}
+                className="form-hint"
+                data-testid={`dashboard-hold-${h.room_id}`}
+                style={{ marginTop: ".4rem", display: "flex", alignItems: "center", gap: ".5rem" }}
               >
-                Cancel
-              </button>
-            </div>
-          );
-        })}
-      </div>
-
-      {zones.length === 0 ? (
-        <div className="card">
-          <div className="empty-state">
-            <p>No zones set up yet.</p>
-            <p style={{ marginTop: ".5rem" }}>
-              Go to <strong>My Home</strong> to add your first zone.
-            </p>
-          </div>
-        </div>
-      ) : (
-        groupByBuilding(
-          buildings,
-          [...zones].sort(
-            (a, b) =>
-              (profiles.find((p) => p.thermostat_entity_id === a.thermostat_entity_id)
-                ?.sort_order ?? 0) -
-              (profiles.find((p) => p.thermostat_entity_id === b.thermostat_entity_id)
-                ?.sort_order ?? 0)
-          ),
-          (z) =>
-            profiles.find((p) => p.thermostat_entity_id === z.thermostat_entity_id)?.building_id ??
-            null
-        )
-          // A building with no zones has nothing to show here; My Home lists it.
-          .filter((group) => group.items.length > 0)
-          .map((group) => (
-            <section
-              key={group.building?.id ?? "unassigned"}
-              className="dash-building"
-              data-testid={`dash-building-${group.building?.id ?? "unassigned"}`}
-            >
-              {buildings.length > 0 && (
-                <div className="dash-building-title">{group.building?.name ?? "Other Zones"}</div>
-              )}
-              <div className="card-grid">
-                {group.items.map((z) => (
-                  <ZoneCard
-                    key={z.thermostat_entity_id}
-                    zone={z}
-                    rooms={rooms}
-                    thermostats={thermostats}
-                    heldRoomIds={new Set(holds.map((h) => h.room_id))}
-                    temps={temps}
-                    smart={smart}
-                    onHold={(roomId) => setHoldModalFor({ room: roomId })}
-                    onCancelHold={cancelHold}
-                    onClearPresence={load}
-                    onSuspendEco={(tid) => setEcoSuspendFor({ thermostat: tid })}
-                    showActiveRoomsSample={z === zones[0]}
-                  />
-                ))}
+                <span>
+                  🕒 <strong>{room?.name ?? h.room_id}</strong> held at{" "}
+                  <strong>{fmtTemp(h.target_temp)}</strong> · ends in{" "}
+                  <Frozen>{formatCountdown(h.ends_in_seconds)}</Frozen> ·{" "}
+                  {h.respect_eco ? "Eco may relax" : "ignores Eco"}
+                </span>
+                <button
+                  className="btn btn-sm btn-outline-danger"
+                  style={{ padding: "0 .5rem", fontSize: ".75rem" }}
+                  title="End the hold now — the room returns to its schedules and presence."
+                  onClick={() => cancelHold(h.room_id)}
+                >
+                  Cancel
+                </button>
               </div>
-            </section>
-          ))
-      )}
+            );
+          })}
+        </div>
 
-      {showVacationModal && (
-        <VacationModeModal
-          current={vacationMode}
-          onClose={() => setShowVacationModal(false)}
-          onChanged={(updated) => {
-            setVacationMode(updated);
-            setShowVacationModal(false);
-          }}
-        />
-      )}
+        {zones.length === 0 ? (
+          <div className="card">
+            <div className="empty-state">
+              <p>No zones set up yet.</p>
+              <p style={{ marginTop: ".5rem" }}>
+                Go to <strong>My Home</strong> to add your first zone.
+              </p>
+            </div>
+          </div>
+        ) : (
+          groupByBuilding(
+            buildings,
+            [...zones].sort(
+              (a, b) =>
+                (profiles.find((p) => p.thermostat_entity_id === a.thermostat_entity_id)
+                  ?.sort_order ?? 0) -
+                (profiles.find((p) => p.thermostat_entity_id === b.thermostat_entity_id)
+                  ?.sort_order ?? 0)
+            ),
+            (z) =>
+              profiles.find((p) => p.thermostat_entity_id === z.thermostat_entity_id)
+                ?.building_id ?? null
+          )
+            // A building with no zones has nothing to show here; My Home lists it.
+            .filter((group) => group.items.length > 0)
+            .map((group) => (
+              <section
+                key={group.building?.id ?? "unassigned"}
+                className="dash-building"
+                data-testid={`dash-building-${group.building?.id ?? "unassigned"}`}
+              >
+                {buildings.length > 0 && (
+                  <div className="dash-building-title">{group.building?.name ?? "Other Zones"}</div>
+                )}
+                <div className="card-grid">
+                  {group.items.map((z) => (
+                    <ZoneCard
+                      key={z.thermostat_entity_id}
+                      zone={z}
+                      rooms={rooms}
+                      thermostats={thermostats}
+                      heldRoomIds={new Set(holds.map((h) => h.room_id))}
+                      temps={temps}
+                      smart={smart}
+                      onHold={(roomId) => setHoldModalFor({ room: roomId })}
+                      onCancelHold={cancelHold}
+                      onClearPresence={load}
+                      onSuspendEco={(tid) => setEcoSuspendFor({ thermostat: tid })}
+                      showActiveRoomsSample={z === zones[0]}
+                    />
+                  ))}
+                </div>
+              </section>
+            ))
+        )}
 
-      {ecoSuspendFor && (
-        <EcoSuspendModal
-          thermostats={thermostats}
-          initialThermostat={ecoSuspendFor.thermostat}
-          onClose={() => setEcoSuspendFor(null)}
-          onChanged={load}
-        />
-      )}
+        {showVacationModal && (
+          <VacationModeModal
+            current={vacationMode}
+            onClose={() => setShowVacationModal(false)}
+            onChanged={(updated) => {
+              setVacationMode(updated);
+              setShowVacationModal(false);
+            }}
+          />
+        )}
 
-      {holdModalFor && (
-        <HoldModal
-          rooms={rooms}
-          initialRoom={holdModalFor.room}
-          holds={Object.fromEntries(holds.map((h) => [h.room_id, h]))}
-          onClose={() => setHoldModalFor(null)}
-          onChanged={load}
-        />
-      )}
-    </div>
+        {ecoSuspendFor && (
+          <EcoSuspendModal
+            thermostats={thermostats}
+            initialThermostat={ecoSuspendFor.thermostat}
+            onClose={() => setEcoSuspendFor(null)}
+            onChanged={load}
+          />
+        )}
+
+        {holdModalFor && (
+          <HoldModal
+            rooms={rooms}
+            initialRoom={holdModalFor.room}
+            holds={Object.fromEntries(holds.map((h) => [h.room_id, h]))}
+            onClose={() => setHoldModalFor(null)}
+            onChanged={load}
+          />
+        )}
+        {optionsFor && house && (
+          <RoomFollowDialog
+            roomId={optionsFor.id}
+            roomName={optionsFor.name}
+            switches={switchesFor(house, optionsFor.id)}
+            onSaved={setHouse}
+            onClose={() => setOptionsFor(null)}
+          />
+        )}
+      </div>
+    </HouseContext.Provider>
   );
 }

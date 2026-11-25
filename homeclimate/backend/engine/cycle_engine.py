@@ -21,7 +21,7 @@ from typing import Any
 
 import aiosqlite
 
-from .. import db, eco
+from .. import db, eco, house
 from .. import heat_pump as hp_rules
 from ..event_logger import EventLogger
 from ..ha_client import HAClient
@@ -741,6 +741,14 @@ class CycleEngine:
         # vacation this is the sole source of demand, `new_active_map` having
         # been seeded empty just above.
         await self._add_safety_rooms(conn, new_active_map)
+        # Rooms following a band (the house band) get this tick's single
+        # target: the edge the running cycle is working toward, or with no
+        # cycle running, their own temperature held inside the band.
+        self._apply_bands(
+            new_active_map,
+            self._cycle_mode if self._state != CycleState.IDLE else None,
+            thermo_state,
+        )
 
         # Surface room-sensor staleness before any decisions are made off the
         # (now stale-filtered) data. Once-per-episode rate-limited internally.
@@ -889,6 +897,10 @@ class CycleEngine:
                     return
 
             effective_mode = inferred
+            # A cycle is about to start in this direction: banded rooms now
+            # work to that edge, so a room inside its band is filtered out below
+            # like any room that needs the other direction.
+            self._apply_bands(new_active_map, inferred, thermo_state)
         else:
             effective_mode = self._cycle_mode or hvac_mode
 
@@ -4228,6 +4240,11 @@ class CycleEngine:
                 )
                 if match is not None:
                     ar.deadband_override = match.deadband_override
+            elif source == "house":
+                # The band is not in the snapshot: re-read it as it stands now.
+                band = (await house.load(conn)).band
+                if band is not None:
+                    ar.heat_to, ar.cool_to = band.heat_to, band.cool_to
             elif source == "override":
                 # #576: respect_eco is not in the snapshot either — re-read it
                 # from the live hold row (the #517 pattern above). Without this
@@ -5470,6 +5487,27 @@ class CycleEngine:
             )
             return True
         return False
+
+    def _apply_bands(
+        self, active_rooms: dict[str, ActiveRoom], mode: str | None, thermo_state: dict | None
+    ) -> None:
+        """Give every banded room its single target for this tick (house.Band)."""
+        ambient: float | None = None
+        if thermo_state:
+            ambient = _climate_temp_to_f(
+                thermo_state.get("attributes", {}).get("current_temperature"),
+                self._ha.ha_temp_unit,
+            )
+        for ar in active_rooms.values():
+            if ar.heat_to is None or ar.cool_to is None:
+                continue
+            temp: float | None = None
+            if mode not in ("heating", "cooling"):
+                avg = self._get_avg_temp(ar.room)
+                if avg is None:
+                    avg = ambient  # the same stand-in the mode vote uses
+                temp = None if avg is None else avg + ar.room.temp_offset
+            ar.target_temp = house.Band(ar.heat_to, ar.cool_to).target_for(mode, temp)
 
     async def _fire_is_warming_this_zone(self, conn: aiosqlite.Connection) -> bool:
         """Whether a lit fireplace has set aside any room of this zone."""
