@@ -82,10 +82,11 @@ jobs:
         with:
           fetch-depth: 0 # merge-base diff against the PR base
 
-      - name: Classify diff (code vs docs-only, and UI-affecting)
+      - name: Classify diff (code vs docs-only, and which slow legs)
         id: filter
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_REF: ${{ github.head_ref }}
         run: |
           if [ -z "${BASE_SHA}" ]; then
             # workflow_dispatch has no PR diff — run everything.
@@ -110,26 +111,36 @@ jobs:
           fi
           # The three slow integration legs each run only when something they
           # exercise changed, to spare Actions minutes (a private repo has a
-          # monthly allowance). The temperature round-trip also runs on a
-          # release PR (config.yaml) and on an image, compose or workflow
-          # change. The MQTT and MCP legs do not: a release that touched
-          # neither has nothing new for them to find.
+          # monthly allowance).
+          #   full  an image, compose or workflow change, or a release PR's
+          #         version bump: runs the temperature round-trip, the one leg
+          #         that drives the whole stack through the browser. The MQTT
+          #         and MCP legs do not run for these: a release, image or
+          #         workflow change that touched nothing of theirs has nothing
+          #         new for them to find.
+          #   deps  pyproject.toml outside a release PR, where it is only the
+          #         version line: a dependency bump (the mcp SDK, aiomqtt) is
+          #         exactly what the MQTT and MCP legs exist to catch.
           full=false
-          if grep -qE '^(homeclimate/config\.yaml|homeclimate/Dockerfile|homeclimate/run\.sh|homeclimate/pyproject\.toml|docker-compose\.test|\.github/)' /tmp/changed.txt; then
-            full=true
-          fi
+          if grep -qE '^(homeclimate/config\.yaml|homeclimate/Dockerfile|homeclimate/run\.sh|homeclimate/pyproject\.toml|docker-compose\.test|\.github/)' /tmp/changed.txt; then full=true; fi
+          deps=false
+          case "${HEAD_REF}" in
+            release/v*) ;;
+            *) if grep -qE '^homeclimate/pyproject\.toml$' /tmp/changed.txt; then deps=true; fi ;;
+          esac
           leg() {
-            if { [ "$3" = always-on-full ] && [ "$full" = true ]; } || grep -qE "$2" /tmp/changed.txt; then
+            if { [ "$3" = on-full ] && [ "$full" = true ]; } || { [ "$3" = on-deps ] && [ "$deps" = true ]; } || grep -qE "$2" /tmp/changed.txt; then
               echo "$1=true" >> "$GITHUB_OUTPUT"
             else
               echo "Nothing the $1 leg exercises changed — it will be skipped."
               echo "$1=false" >> "$GITHUB_OUTPUT"
             fi
           }
-          # Temperature round-trip: the forms, the specs, and the write boundary.
-          leg units '^(homeclimate/frontend/|e2e/(tests|global-setup|playwright)|homeclimate/backend/(api/|units\.py|db\.py|models\.py|house\.py|building_mode\.py))' always-on-full
-          leg mqtt '^(homeclimate/backend/(mqtt/|api/|models\.py|db\.py|scheduler\.py)|e2e/scripts/mqtt|docker-compose\.test\.mqtt)'
-          leg mcp '^(homeclimate/backend/(mcp|api/|auth\.py|tests/integration/test_mcp_conformance)|docker-compose\.test\.mcp)'
+          # Temperature round-trip: the forms, the specs, their fixtures and
+          # everything that converts or feeds a value on the way to storage.
+          leg units '^(homeclimate/frontend/|homeclimate/config\.yaml|e2e/(tests|global-setup|playwright|fixtures|scripts/setup-ha|package)|homeclimate/backend/(api/|units\.py|db\.py|models\.py|house\.py|building_mode\.py|ha_client\.py|scheduler\.py|zones\.py))' on-full
+          leg mqtt '^(homeclimate/backend/(mqtt/|api/|models\.py|db\.py|scheduler\.py|units\.py|ha_client\.py|main\.py)|e2e/scripts/(mqtt|setup-ha)|e2e/fixtures/|docker-compose\.test\.mqtt|homeclimate/run\.sh)' on-deps
+          leg mcp '^(homeclimate/backend/(mcp|api/|auth\.py|oidc\.py|session\.py|scopes\.py|main\.py|tests/integration/|tests/conftest)|e2e/scripts/setup-ha|e2e/fixtures/|docker-compose\.test\.mcp)' on-deps
 
   # -----------------------------------------------------------------------
   # Build the image once. Mode (ci-<sha> / release :<version> / fork artifact)

@@ -239,7 +239,7 @@ class TestRollupTriggerEndpoints:
 
 
 class TestRoomDevicePickers:
-    """`/api/ha/entities?kind=…&room=…` behind My Home → Edit Devices."""
+    """`/api/ha/entities?kind=…&room=…` behind My Home's room device boxes."""
 
     def _seed(self, fake_ha):
         temp = {"device_class": "temperature", "unit_of_measurement": "°F"}

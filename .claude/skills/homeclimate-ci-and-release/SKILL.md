@@ -12,6 +12,9 @@ description: >
   .github/workflows/.
 ---
 
+
+> **Read first: the screenshot pipeline is gone.** The visual-regression jobs (`E2E visual regression (F)/(C)/(auth)`), `Commit updated goldens`, the `ui` output of the `changes` job, `e2e/scripts/stage-goldens.py`, the committed PNGs and the second frozen image built on release PRs were all removed. Everything below about goldens, the golden bot and `outputs.ui` is history. `lint.yml` runs on pull requests only. The round-trip, MQTT and MCP legs are gated on the `units` / `mqtt` / `mcp` outputs. The repo's `CLAUDE.md` and the workflow YAML are current.
+
 # HomeClimate CI and Release
 
 Everything here was verified against the workflow YAML on the branch as of

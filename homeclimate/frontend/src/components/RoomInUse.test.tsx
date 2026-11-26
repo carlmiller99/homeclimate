@@ -149,6 +149,19 @@ describe("Whether a room is in use", () => {
     expect(ha.setRoomSwitches).not.toHaveBeenCalled();
   });
 
+  it("shows the calendar as dropped even when turning the room on is then refused", async () => {
+    vi.mocked(ha.setRoomSwitches).mockRejectedValueOnce(new Error("Try again"));
+    render(<Harness initial={house()} />);
+    fireEvent.click(radio("Always"));
+    expect(await screen.findByText("Try again")).toBeInTheDocument();
+    // The calendar is gone, so the room shows what it is by hand, and a retry
+    // sets In Use without trying to clear a calendar it no longer follows.
+    expect(radio("Never")).toBeChecked();
+    fireEvent.click(radio("Always"));
+    await waitFor(() => expect(radio("Always")).toBeChecked());
+    expect(ha.clearRoomCalendar).toHaveBeenCalledTimes(1);
+  });
+
   it("runs one change at a time, and puts back what is stored when one is refused", async () => {
     let finish!: (h: ha.House) => void;
     vi.mocked(ha.setRoomCalendar).mockReturnValueOnce(new Promise((r) => (finish = r)));

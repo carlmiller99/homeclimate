@@ -247,6 +247,16 @@ describe("Dashboard targets", () => {
     expect(await within(kitchen).findByText("Follows Main: 68 to 75.2°F")).toBeInTheDocument();
   });
 
+  it("opens a building's zone targets when a zone there has its own", async () => {
+    vi.mocked(zonesApi.getBuildings).mockResolvedValue([
+      { id: "b1", name: "Main House", sort_order: 0 },
+    ]);
+    vi.mocked(zonesApi.getZones).mockResolvedValue([{ ...ZONE, building_id: "b1" }]);
+    show();
+    const summary = await screen.findByText("Targets for zones in Main House");
+    expect(summary.closest("details")).toHaveAttribute("open");
+  });
+
   it("puts a building first, with its zones and rooms under it", async () => {
     vi.mocked(zonesApi.getBuildings).mockResolvedValue([
       { id: "b1", name: "Main House", sort_order: 0 },
@@ -260,7 +270,10 @@ describe("Dashboard targets", () => {
     );
     show();
     expect(await screen.findByLabelText("Heating Target for Main House (°F)")).toHaveValue(71);
-    expect(screen.getByText("Targets for zones in Main House")).toBeInTheDocument();
+    // Folded while every zone follows the building.
+    expect(
+      screen.getByText("Targets for zones in Main House").closest("details")
+    ).not.toHaveAttribute("open");
     // The zone follows its building, and the room follows through the zone.
     expect(
       within(screen.getByRole("group", { name: "Main" })).getByText(

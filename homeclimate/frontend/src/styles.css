@@ -1825,22 +1825,22 @@ tr:hover td {
   outline: 3px solid var(--state-cooling);
   outline-offset: 2px;
 }
-.notice {
+.note-box {
   display: flex;
   gap: 0.75rem;
   align-items: flex-start;
   border-radius: 14px;
   padding: 0.75rem 0.9rem;
 }
-.notice p {
+.note-box p {
   flex: 1;
   font-size: 0.875rem;
 }
-.notice-heat {
+.note-box.notice-heat {
   background: var(--orange-light);
   color: var(--orange-text);
 }
-.notice-paused {
+.note-box.notice-paused {
   background: var(--state-paused-bg);
   color: var(--state-paused-text);
 }
@@ -3019,7 +3019,7 @@ button.sc-nav-item {
   justify-items: start;
 }
 
-/* Smart Control → One Side Per Building */
+/* Smart Control → Auto Mode */
 .auto-fields {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));

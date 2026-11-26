@@ -672,8 +672,12 @@ describe("Zones page", () => {
     fireEvent.click(screen.getAllByRole("button", { name: "Edit Zone" })[1]);
     expect(screen.getByRole("region", { name: "Edit climate.loose" })).toBeInTheDocument();
     expect(screen.getByText("card Loose Stat")).toBeInTheDocument();
-    // Close, or a click outside the sheet, puts the page back.
+    // A click beside the sheet does not drop two unsaved forms; Close does.
     fireEvent.click(screen.getByRole("dialog"));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    fireEvent.click(
+      within(screen.getByRole("dialog")).getAllByRole("button", { name: "Close" })[0]
+    );
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 

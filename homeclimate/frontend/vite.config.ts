@@ -36,7 +36,8 @@ export default defineConfig({
       // consecutive full runs (identical both times).
       // Every remaining gap is enumerated in the PR that set these; they are
       // defensive fallbacks and unreachable-in-jsdom paths, not untested
-      // behaviour. Raise these when coverage rises; never lower them.
+      // behaviour. Raise these when coverage rises. They were set to 99.5 on purpose, to stop a
+      // hundredth of a percent failing a whole run; do not lower them further.
       thresholds: {
         lines: 99.5,
         functions: 99.5,

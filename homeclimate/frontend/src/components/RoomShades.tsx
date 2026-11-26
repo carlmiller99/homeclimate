@@ -95,28 +95,21 @@ function PositionInput({
 
 function ShadeRow({
   shade,
-  rooms,
   azimuth,
   onSave,
   onRemove,
 }: {
   shade: Shade;
-  /** Given outside a room, to say which room each shade is in. */
-  rooms?: Room[];
   azimuth: number | null;
   onSave: (entityId: string, data: ShadeWrite) => void;
   onRemove: (entityId: string) => void;
 }) {
-  const room = rooms?.find((r) => r.id === shade.room_id);
   return (
     <div className="shade-row">
       <Dial facing={shade.facing} azimuth={azimuth} name={shade.name} />
       <div className="shade-name">
         <div className="sensor-title">{shade.name}</div>
-        <div className="shade-why">
-          {room ? `${room.name}. ` : ""}
-          {shade.reason || "Waiting for the next check."}
-        </div>
+        <div className="shade-why">{shade.reason || "Waiting for the next check."}</div>
       </div>
       <label className="sensor-scope">
         Window Faces

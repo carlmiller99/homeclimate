@@ -993,7 +993,16 @@ export default function Dashboard() {
                         // its own targets are folded away; one in no building has
                         // nothing above it and is shown outright.
                         return group.building ? (
-                          <details className="targets-more">
+                          <details
+                            className="targets-more"
+                            // Open when a zone here has targets of its own, so an
+                            // override is never out of sight.
+                            open={(house.targets ?? []).some(
+                              (t) =>
+                                t.scope === "zone" &&
+                                group.items.some((z) => z.thermostat_entity_id === t.scope_id)
+                            )}
+                          >
                             <summary>{`Targets for zones in ${group.building.name}`}</summary>
                             {zoneRows}
                           </details>
@@ -1026,7 +1035,11 @@ export default function Dashboard() {
             <RoomDetailsModal
               level={levelOfRoom(detailsFor.id, detailsFor.name)}
               house={house}
-              temp={temps[detailsFor.id] ?? null}
+              temp={
+                zones.flatMap((z) => z.rooms).find((a) => a.room_id === detailsFor.id)?.avg_temp ??
+                temps[detailsFor.id] ??
+                null
+              }
               readings={readings[detailsFor.id] ?? []}
               held={holds.some((h) => h.room_id === detailsFor.id)}
               status={roomStatus(detailsFor.id)}

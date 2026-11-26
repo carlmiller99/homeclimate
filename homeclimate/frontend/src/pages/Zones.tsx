@@ -268,7 +268,7 @@ function ZoneEditor({
         </p>
 
         {needsKitCheck && (
-          <div className="notice notice-heat" role="note">
+          <div className="note-box notice-heat" role="note">
             <p>{HEAT_KIT_WARNING}</p>
             <button
               type="button"
@@ -377,7 +377,8 @@ function ZoneEditor({
 /**
  * My Home → Edit Zone: one dialog for everything about a zone. Its equipment
  * and its thermostat's settings are two tabs of the same sheet; both stay
- * mounted, so switching tabs keeps what was typed in the other.
+ * mounted, so switching tabs keeps what was typed in the other. Only Close
+ * closes it: a stray click beside the sheet must not drop two unsaved forms.
  */
 function EditZoneDialog({
   zone,
@@ -398,7 +399,6 @@ function EditZoneDialog({
       role="dialog"
       aria-modal="true"
       aria-label={`Edit zone ${name}`}
-      onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <div className="modal edit-zone">
         <div className="edit-zone-head">

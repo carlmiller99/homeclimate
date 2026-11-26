@@ -77,7 +77,13 @@ export default function RoomInUse({
     const want = next === "always";
     void run(async () => {
       // A calendar sets In Use itself, so it goes first.
-      let h = calendar ? await clearRoomCalendar(room.id) : house;
+      let h = house;
+      if (calendar) {
+        h = await clearRoomCalendar(room.id);
+        // Shown at once: if the next step is refused, the room has still
+        // stopped following its calendar, and a retry must not clear it again.
+        onHouse(h);
+      }
       if (switchesFor(h, room.id).in_use !== want) {
         h = await setRoomSwitches(room.id, { in_use: want });
       }
