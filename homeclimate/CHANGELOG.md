@@ -1,6 +1,13 @@
 # Changelog
 
-## 0.5.8
+## 0.5.14
+
+The first release from `main` since 0.5.0. It carries everything listed below under 0.5.2 to 0.5.13, which until now was only in test builds.
+
+- Analytics: chart axis labels keep the theme's colour in dark mode after the charting library update.
+- Dependency updates (recharts 3.11, react-router 8.5.2 and development tooling).
+
+## 0.5.8 to 0.5.13 (test builds)
 
 - Dashboard → Today's Plan: the next 24 forecast hours marked as heating, coasting or cooling against the house band, the next schedule blocks and peak hours on the clock, and yesterday in a sentence. It shows; it changes nothing.
 - Smart Learning: rooms with a window of known direction (a shade in My Home) now learn how much the sun warms them, and that is used wherever a room is predicted to drift by itself. The sun's position and strength are adapted from RoomMind (MIT; see THIRD_PARTY_NOTICES.md).
