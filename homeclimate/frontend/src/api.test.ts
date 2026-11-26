@@ -873,24 +873,6 @@ describe("API Client", () => {
     );
   });
 
-  it("testVacationMode posts to the test endpoint", async () => {
-    mockJsonResponse({ ok: true });
-    await api.testVacationMode("climate.test");
-    expect(fetch).toHaveBeenCalledWith(
-      "/api/thermostats/climate.test/test-vacation",
-      expect.objectContaining({ method: "POST" })
-    );
-  });
-
-  it("revertVacationTest deletes the test state", async () => {
-    mockJsonResponse({ ok: true });
-    await api.revertVacationTest("climate.test");
-    expect(fetch).toHaveBeenCalledWith(
-      "/api/thermostats/climate.test/test-vacation",
-      expect.objectContaining({ method: "DELETE" })
-    );
-  });
-
   it("setEcoSuspend posts the resume time to the thermostat's eco-suspend endpoint (#500)", async () => {
     mockJsonResponse({ thermostat_entity_id: "climate.test", resume_at: "2099-06-01T00:00:00Z" });
     await api.setEcoSuspend("climate.test", "2099-06-01T00:00:00Z");

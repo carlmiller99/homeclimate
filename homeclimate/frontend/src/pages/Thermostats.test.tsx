@@ -26,7 +26,6 @@ const mockThermostats: api.ThermostatConfig[] = [
     overshoot_delta: 0.5,
     cycle_timeout_hours: 2,
     reconciliation_interval_min: 5,
-    vacation_hvac_mode: "single" as const,
     vacation_safety_cycles: true,
     min_cycle_runtime_min: 0,
     min_cycle_offtime_min: 0,
@@ -698,7 +697,7 @@ describe("Thermostats Page", () => {
   });
 });
 
-describe("Thermostats Page — vacation mode selector", () => {
+describe("Thermostats Page — while you are away", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(api.getRooms).mockResolvedValue([]);
@@ -712,71 +711,18 @@ describe("Thermostats Page — vacation mode selector", () => {
     vi.mocked(api.downloadBackup).mockReturnValue(undefined);
   });
 
-  it("renders the Vacation HVAC mode selector", async () => {
+  it("says how the zone is held while the house is away", async () => {
     render(<Thermostats />);
-    expect(await screen.findByLabelText(/Vacation HVAC mode/i)).toBeInTheDocument();
+    expect(await screen.findByText(/On vacation this zone is kept between/)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/Vacation HVAC mode/i)).not.toBeInTheDocument();
   });
 
-  it("shows helper text for single setpoint mode", async () => {
-    render(<Thermostats />);
-    await screen.findByLabelText(/Vacation HVAC mode/i);
-    // Issue #638: the hold parks in a recovered direction rather than
-    // commanding the HVAC off; this phrase is unique to the single-setpoint
-    // branch (the range branch describes a bare heat_cool range instead).
-    expect(screen.getByText(/While you are away the house is kept between/)).toBeInTheDocument();
-  });
-
-  it("shows helper text and Test button for range mode", async () => {
-    vi.mocked(api.getThermostats).mockResolvedValue([
-      { ...mockThermostats[0], vacation_hvac_mode: "range" as const },
-    ]);
-    render(<Thermostats />);
-    await screen.findByLabelText(/Vacation HVAC mode/i);
-    expect(screen.getAllByText(/Test auto mode/i).length).toBeGreaterThan(0);
-    // Anchor on prose that ONLY the range branch renders. The previous
-    // /heat_cool.*auto/i matched the <option>Range (heat_cool / auto)</option>
-    // in the selector — present in BOTH modes — so it passed with the range
-    // helper-text branch stubbed out entirely (verified by mutation). The
-    // strings below are direct text nodes of the range hint, so they are
-    // reachable by getByText and unique to that branch.
-    expect(screen.getByText(/The thermostat keeps the house between/)).toBeVisible();
-    expect(screen.queryByText(/While you are away the house is kept between/)).toBeNull();
-    // The range hint quotes the current min/max bounds, so the two setpoints
-    // reach the user as the range they will actually be held between.
-    const hint = screen
-      .getByText(/The thermostat keeps the house between/)
-      .closest(".form-hint") as HTMLElement;
-    expect(hint).toHaveTextContent("60°F");
-    expect(hint).toHaveTextContent("80°F");
-  });
-
-  it("Test button calls testVacationMode and shows Revert button", async () => {
-    vi.mocked(api.getThermostats).mockResolvedValue([
-      { ...mockThermostats[0], vacation_hvac_mode: "range" as const },
-    ]);
-    vi.mocked(api.testVacationMode).mockResolvedValue({
-      ok: true,
-      min_setpoint: 60,
-      max_setpoint: 80,
-      thermostat_state: {},
-    });
-    render(<Thermostats />);
-    const testBtn = await screen.findByRole("button", { name: /Test auto mode/i });
-    fireEvent.click(testBtn);
-    await waitFor(() => expect(api.testVacationMode).toHaveBeenCalledWith("climate.test"));
-    expect(await screen.findByText(/Check your thermostat/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Revert test/i })).toBeInTheDocument();
-  });
-
-  it("offers per-room safety cycles in single-setpoint mode and posts the toggle (#626)", async () => {
+  it("offers per-room safety cycles and posts the toggle (#626)", async () => {
     vi.mocked(api.updateThermostat).mockResolvedValue({} as api.ThermostatConfig);
     render(<Thermostats />);
-    await screen.findByLabelText(/Vacation HVAC mode/i);
-
-    const toggle = screen.getByLabelText(/Run per-room safety cycles during vacation/i);
+    const toggle = await screen.findByLabelText(/Run per-room safety cycles during vacation/i);
     expect(toggle).toBeChecked();
     expect(toggle).toBeEnabled();
-    // The single-setpoint hint points at the per-room control below it.
     expect(screen.getByText(/gets heating or cooling for that room/)).toBeVisible();
 
     fireEvent.click(toggle);
@@ -786,44 +732,6 @@ describe("Thermostats Page — vacation mode selector", () => {
     await waitFor(() => expect(api.updateThermostat).toHaveBeenCalled());
     const [, body] = vi.mocked(api.updateThermostat).mock.calls[0];
     expect(body).toMatchObject({ vacation_safety_cycles: false });
-  });
-
-  it("disables per-room safety cycles in range mode and says why (#626)", async () => {
-    vi.mocked(api.getThermostats).mockResolvedValue([
-      { ...mockThermostats[0], vacation_hvac_mode: "range" as const },
-    ]);
-    render(<Thermostats />);
-    await screen.findByLabelText(/Vacation HVAC mode/i);
-
-    expect(screen.getByLabelText(/Run per-room safety cycles during vacation/i)).toBeDisabled();
-    // The range hint must warn that sensing falls back to the thermostat's own
-    // probe, and recommend single setpoint. Asserted as whole text nodes so a
-    // reword is a deliberate two-file change.
-    expect(
-      screen.getByText(/Room sensors are not used, and nothing guards against short cycles/)
-    ).toBeVisible();
-    expect(screen.getByText(/Not available in/)).toBeVisible();
-  });
-
-  it("Revert button calls revertVacationTest", async () => {
-    vi.mocked(api.getThermostats).mockResolvedValue([
-      { ...mockThermostats[0], vacation_hvac_mode: "range" as const },
-    ]);
-    vi.mocked(api.testVacationMode).mockResolvedValue({
-      ok: true,
-      min_setpoint: 60,
-      max_setpoint: 80,
-      thermostat_state: {},
-    });
-    vi.mocked(api.revertVacationTest).mockResolvedValue({ ok: true });
-    render(<Thermostats />);
-    const testBtn = await screen.findByRole("button", { name: /Test auto mode/i });
-    fireEvent.click(testBtn);
-    const revertBtn = await screen.findByRole("button", { name: /Revert test/i });
-    fireEvent.click(revertBtn);
-    await waitFor(() => expect(api.revertVacationTest).toHaveBeenCalledWith("climate.test"));
-    expect(await screen.findByText(/Reverted/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Test auto mode/i })).toBeInTheDocument();
   });
 });
 

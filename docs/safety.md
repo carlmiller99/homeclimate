@@ -34,7 +34,7 @@ Together these mean HomeClimate cannot, by construction, create an opposite-dire
 
 While the off-time lockout is active, the engine refuses to start a new cycle and writes a warning to the event log noting how long remains. An already-running cycle is never interrupted by the lockout.
 
-The clock starts whenever the compressor stops, whichever part of the engine stopped it — a cycle ending, or the single-setpoint [vacation hold](./vacation-mode.md) sending a command that could mean a `cool` or `heat_cool` compressor run just ended. That covers switching the thermostat away from `cool`/`heat_cool` entirely, and also just correcting its parked setpoint while staying in `cool` — either can follow a real compressor run, so both start the clock. Heating stops do not start it; the lockout protects the compressor, and heat is furnace-side.
+The clock starts whenever the compressor stops, whichever part of the engine stopped it — a cycle ending, or the [vacation hold](./vacation-mode.md) sending a command that could mean a `cool` or `heat_cool` compressor run just ended. That covers switching the thermostat away from `cool`/`heat_cool` entirely, and also just correcting its parked setpoint while staying in `cool` — either can follow a real compressor run, so both start the clock. Heating stops do not start it; the lockout protects the compressor, and heat is furnace-side.
 
 ### Existing thermostats
 
@@ -136,7 +136,7 @@ Thermostats registered before this safety shipped have `total_vents_count = null
 
 A few longer-standing limits on the [Thermostat settings](./thermostat-settings.md) page also protect equipment:
 
-- **Min / max setpoint** — hard clamps; HomeClimate never commands the thermostat outside this range. During [vacation mode](./vacation-mode.md) this pair also becomes the whole-house hold band, and on a single-setpoint thermostat a room whose own sensor leaves it starts a safety cycle just as it would outside vacation.
+- **Min / max setpoint** — hard clamps; HomeClimate never commands the thermostat outside this range. During [vacation mode](./vacation-mode.md) this pair also becomes the whole-house hold band, and a room whose own sensor leaves it starts a safety cycle just as it would outside vacation.
 - **Max vent closed** — force-reopen a vent after this long, a safety valve for systems that need airflow.
 - **Cycle timeout** — abort a cycle that runs too long (stuck equipment, unreachable sensors).
 - **Abort when thermostat unavailable (min)** (Issue #267) — while the climate entity is unavailable in Home Assistant, the engine skips its tick, which suspends every other per-tick safety monitor above (cycle timeout, max-vent-closed watchdog, reconciliation) even though the physical HVAC may keep running at the last commanded setpoint. Once the entity has been unavailable this long, a running cycle is aborted and all zone vents are re-opened. Shorter outages are tolerated and the cycle resumes untouched. Recommended **5 min**. `0` = never abort (not recommended).

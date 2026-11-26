@@ -417,20 +417,6 @@ class TestCreateThermostatSetpointValidation:
 
 
 class TestCreateThermostatFieldLoop:
-    async def test_vacation_hvac_mode_invalid_rejected(self, client):
-        resp = await client.post("/api/thermostats", json={**BASE, "vacation_hvac_mode": "auto"})
-        assert resp.status == 400
-        assert (await resp.json())["error"] == "vacation_hvac_mode must be 'range' or 'single'"
-        assert await (await client.get("/api/thermostats")).json() == []
-
-    @pytest.mark.parametrize("mode", ["range", "single"])
-    async def test_vacation_hvac_mode_persists(self, client, mode):
-        resp = await client.post("/api/thermostats", json={**BASE, "vacation_hvac_mode": mode})
-        assert resp.status == 201, await resp.text()
-        assert (await resp.json())["vacation_hvac_mode"] == mode
-        listing = await (await client.get("/api/thermostats")).json()
-        assert listing[0]["vacation_hvac_mode"] == mode
-
     async def test_cooling_lockout_below_f_persists(self, client):
         resp = await client.post("/api/thermostats", json={**BASE, "cooling_lockout_below_f": 55})
         assert resp.status == 201, await resp.text()
@@ -466,6 +452,33 @@ class TestCreateThermostatFieldLoop:
         assert (await resp.json())["overflow_during_min_runtime"] is value
         listing = await (await client.get("/api/thermostats")).json()
         assert listing[0]["overflow_during_min_runtime"] is value
+
+    async def test_empty_zone_hours_persist_on_create_and_update(self, client):
+        """Eco Mode, Let an Empty Zone Drift Further: hours, not a temperature."""
+        client.app["scheduler"]._active_unit = "C"
+        try:
+            resp = await client.post("/api/thermostats", json={**BASE, "eco_empty_zone_hours": 3})
+            assert resp.status == 201, await resp.text()
+            created = await resp.json()
+            tid = created["thermostat_entity_id"]
+            resp = await client.put(f"/api/thermostats/{tid}", json={"eco_empty_zone_hours": 0.5})
+            updated = await resp.json()
+        finally:
+            client.app["scheduler"]._active_unit = "F"
+        assert created["eco_empty_zone_hours"] == 3.0
+        assert updated["eco_empty_zone_hours"] == 0.5
+        listing = await (await client.get("/api/thermostats")).json()
+        assert listing[0]["eco_empty_zone_hours"] == 0.5
+
+    @pytest.mark.parametrize("bad", [-1, 72.5, "2", True, None])
+    async def test_empty_zone_hours_invalid_rejected(self, client, bad):
+        resp = await client.post("/api/thermostats", json={**BASE, "eco_empty_zone_hours": bad})
+        assert resp.status == 400
+        assert "eco_empty_zone_hours must be" in (await resp.json())["error"]
+        made = await client.post("/api/thermostats", json=BASE)
+        tid = (await made.json())["thermostat_entity_id"]
+        resp = await client.put(f"/api/thermostats/{tid}", json={"eco_empty_zone_hours": bad})
+        assert resp.status == 400
 
     @pytest.mark.parametrize("bad", [-1, 2.5, "10", True])
     async def test_unavailable_abort_after_min_invalid_rejected(self, client, bad):

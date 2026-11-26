@@ -374,6 +374,11 @@ function ZoneCard({
               <Frozen>{activeRooms}</Frozen>
               {` of ${totalRooms} ${totalRooms === 1 ? "room" : "rooms"} asking`}
             </span>
+            {zone.empty_drift && (
+              <span className="dash-zone-asking" title="Eco Mode: nobody is using this zone">
+                Empty, drifting further
+              </span>
+            )}
           </div>
         </div>
         {/* hvac action badge flips Cooling/Heating/Idle as the engine cycles */}

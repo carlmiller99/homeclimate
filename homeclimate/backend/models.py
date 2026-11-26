@@ -237,10 +237,6 @@ class ThermostatConfig:
     # intended state and corrects external changes (e.g. Flair app, manual HA overrides).
     # 0 = disabled. Should not exceed cycle_timeout_hours * 60.
     reconciliation_interval_min: int = 0
-    # How to hold the thermostat during vacation mode:
-    # "range"   → set heat_cool/auto mode with low=min_setpoint, high=max_setpoint
-    # "single"  → turn off; re-engage heat/cool when a bound is breached
-    vacation_hvac_mode: str = "single"
     # Per-room safety cycles during vacation mode (Issue #626). When True, a
     # room that breaches the comfort envelope while vacation mode is active
     # starts a real cycle through the normal engine path (``_add_safety_rooms``)
@@ -248,12 +244,6 @@ class ThermostatConfig:
     # min-runtime/off-time guards and vent control all apply as they do outside
     # vacation. Schedules, presence and overrides stay paused either way; a
     # safety breach is the ONLY thing that can create demand during vacation.
-    #
-    # Only honoured when ``vacation_hvac_mode == "single"``. A "range"
-    # thermostat holds heat_cool natively and the equipment owns the heat/cool
-    # decision, so the engine cannot lock a cycle direction (#26/#29) — range
-    # mode therefore keeps the pre-#626 hold, which senses on the thermostat's
-    # own built-in ambient probe only.
     vacation_safety_cycles: bool = True
     # Welcome home (Issue #728): before a vacation's return time, one
     # synthetic presence tick for every room on this thermostat.
@@ -308,6 +298,11 @@ class ThermostatConfig:
     eco_heating_full_drift_temp: float = 0.0  # °F absolute (outdoor)
     eco_heating_max_drift: float = 4.0  # °F delta
     eco_hysteresis_band: float = 2.0  # °F delta
+    # Let an empty zone drift further (Eco Mode). Hours with nothing asking for
+    # any room of the zone (no hold, schedule or occupancy) before its rooms
+    # that only follow their targets may drift ``eco.EMPTY_ZONE_EXTRA_F``
+    # further on both sides. 0 = off. Only while Eco Mode is on.
+    eco_empty_zone_hours: float = 0.0
     # Eco Suspend (Issue #500) — READ-ONLY in API responses. Not a
     # thermostat_configs column: the state lives in the eco_suspensions table
     # (its own expiry-bearing row) so the config upsert can never clobber it
@@ -493,3 +488,5 @@ class ZoneStatus:
     arrival_rooms: list[str] = field(default_factory=list)
     # Rooms being cooled ahead of a warm afternoon (Early Cooling).
     early_cool_rooms: list[str] = field(default_factory=list)
+    # The zone's rooms are drifting further because nobody is using it (Eco Mode).
+    empty_drift: bool = False

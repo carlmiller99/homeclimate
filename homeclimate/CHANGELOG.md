@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.19
+
+- Vacation Mode: the **Range** hold is gone. HomeClimate always decides when to heat and cool while you are away, and never hands that to the thermostat's own heat-and-cool mode. A thermostat that was set to Range now holds like every other, and the **Test auto mode** button is gone with it. To let a thermostat run the house by itself, turn HomeClimate off.
+- Smart Control → Eco Mode: **Let an Empty Zone Drift Further**. After nobody has used a zone for the hours you set, its rooms may drift 2 °F (1.1 °C) further, and return to their targets when someone does.
+- The repository is now public under the AGPL-3.0 licence.
+
 ## 0.5.18
 
 - Warnings look the same on every page: a quiet row saying what and why, the particulars folded under Details, and a link to where it is fixed. The orange and yellow Dashboard banners are gone.

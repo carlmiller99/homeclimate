@@ -2343,6 +2343,7 @@ class Scheduler:
             "bank_rooms": s.bank_rooms,
             "arrival_rooms": s.arrival_rooms,
             "early_cool_rooms": s.early_cool_rooms,
+            "empty_drift": s.empty_drift,
             "rooms": [
                 {
                     "room_id": r.room_id,

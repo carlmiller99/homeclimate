@@ -75,7 +75,7 @@ async def test_the_zone_backstop_still_heats_a_fire_zone_that_is_too_cold():
 
 
 async def test_vacation_mode_never_cools_a_zone_a_fire_is_warming():
-    """Range and single-setpoint holds alike: hot from a fire means off, not cooling."""
+    """On vacation, hot from a fire means off, not cooling."""
     from backend import db
     from backend.models import ThermostatConfig
 
@@ -83,10 +83,10 @@ async def test_vacation_mode_never_cools_a_zone_a_fire_is_warming():
     from .test_cycle_engine_gaps_c import _make_engine as _engine_with_logger
     from .test_cycle_engine_gaps_c import _make_ha as _ha_with_awaits
 
-    for vacation_mode in ("range", "single"):
+    for _trip in range(1):
         conn = await _two_scheduled_rooms()
         tc = ThermostatConfig(thermostat_entity_id=THERMO_ID, name="Zone")
-        tc.min_setpoint, tc.max_setpoint, tc.vacation_hvac_mode = 62.0, 80.0, vacation_mode
+        tc.min_setpoint, tc.max_setpoint = 62.0, 80.0
         await db.upsert_thermostat_config(conn, tc)
         ha = _ha_with_awaits(ambient=88.0)
         logger = AsyncMock()
@@ -95,11 +95,10 @@ async def test_vacation_mode_never_cools_a_zone_a_fire_is_warming():
         hot = {"state": "cool", "attributes": {"current_temperature": 88.0}}
         for _ in range(3):
             await engine._apply_vacation_hold(conn, hot)
-        ha.set_thermostat_temperature_range.assert_not_awaited()
         ha.set_thermostat_temperature.assert_not_awaited()
         ha.set_thermostat_hvac_mode.assert_awaited_with(THERMO_ID, "off")
         messages = [c.args[2] for c in logger.log.await_args_list]
-        assert len(messages) == 1 and "cooling is not commanded" in messages[0], vacation_mode
+        assert len(messages) == 1 and "cooling is not commanded" in messages[0]
 
         # Inside the band it parks in heat, never cool: the fire's own heat on
         # the thermostat must not be able to start the compressor. (A fresh
@@ -109,7 +108,6 @@ async def test_vacation_mode_never_cools_a_zone_a_fire_is_warming():
         parked._get_fireplace_rooms = lambda: frozenset({"r1"})
         inside = {"state": "heat_cool", "attributes": {"current_temperature": 72.0}}
         await parked._apply_vacation_hold(conn, inside)
-        park_ha.set_thermostat_temperature_range.assert_not_awaited()
         assert park_ha.set_thermostat_temperature.await_args.kwargs.get("hvac_mode") == "heat"
 
         # A failed "off" says so and is retried next tick, not raised.
@@ -118,17 +116,3 @@ async def test_vacation_mode_never_cools_a_zone_a_fire_is_warming():
         await engine._apply_vacation_hold(conn, hot)
         assert "could not turn the equipment off" in logger.log.await_args_list[-1].args[2]
         await conn.close()
-
-    # No fire: the range hold is used as before.
-    conn = await _two_scheduled_rooms()
-    tc = ThermostatConfig(thermostat_entity_id=THERMO_ID, name="Zone")
-    tc.vacation_hvac_mode = "range"
-    await db.upsert_thermostat_config(conn, tc)
-    ha = _ha_with_awaits(ambient=88.0)
-    engine = _engine_with_logger(ha, AsyncMock())
-    engine._get_fireplace_rooms = lambda: frozenset({"elsewhere"})
-    await engine._apply_vacation_hold(
-        conn, {"state": "cool", "attributes": {"current_temperature": 88.0}}
-    )
-    ha.set_thermostat_temperature_range.assert_awaited()
-    await conn.close()

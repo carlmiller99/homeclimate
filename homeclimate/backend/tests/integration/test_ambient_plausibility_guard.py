@@ -39,7 +39,6 @@ async def _configure(client, *, min_setpoint: float = 60.0, max_setpoint: float 
             "min_setpoint": min_setpoint,
             "max_setpoint": max_setpoint,
             "deadband": 1.0,
-            "vacation_hvac_mode": "single",
             "vacation_safety_cycles": False,
         },
     )

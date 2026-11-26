@@ -451,14 +451,11 @@ Full user doc: `docs/vacation-mode.md`; behavior verified in code.
   routes.py:1924). **Disable**: `DELETE /api/settings/vacation-mode` or the
   banner's "End vacation mode early". State: `GET /api/settings/vacation-mode`.
 - While active: all schedules, presence triggers, and overrides are ignored;
-  any running cycle is aborted; each tick applies the per-thermostat hold
-  strategy `vacation_hvac_mode` (`cycle_engine.py:_apply_vacation_hold`):
-  - `"range"` — thermostat put in heat_cool/auto with low=`min_setpoint`,
-    high=`max_setpoint`, re-asserted every tick. Test a thermostat's auto
-    support first via `POST /api/thermostats/{id}/test-vacation` (and DELETE
-    to revert).
-  - `"single"` (default) — thermostat off; heats to `min_setpoint` when below
-    it, cools to `max_setpoint` when above it.
+  any running cycle is aborted; each tick applies the hold
+  (`cycle_engine.py:_apply_vacation_hold`): the thermostat is parked in
+  heat or cool, heats past `min_setpoint` when below it and cools past
+  `max_setpoint` when above it. There is no range (heat_cool) hold; it was
+  removed in 0.5.19.
 - Overflow conditioning is disabled during vacation regardless of settings
   (`docs/overflow-conditioning.md`).
 - Ends automatically at `return_at` (checked periodically,

@@ -113,14 +113,7 @@ export interface ThermostatConfig {
   // 0 = disabled. How often (minutes) the engine re-checks vent/thermostat state
   // against actual HA state and corrects external changes.
   reconciliation_interval_min: number;
-  // How to hold the thermostat during vacation mode.
-  // "range"  → heat_cool/auto with low=min_setpoint, high=max_setpoint
-  // "single" → turn off; correct when a bound is breached
-  vacation_hvac_mode: "range" | "single";
-  // Per-room safety cycles during vacation (#626). Only honoured when
-  // vacation_hvac_mode is "single" — a range thermostat holds heat_cool and the
-  // equipment owns the heat/cool decision, so the engine cannot lock a cycle
-  // direction and falls back to sensing on the thermostat's own probe.
+  // Per-room safety cycles during vacation (#626).
   vacation_safety_cycles: boolean;
   // Welcome home before a vacation return (Issue #728): one presence tick for
   // every room, welcome_home_lead_min before return_at, held for
@@ -173,6 +166,8 @@ export interface ThermostatConfig {
   eco_heating_full_drift_temp: number;
   eco_heating_max_drift: number;
   eco_hysteresis_band: number;
+  /** Hours a zone must be empty before Eco Mode lets it drift further; 0 is off. */
+  eco_empty_zone_hours?: number;
   // Eco Suspend (Issue #500) — READ-ONLY. ISO-8601 UTC datetime while Eco is
   // temporarily suspended for this thermostat; null otherwise. Never send this
   // on config saves — use setEcoSuspend / clearEcoSuspend.
@@ -216,6 +211,8 @@ export interface ZoneStatus {
   arrival_rooms?: string[];
   /** Rooms being cooled ahead of a warm afternoon (Early Cooling). */
   early_cool_rooms?: string[];
+  /** The zone's rooms are drifting further because nobody is using it (Eco Mode). */
+  empty_drift?: boolean;
   rooms: RoomLiveStatus[];
 }
 
@@ -1200,17 +1197,6 @@ export const clearEcoSuspend = (entity_id: string) =>
   api<EcoSuspend>(`/api/thermostats/${encodeURIComponent(entity_id)}/eco-suspend`, {
     method: "DELETE",
   });
-export const testVacationMode = (entity_id: string) =>
-  api<{ ok: true; min_setpoint: number; max_setpoint: number; thermostat_state: unknown }>(
-    `/api/thermostats/${encodeURIComponent(entity_id)}/test-vacation`,
-    { method: "POST" }
-  );
-
-export const revertVacationTest = (entity_id: string) =>
-  api<{ ok: true }>(`/api/thermostats/${encodeURIComponent(entity_id)}/test-vacation`, {
-    method: "DELETE",
-  });
-
 export const restartApp = () => api<{ restarting: true }>("/api/restart", { method: "POST" });
 
 // ---------------------------------------------------------------------------

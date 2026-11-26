@@ -465,13 +465,6 @@ class EcoSuspendSchema(Schema):
     )
 
 
-class VacationTestSchema(Schema):
-    ok = fields.Bool()
-    min_setpoint = fields.Float(allow_none=True)
-    max_setpoint = fields.Float(allow_none=True)
-    thermostat_state = fields.Dict()
-
-
 class AppSettingsSchema(Schema):
     temperature_unit = fields.Str()
     unit_change_ack_required = fields.Bool()

@@ -59,7 +59,6 @@ class _FakeHA:
         self.ages: dict[str, float | None] = {}
         self.numeric: dict[str, float | None] = {}
         self.set_thermostat_temperature = AsyncMock()
-        self.set_thermostat_temperature_range = AsyncMock()
         self.set_thermostat_hvac_mode = AsyncMock()
         self.open_cover = AsyncMock()
         self.close_cover = AsyncMock()

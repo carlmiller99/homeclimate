@@ -5,8 +5,6 @@ POST   /api/settings/vacation-mode  → enable
 DELETE /api/settings/vacation-mode  → disable
 GET    /api/settings/vacation-mode  → status
 GET    /api/settings               → includes vacation_mode key
-PUT    /api/thermostats/{id}        → persists vacation_hvac_mode
-POST   /api/thermostats/{id}/test-vacation → sends range command
 """
 
 from __future__ import annotations
@@ -18,8 +16,6 @@ from aiohttp.test_utils import TestClient
 
 from backend import db
 from backend.models import Room, ThermostatConfig
-
-from .fake_ha import FakeHomeAssistant
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -133,64 +129,31 @@ async def test_disable_vacation_mode(client: TestClient):
 
 
 # ---------------------------------------------------------------------------
-# PUT /api/thermostats — vacation_hvac_mode field
+# The range vacation hold is gone
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_thermostat_put_vacation_hvac_mode_range(client: TestClient):
+async def test_a_client_that_still_sends_the_range_setting_changes_nothing(client: TestClient):
+    """Older MCP clients and automations may still send ``vacation_hvac_mode``.
+
+    There is one way to hold a house now, so the field is ignored rather than
+    rejected: the rest of the write still lands and nothing comes back named
+    after it.
+    """
     await _seed_thermo(client)
     resp = await client.put(
         f"/api/thermostats/{THERMO}",
-        json={"vacation_hvac_mode": "range"},
+        json={"vacation_hvac_mode": "range", "name": "Up"},
     )
     assert resp.status == 200
-    data = await resp.json()
-    assert data["vacation_hvac_mode"] == "range"
-
-    # Confirm DB
-    conn = client.app["scheduler"]._db_conn
-    tc = await db.get_thermostat_config(conn, THERMO)
-    assert tc.vacation_hvac_mode == "range"
+    body = await resp.json()
+    assert body["name"] == "Up"
+    assert "vacation_hvac_mode" not in body
 
 
 @pytest.mark.asyncio
-async def test_thermostat_put_vacation_hvac_mode_invalid(client: TestClient):
+async def test_the_range_test_endpoint_no_longer_exists(client: TestClient):
     await _seed_thermo(client)
-    resp = await client.put(
-        f"/api/thermostats/{THERMO}",
-        json={"vacation_hvac_mode": "banana"},
-    )
-    assert resp.status == 400
-
-
-# ---------------------------------------------------------------------------
-# POST /api/thermostats/{id}/test-vacation
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_test_vacation_sends_range_command(client: TestClient, fake_ha: FakeHomeAssistant):
-    await _seed_thermo(client)
-    fake_ha.seed_state(
-        THERMO,
-        "heat",
-        {"current_temperature": 72.0, "temperature": 72.0, "hvac_action": "idle"},
-    )
-
-    resp = await client.post(f"/api/thermostats/{THERMO}/test-vacation")
-    assert resp.status == 200
-    data = await resp.json()
-    assert data["ok"] is True
-    assert data["min_setpoint"] == 62.0
-    assert data["max_setpoint"] == 80.0
-
-    # FakeHA should have received the range call
-    range_calls = [
-        c
-        for c in fake_ha.calls
-        if c.domain == "climate" and c.service == "set_temperature" and "target_temp_low" in c.data
-    ]
-    assert len(range_calls) == 1
-    assert range_calls[0].data["target_temp_low"] == 62.0
-    assert range_calls[0].data["target_temp_high"] == 80.0
+    assert (await client.post(f"/api/thermostats/{THERMO}/test-vacation")).status in (404, 405)
+    assert (await client.delete(f"/api/thermostats/{THERMO}/test-vacation")).status in (404, 405)

@@ -316,6 +316,12 @@ class CycleEngine:
         # here for the cycle's whole lifetime. Mid-cycle joins and in-place
         # trigger updates read the snapshot, never the live flag.
         self._cycle_eco_suspended: bool = False
+        # Let an empty zone drift further (Eco Mode). When something last asked
+        # for a room of this zone (a hold, a schedule or occupancy), and
+        # whether the wider band is in force now. Both live in memory only: a
+        # restart counts the zone as just used, so it never widens early.
+        self._zone_asked_at: datetime | None = None
+        self._empty_drift: bool = False
         self._lock = asyncio.Lock()
 
         # Last setpoint value successfully sent to HA; used by reconciliation to
@@ -640,6 +646,7 @@ class CycleEngine:
             bank_rooms=self.bank_rooms,
             arrival_rooms=self.arrival_rooms,
             early_cool_rooms=self.early_cool_rooms,
+            empty_drift=self._empty_drift,
             coasting_rooms=sorted(self._coast_wait)
             if self._coast_seen is not None
             and datetime.now(UTC) - self._coast_seen <= coasting.STALE_AFTER
@@ -775,8 +782,8 @@ class CycleEngine:
         # minute earlier, was invisible to the engine.
         #
         # `_apply_vacation_hold` remains the strategy for every tick with no
-        # breach, and the ONLY strategy when safety cycles are off or the
-        # thermostat holds a heat_cool range — see `_vacation_safety_enabled`.
+        # breach, and the ONLY strategy when safety cycles are off — see
+        # `_vacation_safety_enabled`.
         in_vacation = self._get_vacation_mode is not None and self._get_vacation_mode()
         if not in_vacation:
             # The hold's announcements are scoped to one trip (#627): end the
@@ -801,15 +808,15 @@ class CycleEngine:
                 return
         self._vacation_cycle = in_vacation
 
-        # heat_cool / auto mode must ONLY be active during vacation RANGE mode.
-        # If the thermostat is in heat_cool outside of vacation (e.g. left behind
-        # by the "Test auto mode" button), revert it to "off" immediately so the
-        # next tick can start a normal single-direction cycle if needed. Reaching
-        # here during vacation means safety cycles are on, which implies
-        # `vacation_hvac_mode == "single"` — so a lingering heat_cool is equally
-        # wrong there and gets the same treatment (#626).
+        # HomeClimate never leaves a thermostat in heat_cool / auto: there the
+        # equipment picks heat or cool by itself, which is exactly what
+        # HomeClimate exists to decide. If the thermostat is found in heat_cool
+        # (set by hand, or left by a version that still had a range hold),
+        # revert it to "off" so the next tick can start a normal
+        # single-direction cycle if needed. The same holds during a vacation
+        # with safety cycles on (#626).
         if thermo_state.get("state") == "heat_cool":
-            why = "vacation single-setpoint mode" if in_vacation else "vacation mode not active"
+            why = "vacation mode" if in_vacation else "HomeClimate picks heat or cool itself"
             log.info(
                 "Thermostat %s in heat_cool (%s) — reverting to off",
                 self.thermostat_entity_id,
@@ -843,6 +850,7 @@ class CycleEngine:
             [] if in_vacation else await get_active_rooms(conn, self.thermostat_entity_id, tick_now)
         )
         await self._heat_pump_strips_expected(conn)
+        await self._empty_zone_drift(conn, new_active, tick_now, in_vacation)
         if not in_vacation:
             new_active = await self._ahead_of_schedule(conn, new_active, tick_now)
         # Door and window pausing (Smart Control): an open door or window
@@ -1373,6 +1381,73 @@ class CycleEngine:
                     ar.target_temp,
                     outside_temp_f,
                     hvac_mode,
+                )
+
+    async def _empty_zone_drift(
+        self,
+        conn: aiosqlite.Connection,
+        active: list[ActiveRoom],
+        now: datetime,
+        in_vacation: bool,
+    ) -> None:
+        """Eco Mode: let a zone nobody is using drift further, in place.
+
+        A zone is in use while a hold, a schedule or occupancy asks for one of
+        its rooms. Once nothing has for ``eco_empty_zone_hours``, each room
+        that only follows its targets gets ``eco.EMPTY_ZONE_EXTRA_F`` more on
+        both sides: heat-to lower, cool-to higher, never past the safety
+        limits. The moment anything asks again the targets are back as set.
+
+        Only while Eco Mode is on for the zone and not suspended; a room whose
+        own Eco setting is off keeps its targets. Vacation has its own hold, so
+        nothing widens then, and the trip counts as the zone being in use: the
+        hours start over when it ends.
+        """
+        asked = in_vacation or any(
+            ar.source in ("override", "schedule", "presence") for ar in active
+        )
+        if asked or self._zone_asked_at is None:
+            self._zone_asked_at = now
+        tc = await self._load_tc(conn)
+        hours = tc.eco_empty_zone_hours
+        suspended = bool(self._get_eco_suspended is not None and self._get_eco_suspended())
+        widen = (
+            hours > 0
+            and not asked
+            and not suspended
+            and (now - self._zone_asked_at).total_seconds() >= hours * 3600
+        )
+        widened: list[str] = []
+        if widen:
+            for ar in active:
+                if ar.source != "house" or ar.heat_to is None or ar.cool_to is None:
+                    continue
+                if not eco.resolve_params(tc, ar.room).enabled:
+                    continue
+                # min/max so a target already past a safety limit is left as it is.
+                ar.heat_to = min(
+                    ar.heat_to, max(tc.min_setpoint, ar.heat_to - eco.EMPTY_ZONE_EXTRA_F)
+                )
+                ar.cool_to = max(
+                    ar.cool_to, min(tc.max_setpoint, ar.cool_to + eco.EMPTY_ZONE_EXTRA_F)
+                )
+                widened.append(ar.room.id)
+        on = bool(widened)
+        if on != self._empty_drift:
+            self._empty_drift = on
+            if self._logger:
+                await self._logger.log(
+                    "info",
+                    "engine",
+                    (
+                        f"Eco Mode: nothing has asked for {tc.name or self.thermostat_entity_id}"
+                        f" for {hours:g} hours, so its rooms may drift"
+                        f" {eco.EMPTY_ZONE_EXTRA_F:g}°F further"
+                        if on
+                        else f"Eco Mode: {tc.name or self.thermostat_entity_id} is back to"
+                        " its targets"
+                    ),
+                    {"thermostat": self.thermostat_entity_id, "rooms": sorted(widened)},
                 )
 
     def _demand_at_relaxed_targets(
@@ -4835,87 +4910,9 @@ class CycleEngine:
 
         tc = await self._load_tc(conn)
         # A lit fireplace is warming a room of this zone (Smart Control →
-        # Fireplace): cooling would only fight the fire. The range hold lets
-        # the equipment cool on its own, so it gives way to the single-setpoint
-        # hold below, whose cooling arm is skipped.
+        # Fireplace): cooling would only fight the fire, so the hold's cooling
+        # arm below is skipped.
         fire = await self._fire_is_warming_this_zone(conn)
-
-        if tc.vacation_hvac_mode == "range" and not fire:
-            # Set thermostat to heat_cool/auto with low=min_setpoint, high=max_setpoint.
-            # The bounds are commanded BARE here — no deadband inset (#628).
-            # That is deliberate, not the flapping defect the single-setpoint
-            # branch had: in heat_cool the EQUIPMENT decides heat vs cool from
-            # its own probe and applies its own internal hysteresis, so there
-            # is no arrive-and-immediately-shut-off edge for us to cushion.
-            # Insetting would just condition the house more tightly than the
-            # user asked for.
-            # ACCEPTED GAP (#426, re-examined under #628): unlike the
-            # single-setpoint branch below, range mode does not defer for the
-            # compressor off-time lockout, and cannot re-arm it either —
-            # heat_cool range semantics don't map onto a single-direction
-            # deferral, and the hold never commands this thermostat off, so
-            # there is no compressor-stop instant for it to stamp. Activating
-            # range-mode vacation mid-cooling-cycle can therefore still let the
-            # thermostat restart the compressor early. Closing it would mean
-            # taking the heat/cool decision back off the equipment, which is
-            # the #26/#29 inversion bug; the honest fix is to use single
-            # setpoint, which the Thermostats page and docs/vacation-mode.md
-            # both recommend for exactly this reason.
-            # Idempotence (#434/#296): skip the write when the thermostat is
-            # already holding the range — re-commanding every 60 s tick for
-            # days of vacation is thousands of redundant cloud-thermostat
-            # writes. External drift still gets corrected (values differ).
-            attrs = thermo_state.get("attributes", {})
-            unit = self._ha.ha_temp_unit
-            cur_low = _climate_temp_to_f(attrs.get("target_temp_low"), unit)
-            cur_high = _climate_temp_to_f(attrs.get("target_temp_high"), unit)
-            already_held = (
-                thermo_state.get("state") == "heat_cool"
-                and cur_low is not None
-                and cur_high is not None
-                and abs(cur_low - tc.min_setpoint) <= _SETPOINT_DRIFT_TOLERANCE_F
-                and abs(cur_high - tc.max_setpoint) <= _SETPOINT_DRIFT_TOLERANCE_F
-            )
-            if already_held:
-                return
-            range_details = {
-                "thermostat": self.thermostat_entity_id,
-                "min_setpoint": tc.min_setpoint,
-                "max_setpoint": tc.max_setpoint,
-                "action": "range",
-            }
-            try:
-                await self._ha.set_thermostat_temperature_range(
-                    self.thermostat_entity_id, tc.min_setpoint, tc.max_setpoint
-                )
-            except Exception as exc:
-                log.error(
-                    "Vacation hold: failed to set range for %s: %s",
-                    self.thermostat_entity_id,
-                    exc,
-                )
-                await self._announce_vacation_hold(
-                    f"range-failed:{tc.min_setpoint:.1f}:{tc.max_setpoint:.1f}",
-                    "error",
-                    f"Vacation hold for {self.thermostat_entity_id} could not set the "
-                    f"heat_cool range {tc.min_setpoint:.1f}°F–{tc.max_setpoint:.1f}°F — "
-                    "Home Assistant rejected the command. The hold retries every tick.",
-                    range_details,
-                )
-                return
-            # Announced only on the tick that actually writes: the idempotence
-            # skip above returns before this on every subsequent tick, so a
-            # multi-day range hold logs when it takes the thermostat and when
-            # the bounds change, not 1440 times a day.
-            await self._announce_vacation_hold(
-                f"range:{tc.min_setpoint:.1f}:{tc.max_setpoint:.1f}",
-                "info",
-                f"Vacation hold for {self.thermostat_entity_id}: holding the heat_cool "
-                f"range {tc.min_setpoint:.1f}°F–{tc.max_setpoint:.1f}°F. The equipment "
-                "picks heat vs cool from its own probe, so no per-room safety cycles run.",
-                range_details,
-            )
-            return
 
         # Single-setpoint mode: turn off unless a bound is breached.
         # current_temperature is reported in HA's system unit; normalise to °F so
@@ -5400,17 +5397,8 @@ class CycleEngine:
         Two conditions, both required:
 
         * ``vacation_safety_cycles`` — the user-facing opt-out.
-        * ``vacation_hvac_mode == "single"`` — a hard restriction, not a
-          preference. A "range" thermostat holds ``heat_cool`` and the
-          EQUIPMENT decides heat vs cool from its own built-in probe. The
-          engine cannot lock a cycle direction it does not own, and #26/#29
-          settled that deriving direction from the thermostat's live state
-          inverts every vent decision at exactly the moment it matters. Rather
-          than re-fight that, range mode keeps the pre-#626 hold and senses on
-          the thermostat's internal sensor alone; the Thermostats page says so
-          next to the selector.
         """
-        return bool(tc.vacation_safety_cycles) and tc.vacation_hvac_mode == "single"
+        return bool(tc.vacation_safety_cycles)
 
     async def _apply_vacation_vent_policy(
         self, conn: aiosqlite.Connection, tc: ThermostatConfig, hvac_mode: str
@@ -6299,9 +6287,9 @@ class CycleEngine:
 
         Two previous-mode values count. ``cool`` is the obvious one.
         ``heat_cool`` counts because the EQUIPMENT owns the direction there
-        and we cannot tell which way it was running; a single-setpoint hold
-        meets a ``heat_cool`` thermostat when the user switches
-        ``vacation_hvac_mode`` from range to single mid-trip. ``heat`` does
+        and we cannot tell which way it was running; the hold meets a
+        ``heat_cool`` thermostat when someone set that mode by hand, or a
+        trip began under a version that still had a range hold. ``heat`` does
         not count — the lockout protects the compressor and heat is
         furnace-side, so arming on a heating stop would defer a later
         cooling start for equipment that never ran.
@@ -7363,6 +7351,11 @@ class CycleEngine:
                     },
                 )
         return out
+
+    @property
+    def empty_drift(self) -> bool:
+        """Whether this zone's rooms are drifting further because nobody is using it."""
+        return self._empty_drift
 
     @property
     def early_cool_rooms(self) -> list[str]:

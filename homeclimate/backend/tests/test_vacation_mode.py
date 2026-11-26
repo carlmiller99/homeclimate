@@ -44,7 +44,6 @@ def _make_ha(hvac_mode: str = "heat", current_temp: float = 72.0) -> MagicMock:
     ha.get_numeric_state.return_value = None
     ha.set_thermostat_temperature = AsyncMock()
     ha.set_thermostat_hvac_mode = AsyncMock()
-    ha.set_thermostat_temperature_range = AsyncMock()
     ha.open_cover = AsyncMock()
     ha.close_cover = AsyncMock()
     ha.dev_mode = False
@@ -63,35 +62,6 @@ async def _insert_room(conn: aiosqlite.Connection, room_id: str, thermo: str) ->
     room = Room(id=room_id, name="Room", thermostat_entity_id=thermo)
     await db.upsert_room(conn, room)
     return room
-
-
-# ---------------------------------------------------------------------------
-# DB migration: vacation_hvac_mode column
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_thermostat_config_vacation_hvac_mode_default():
-    conn = await _setup_db()
-    try:
-        tc = ThermostatConfig(thermostat_entity_id=THERMO_A)
-        await db.upsert_thermostat_config(conn, tc)
-        loaded = await db.get_thermostat_config(conn, THERMO_A)
-        assert loaded.vacation_hvac_mode == "single"
-    finally:
-        await conn.close()
-
-
-@pytest.mark.asyncio
-async def test_thermostat_config_vacation_hvac_mode_range():
-    conn = await _setup_db()
-    try:
-        tc = ThermostatConfig(thermostat_entity_id=THERMO_A, vacation_hvac_mode="range")
-        await db.upsert_thermostat_config(conn, tc)
-        loaded = await db.get_thermostat_config(conn, THERMO_A)
-        assert loaded.vacation_hvac_mode == "range"
-    finally:
-        await conn.close()
 
 
 # ---------------------------------------------------------------------------
@@ -208,32 +178,6 @@ def _make_engine(
 
 
 @pytest.mark.asyncio
-async def test_engine_vacation_mode_range_sets_heat_cool():
-    """Range mode: set_thermostat_temperature_range called with min/max."""
-    ha = _make_ha(hvac_mode="heat", current_temp=72.0)
-    engine = _make_engine(ha, vacation_mode=True)
-
-    conn = await _setup_db()
-    try:
-        await _insert_room(conn, "room1", THERMO_A)
-        tc = ThermostatConfig(
-            thermostat_entity_id=THERMO_A,
-            min_setpoint=62.0,
-            max_setpoint=80.0,
-            vacation_hvac_mode="range",
-        )
-        await db.upsert_thermostat_config(conn, tc)
-
-        await engine.tick(conn)
-
-        ha.set_thermostat_temperature_range.assert_called_once_with(THERMO_A, 62.0, 80.0)
-        ha.set_thermostat_hvac_mode.assert_not_called()
-        ha.set_thermostat_temperature.assert_not_called()
-    finally:
-        await conn.close()
-
-
-@pytest.mark.asyncio
 async def test_engine_vacation_mode_single_within_range_parks_in_a_direction():
     """Single mode, temp within bounds: parks in a recovered direction
     (Issue #638) rather than turning off. No completed cycle exists, so
@@ -250,7 +194,6 @@ async def test_engine_vacation_mode_single_within_range_parks_in_a_direction():
             thermostat_entity_id=THERMO_A,
             min_setpoint=62.0,
             max_setpoint=80.0,
-            vacation_hvac_mode="single",
         )
         await db.upsert_thermostat_config(conn, tc)
 
@@ -258,7 +201,6 @@ async def test_engine_vacation_mode_single_within_range_parks_in_a_direction():
 
         ha.set_thermostat_hvac_mode.assert_not_called()
         ha.set_thermostat_temperature.assert_called_once_with(THERMO_A, 74.0, hvac_mode="cool")
-        ha.set_thermostat_temperature_range.assert_not_called()
     finally:
         await conn.close()
 
@@ -281,7 +223,6 @@ async def test_engine_vacation_mode_single_below_min_heats():
             thermostat_entity_id=THERMO_A,
             min_setpoint=62.0,
             max_setpoint=80.0,
-            vacation_hvac_mode="single",
         )
         await db.upsert_thermostat_config(conn, tc)
 
@@ -310,7 +251,6 @@ async def test_engine_vacation_mode_single_above_max_cools():
             thermostat_entity_id=THERMO_A,
             min_setpoint=62.0,
             max_setpoint=80.0,
-            vacation_hvac_mode="single",
         )
         await db.upsert_thermostat_config(conn, tc)
 
@@ -343,7 +283,6 @@ async def test_engine_vacation_mode_already_parked_no_redundant_call():
             thermostat_entity_id=THERMO_A,
             min_setpoint=62.0,
             max_setpoint=80.0,
-            vacation_hvac_mode="single",
         )
         await db.upsert_thermostat_config(conn, tc)
 
@@ -370,7 +309,6 @@ async def test_engine_vacation_mode_single_no_current_temp_forces_off():
             thermostat_entity_id=THERMO_A,
             min_setpoint=62.0,
             max_setpoint=80.0,
-            vacation_hvac_mode="single",
         )
         await db.upsert_thermostat_config(conn, tc)
 
@@ -397,7 +335,6 @@ async def test_engine_vacation_mode_single_no_current_temp_already_off_noop():
             thermostat_entity_id=THERMO_A,
             min_setpoint=62.0,
             max_setpoint=80.0,
-            vacation_hvac_mode="single",
         )
         await db.upsert_thermostat_config(conn, tc)
 
@@ -437,14 +374,12 @@ async def test_engine_reverts_heat_cool_when_vacation_inactive():
             thermostat_entity_id=THERMO_A,
             min_setpoint=62.0,
             max_setpoint=80.0,
-            vacation_hvac_mode="range",
         )
         await db.upsert_thermostat_config(conn, tc)
 
         await engine.tick(conn)
 
         ha.set_thermostat_hvac_mode.assert_called_once_with(THERMO_A, "off")
-        ha.set_thermostat_temperature_range.assert_not_called()
     finally:
         await conn.close()
 
@@ -475,7 +410,6 @@ async def test_engine_vacation_mode_celsius_single_below_min():
             thermostat_entity_id=THERMO_A,
             min_setpoint=62.0,
             max_setpoint=80.0,
-            vacation_hvac_mode="single",
         )
         await db.upsert_thermostat_config(conn, tc)
 
@@ -542,7 +476,6 @@ async def test_engine_resumes_cooling_after_vacation_single_ends():
             thermostat_entity_id=THERMO_A,
             min_setpoint=62.0,
             max_setpoint=80.0,
-            vacation_hvac_mode="single",
             deadband=0.5,
             overshoot_delta=2.0,
         )
@@ -562,7 +495,7 @@ async def test_engine_resumes_cooling_after_vacation_single_ends():
 
 @pytest.mark.asyncio
 async def test_engine_resumes_cooling_after_vacation_range_reverted():
-    """After vacation range mode is reverted (thermostat set to 'off' on the
+    """After a thermostat found in heat_cool is reverted (set to 'off' on the
     prior tick), the engine must start a cooling cycle on the next tick when
     rooms have active presence holdovers calling for cooling."""
     # Thermostat is "off" — the heat_cool revert guard already ran on the
@@ -606,7 +539,6 @@ async def test_engine_resumes_cooling_after_vacation_range_reverted():
             thermostat_entity_id=THERMO_A,
             min_setpoint=62.0,
             max_setpoint=80.0,
-            vacation_hvac_mode="range",
             deadband=0.5,
             overshoot_delta=2.0,
         )
@@ -708,7 +640,6 @@ async def test_engine_cools_above_safety_max_after_single_mode_vacation():
                 thermostat_entity_id=THERMO_A,
                 min_setpoint=62.0,
                 max_setpoint=80.0,
-                vacation_hvac_mode="single",
                 deadband=0.5,
                 overshoot_delta=2.0,
             ),
@@ -724,11 +655,11 @@ async def test_engine_cools_above_safety_max_after_single_mode_vacation():
 
 @pytest.mark.asyncio
 async def test_engine_cools_above_safety_max_after_range_mode_vacation():
-    """After vacation range mode ends and heat_cool has been reverted to 'off'
+    """After a thermostat found in heat_cool has been reverted to 'off'
     on the prior tick, if the house temp exceeds max_setpoint the engine must
     start a cooling cycle.
 
-    Range mode leaves the thermostat in heat_cool; the first post-vacation tick
+    Someone left the thermostat in heat_cool; the first tick
     reverts it to 'off'.  This test simulates the subsequent tick where the
     thermostat is already 'off' and the house has overheated.
 
@@ -750,7 +681,6 @@ async def test_engine_cools_above_safety_max_after_range_mode_vacation():
                 thermostat_entity_id=THERMO_A,
                 min_setpoint=62.0,
                 max_setpoint=80.0,
-                vacation_hvac_mode="range",
                 deadband=0.5,
                 overshoot_delta=2.0,
             ),
@@ -789,7 +719,6 @@ async def test_engine_heats_below_safety_min_after_single_mode_vacation():
                 thermostat_entity_id=THERMO_A,
                 min_setpoint=62.0,
                 max_setpoint=80.0,
-                vacation_hvac_mode="single",
                 deadband=0.5,
                 overshoot_delta=2.0,
             ),
@@ -805,7 +734,7 @@ async def test_engine_heats_below_safety_min_after_single_mode_vacation():
 
 @pytest.mark.asyncio
 async def test_engine_heats_below_safety_min_after_range_mode_vacation():
-    """After vacation range mode ends and heat_cool has been reverted to 'off',
+    """After a thermostat found in heat_cool has been reverted to 'off',
     if the house temp drops below min_setpoint the engine must start a heating
     cycle to bring it back within the configured safety band.
 
@@ -827,7 +756,6 @@ async def test_engine_heats_below_safety_min_after_range_mode_vacation():
                 thermostat_entity_id=THERMO_A,
                 min_setpoint=62.0,
                 max_setpoint=80.0,
-                vacation_hvac_mode="range",
                 deadband=0.5,
                 overshoot_delta=2.0,
             ),

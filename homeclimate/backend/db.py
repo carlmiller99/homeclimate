@@ -454,6 +454,8 @@ CREATE TABLE IF NOT EXISTS thermostat_configs (
     overshoot_delta REAL NOT NULL DEFAULT 2.0,
     cycle_timeout_hours REAL NOT NULL DEFAULT 3.0,
     reconciliation_interval_min INTEGER NOT NULL DEFAULT 0,
+    -- Unused since the range vacation hold was removed; kept so the table
+    -- keeps its shape. Nothing reads or writes it.
     vacation_hvac_mode TEXT NOT NULL DEFAULT 'single',
     vacation_safety_cycles INTEGER NOT NULL DEFAULT 1,
     welcome_home_enabled INTEGER NOT NULL DEFAULT 1,
@@ -481,7 +483,8 @@ CREATE TABLE IF NOT EXISTS thermostat_configs (
     eco_heating_outdoor_threshold REAL NOT NULL DEFAULT 40.0,
     eco_heating_full_drift_temp REAL NOT NULL DEFAULT 0.0,
     eco_heating_max_drift REAL NOT NULL DEFAULT 4.0,
-    eco_hysteresis_band REAL NOT NULL DEFAULT 2.0
+    eco_hysteresis_band REAL NOT NULL DEFAULT 2.0,
+    eco_empty_zone_hours REAL NOT NULL DEFAULT 0
 );
 
 -- Eco Suspend (Issue #500): temporary per-thermostat suspension of Eco Mode.
@@ -1376,7 +1379,7 @@ MIGRATIONS: tuple[Migration, ...] = (
     # breaching its envelope during vacation got no response at all, which is
     # the #367/#368 production incident one state over. The one-way-ratchet
     # rule says a protective interlock ships enabled; the toggle exists to opt
-    # OUT, not in. Only consulted when vacation_hvac_mode = 'single'.
+    # OUT, not in.
     Migration(
         21,
         "Add vacation_safety_cycles to thermostat_configs (Issue #626)",
@@ -1431,6 +1434,11 @@ MIGRATIONS: tuple[Migration, ...] = (
             "ALTER TABLE zone_profiles ADD COLUMN fan_level TEXT NOT NULL DEFAULT 'off'",
             "ALTER TABLE zone_profiles ADD COLUMN air_intake TEXT NOT NULL DEFAULT 'unsure'",
         ),
+    ),
+    Migration(
+        27,
+        "Add eco_empty_zone_hours to thermostat_configs",
+        ("ALTER TABLE thermostat_configs ADD COLUMN eco_empty_zone_hours REAL NOT NULL DEFAULT 0",),
     ),
 )
 
@@ -1830,7 +1838,6 @@ def _row_to_tc(row) -> ThermostatConfig:
         overshoot_delta=row["overshoot_delta"],
         cycle_timeout_hours=row["cycle_timeout_hours"],
         reconciliation_interval_min=int(row["reconciliation_interval_min"] or 0),
-        vacation_hvac_mode=row["vacation_hvac_mode"] if "vacation_hvac_mode" in keys else "single",
         vacation_safety_cycles=bool(row["vacation_safety_cycles"])
         if "vacation_safety_cycles" in keys and row["vacation_safety_cycles"] is not None
         else True,
@@ -1864,6 +1871,9 @@ def _row_to_tc(row) -> ThermostatConfig:
         if "unavailable_abort_after_min" in keys and row["unavailable_abort_after_min"] is not None
         else 5,
         eco_mode_enabled=bool(row["eco_mode_enabled"]) if "eco_mode_enabled" in keys else False,
+        eco_empty_zone_hours=float(row["eco_empty_zone_hours"] or 0.0)
+        if "eco_empty_zone_hours" in keys
+        else 0.0,
         # Explicit so the eco-field splat below type-checks against only the
         # float-typed eco params (eco_suspend_until is API-layer-populated,
         # never a thermostat_configs column).
@@ -1884,13 +1894,13 @@ async def upsert_thermostat_config(conn: aiosqlite.Connection, tc: ThermostatCon
         """INSERT INTO thermostat_configs
            (thermostat_entity_id,name,default_temp,min_setpoint,max_setpoint,deadband,
             max_vent_closed_min,overshoot_delta,cycle_timeout_hours,
-            reconciliation_interval_min,vacation_hvac_mode,vacation_safety_cycles,
+            reconciliation_interval_min,vacation_safety_cycles,
             min_cycle_runtime_min,min_cycle_offtime_min,cooling_lockout_below_f,
             total_vents_count,has_bypass_damper,min_open_vents_fraction,
             overflow_during_min_runtime,unavailable_abort_after_min,
             eco_mode_enabled,eco_cooling_outdoor_threshold,eco_cooling_full_drift_temp,
             eco_cooling_max_drift,eco_heating_outdoor_threshold,eco_heating_full_drift_temp,
-            eco_heating_max_drift,eco_hysteresis_band,
+            eco_heating_max_drift,eco_hysteresis_band,eco_empty_zone_hours,
             welcome_home_enabled,welcome_home_lead_min,welcome_home_hours)
            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
            ON CONFLICT(thermostat_entity_id) DO UPDATE SET
@@ -1903,7 +1913,6 @@ async def upsert_thermostat_config(conn: aiosqlite.Connection, tc: ThermostatCon
              overshoot_delta=excluded.overshoot_delta,
              cycle_timeout_hours=excluded.cycle_timeout_hours,
              reconciliation_interval_min=excluded.reconciliation_interval_min,
-             vacation_hvac_mode=excluded.vacation_hvac_mode,
              vacation_safety_cycles=excluded.vacation_safety_cycles,
              min_cycle_runtime_min=excluded.min_cycle_runtime_min,
              min_cycle_offtime_min=excluded.min_cycle_offtime_min,
@@ -1921,6 +1930,7 @@ async def upsert_thermostat_config(conn: aiosqlite.Connection, tc: ThermostatCon
              eco_heating_full_drift_temp=excluded.eco_heating_full_drift_temp,
              eco_heating_max_drift=excluded.eco_heating_max_drift,
              eco_hysteresis_band=excluded.eco_hysteresis_band,
+             eco_empty_zone_hours=excluded.eco_empty_zone_hours,
              welcome_home_enabled=excluded.welcome_home_enabled,
              welcome_home_lead_min=excluded.welcome_home_lead_min,
              welcome_home_hours=excluded.welcome_home_hours
@@ -1936,7 +1946,6 @@ async def upsert_thermostat_config(conn: aiosqlite.Connection, tc: ThermostatCon
             tc.overshoot_delta,
             tc.cycle_timeout_hours,
             tc.reconciliation_interval_min,
-            tc.vacation_hvac_mode,
             int(tc.vacation_safety_cycles),
             tc.min_cycle_runtime_min,
             tc.min_cycle_offtime_min,
@@ -1954,6 +1963,7 @@ async def upsert_thermostat_config(conn: aiosqlite.Connection, tc: ThermostatCon
             tc.eco_heating_full_drift_temp,
             tc.eco_heating_max_drift,
             tc.eco_hysteresis_band,
+            tc.eco_empty_zone_hours,
             int(tc.welcome_home_enabled),
             tc.welcome_home_lead_min,
             tc.welcome_home_hours,

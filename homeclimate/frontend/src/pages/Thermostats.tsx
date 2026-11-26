@@ -5,8 +5,6 @@ import {
   createThermostat,
   updateThermostat,
   deleteThermostat,
-  testVacationMode,
-  revertVacationTest,
   getSensorStaleness,
   setSensorStaleness,
   type Room,
@@ -430,9 +428,6 @@ export function ThermostatCard({
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
-  const [testingVacation, setTestingVacation] = useState(false);
-  const [vacationTestActive, setVacationTestActive] = useState(false);
-  const [vacationTestResult, setVacationTestResult] = useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
 
   // Track the "Saved!" reset timer so it can be cancelled on unmount. Without
@@ -848,60 +843,17 @@ export function ThermostatCard({
 
       <hr className="divider" />
 
-      {/* Vacation mode HVAC strategy */}
+      {/* Vacation */}
       <div
         className="text-sm"
         style={{ fontWeight: 600, color: "var(--gray-700)", marginBottom: ".75rem" }}
       >
-        Vacation mode hold strategy
+        While you are away
       </div>
       <div className="form-hint" style={{ marginBottom: ".75rem" }}>
-        Vacation mode is enabled system-wide from the Dashboard and applies to all thermostats.
-        Configure below how <em>this</em> thermostat should hold temperature while vacation mode is
-        active.
-      </div>
-
-      <div className="form-group" style={{ maxWidth: 400 }}>
-        <label
-          className="form-label"
-          htmlFor={`thermo-${config.thermostat_entity_id}-vacation-mode`}
-        >
-          Vacation HVAC mode
-        </label>
-        <select
-          id={`thermo-${config.thermostat_entity_id}-vacation-mode`}
-          className="form-control"
-          value={form.vacation_hvac_mode ?? "single"}
-          onChange={(e) =>
-            setForm((f) => ({
-              ...f,
-              vacation_hvac_mode: e.target.value as "range" | "single",
-              // Clear test result when switching mode
-            }))
-          }
-        >
-          <option value="single">Single setpoint (heat or cool)</option>
-          <option value="range">Range (heat_cool / auto)</option>
-        </select>
-        <div className="form-hint">
-          {form.vacation_hvac_mode === "range" ? (
-            <>
-              The thermostat keeps the house between {form.min_setpoint}
-              {unitLabel} and {form.max_setpoint}
-              {unitLabel} by itself.{" "}
-              <strong>
-                Room sensors are not used, and nothing guards against short cycles: Single setpoint
-                is safer.
-              </strong>
-            </>
-          ) : (
-            <>
-              While you are away the house is kept between {form.min_setpoint}
-              {unitLabel} and {form.max_setpoint}
-              {unitLabel}: heated when it falls below, cooled when it rises above.
-            </>
-          )}
-        </div>
+        On vacation this zone is kept between {form.min_setpoint}
+        {unitLabel} and {form.max_setpoint}
+        {unitLabel}. HomeClimate heats when it falls below and cools when it rises above.
       </div>
 
       <div className="form-group" style={{ maxWidth: 400 }}>
@@ -917,86 +869,16 @@ export function ThermostatCard({
             id={`thermo-${config.thermostat_entity_id}-vacation-safety`}
             type="checkbox"
             checked={form.vacation_safety_cycles ?? true}
-            disabled={form.vacation_hvac_mode === "range"}
             onChange={(e) => setForm((f) => ({ ...f, vacation_safety_cycles: e.target.checked }))}
           />
           <span>Run per-room safety cycles during vacation</span>
         </label>
         <div className="form-hint">
-          {form.vacation_hvac_mode === "range" ? (
-            <>
-              Not available in <strong>Range</strong> mode. Choose <strong>Single setpoint</strong>{" "}
-              above to use this.
-            </>
-          ) : (
-            <>
-              While you are away, a room that gets colder than {form.min_setpoint}
-              {unitLabel} or warmer than {form.max_setpoint}
-              {unitLabel} gets heating or cooling for that room.
-            </>
-          )}
+          While you are away, a room that gets colder than {form.min_setpoint}
+          {unitLabel} or warmer than {form.max_setpoint}
+          {unitLabel} gets heating or cooling for that room.
         </div>
       </div>
-
-      {form.vacation_hvac_mode === "range" && (
-        <div className="form-group" style={{ maxWidth: 400 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: ".75rem", flexWrap: "wrap" }}>
-            {!vacationTestActive ? (
-              <button
-                className="btn btn-secondary"
-                disabled={testingVacation}
-                onClick={async () => {
-                  setTestingVacation(true);
-                  setVacationTestResult(null);
-                  try {
-                    await testVacationMode(config.thermostat_entity_id);
-                    setVacationTestActive(true);
-                    setVacationTestResult(
-                      "heat_cool active — check your thermostat in Home Assistant."
-                    );
-                  } catch (e: unknown) {
-                    setVacationTestResult(
-                      "Error: " + (e instanceof Error ? e.message : "Test failed")
-                    );
-                  } finally {
-                    setTestingVacation(false);
-                  }
-                }}
-              >
-                {testingVacation ? "Testing…" : "Test auto mode"}
-              </button>
-            ) : (
-              <button
-                className="btn btn-warning"
-                onClick={async () => {
-                  try {
-                    await revertVacationTest(config.thermostat_entity_id);
-                    setVacationTestActive(false);
-                    setVacationTestResult("Reverted — thermostat set back to off.");
-                  } catch (e: unknown) {
-                    setVacationTestResult(
-                      "Error: " + (e instanceof Error ? e.message : "Revert failed")
-                    );
-                  }
-                }}
-              >
-                Revert test
-              </button>
-            )}
-            {vacationTestResult && (
-              <span
-                className={`badge ${vacationTestResult.startsWith("Error") ? "badge-red" : "badge-green"}`}
-              >
-                {vacationTestResult}
-              </span>
-            )}
-          </div>
-          <div className="form-hint" style={{ marginTop: ".5rem" }}>
-            <em>Test auto mode</em> switches the thermostat to its heat-and-cool mode so you can
-            check it responds. <em>Revert test</em> turns it off again.
-          </div>
-        </div>
-      )}
 
       {/* Welcome home before a vacation return (Issue #728). */}
       <div className="form-group" style={{ maxWidth: 400 }} data-testid="welcome-home-group">

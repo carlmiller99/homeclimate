@@ -184,6 +184,22 @@ later unit switch never rewrites stored values.
 | Heating max drift | 4 | 2 |
 | Hysteresis band | 2 | 1 |
 
+## Let an Empty Zone Drift Further
+
+A second, simpler saving, set per zone in **Smart Control → Eco Mode**. Turn it on and give it a number of hours.
+
+When nothing has asked for any room of the zone for that long (no hold, no schedule block and no occupancy), each room that only follows its targets may drift **2 °F (1.1 °C) further** on both sides: it is heated 2° later and cooled 2° later. The moment a hold, a schedule or occupancy asks for any room of the zone, every room is back to its targets as set.
+
+- It needs Eco Mode on for the zone, and it stops while Eco is suspended. A room whose own Eco setting is Off keeps its targets.
+- It never goes past the zone's safety limits (`min_setpoint` / `max_setpoint`).
+- It does not depend on the outdoor temperature, and it adds to the outdoor drift above when both apply.
+- Vacation Mode has its own hold, so nothing widens during a trip, and the hours start over when the trip ends. A restart also starts the hours over.
+- [Zone Balance](./zone-balance.md) still applies: an empty zone is kept within the gap limit of a zone in use.
+
+The Dashboard shows **Empty, drifting further** on the zone while it applies, and the Live Feed logs when it starts and stops.
+
+API field: `eco_empty_zone_hours` on the thermostat (hours, 0 to 72; 0 is off). MQTT: **Eco Empty Zone Hours**.
+
 ## What Eco never touches
 
 - **Manual overrides — unless the hold opts in.** An override is the strongest
