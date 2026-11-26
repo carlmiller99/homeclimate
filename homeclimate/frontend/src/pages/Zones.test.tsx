@@ -640,10 +640,21 @@ describe("Zones page", () => {
       </MemoryRouter>
     );
     await screen.findByText("South Wing");
-    expect(screen.queryByRole("heading", { name: "Thermostat Settings" })).toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
     fireEvent.click(screen.getAllByRole("button", { name: "Edit Zone" })[0]);
-    expect(screen.getByRole("heading", { name: "Thermostat Settings" })).toBeInTheDocument();
+    // One dialog, opening on the equipment; the thermostat is its other tab.
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByRole("tab", { name: "Equipment" })).toHaveAttribute(
+      "aria-selected",
+      "true"
+    );
+    expect(within(dialog).getByRole("tabpanel", { name: "Equipment" })).toBeInTheDocument();
+    expect(within(dialog).queryByRole("tabpanel", { name: "Thermostat" })).toBeNull();
+    fireEvent.click(within(dialog).getByRole("tab", { name: "Thermostat" }));
+    expect(within(dialog).queryByRole("tabpanel", { name: "Equipment" })).toBeNull();
     expect(screen.getByText("card Wing Stat")).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("tab", { name: "Equipment" }));
+    fireEvent.click(within(dialog).getByRole("tab", { name: "Thermostat" }));
 
     fireEvent.click(screen.getByRole("button", { name: "stub save" }));
     expect(screen.getByText("card Renamed")).toBeInTheDocument();
@@ -654,13 +665,16 @@ describe("Zones page", () => {
     // Deleting the zone closes its editor and tells the page to reload.
     fireEvent.click(screen.getByRole("button", { name: "stub delete" }));
     await waitFor(() => expect(onChanged).toHaveBeenCalled());
-    expect(screen.queryByRole("heading", { name: "Thermostat Settings" })).toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
     expect(zonesApi.getZones).toHaveBeenCalledTimes(2);
 
     // The other zone's settings were untouched by the save above.
     fireEvent.click(screen.getAllByRole("button", { name: "Edit Zone" })[1]);
     expect(screen.getByRole("region", { name: "Edit climate.loose" })).toBeInTheDocument();
     expect(screen.getByText("card Loose Stat")).toBeInTheDocument();
+    // Close, or a click outside the sheet, puts the page back.
+    fireEvent.click(screen.getByRole("dialog"));
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("shows only the equipment for a zone whose thermostat settings did not load", async () => {

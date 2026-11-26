@@ -25,12 +25,12 @@
   --gray-500: #6b7680;
   --gray-600: #5b6670;
   --gray-700: #34424d;
-  --gray-900: #1c2630;
+  --gray-900: #2a3640;
   /* Semantic surfaces + text (also consumed by chart tooltips in colors.ts) */
   --bg: #eef1ef;
-  --surface: #ffffff;
-  --bg-elev: #ffffff;
-  --text: #1c2630;
+  --surface: #fbfcfb;
+  --bg-elev: #fbfcfb;
+  --text: #2a3640;
   --border: #dde3e0;
   /* Readable-on-background accent text, one per hue family */
   --blue-text: #1f5383;
@@ -45,7 +45,7 @@
   --shadow-md: 0 12px 32px -16px rgba(28, 38, 48, 0.28);
   /* HomeClimate design tokens (phase 3) */
   --font-sans: "Instrument Sans Variable", "Instrument Sans", system-ui, -apple-system, sans-serif;
-  --ink: #1c2630;
+  --ink: #2a3640;
   --on-ink: #ffffff;
   --zone-bg: #e4e9e7;
   --state-heating: #d9731f;
@@ -72,18 +72,18 @@
   --red-light: #3a1e1c;
   --orange-light: #3a2614;
   --purple-light: #2c2238;
-  --gray-50: #1f2a31;
-  --gray-100: #243039;
+  --gray-50: #222e35;
+  --gray-100: #27343d;
   --gray-200: #2c3943;
   --gray-400: #6f7d77;
   --gray-500: #85938d;
   --gray-600: #9aa8a2;
   --gray-700: #c2ccc8;
-  --gray-900: #eef2f0;
-  --bg: #10171c;
-  --surface: #1a242b;
-  --bg-elev: #243039;
-  --text: #e6ece9;
+  --gray-900: #dde3e0;
+  --bg: #161e24;
+  --surface: #1e2930;
+  --bg-elev: #27343d;
+  --text: #d8dfdc;
   --border: #2c3943;
   --blue-text: #7db4e0;
   --green-text: #8cc5a8;
@@ -94,9 +94,9 @@
   --danger: #f0a39a;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
   --shadow-md: 0 12px 32px -16px rgba(0, 0, 0, 0.6);
-  --ink: #e6ece9;
-  --on-ink: #10171c;
-  --zone-bg: #151e24;
+  --ink: #d8dfdc;
+  --on-ink: #161e24;
+  --zone-bg: #1a242a;
   --state-heating: #f0954a;
   --state-heating-bg: #4a2e14;
   --state-heating-text: #f6c08f;
@@ -119,18 +119,18 @@
     --red-light: #3a1e1c;
     --orange-light: #3a2614;
     --purple-light: #2c2238;
-    --gray-50: #1f2a31;
-    --gray-100: #243039;
+    --gray-50: #222e35;
+    --gray-100: #27343d;
     --gray-200: #2c3943;
     --gray-400: #6f7d77;
     --gray-500: #85938d;
     --gray-600: #9aa8a2;
     --gray-700: #c2ccc8;
-    --gray-900: #eef2f0;
-    --bg: #10171c;
-    --surface: #1a242b;
-    --bg-elev: #243039;
-    --text: #e6ece9;
+    --gray-900: #dde3e0;
+    --bg: #161e24;
+    --surface: #1e2930;
+    --bg-elev: #27343d;
+    --text: #d8dfdc;
     --border: #2c3943;
     --blue-text: #7db4e0;
     --green-text: #8cc5a8;
@@ -141,9 +141,9 @@
     --danger: #f0a39a;
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
     --shadow-md: 0 12px 32px -16px rgba(0, 0, 0, 0.6);
-    --ink: #e6ece9;
-    --on-ink: #10171c;
-    --zone-bg: #151e24;
+    --ink: #d8dfdc;
+    --on-ink: #161e24;
+    --zone-bg: #1a242a;
     --state-heating: #f0954a;
     --state-heating-bg: #4a2e14;
     --state-heating-text: #f6c08f;
@@ -1688,9 +1688,37 @@ tr:hover td {
 }
 .zone-editor {
   background: var(--surface);
-  border: 2px solid var(--ink);
-  border-radius: calc(var(--radius) + 4px);
-  overflow: hidden;
+}
+/* My Home → Edit Zone: one sheet, two tabs */
+.modal.edit-zone {
+  width: min(56rem, 96vw);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.edit-zone-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.edit-zone-head .modal-title {
+  margin-bottom: 0.15rem;
+}
+.edit-zone .segmented {
+  align-self: flex-start;
+}
+.segmented-option[aria-selected="true"] {
+  background: var(--surface);
+  color: var(--gray-900);
+  box-shadow: var(--shadow);
+}
+.edit-zone .zone-editor-head {
+  padding: 0 0 1rem;
+  background: none;
+}
+.edit-zone .zone-editor-body {
+  padding: 1rem 0 0;
 }
 .zone-editor-head {
   display: flex;

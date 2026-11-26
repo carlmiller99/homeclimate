@@ -355,8 +355,12 @@ export function ThermostatCard({
   onSaved,
   onSuspendEco,
   zoneHasRoomOptIn = false,
+  embedded = false,
 }: {
   config: ThermostatConfig;
+  /** Shown inside My Home's Edit Zone dialog, which names the zone itself:
+   *  no card frame and no title of its own. */
+  embedded?: boolean;
   onDeleted: () => void;
   onSaved?: (updated: ThermostatConfig) => void;
   onSuspendEco?: () => void;
@@ -491,17 +495,21 @@ export function ThermostatCard({
   };
 
   return (
-    <div className="card" style={{ marginBottom: "1rem" }}>
+    <div className={embedded ? "thermostat-embedded" : "card"} style={{ marginBottom: "1rem" }}>
       {/* Header */}
       <div className="flex-between" style={{ marginBottom: "1rem" }}>
-        <div>
-          <div className="card-title" style={{ marginBottom: ".15rem" }}>
-            {form.name || <span className="text-muted">(unnamed)</span>}
+        {embedded ? (
+          <span />
+        ) : (
+          <div>
+            <div className="card-title" style={{ marginBottom: ".15rem" }}>
+              {form.name || <span className="text-muted">(unnamed)</span>}
+            </div>
+            <div className="font-mono text-muted" style={{ fontSize: ".78rem" }}>
+              {config.thermostat_entity_id}
+            </div>
           </div>
-          <div className="font-mono text-muted" style={{ fontSize: ".78rem" }}>
-            {config.thermostat_entity_id}
-          </div>
-        </div>
+        )}
         <div style={{ display: "flex", gap: ".5rem", flexWrap: "wrap" }}>
           {/* Eco Suspend (#500): top-of-card control, present only when Eco is
               in play for this thermostat — enabled on the thermostat, opted

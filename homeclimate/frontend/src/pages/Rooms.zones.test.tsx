@@ -219,9 +219,9 @@ describe("Rooms grouped by building and zone", () => {
     renderPage();
     const panel = await screen.findByRole("region", { name: "Upstairs" });
     fireEvent.click(within(panel).getByRole("button", { name: "Edit Zone" }));
-    expect(
-      await within(panel).findByRole("heading", { name: "Thermostat Settings" })
-    ).toBeInTheDocument();
+    // One dialog for the zone; its thermostat's settings are the second tab.
+    const edit = await screen.findByRole("dialog", { name: "Edit zone Upstairs" });
+    fireEvent.click(within(edit).getByRole("tab", { name: "Thermostat" }));
 
     fireEvent.click(within(panel).getByRole("button", { name: "Delete Zone" }));
     const dialog = await screen.findByTestId("confirm-dialog");
