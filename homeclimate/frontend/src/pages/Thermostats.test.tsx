@@ -2,7 +2,7 @@ import { StrictMode } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ecoThermostatDefaults, ecoRoomDefaults } from "../testFixtures";
 import { act, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
-import Thermostats from "./Thermostats";
+import Thermostats, { ThermostatCard } from "./Thermostats";
 import * as api from "../api";
 import { UnitContext, buildUnitContext } from "../contexts";
 import { notifyStateChanged } from "../stateEvents";
@@ -1206,6 +1206,20 @@ describe("Thermostats Page — Sensor-staleness threshold (Issue #211)", () => {
     fireEvent.click(within(card).getByRole("button", { name: /^Save$/i }));
 
     await screen.findByText("nope");
+  });
+});
+
+describe("Thermostat settings inside Edit Zone", () => {
+  it("leaves the frame and the title to the dialog it sits in", () => {
+    vi.mocked(api.getOutsideTempEntity).mockResolvedValue({ entity_id: null, current_value: null });
+    const { container } = render(
+      <ThermostatCard embedded config={mockThermostats[0]} onDeleted={() => {}} />
+    );
+    expect(container.querySelector(".card")).toBeNull();
+    expect(container.querySelector(".card-title")).toBeNull();
+    // The settings and their own actions are all still there.
+    expect(screen.getByRole("button", { name: "Save changes" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Delete Zone" })).toBeInTheDocument();
   });
 });
 
