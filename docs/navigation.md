@@ -46,6 +46,7 @@ A side menu of sections:
 - **Schedules** — per-room time blocks, and **Rooms In Use by Calendar**: a room can be in use only while a Home Assistant calendar event is on. See [Schedules](./schedules.md) and [House band](./house-band.md).
 - **Doors & Windows** — how long a door or window can stay open before its room or zone pauses, per-zone and per-room overrides, and **Shades**. The sensors themselves are added to rooms in My Home. See [Doors & windows](./doors-and-windows.md) and [Shades](./shades.md).
 - **Smart Learning** — records how each room heats and cools, and shows how much each room has collected. See [Smart Learning](./smart-learning.md).
+- **Auto Mode** — what a building does when its Dashboard mode is Auto: let each zone decide or heat and cool as one, how often it may switch, and how far past its target a room must be first. See [Building mode](./building-mode.md).
 - **Forecasts** — the weather source, and the forecast HomeClimate has fetched. See [Forecasts](./forecasts.md).
 - **Fireplace** — which entity says a fire is lit, the rooms it warms, and what to do while it burns. Fireplaces are added here, not in My Home, because most rooms don't have one. See [Fireplace](./fireplace.md).
 - **Fan** — run the fan alone to mix a zone's rooms while its building holds it to heating or to cooling. See [Fan](./fan.md).

@@ -761,7 +761,7 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
     });
     const building = (await made.json()).id as string;
     try {
-      await page.goto("/smart-control?section=forecasts");
+      await page.goto("/smart-control?section=auto-mode");
       const field = page.getByLabel(
         /^Switching threshold for Threshold Test House/,
       );
