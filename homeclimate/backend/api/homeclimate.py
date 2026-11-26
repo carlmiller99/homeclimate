@@ -686,7 +686,8 @@ async def test_fan(request: web.Request) -> web.Response:
         await request.app["scheduler"].start_fan_test(entity_id)
     except UserError as exc:
         text = safe_text(exc)
-        return error(text, status=404 if text == fan.ZONE_UNKNOWN else 400)
+        status = {fan.ZONE_UNKNOWN: 404, fan.FAN_FAILED: 502}.get(text, 400)
+        return error(text, status=status)
     await emit(request, "info", "api", "Fan test started", {"thermostat": entity_id})
     return json_response(await _fan_snapshot(request))
 

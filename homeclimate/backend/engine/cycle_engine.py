@@ -5985,10 +5985,14 @@ class CycleEngine:
         if can_start:
             excess = 0.0
             past_target = 0.0
-            ambient = (thermo_state or {}).get("attributes", {}).get("current_temperature")
+            # In °F whatever unit Home Assistant reports the thermostat in.
+            ambient = _climate_temp_to_f(
+                ((thermo_state or {}).get("attributes") or {}).get("current_temperature"),
+                self._ha.ha_temp_unit,
+            )
             for ar in active_rooms.values():
                 avg = self._get_avg_temp(ar.room)
-                if avg is None and isinstance(ambient, int | float):
+                if avg is None and ambient is not None:
                     # No reading of its own: go by the thermostat's, as the
                     # choice between heating and cooling did. Without this a
                     # zone with no room sensors could never switch its building.

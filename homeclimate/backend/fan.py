@@ -13,13 +13,16 @@ The rules, all here:
 * only a zone that is idle and held to one side by its building (Heat Only,
   Cool Only, or Auto set to On): the fan works the *other* side, the one the
   building is not serving;
-* a room at least ``PAST_F`` past its target on that side, with another room
-  of the zone at least ``SPREAD_F`` closer to it. Rooms paused by an open door
-  or window count for nothing, either way;
+* a room at least ``PAST_F`` past its target on that side (``NARROW_PAST_F``
+  when its two targets are the same number, so the ordinary overshoot of a
+  cycle is not a reason), with another room of the zone at least ``SPREAD_F``
+  closer to it that is not itself past its own target. Rooms paused by an
+  open door or window count for nothing, either way;
 * it stops when the room is back at its target, when the rooms are within
   ``KEEP_SPREAD_F`` of each other, when a cycle starts, or after ``CAP`` in
   any ``WINDOW``;
-* not for ``AFTER_COOLING`` after a cooling run, while the coil is wet;
+* not for ``AFTER_RUN`` after any run: after cooling the coil is wet, and
+  after either the rooms are still settling;
 * a zone with an outside air intake only runs the fan while outside air would
   help the room, since the fan draws it in. "Not sure" is treated as none.
 
@@ -53,11 +56,13 @@ log = logging.getLogger(__name__)
 LEVELS = ("off", "watch", "on")
 INTAKES = ("yes", "no", "unsure")
 PAST_F = 0.5
+# For a room kept to one number: a cycle overshoots it by about this much.
+NARROW_PAST_F = 2.5
 SPREAD_F = 1.5
 KEEP_SPREAD_F = 0.75
 CAP = timedelta(minutes=30)
 WINDOW = timedelta(hours=1)
-AFTER_COOLING = timedelta(minutes=15)
+AFTER_RUN = timedelta(minutes=15)
 TEST_LENGTH = timedelta(minutes=10)
 TEST_MIN_DIFFERENCE_F = 10.0
 TEST_MOVED_F = 0.5
@@ -128,7 +133,8 @@ def decide(
         if room.paused or room.temp is None or target is None:
             continue
         past = room.temp - target if warm else target - room.temp
-        if past <= 0 or (not running and past < PAST_F):
+        narrow = room.heat_to is not None and room.heat_to == room.cool_to
+        if past <= 0 or (not running and past < (NARROW_PAST_F if narrow else PAST_F)):
             continue
         if intake and (outside is None or (outside >= room.temp if warm else outside <= room.temp)):
             # The fan would draw in air that works against the room.
@@ -136,7 +142,11 @@ def decide(
         gaps = {
             other.room_id: (room.temp - other.temp if warm else other.temp - room.temp)
             for other in rooms
-            if other is not room and not other.paused and other.temp is not None
+            if other is not room
+            and not other.paused
+            and other.temp is not None
+            # Not one that mixing would push further past its own target.
+            and not _past_own(other, warm)
         }
         need = KEEP_SPREAD_F if running else SPREAD_F
         helpers = tuple(room_id for room_id, gap in gaps.items() if gap >= need)
@@ -145,6 +155,19 @@ def decide(
                 room.room_id, room.name, helpers, round(past, 2), round(max(gaps.values()), 2)
             )
     return best
+
+
+def _past_own(room: RoomNow, warm: bool) -> bool:
+    """Whether a room is itself at or past its target on the side being worked."""
+    assert room.temp is not None
+    if warm:
+        return room.cool_to is not None and room.temp >= room.cool_to
+    return room.heat_to is not None and room.temp <= room.heat_to
+
+
+def _degrees(delta_f: float, unit: str) -> str:
+    """A °F difference in the house's unit, for a note or a log line."""
+    return f"{round(delta_f * 5 / 9, 1) if unit == 'C' else round(delta_f, 1)}°{unit}"
 
 
 @dataclass
@@ -165,16 +188,12 @@ class ZoneInput:
     # Why nothing may run at all (system off, Vacation Mode, an open door), or "".
     blocked: str = ""
 
-    @property
-    def temp(self) -> float | None:
-        temps = [r.temp for r in self.rooms if r.temp is not None]
-        return sum(temps) / len(temps) if temps else None
-
 
 @dataclass
 class _Test:
     started: datetime
-    start_temp: float
+    # Each room's reading at the start, so only rooms read at both ends count.
+    start: dict[str, float]
     outside: float
     turned_on: bool
 
@@ -186,13 +205,13 @@ class Manager:
     _ours: set[str] = field(default_factory=set)
     _since: dict[str, datetime] = field(default_factory=dict)
     _runs: dict[str, list[tuple[datetime, datetime]]] = field(default_factory=dict)
-    _cooled_at: dict[str, datetime] = field(default_factory=dict)
+    _ran_at: dict[str, datetime] = field(default_factory=dict)
     _notes: dict[str, str] = field(default_factory=dict)
     _watched: set[str] = field(default_factory=set)
     _tests: dict[str, _Test] = field(default_factory=dict)
     _loaded: bool = False
 
-    async def _load(self, conn: aiosqlite.Connection) -> None:
+    async def _load(self, conn: aiosqlite.Connection, now: datetime) -> None:
         if self._loaded:
             return
         try:
@@ -202,6 +221,9 @@ class Manager:
         self._ours = (
             {t for t in stored if isinstance(t, str)} if isinstance(stored, list) else set()
         )
+        # A fan found running after a restart counts from now, so the hourly
+        # limit still applies to it.
+        self._since = dict.fromkeys(self._ours, now)
         self._loaded = True
 
     async def _remember(self, conn: aiosqlite.Connection) -> None:
@@ -231,9 +253,7 @@ class Manager:
 
     async def _set(self, ha: Any, thermostat_entity_id: str, mode: str) -> bool:
         try:
-            await ha.call_service(
-                "climate", "set_fan_mode", {"entity_id": thermostat_entity_id, "fan_mode": mode}
-            )
+            await ha.set_thermostat_fan_mode(thermostat_entity_id, mode)
         except Exception:
             log.exception("Could not set the fan of %s to %s", thermostat_entity_id, mode)
             return False
@@ -246,8 +266,9 @@ class Manager:
         tid = zone.thermostat_entity_id
         if tid not in self._ours:
             return False
-        # Changed at the thermostat since: it is no longer ours to turn off.
-        if zone.fan_mode == "on" and not await self._set(ha, tid, "auto"):
+        # Always sent, whatever Home Assistant last reported: a report that
+        # lags behind must never leave a fan running that HomeClimate started.
+        if not await self._set(ha, tid, "auto"):
             return False
         self._ours.discard(tid)
         began = self._since.pop(tid, None)
@@ -271,13 +292,27 @@ class Manager:
             return ""
         if not zone.obey or zone.side not in ("heating", "cooling"):
             return "Only used while the building holds this zone to heating or to cooling"
-        cooled = self._cooled_at.get(tid)
-        if cooled is not None and timedelta(0) <= now - cooled < AFTER_COOLING:
-            left = math.ceil((AFTER_COOLING - (now - cooled)).total_seconds() / 60)
-            return f"Waiting {left} min after cooling"
+        ran = self._ran_at.get(tid)
+        if ran is not None and timedelta(0) <= now - ran < AFTER_RUN:
+            left = math.ceil((AFTER_RUN - (now - ran)).total_seconds() / 60)
+            return f"Waiting {left} min after the last run"
         if self.minutes_used(tid, now) >= CAP.total_seconds() // 60:
             return "Has run 30 minutes in the last hour"
         return None
+
+    async def release(self, conn: aiosqlite.Connection, ha: Any, now: datetime) -> None:
+        """Hand every fan HomeClimate has on back to its thermostat.
+
+        For when the zones cannot be read at all: a fan must not be left
+        running because the code that would stop it could not run.
+        """
+        await self._load(conn, now)
+        for tid in sorted(self._ours):
+            if await self._set(ha, tid, "auto"):
+                self._ours.discard(tid)
+                self._since.pop(tid, None)
+        self._tests.clear()
+        await self._remember(conn)
 
     async def tick(
         self,
@@ -289,67 +324,93 @@ class Manager:
         *,
         say: Callable[[str, dict], Awaitable[None]],
         open_vents: Callable[[list[str]], Awaitable[None]],
+        unit: str = "F",
     ) -> None:
-        await self._load(conn)
+        await self._load(conn, now)
         seen = {z.thermostat_entity_id for z in zones}
-        for gone in self._ours - seen:
-            # Its zone has no engine any more (deleted, or emptied of rooms).
-            self._ours.discard(gone)
-            self._since.pop(gone, None)
-            await self._remember(conn)
+        for gone in sorted(self._ours - seen):
+            # Its zone has no engine any more (deleted, or emptied of rooms):
+            # hand the fan back before forgetting it, and keep trying if that fails.
+            if await self._set(ha, gone, "auto"):
+                self._ours.discard(gone)
+                self._since.pop(gone, None)
+                await self._remember(conn)
+        for gone in set(self._tests) - seen:
+            del self._tests[gone]
         for zone in zones:
-            tid = zone.thermostat_entity_id
-            if zone.cycle_mode == "cooling":
-                self._cooled_at[tid] = now
-            if tid in self._tests:
-                await self._tick_test(conn, ha, zone, now, say)
-                continue
-            why_not = self._why_not(zone, now)
-            want = None
-            if why_not is None:
-                passive = "cooling" if zone.side == "heating" else "heating"
-                want = decide(
-                    zone.rooms,
-                    passive,
-                    running=tid in self._ours,
-                    intake=zone.air_intake == "yes",
-                    outside=outside,
-                )
-            self._notes[tid] = why_not or ""
-            if want is None or zone.level != "on":
-                if await self._stop(conn, ha, zone, now):
-                    await say(f"Fan stopped for {zone.name}", {"thermostat": tid})
-                if want is None:
-                    self._watched.discard(tid)
-                    continue
-            what = (
-                f"{want.room_name} is {want.past}° past its target and another room is"
-                f" {want.spread}° closer to it"
+            try:
+                await self._tick_zone(conn, ha, zone, outside, now, say, open_vents, unit)
+            except Exception:
+                # One zone's trouble must not leave another's fan unattended.
+                log.exception("Could not run the fan for %s", zone.thermostat_entity_id)
+
+    async def _tick_zone(
+        self,
+        conn: aiosqlite.Connection,
+        ha: Any,
+        zone: ZoneInput,
+        outside: float | None,
+        now: datetime,
+        say: Callable[[str, dict], Awaitable[None]],
+        open_vents: Callable[[list[str]], Awaitable[None]],
+        unit: str,
+    ) -> None:
+        tid = zone.thermostat_entity_id
+        if zone.cycle_mode is not None:
+            self._ran_at[tid] = now
+        if tid in self._tests:
+            await self._tick_test(conn, ha, zone, now, say)
+            return
+        why_not = self._why_not(zone, now)
+        want = None
+        if why_not is None:
+            passive = "cooling" if zone.side == "heating" else "heating"
+            want = decide(
+                zone.rooms,
+                passive,
+                running=tid in self._ours,
+                intake=zone.air_intake == "yes",
+                outside=outside,
             )
-            details = {"thermostat": tid, "room": want.room_id, "past": want.past}
-            if zone.level == "watch":
-                self._notes[tid] = f"Would run: {what}"
-                if tid not in self._watched:
-                    self._watched.add(tid)
-                    await say(f"Fan would run for {zone.name} (watching only): {what}", details)
-                continue
-            self._notes[tid] = f"Running: {what}"
-            if tid in self._ours:
-                continue
-            if zone.fan_mode == "on":
-                self._notes[tid] = "The fan is already on at the thermostat"
-                continue
-            if not await self._set(ha, tid, "on"):
-                self._notes[tid] = "The thermostat did not accept the fan change"
-                continue
-            self._ours.add(tid)
-            self._since[tid] = now
-            await self._remember(conn)
-            await open_vents([want.room_id, *want.helpers])
-            await say(f"Fan running for {zone.name}: {what}", details)
+        self._notes[tid] = why_not or ""
+        if (want is None or zone.level != "on") and await self._stop(conn, ha, zone, now):
+            await say(f"Fan stopped for {zone.name}", {"thermostat": tid})
+        if want is None:
+            self._watched.discard(tid)
+            return
+        what = (
+            f"{want.room_name} is {_degrees(want.past, unit)} past its target and another"
+            f" room is {_degrees(want.spread, unit)} closer to it"
+        )
+        details = {"thermostat": tid, "room": want.room_id, "past": want.past}
+        if zone.level == "watch":
+            self._notes[tid] = f"Would run: {what}"
+            if tid not in self._watched:
+                self._watched.add(tid)
+                await say(f"Fan would run for {zone.name} (watching only): {what}", details)
+            return
+        self._notes[tid] = f"Running: {what}"
+        if tid in self._ours:
+            return
+        if zone.fan_mode == "on":
+            self._notes[tid] = "The fan is already on at the thermostat"
+            return
+        if not await self._set(ha, tid, "on"):
+            self._notes[tid] = "The thermostat did not accept the fan change"
+            return
+        self._ours.add(tid)
+        self._since[tid] = now
+        await self._remember(conn)
+        await open_vents([want.room_id, *want.helpers])
+        await say(f"Fan running for {zone.name}: {what}", details)
 
     async def start_test(
-        self, ha: Any, zone: ZoneInput | None, outside: float | None, now: datetime
+        self,
+        conn: aiosqlite.Connection,
+        ha: Any,
+        zone: ZoneInput | None,
+        outside: float | None,
+        now: datetime,
     ) -> None:
         if zone is None:
             raise FanError(ZONE_UNKNOWN)
@@ -360,17 +421,24 @@ class Manager:
             raise FanError(NO_FAN_SETTING)
         if zone.blocked:
             raise FanError(TEST_BLOCKED)
+        await self._load(conn, now)
         if not zone.idle or tid in self._ours:
             raise FanError(TEST_BUSY)
-        inside = zone.temp
-        if inside is None or outside is None:
+        start = {r.room_id: r.temp for r in zone.rooms if r.temp is not None}
+        if not start or outside is None:
             raise FanError(TEST_NO_OUTSIDE)
+        inside = sum(start.values()) / len(start)
         if abs(inside - outside) < TEST_MIN_DIFFERENCE_F:
             raise FanError(TEST_TOO_CLOSE)
         turned_on = zone.fan_mode != "on"
-        if turned_on and not await self._set(ha, tid, "on"):
-            raise FanError(FAN_FAILED)
-        self._tests[tid] = _Test(now, inside, outside, turned_on)
+        if turned_on:
+            if not await self._set(ha, tid, "on"):
+                raise FanError(FAN_FAILED)
+            # Remembered like any fan HomeClimate turned on, so a restart in
+            # the middle of the test hands it back.
+            self._ours.add(tid)
+            await self._remember(conn)
+        self._tests[tid] = _Test(now, start, outside, turned_on)
 
     async def _tick_test(
         self,
@@ -382,19 +450,27 @@ class Manager:
     ) -> None:
         tid = zone.thermostat_entity_id
         test = self._tests[tid]
-        interrupted = not zone.idle or bool(zone.blocked) or zone.temp is None
+        # Only rooms read at both ends: one whose sensor dropped out would
+        # otherwise look like the zone moving.
+        ends = {r.room_id: r.temp for r in zone.rooms if r.temp is not None}
+        both = sorted(set(test.start) & set(ends))
+        interrupted = not zone.idle or bool(zone.blocked) or not both
         if not interrupted and timedelta(0) <= now - test.started < TEST_LENGTH:
             self._notes[tid] = "Testing for an outside air intake"
             return
         del self._tests[tid]
-        if test.turned_on and zone.fan_mode == "on":
-            await self._set(ha, tid, "auto")
+        if test.turned_on:
+            # Not timed against the hourly limit: a test is asked for.
+            self._since.pop(tid, None)
+            await self._stop(conn, ha, zone, now)
         result: dict[str, Any] = {"at": now.isoformat(), "interrupted": interrupted}
-        if not interrupted and zone.temp is not None:
-            toward = 1.0 if test.outside > test.start_temp else -1.0
-            moved = round((zone.temp - test.start_temp) * toward, 2)
+        if not interrupted:
+            began = sum(test.start[r] for r in both) / len(both)
+            ended = sum(ends[r] for r in both) / len(both)
+            toward = 1.0 if test.outside > began else -1.0
+            moved = round((ended - began) * toward, 2)
             result.update(
-                difference=round(abs(test.start_temp - test.outside), 1),
+                difference=round(abs(began - test.outside), 1),
                 moved=moved,
                 hint="possible" if moved >= TEST_MOVED_F else "none",
             )

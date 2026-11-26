@@ -70,7 +70,8 @@ MAX_RATE_F_PER_H = 12.0  # a faster change is a sensor glitch, not the room
 MAX_STEP_F = MAX_RATE_F_PER_H * STEP_S / 3600 * 2  # between two readings five minutes apart
 
 # What the thermostat says it is doing, as the model sees it. Anything not
-# listed here (defrosting, drying, an action from a newer Home Assistant)
+# listed here (the fan running alone, defrosting, drying, an action from a
+# newer Home Assistant)
 # moves heat in a way the model does not describe, so that half-hour is left out.
 ACTIONS = {
     "heating": "heating",
@@ -78,7 +79,6 @@ ACTIONS = {
     "cooling": "cooling",
     "idle": "idle",
     "off": "idle",
-    "fan": "idle",
 }
 
 

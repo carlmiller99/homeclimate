@@ -628,6 +628,8 @@ export default function Dashboard() {
   const [smart, setSmart] = useState<SmartControl | null>(null);
   const [house, setHouse] = useState<House | null>(null);
   const [structureLoaded, setStructureLoaded] = useState(false);
+  // Each list having loaded once is enough: they need not arrive together.
+  const loadedLists = useRef({ b: false, zp: false });
   const [buildingModes, setBuildingModes] = useState<BuildingMode[]>([]);
   const system = useSystem();
   const [confirmSystem, setConfirmSystem] = useState(false);
@@ -672,7 +674,8 @@ export default function Dashboard() {
     // place and an unsaved edit is not dropped by one failed poll.
     if (b) setBuildings(b);
     if (zp) setProfiles(zp);
-    if (b && zp) setStructureLoaded(true);
+    loadedLists.current = { b: loadedLists.current.b || !!b, zp: loadedLists.current.zp || !!zp };
+    if (loadedLists.current.b && loadedLists.current.zp) setStructureLoaded(true);
     setSmart(sc ?? null);
     const key = r.map((room) => room.id).join(",");
     const cache = sensorsByRoom.current;

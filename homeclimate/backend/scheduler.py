@@ -1776,10 +1776,12 @@ class Scheduler:
                 )
             attrs = (self._ha.get_state(tid) or {}).get("attributes") or {}
             modes = attrs.get("fan_modes")
+            action = attrs.get("hvac_action")
+            resting = action in (None, "idle", "off", "fan")
             side, obey = self._building_side(tid)
             blocked = (
                 "The system is off"
-                if not self._system_enabled
+                if not (self._system_enabled or self._dev_mode)
                 else "Vacation Mode is on"
                 if self._vacation_mode
                 else "A door or window is open"
@@ -1794,12 +1796,10 @@ class Scheduler:
                     name=profile.name or self._friendly(tid),
                     level=profile.fan_level,
                     air_intake=profile.air_intake,
-                    idle=engine.cycle_mode is None
-                    and attrs.get("hvac_action") not in ("heating", "cooling"),
-                    cycle_mode=engine.cycle_mode
-                    or (
-                        attrs.get("hvac_action") if attrs.get("hvac_action") == "cooling" else None
-                    ),
+                    # Anything the equipment is doing by itself (defrosting,
+                    # drying, preheating) is not idle either.
+                    idle=engine.cycle_mode is None and resting,
+                    cycle_mode=engine.cycle_mode or (None if resting else str(action)),
                     side=side,
                     obey=obey,
                     rooms=rooms,
@@ -1832,9 +1832,15 @@ class Scheduler:
                 datetime.now(UTC),
                 say=self._say_fan,
                 open_vents=self._open_room_vents,
+                unit=self._active_unit,
             )
         except Exception:
             log.exception("Could not run the fans")
+            try:
+                # Not being able to look must not leave a fan running.
+                await self._fan.release(self._db_conn, self._ha, datetime.now(UTC))
+            except Exception:
+                log.exception("Could not hand the fans back to their thermostats")
 
     async def start_fan_test(self, thermostat_entity_id: str) -> None:
         """Run a zone's fan for a while to look for an outside air intake."""
@@ -1843,7 +1849,11 @@ class Scheduler:
             None,
         )
         await self._fan.start_test(
-            self._ha, zone, await outside.read(self._db_conn, self._ha), datetime.now(UTC)
+            self._db_conn,
+            self._ha,
+            zone,
+            await outside.read(self._db_conn, self._ha),
+            datetime.now(UTC),
         )
 
     async def _run_shades(self) -> None:
