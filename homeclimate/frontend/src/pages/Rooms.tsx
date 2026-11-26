@@ -1293,7 +1293,15 @@ function DeviceSection({
   title: string;
   room: string;
   empty: string;
-  items: { id: string; name: string; value: string; tone?: string; tag?: string }[];
+  items: {
+    id: string;
+    name: string;
+    value: string;
+    tone?: string;
+    tag?: string;
+    /** Shown as a coloured dot before the name in place of the value's words. */
+    dot?: "on" | "off";
+  }[];
   onOpen: () => void;
 }) {
   // The whole box is the way in: it opens this kind of device for this room.
@@ -1315,9 +1323,13 @@ function DeviceSection({
         <span className="device-list">
           {items.map((d) => (
             <span key={d.id} className="device-item" title={d.id}>
-              <span className="device-name">{d.name}</span>
+              <span className="device-name">
+                {d.dot && <span className={`device-dot device-dot-${d.dot}`} title={d.value} />}
+                {withoutRoom(d.name, room)}
+                {d.dot && <span className="sr-only">{`: ${d.value}`}</span>}
+              </span>
               <span className={`device-value${d.tone ? ` device-${d.tone}` : ""}`}>
-                {d.value}
+                {!d.dot && d.value}
                 {d.tag && <span className="device-tag">{d.tag}</span>}
               </span>
             </span>
@@ -1326,6 +1338,16 @@ function DeviceSection({
       )}
     </button>
   );
+}
+
+/** A device's name without the room's own name in front: "Kitchen Motion" in Kitchen is "Motion". */
+export function withoutRoom(name: string, room: string): string {
+  const lead = room.trim().toLowerCase();
+  if (lead && name.toLowerCase().startsWith(lead)) {
+    const rest = name.slice(lead.length).replace(/^[\s\-–—:,.'’s]+/, "");
+    if (rest) return rest[0].toUpperCase() + rest.slice(1);
+  }
+  return name;
 }
 
 function friendly(state: EntityState | null | undefined, id: string): string {
@@ -1394,6 +1416,8 @@ function RoomCard({
       name: friendly(states[id], id),
       value: st === undefined ? "…" : st === "on" ? "Occupied" : st === "off" ? "Clear" : "Offline",
       tone: st === "on" ? "occupied" : undefined,
+      // A green or grey dot says occupied or clear in less room than the word.
+      dot: st === "on" ? ("on" as const) : st === "off" ? ("off" as const) : undefined,
     };
   });
 
@@ -1574,25 +1598,32 @@ export default function MyHome() {
       <Zones
         reloadKey={reloadKey}
         onChanged={() => void load()}
-        onAddRoom={(zoneId) => setSettings({ room: null, zoneId })}
         renderRooms={(zoneId) => {
           const zoneRooms = rooms.filter((r) => r.thermostat_entity_id === zoneId);
-          return zoneRooms.length === 0 ? (
-            <div className="empty-panel">
-              <p>
-                This zone has no rooms. It cannot be controlled until at least one room is added.
-              </p>
-              <button
-                type="button"
-                className="btn btn-primary"
-                style={{ marginTop: ".6rem" }}
-                onClick={() => setSettings({ room: null, zoneId })}
-              >
-                Add Room
-              </button>
-            </div>
-          ) : (
-            <div className="card-grid">{zoneRooms.map(card)}</div>
+          const zoneName =
+            thermostats.find((t) => t.thermostat_entity_id === zoneId)?.name || zoneId;
+          return (
+            <>
+              {zoneRooms.length === 0 && (
+                <p className="field-help">
+                  This zone has no rooms. It cannot be controlled until at least one room is added.
+                </p>
+              )}
+              <div className="card-grid">
+                {zoneRooms.map(card)}
+                <button
+                  type="button"
+                  className="add-tile"
+                  aria-label={`Add Room to ${zoneName}`}
+                  onClick={() => setSettings({ room: null, zoneId })}
+                >
+                  <span className="add-tile-plus" aria-hidden="true">
+                    +
+                  </span>
+                  Add Room
+                </button>
+              </div>
+            </>
           );
         }}
       />

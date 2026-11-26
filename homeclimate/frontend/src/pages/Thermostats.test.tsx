@@ -1217,7 +1217,8 @@ describe("Thermostat settings inside Edit Zone", () => {
     expect(container.querySelector(".card-title")).toBeNull();
     // The settings and their own actions are all still there.
     expect(screen.getByRole("button", { name: "Save changes" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Delete Zone" })).toBeInTheDocument();
+    // Deleting the zone is the dialog's job, so there is no second button for it here.
+    expect(screen.queryByRole("button", { name: "Delete Zone" })).toBeNull();
   });
 });
 

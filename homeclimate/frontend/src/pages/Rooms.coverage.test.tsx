@@ -530,6 +530,19 @@ const devices = (name: string) =>
     li.querySelector(".device-value")?.textContent,
   ]);
 
+describe("device names on a room card", () => {
+  it("leaves the room's own name off the front of a device's name", async () => {
+    const { withoutRoom } = await import("./Rooms");
+    expect(withoutRoom("Kitchen Motion", "Kitchen")).toBe("Motion");
+    expect(withoutRoom("kitchen - door", "Kitchen")).toBe("Door");
+    expect(withoutRoom("Kitchen's fan", "Kitchen")).toBe("Fan");
+    // Nothing would be left, or it does not start with the room: kept whole.
+    expect(withoutRoom("Kitchen", "Kitchen")).toBe("Kitchen");
+    expect(withoutRoom("Hall Sensor", "Kitchen")).toBe("Hall Sensor");
+    expect(withoutRoom("Sensor", " ")).toBe("Sensor");
+  });
+});
+
 describe("Room card — devices", () => {
   it("gives each kind of device its own section, in a fixed order", async () => {
     const { container } = renderPage();
@@ -556,8 +569,8 @@ describe("Room card — devices", () => {
     renderPage();
     await screen.findByText("Living Room");
 
-    // No entity ids at all → the HA state fetch is skipped entirely.
-    expect(api.getEntityStates).not.toHaveBeenCalled();
+    // No device ids at all → no state fetch for the room (only the zone's thermostat is read).
+    expect(api.getEntityStates).not.toHaveBeenCalledWith([]);
     expect(within(section("Smart Vents")).getByText("No vents")).toBeInTheDocument();
     expect(within(section("Temperature Sensors")).getByText("No sensors")).toBeInTheDocument();
     expect(within(section("Doors & Windows")).getByText("None")).toBeInTheDocument();
@@ -728,15 +741,17 @@ describe("Room card — devices", () => {
 
     await waitFor(() =>
       expect(devices("Occupancy Sensors")).toEqual([
-        ["Desk", "Occupied"],
-        ["binary_sensor.sofa", "Clear"],
+        // Occupied and clear are a green or grey dot; the word is still there to be read out.
+        ["Desk: Occupied", ""],
+        ["binary_sensor.sofa: Clear", ""],
         ["binary_sensor.lost", "Offline"],
         ["binary_sensor.late", "…"],
       ])
     );
     const occupancy = section("Occupancy Sensors");
-    expect(occupancy.querySelectorAll(".device-occupied")).toHaveLength(1);
-    expect(within(occupancy).getByText("Occupied")).toHaveClass("device-occupied");
+    expect(occupancy.querySelectorAll(".device-dot-on")).toHaveLength(1);
+    expect(occupancy.querySelectorAll(".device-dot-off")).toHaveLength(1);
+    expect(occupancy.querySelector(".device-dot-on")).toHaveAttribute("title", "Occupied");
   });
 
   it("keeps the stale badge singular for exactly one sensor", async () => {
@@ -1017,10 +1032,9 @@ describe("My Home — page edge cases", () => {
     const note = await screen.findByText(
       "This zone has no rooms. It cannot be controlled until at least one room is added."
     );
-    // The button beside the note opens the new-room form on that zone.
-    fireEvent.click(
-      within(note.closest(".empty-panel") as HTMLElement).getByRole("button", { name: "Add Room" })
-    );
+    expect(note).toBeInTheDocument();
+    // The Add Room tile opens the new-room form on that zone.
+    fireEvent.click(screen.getByRole("button", { name: "Add Room to Test Thermostat" }));
     await screen.findByText("New Room", { selector: ".page-title" });
     expect(screen.getByRole("combobox", { name: /Thermostat/i })).toHaveValue("climate.test");
   });

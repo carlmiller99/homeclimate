@@ -53,8 +53,8 @@ export default function RoomInUse({
   }
   const mode: Mode = calendar || picking ? "calendar" : inUse ? "always" : "never";
 
+  // Every control here is disabled while a change is being saved, so one runs at a time.
   const run = async (call: () => Promise<House>) => {
-    if (busy) return;
     setErr(null);
     setBusy(true);
     try {

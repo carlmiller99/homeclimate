@@ -665,7 +665,7 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
       await page.waitForLoadState("networkidle");
       await page
         .locator(".zone-row")
-        .filter({ hasText: TC_ID })
+        .filter({ has: page.locator(`.zone-entity[title="${TC_ID}"]`) })
         .getByRole("button", { name: "Edit Zone" })
         .click();
       await editor().waitFor({ state: "visible", timeout: 10_000 });

@@ -523,9 +523,11 @@ export function ThermostatCard({
                   : "Suspend Eco"}
               </button>
             )}
-          <button className="btn btn-danger btn-sm" onClick={() => setConfirmRemove(true)}>
-            Delete Zone
-          </button>
+          {!embedded && (
+            <button className="btn btn-danger btn-sm" onClick={() => setConfirmRemove(true)}>
+              Delete Zone
+            </button>
+          )}
         </div>
       </div>
 

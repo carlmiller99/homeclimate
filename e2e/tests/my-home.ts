@@ -17,7 +17,11 @@ export async function gotoMyHome(page: Page): Promise<void> {
 
 /** The panel for one zone, found by its thermostat entity id. */
 export function zonePanel(page: Page, entityId: string): Locator {
-  return page.locator(".zone-panel").filter({ hasText: entityId }).first();
+  // The entity id is the tooltip of the "Thermostat: …" line under the zone's name.
+  return page
+    .locator(".zone-panel")
+    .filter({ has: page.locator(`.zone-entity[title="${entityId}"]`) })
+    .first();
 }
 
 /**

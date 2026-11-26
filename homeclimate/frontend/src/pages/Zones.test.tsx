@@ -118,7 +118,9 @@ describe("Zones page", () => {
     expect(screen.getByRole("heading", { name: "Unassigned" })).toBeInTheDocument();
     expect(screen.getByText(/No zones in this building yet/)).toBeInTheDocument();
     // A zone with no name falls back to its entity id.
-    expect(screen.getAllByText("climate.loose").length).toBe(2);
+    expect(screen.getByRole("region", { name: "climate.loose" })).toBeInTheDocument();
+    // Under each name, its thermostat as Home Assistant names it, or its id tidied up.
+    expect(screen.getByText("Thermostat: Loose")).toHaveAttribute("title", "climate.loose");
     expect(screen.getAllByText("Conventional, Electric Strips").length).toBe(2);
   });
 
@@ -168,19 +170,19 @@ describe("Zones page", () => {
     vi.mocked(zonesApi.updateBuilding).mockResolvedValueOnce({ ...MAIN, name: "House" });
     renderPage();
     await screen.findByText("South Wing");
-    fireEvent.click(screen.getAllByRole("button", { name: "Rename" })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: /^Edit (?!Zone)/ })[0]);
     fireEvent.change(screen.getByLabelText("Building name"), { target: { value: "House" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(await screen.findByRole("heading", { name: "House" })).toBeInTheDocument();
     expect(zonesApi.updateBuilding).toHaveBeenCalledWith("b1", { name: "House" });
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Rename" })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: /^Edit (?!Zone)/ })[0]);
     fireEvent.change(screen.getByLabelText("Building name"), { target: { value: "Zzz" } });
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.getByRole("heading", { name: "House" })).toBeInTheDocument();
 
     vi.mocked(zonesApi.updateBuilding).mockRejectedValueOnce(new Error("taken"));
-    fireEvent.click(screen.getAllByRole("button", { name: "Rename" })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: /^Edit (?!Zone)/ })[0]);
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(await screen.findByText("taken")).toBeInTheDocument();
 
@@ -193,7 +195,9 @@ describe("Zones page", () => {
     vi.mocked(zonesApi.deleteBuilding).mockResolvedValueOnce({ deleted: "b2" });
     renderPage();
     await screen.findByText("South Wing");
-    fireEvent.click(screen.getByRole("button", { name: "Delete The Den" }));
+    // Rename and Delete are behind the pencil beside the building's name.
+    screen.queryByRole("button", { name: "Edit The Den" })?.click();
+    fireEvent.click(await screen.findByRole("button", { name: "Delete The Den" }));
     const dialog = screen.getByTestId("confirm-dialog");
     expect(dialog).toHaveTextContent(
       'Delete "The Den"? Its zones and rooms are kept and moved to Unassigned'
@@ -203,7 +207,9 @@ describe("Zones page", () => {
     expect(screen.queryByTestId("confirm-dialog")).toBeNull();
     expect(zonesApi.deleteBuilding).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole("button", { name: "Delete The Den" }));
+    // Rename and Delete are behind the pencil beside the building's name.
+    screen.queryByRole("button", { name: "Edit The Den" })?.click();
+    fireEvent.click(await screen.findByRole("button", { name: "Delete The Den" }));
     fireEvent.click(
       within(screen.getByTestId("confirm-dialog")).getByRole("button", { name: "Delete Building" })
     );
@@ -215,7 +221,8 @@ describe("Zones page", () => {
       [null, "Could not delete this building"],
     ] as const) {
       vi.mocked(zonesApi.deleteBuilding).mockRejectedValueOnce(failure);
-      fireEvent.click(screen.getByRole("button", { name: "Delete Main House" }));
+      screen.queryByRole("button", { name: "Edit Main House" })?.click();
+      fireEvent.click(await screen.findByRole("button", { name: "Delete Main House" }));
       fireEvent.click(
         within(screen.getByTestId("confirm-dialog")).getByRole("button", {
           name: "Delete Building",
@@ -234,30 +241,35 @@ describe("Zones page", () => {
       </MemoryRouter>
     );
     await screen.findByText("South Wing");
+    // Delete Zone is inside the zone's own dialog, opened by the pencil.
+    fireEvent.click(screen.getAllByRole("button", { name: "Edit Zone" })[0]);
     fireEvent.click(screen.getByRole("button", { name: "Delete Zone South Wing" }));
     const dialog = screen.getByTestId("confirm-dialog");
     expect(dialog).toHaveTextContent('Delete the zone "South Wing" and all of its rooms?');
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
     expect(api.deleteThermostat).not.toHaveBeenCalled();
+    expect(screen.getByRole("region", { name: "Edit South Wing" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Delete Zone South Wing" }));
     fireEvent.click(
       within(screen.getByTestId("confirm-dialog")).getByRole("button", { name: "Delete Zone" })
     );
-    // Its rooms go with it.
     await waitFor(() => expect(api.deleteThermostat).toHaveBeenCalledWith("climate.wing", true));
+    // The zone's dialog closes with it.
+    expect(screen.queryByRole("dialog")).toBeNull();
     await waitFor(() => expect(onChanged).toHaveBeenCalled());
 
-    // A zone with no name is named by its thermostat; a failure is shown.
+    // A refusal is reported on the page.
     for (const [failure, shown] of [
-      [new Error("Zone not found"), "Zone not found"],
-      ["nope", "Could not delete this zone"],
+      [new Error("Zone is busy"), "Zone is busy"],
+      [null, "Could not delete this zone"],
     ] as const) {
       vi.mocked(api.deleteThermostat).mockRejectedValueOnce(failure);
-      fireEvent.click(screen.getByRole("button", { name: "Delete Zone climate.loose" }));
-      const again = screen.getByTestId("confirm-dialog");
-      expect(again).toHaveTextContent('Delete the zone "climate.loose"');
-      fireEvent.click(within(again).getByRole("button", { name: "Delete Zone" }));
+      fireEvent.click(screen.getAllByRole("button", { name: "Edit Zone" })[0]);
+      fireEvent.click(screen.getByRole("button", { name: "Delete Zone South Wing" }));
+      fireEvent.click(
+        within(screen.getByTestId("confirm-dialog")).getByRole("button", { name: "Delete Zone" })
+      );
       expect(await screen.findByText(shown)).toBeInTheDocument();
     }
   });
@@ -689,14 +701,35 @@ describe("Zones page", () => {
     expect(screen.queryByRole("heading", { name: "Thermostat Settings" })).toBeNull();
   });
 
-  it("renders each zone's rooms, its Add Room button, a custom title, and reloads on demand", async () => {
-    const onAddRoom = vi.fn();
+  it("names each zone's thermostat as Home Assistant does, or tidies its id", async () => {
+    vi.mocked(api.getEntityStates).mockResolvedValue({
+      "climate.wing": {
+        state: "heat",
+        numeric: null,
+        unit: "",
+        attributes: { friendly_name: "Hall Stat" },
+      },
+      "climate.loose": { state: "off", numeric: null, unit: "", attributes: { friendly_name: 7 } },
+    } as never);
+    const first = renderPage();
+    expect(await screen.findByText("Thermostat: Hall Stat")).toHaveAttribute(
+      "title",
+      "climate.wing"
+    );
+    expect(screen.getByText("Thermostat: Loose")).toBeInTheDocument();
+    first.unmount();
+    // Home Assistant not answering leaves the tidied ids.
+    vi.mocked(api.getEntityStates).mockRejectedValue(new Error("down"));
+    renderPage();
+    expect(await screen.findByText("Thermostat: Wing")).toBeInTheDocument();
+  });
+
+  it("renders each zone's rooms, an Add Zone tile, a custom title, and reloads on demand", async () => {
     const view = render(
       <MemoryRouter>
         <Zones
           title="Structure"
           subtitle="Everything in the house."
-          onAddRoom={onAddRoom}
           renderRooms={(id) => <p>rooms of {id}</p>}
           reloadKey={0}
         />
@@ -706,11 +739,8 @@ describe("Zones page", () => {
     expect(screen.getByText("rooms of climate.loose")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Structure" })).toBeInTheDocument();
     expect(screen.getByText("Everything in the house.")).toBeInTheDocument();
-    // Add Room lives in each zone, and says which zone the room is for.
-    fireEvent.click(screen.getByRole("button", { name: "Add Room to South Wing" }));
-    expect(onAddRoom).toHaveBeenCalledWith("climate.wing");
-    fireEvent.click(screen.getByRole("button", { name: "Add Room to climate.loose" }));
-    expect(onAddRoom).toHaveBeenLastCalledWith("climate.loose");
+    // Each building ends with a tile for adding a zone to it.
+    expect(screen.getByRole("button", { name: "Add Zone to Unassigned" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "South Wing" })).toBeInTheDocument();
 
     view.rerender(

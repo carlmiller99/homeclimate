@@ -176,7 +176,7 @@ describe("Rooms grouped by building and zone", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByText(
-        "No zones in this building yet. Use Add Zone above, or edit a zone to move it here."
+        "No zones in this building yet. Add one below, or edit a zone to move it here."
       )
     ).toBeInTheDocument();
     // Only Add Building is at the top; zones are added inside a building and
@@ -186,8 +186,7 @@ describe("Rooms grouped by building and zone", () => {
     expect(within(top).queryByRole("button", { name: /Add Zone/ })).toBeNull();
     expect(within(top).queryByRole("button", { name: /Add Room/ })).toBeNull();
     // An empty zone offers Add Room right where its rooms would be.
-    expect(within(empty).getByRole("button", { name: "Add Room" })).toBeInTheDocument();
-    expect(within(panel).getByRole("button", { name: "Add Room to Upstairs" })).toBeInTheDocument();
+    expect(within(panel).getByRole("button", { name: /^Add Room to / })).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /^Add Zone to / }).length).toBeGreaterThan(1);
     expect(screen.getByRole("link", { name: "Set Up from Home Assistant" })).toHaveAttribute(
       "href",
@@ -223,11 +222,11 @@ describe("Rooms grouped by building and zone", () => {
     const edit = await screen.findByRole("dialog", { name: "Edit zone Upstairs" });
     fireEvent.click(within(edit).getByRole("tab", { name: "Thermostat" }));
 
-    fireEvent.click(within(panel).getByRole("button", { name: "Delete Zone" }));
+    // The thermostat's own Delete button is left out here: the dialog has one.
+    expect(within(panel).queryByRole("button", { name: "Delete Zone" })).toBeNull();
+    fireEvent.click(within(edit).getByRole("button", { name: "Delete Zone Upstairs" }));
     const dialog = await screen.findByTestId("confirm-dialog");
-    expect(dialog).toHaveTextContent(
-      'Delete the zone "Test Thermostat" and all of its rooms? This cannot be undone.'
-    );
+    expect(dialog).toHaveTextContent('Delete the zone "Upstairs" and all of its rooms?');
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete Zone" }));
 
     await waitFor(() => expect(api.deleteThermostat).toHaveBeenCalledWith("climate.test", true));
