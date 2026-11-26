@@ -808,8 +808,8 @@ class CycleEngine:
                 self._safety_sustain = {}
                 # The trip counts as the zone being in use (Eco Mode, Let an
                 # Empty Zone Drift Further): nothing below runs on these ticks.
-                await self._empty_zone_drift(conn, [], datetime.now(UTC), True)
                 await self._apply_vacation_hold(conn, thermo_state)
+                await self._empty_zone_drift(conn, [], datetime.now(UTC), True)
                 return
         self._vacation_cycle = in_vacation
 

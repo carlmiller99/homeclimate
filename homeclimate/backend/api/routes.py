@@ -391,9 +391,10 @@ def _validate_empty_zone_hours(val: object) -> tuple[web.Response | None, float]
     """Hours a zone must be empty before Eco Mode lets it drift further; 0 is off."""
     if isinstance(val, bool) or not isinstance(val, (int, float)):
         return error("eco_empty_zone_hours must be a number"), 0.0
-    if not (0 <= val <= eco.EMPTY_ZONE_MAX_HOURS):
+    if val != 0 and not (eco.EMPTY_ZONE_MIN_HOURS <= val <= eco.EMPTY_ZONE_MAX_HOURS):
         return error(
-            f"eco_empty_zone_hours must be between 0 and {eco.EMPTY_ZONE_MAX_HOURS:g}"
+            "eco_empty_zone_hours must be 0 (off) or between "
+            f"{eco.EMPTY_ZONE_MIN_HOURS:g} and {eco.EMPTY_ZONE_MAX_HOURS:g}"
         ), 0.0
     return None, float(val)
 

@@ -68,6 +68,7 @@ ECO_DEFAULTS_C: dict[str, float] = {
 #: its zone for the configured number of hours. Fixed, so there is one number
 #: to explain; the hours are the setting (``eco_empty_zone_hours``, 0 = off).
 EMPTY_ZONE_EXTRA_F = 2.0
+EMPTY_ZONE_MIN_HOURS = 0.5
 EMPTY_ZONE_MAX_HOURS = 72.0
 
 #: The seven numeric Eco config fields, in canonical order. ``eco_mode_enabled``

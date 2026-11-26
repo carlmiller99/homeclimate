@@ -200,7 +200,7 @@ A trip, and the system being switched off, count as the zone being in use.
 
 The Dashboard shows **Empty, drifting further** on the zone while it applies, and the Live Feed logs when it starts and stops.
 
-API field: `eco_empty_zone_hours` on the thermostat (hours, 0 to 72; 0 is off). MQTT: **Eco Empty Zone Hours**.
+API field: `eco_empty_zone_hours` on the thermostat (hours, 0.5 to 72; 0 is off). MQTT: **Eco Empty Zone Hours**.
 
 ## What Eco never touches
 

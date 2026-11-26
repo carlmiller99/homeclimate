@@ -470,7 +470,7 @@ class TestCreateThermostatFieldLoop:
         listing = await (await client.get("/api/thermostats")).json()
         assert listing[0]["eco_empty_zone_hours"] == 0.5
 
-    @pytest.mark.parametrize("bad", [-1, 72.5, "2", True, None])
+    @pytest.mark.parametrize("bad", [-1, 0.25, 72.5, "2", True, None])
     async def test_empty_zone_hours_invalid_rejected(self, client, bad):
         resp = await client.post("/api/thermostats", json={**BASE, "eco_empty_zone_hours": bad})
         assert resp.status == 400
