@@ -20,7 +20,7 @@ from typing import Any
 
 import aiosqlite
 
-from . import db, tz
+from . import db, house, tz
 from .units import to_f
 from .user_errors import UserError, fixed
 
@@ -292,6 +292,22 @@ class Forecast:
         raw = {h.at: h.temp for h in hours}
         if bias is not None and settings["correct"]:
             hours = bias.correct(hours)
+        # What each hour asks of the house, by the same rule as Today's Plan:
+        # colder outside than the lowest heating target needs heat, warmer
+        # than the highest cooling target needs cooling.
+        from . import building_mode  # imports this module
+
+        band = (await house.load(conn)).outer_band()
+        heat_below = band.heat_to if band else building_mode.DEFAULT_HEAT_BELOW_F
+        cool_above = band.cool_to if band else building_mode.DEFAULT_COOL_ABOVE_F
+
+        def need(temp: float) -> str:
+            return "heat" if temp < heat_below else "cool" if temp > cool_above else "coast"
+
+        def sky(found: list[Hour]) -> str:
+            seen = [h.condition for h in found if h.condition]
+            return max(set(seen), key=lambda c: (seen.count(c), -seen.index(c))) if seen else ""
+
         days: dict[str, list[Hour]] = {}
         for h in hours:
             days.setdefault(tz.to_local(h.at).date().isoformat(), []).append(h)
@@ -310,6 +326,8 @@ class Forecast:
                     "high": max(h.temp for h in found),
                     "low": min(h.temp for h in found),
                     "hours": len(found),
+                    "needs": [need(h.temp) for h in found],
+                    "condition": sky(found),
                 }
                 for day, found in list(days.items())[:3]
             ],

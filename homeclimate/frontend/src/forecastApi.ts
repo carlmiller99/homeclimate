@@ -25,6 +25,55 @@ export interface ForecastDay {
   high: number;
   low: number;
   hours: number;
+  /** What each forecast hour of the day asks of the house, in order. */
+  needs: ("heat" | "coast" | "cool")[];
+  /** Home Assistant's condition id for the sky most of the day's hours share. */
+  condition: string;
+}
+
+type Need = ForecastDay["needs"][number];
+
+/** A day in a word, from what its hours ask for. */
+export function dayType(needs: Need[]): "Swing" | "Warm" | "Cool" | "Mild" {
+  const heat = needs.includes("heat");
+  const cool = needs.includes("cool");
+  return heat && cool ? "Swing" : cool ? "Warm" : heat ? "Cool" : "Mild";
+}
+
+/** Consecutive hours asking for the same thing, as [need, hours, index of first hour]. */
+export function needRuns(needs: Need[]): [Need, number, number][] {
+  const runs: [Need, number, number][] = [];
+  needs.forEach((n, i) => {
+    const last = runs[runs.length - 1];
+    if (last && last[0] === n) last[1] += 1;
+    else runs.push([n, 1, i]);
+  });
+  return runs;
+}
+
+const VERB: Record<Need, string> = { heat: "heat", coast: "coast", cool: "cool" };
+
+/**
+ * A day's plan in a sentence: "Heat until 10 AM, coast, cool from 2 PM."
+ * `hourAt` names the clock hour of the day's nth forecast hour.
+ */
+export function dayPlan(needs: Need[], hourAt: (index: number) => string): string {
+  const runs = needRuns(needs);
+  if (runs.length === 0) return "";
+  if (runs.length === 1) {
+    return { heat: "Heat all day.", cool: "Cool all day.", coast: "No heating or cooling." }[
+      runs[0][0]
+    ];
+  }
+  const parts = runs.map(([need, , start], i) =>
+    i === 0
+      ? `${VERB[need]} until ${hourAt(runs[1][2])}`
+      : i === runs.length - 1 || need !== "coast"
+        ? `${VERB[need]} from ${hourAt(start)}`
+        : VERB[need]
+  );
+  const text = parts.join(", ");
+  return `${text[0].toUpperCase()}${text.slice(1)}.`;
 }
 
 export interface ForecastHour {

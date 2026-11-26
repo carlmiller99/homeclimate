@@ -49,8 +49,24 @@ function data(over: Partial<fa.Forecast> = {}): fa.Forecast {
     fetched_at: "2026-01-05T17:40:00+00:00",
     covers_until: "2026-01-07T17:00:00+00:00",
     days: [
-      { date: "2026-01-05", starts_at: "2026-01-05T17:00:00+00:00", high: 68, low: 50, hours: 12 },
-      { date: "2026-01-06", starts_at: "2026-01-06T05:00:00+00:00", high: 59, low: 41, hours: 24 },
+      {
+        date: "2026-01-05",
+        starts_at: "2026-01-05T17:00:00+00:00",
+        high: 68,
+        low: 50,
+        hours: 12,
+        needs: [...Array(4).fill("cool"), ...Array(3).fill("coast"), ...Array(5).fill("heat")],
+        condition: "partlycloudy",
+      },
+      {
+        date: "2026-01-06",
+        starts_at: "2026-01-06T05:00:00+00:00",
+        high: 59,
+        low: 41,
+        hours: 24,
+        needs: Array(24).fill("heat"),
+        condition: "",
+      },
     ],
     hours: [
       {
@@ -104,6 +120,27 @@ beforeEach(() => {
   vi.mocked(fa.refreshForecast).mockResolvedValue(data());
 });
 
+describe("describing a day", () => {
+  const at = (i: number) => `h${i}`;
+  it("names the day from what its hours ask for", () => {
+    expect(fa.dayType(["heat", "coast", "cool"])).toBe("Swing");
+    expect(fa.dayType(["coast", "cool"])).toBe("Warm");
+    expect(fa.dayType(["heat", "coast"])).toBe("Cool");
+    expect(fa.dayType(["coast"])).toBe("Mild");
+    expect(fa.dayType([])).toBe("Mild");
+  });
+  it("puts the plan in a sentence", () => {
+    expect(fa.dayPlan([], at)).toBe("");
+    expect(fa.dayPlan(["cool", "cool"], at)).toBe("Cool all day.");
+    expect(fa.dayPlan(["coast"], at)).toBe("No heating or cooling.");
+    expect(fa.dayPlan(["heat", "heat", "coast", "cool"], at)).toBe(
+      "Heat until h2, coast, cool from h3."
+    );
+    // A day that ends coasting says when the coasting begins.
+    expect(fa.dayPlan(["heat", "coast"], at)).toBe("Heat until h1, coast from h1.");
+  });
+});
+
 describe("Forecasts section", () => {
   it("shows the days and the coming hours in the house's time and unit", async () => {
     show();
@@ -113,9 +150,24 @@ describe("Forecasts section", () => {
     expect(screen.getByText(/Received/)).toBeInTheDocument();
     const days = screen.getAllByRole("listitem");
     expect(days).toHaveLength(2);
-    expect(within(days[0]).getByText(/Monday, Jan 5/)).toBeInTheDocument();
-    expect(within(days[0]).getByText("High 68.0°F")).toBeInTheDocument();
-    expect(within(days[1]).getByText("Low 41.0°F")).toBeInTheDocument();
+    // A card per day: its name, its kind of day, its range, its sky, and the
+    // plan as a bar and as a sentence, in the house's time.
+    expect(days[0]).toHaveTextContent("Today");
+    expect(within(days[0]).getByText("Swing")).toBeInTheDocument();
+    expect(within(days[0]).getByText("50.0°F to 68.0°F")).toBeInTheDocument();
+    expect(within(days[0]).getByText("Partly cloudy")).toBeInTheDocument();
+    expect(
+      [...days[0].querySelectorAll(".forecast-bar span")].map(
+        (b) => `${b.className}:${(b as HTMLElement).style.flexGrow}`
+      )
+    ).toEqual(["forecast-cool:4", "forecast-coast:3", "forecast-heat:5"]);
+    expect(
+      within(days[0]).getByText("Cool until 4 PM, coast, heat from 7 PM.")
+    ).toBeInTheDocument();
+    expect(days[1]).toHaveTextContent("Tuesday");
+    expect(within(days[1]).getByText("Cool")).toBeInTheDocument();
+    expect(within(days[1]).getByText("41.0°F to 59.0°F")).toBeInTheDocument();
+    expect(within(days[1]).getByText("Heat all day.")).toBeInTheDocument();
 
     const table = screen.getByRole("table", { name: "Next 2 hours" });
     const rows = within(table).getAllByRole("row");
@@ -129,7 +181,7 @@ describe("Forecasts section", () => {
 
   it("converts for a Celsius house", async () => {
     show("C");
-    expect(await screen.findByText("High 20.0°C")).toBeInTheDocument();
+    expect(await screen.findByText("10.0°C to 20.0°C")).toBeInTheDocument();
   });
 
   it("says what is needed when off or without a weather source", async () => {

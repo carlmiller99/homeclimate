@@ -73,6 +73,11 @@ async def test_turning_it_on_fetches_and_reports_the_next_day(client, on):
     assert all(d["high"] >= d["low"] for d in on["days"])
     if len(on["days"]) == 2:
         assert sum(d["hours"] for d in on["days"]) == 48
+    # Each day says what every one of its hours asks of the house, and its sky.
+    assert all(len(d["needs"]) == d["hours"] for d in on["days"])
+    assert on["days"][0]["needs"][0] == "heat"  # 50 °F is colder than any target
+    assert {n for d in on["days"] for n in d["needs"]} <= {"heat", "coast", "cool"}
+    assert on["days"][0]["condition"] == "sunny"
 
 
 async def test_celsius_weather_entities_are_stored_in_fahrenheit(client, fake_ha, on):
@@ -80,6 +85,8 @@ async def test_celsius_weather_entities_are_stored_in_fahrenheit(client, fake_ha
     fake_ha.forecasts[W] = _entries(_this_hour(), [0, 10, 100])
     snap = await (await client.post("/api/forecast/refresh")).json()
     assert [h["temp"] for h in snap["hours"]][:3] == [32.0, 50.0, 212.0]
+    # The three hours may fall either side of the house's midnight.
+    assert [n for d in snap["days"] for n in d["needs"]][:3] == ["heat", "heat", "cool"]
     assert snap["hours"][0]["cloud_pct"] is None and snap["hours"][0]["condition"] == ""
     # With no unit on the entity, Home Assistant's own unit is assumed.
     fake_ha.seed_state(W, "sunny", {})

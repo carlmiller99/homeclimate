@@ -2855,22 +2855,84 @@ button.sc-nav-item {
 /* Smart Control → Forecasts */
 .forecast-days {
   list-style: none;
-  margin: 0 0 1rem;
+  margin: 0.25rem 0 1rem;
   padding: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14.5rem, 1fr));
+  gap: 0.9rem;
 }
 .forecast-day {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 0.75rem 1rem;
   border: 1px solid var(--border);
-  border-radius: 10px;
-  min-width: 11rem;
-  font-size: 0.875rem;
+  border-radius: 12px;
+  padding: 0.9rem 1rem;
+}
+.forecast-day-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+}
+.forecast-chip {
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  background: var(--state-idle-bg);
+  color: var(--state-idle-text);
+}
+.forecast-chip.forecast-swing {
+  background: var(--state-paused-bg);
+  color: var(--state-paused-text);
+}
+.forecast-chip.forecast-warm {
+  background: var(--state-heating-bg);
+  color: var(--state-heating-text);
+}
+.forecast-chip.forecast-cool {
+  background: var(--state-cooling-bg);
+  color: var(--state-cooling-text);
+}
+.forecast-range {
+  font-size: 1.6rem;
+  font-weight: 700;
+  margin: 0.5rem 0 0.1rem;
+  font-variant-numeric: tabular-nums;
+}
+.forecast-sky {
+  font-size: 0.85rem;
   color: var(--gray-600);
+}
+/* How the day divides between heating, coasting and cooling, in order. The
+   sentence under it says the same in words. */
+.forecast-bar {
+  display: flex;
+  height: 12px;
+  border-radius: 6px;
+  overflow: hidden;
+  margin: 0.75rem 0 0.5rem;
+  background: var(--state-idle);
+}
+.forecast-bar > span {
+  flex: 1 1 0;
+  background: var(--state-idle);
+  opacity: 0.55;
+}
+.forecast-bar > .forecast-heat {
+  background: var(--state-heating);
+  opacity: 1;
+}
+.forecast-bar > .forecast-cool {
+  background: var(--state-cooling);
+  opacity: 1;
+}
+.forecast-plan {
+  font-size: 0.875rem;
+}
+.forecast-table > summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--blue-text);
+  padding: 0.5rem 0;
 }
 .forecast-hours {
   width: 100%;

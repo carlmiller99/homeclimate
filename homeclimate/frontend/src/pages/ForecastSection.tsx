@@ -3,10 +3,13 @@ import { Frozen } from "../ci";
 import EntityPicker from "../components/EntityPicker";
 import { RuleRow } from "../components/SmartControlControls";
 import Time from "../components/Time";
-import { useUnit } from "../contexts";
+import { useTimeZone, useUnit } from "../contexts";
 import {
   accuracyText,
+  dayPlan,
+  dayType,
   describeCondition,
+  needRuns,
   getForecast,
   refreshForecast,
   updateForecastSettings,
@@ -24,6 +27,7 @@ const STATE_TEXT: Record<Forecast["state"], string> = {
 
 export default function ForecastSection() {
   const { fmtTemp, toDisplayDelta, unitLabel } = useUnit();
+  const tz = useTimeZone();
   const [data, setData] = useState<Forecast | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -159,46 +163,70 @@ export default function ForecastSection() {
         {data.problem && <p className="form-error">{data.problem}</p>}
         {showing && (
           <>
-            <ul className="forecast-days">
-              {data.days.map((d) => (
-                <li key={d.date} className="forecast-day">
-                  <span className="sensor-title">
-                    <Time
-                      value={d.starts_at}
-                      kind="date"
-                      options={{ weekday: "long", month: "short", day: "numeric" }}
-                    />
-                  </span>
-                  <span>High {fmtTemp(d.high)}</span>
-                  <span>Low {fmtTemp(d.low)}</span>
-                </li>
-              ))}
+            <ul className="forecast-days" aria-label="Outlook">
+              {data.days.map((d, n) => {
+                const type = dayType(d.needs);
+                const at = (index: number) =>
+                  tz.format(Date.parse(d.starts_at) + index * 3_600_000, "time", {
+                    hour: "numeric",
+                  });
+                return (
+                  <li key={d.date} className="forecast-day">
+                    <div className="forecast-day-head">
+                      <strong>
+                        {n === 0 ? (
+                          "Today"
+                        ) : (
+                          <Time value={d.starts_at} kind="date" options={{ weekday: "long" }} />
+                        )}
+                      </strong>
+                      <span className={`forecast-chip forecast-${type.toLowerCase()}`}>{type}</span>
+                    </div>
+                    <div className="forecast-range">
+                      {`${fmtTemp(d.low)} to ${fmtTemp(d.high)}`}
+                    </div>
+                    <div className="forecast-sky">{describeCondition(d.condition) || "—"}</div>
+                    <div className="forecast-bar" aria-hidden="true">
+                      {needRuns(d.needs).map(([need, count, start]) => (
+                        <span
+                          key={start}
+                          className={`forecast-${need}`}
+                          style={{ flexGrow: count }}
+                        />
+                      ))}
+                    </div>
+                    <div className="forecast-plan">{dayPlan(d.needs, at)}</div>
+                  </li>
+                );
+              })}
             </ul>
-            <table className="forecast-hours">
-              <caption>Next {data.hours.length} hours</caption>
-              <thead>
-                <tr>
-                  <th scope="col">Time</th>
-                  <th scope="col">Temperature</th>
-                  <th scope="col">Sky</th>
-                  <th scope="col">Cloud Cover</th>
-                  <th scope="col">Chance of Rain</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.hours.map((h) => (
-                  <tr key={h.at}>
-                    <th scope="row">
-                      <Time value={h.at} kind="time" options={{ hour: "numeric" }} />
-                    </th>
-                    <td>{fmtTemp(h.temp)}</td>
-                    <td>{describeCondition(h.condition) || "—"}</td>
-                    <td>{h.cloud_pct === null ? "—" : `${h.cloud_pct}%`}</td>
-                    <td>{h.precip_pct === null ? "—" : `${h.precip_pct}%`}</td>
+            <details className="forecast-table">
+              <summary>{`Hour by hour, next ${data.hours.length} hours`}</summary>
+              <table className="forecast-hours" aria-label={`Next ${data.hours.length} hours`}>
+                <thead>
+                  <tr>
+                    <th scope="col">Time</th>
+                    <th scope="col">Temperature</th>
+                    <th scope="col">Sky</th>
+                    <th scope="col">Cloud Cover</th>
+                    <th scope="col">Chance of Rain</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {data.hours.map((h) => (
+                    <tr key={h.at}>
+                      <th scope="row">
+                        <Time value={h.at} kind="time" options={{ hour: "numeric" }} />
+                      </th>
+                      <td>{fmtTemp(h.temp)}</td>
+                      <td>{describeCondition(h.condition) || "—"}</td>
+                      <td>{h.cloud_pct === null ? "—" : `${h.cloud_pct}%`}</td>
+                      <td>{h.precip_pct === null ? "—" : `${h.precip_pct}%`}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </details>
           </>
         )}
       </section>
