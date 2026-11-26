@@ -1844,6 +1844,20 @@ tr:hover td {
   align-items: center;
   gap: 0.9rem;
 }
+/* My Home → Room Settings, as a dialog */
+.modal.room-settings-modal {
+  width: min(46rem, 96vw);
+}
+.room-settings-modal .page-title {
+  font-size: 1.3rem;
+  margin: 0;
+}
+.room-settings-modal > .card {
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+  background: none;
+}
 /* My Home → Edit Zone: one sheet, two tabs */
 .modal.edit-zone {
   width: min(56rem, 96vw);
