@@ -777,6 +777,7 @@ export default function Dashboard() {
     );
 
   const houseCtx = house ? { house, openOptions: setOptionsFor } : null;
+  const vacationScheduled = vacationState(vacationMode) === "scheduled";
   return (
     <HouseContext.Provider value={houseCtx}>
       <div>
@@ -812,6 +813,36 @@ export default function Dashboard() {
               <span>System</span>
               <strong className="system-toggle-state">{system.enabled ? "On" : "Off"}</strong>
             </button>
+            {/* Vacation Mode sits beside the System switch and is drawn the same
+                way: a dot, the name, the state. It opens the vacation dialog. */}
+            <button
+              type="button"
+              className={`btn ${vacationMode.enabled ? "btn-warning" : "btn-secondary"}`}
+              aria-label={
+                vacationMode.enabled
+                  ? "Vacation mode active"
+                  : vacationScheduled
+                    ? "Vacation scheduled"
+                    : "Enable vacation mode"
+              }
+              title="Set the whole house back while you are away, or plan a trip"
+              onClick={() => setShowVacationModal(true)}
+            >
+              <span
+                className="system-toggle-dot"
+                style={{
+                  background: vacationMode.enabled
+                    ? "#fff"
+                    : vacationScheduled
+                      ? "var(--orange)"
+                      : "var(--gray-400)",
+                }}
+              />
+              <span>Vacation</span>
+              <strong className="system-toggle-state">
+                {vacationMode.enabled ? "On" : vacationScheduled ? "Scheduled" : "Off"}
+              </strong>
+            </button>
             <button className="btn btn-secondary" onClick={load}>
               ↻ Refresh
             </button>
@@ -841,22 +872,10 @@ export default function Dashboard() {
         {house && <HouseBandCard house={house} onSaved={setHouse} />}
         <TodayCard />
 
-        {/* Vacation mode + Eco Suspend buttons — sit above climate cards */}
+        {/* Eco Suspend + Temporary hold buttons — sit above climate cards.
+            Vacation Mode is in the page header, beside the System switch. */}
         <div style={{ marginBottom: "1rem" }}>
           <div style={{ display: "flex", gap: ".5rem", flexWrap: "wrap" }}>
-            <button
-              className={`btn ${vacationMode.enabled ? "btn-warning" : "btn-secondary"}`}
-              onClick={() => setShowVacationModal(true)}
-              style={{ display: "flex", alignItems: "center", gap: ".5rem" }}
-            >
-              {`✈ ${
-                vacationMode.enabled
-                  ? "Vacation mode active"
-                  : vacationState(vacationMode) === "scheduled"
-                    ? "Vacation scheduled"
-                    : "Enable vacation mode"
-              }`}
-            </button>
             {/* Only shown when Eco is in play somewhere: a thermostat has Eco
               enabled, a room has an explicit Eco opt-in, or a suspension is
               already active (#500). */}

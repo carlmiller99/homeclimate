@@ -360,7 +360,10 @@ describe("Dashboard Page", () => {
         </DevModeContext.Provider>
       </SystemContext.Provider>
     );
-    expect(await screen.findByText(/Vacation mode active/i)).toBeInTheDocument();
+    const button = await screen.findByRole("button", { name: /Vacation mode active/i });
+    // Drawn like the System switch beside it: name, then state.
+    expect(button).toHaveTextContent("VacationOn");
+    expect(button.parentElement).toBe(screen.getByRole("switch", { name: /System/ }).parentElement);
     expect(screen.getByText(/Schedules paused until/i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Vacation mode active/i }));
     expect(screen.getByText(/End vacation mode early/i)).toBeInTheDocument();
@@ -380,7 +383,9 @@ describe("Dashboard Page", () => {
         </DevModeContext.Provider>
       </SystemContext.Provider>
     );
-    fireEvent.click(await screen.findByRole("button", { name: /Vacation scheduled/i }));
+    const scheduled = await screen.findByRole("button", { name: /Vacation scheduled/i });
+    expect(scheduled).toHaveTextContent("VacationScheduled");
+    fireEvent.click(scheduled);
     expect(screen.queryByText(/Schedules paused until/i)).toBeNull();
     expect(screen.getByRole("button", { name: /Cancel scheduled vacation/i })).toBeInTheDocument();
   });
@@ -483,7 +488,9 @@ describe("Dashboard Page", () => {
     expect(api.disableVacationMode).toHaveBeenCalled();
     // onChanged({enabled:false}) closes the modal and the button reads "Enable".
     expect(screen.queryByText(/Yes, end vacation mode/i)).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Enable vacation mode/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Enable vacation mode/i })).toHaveTextContent(
+      "VacationOff"
+    );
   });
 
   it("surfaces stale sensors as a top-of-Dashboard banner (Issue #211)", async () => {

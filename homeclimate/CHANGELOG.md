@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.15
+
+- Dashboard: Vacation Mode is now at the top of the page beside the System switch, drawn the same way, and reads Off, Scheduled or On. It opens the same dialog as before.
+
 ## 0.5.14
 
 The first release from `main` since 0.5.0. It carries everything listed below under 0.5.2 to 0.5.13, which until now was only in test builds.
