@@ -41,6 +41,8 @@ import { ECO_NUMERIC_FIELDS, type EcoNumericKey } from "../eco";
 import { coolToValue } from "../bands";
 import CoolToField from "../components/CoolToField";
 import { sanitizeRoomName } from "../roomNames";
+import RoomShades from "../components/RoomShades";
+import { getShades, type Shades } from "../shadesApi";
 
 // ---------------------------------------------------------------------------
 // Room create / edit settings — a full-page view (not a modal). The form is
@@ -1107,26 +1109,38 @@ function VentRow({ vent, onChanged }: { vent: RoomVent; onChanged: () => Promise
 }
 
 // ---------------------------------------------------------------------------
-// Room configure view (sensors, vents, presence)
+// One kind of device in one room (My Home → a room → a device box)
 // ---------------------------------------------------------------------------
-function RoomConfigure({
+export type DeviceKind = "vents" | "temps" | "doors" | "occupancy" | "shades";
+
+const DEVICE_TITLES: Record<DeviceKind, string> = {
+  vents: "Smart Vents",
+  temps: "Temperature Sensors",
+  doors: "Doors & Windows",
+  occupancy: "Occupancy Sensors",
+  shades: "Shades",
+};
+
+function RoomDeviceModal({
   room,
-  thermostats,
+  kind,
   contacts = [],
+  shades,
   onContactsChanged,
-  onBack,
-  onEditSettings,
+  onShadesChanged,
   onRoomUpdated,
+  onClose,
 }: {
   room: Room;
-  thermostats: ThermostatConfig[];
+  kind: DeviceKind;
   contacts?: ContactSensor[];
+  /** Null when the shades could not be read. */
+  shades: Shades | null;
   onContactsChanged?: (all: ContactSensor[]) => void;
-  onBack: () => void;
-  onEditSettings: () => void;
+  onShadesChanged: (all: Shades) => void;
   onRoomUpdated: (r: Room) => void;
+  onClose: () => void;
 }) {
-  const { fmtTemp, toDisplayDelta, unitLabel } = useUnit();
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmTarget, setConfirmTarget] = useState<{
     kind: "sensor" | "presence";
@@ -1136,12 +1150,15 @@ function RoomConfigure({
   const sensors = room.sensors?.map((s) => s.entity_id) ?? [];
   const vents = room.vents?.map((v) => v.entity_id) ?? [];
   const presence = room.presence_sensors?.map((p) => p.entity_id) ?? [];
-  const blank = sensors.length === 0 && vents.length === 0 && presence.length === 0;
-  const missing = [
-    sensors.length === 0 && NO_TEMP_SENSORS,
-    vents.length === 0 && NO_VENTS,
-    presence.length === 0 && NO_OCCUPANCY,
-  ].filter((line): line is string => line !== false);
+  // What the room cannot do while it has none of this kind of device.
+  const note =
+    kind === "temps" && sensors.length === 0
+      ? NO_TEMP_SENSORS
+      : kind === "vents" && vents.length === 0
+        ? NO_VENTS
+        : kind === "occupancy" && presence.length === 0
+          ? NO_OCCUPANCY
+          : null;
 
   const refresh = async () => {
     const updated = await getRoom(room.id);
@@ -1158,176 +1175,115 @@ function RoomConfigure({
     }
   };
 
-  const askToRemove = (kind: "sensor" | "presence") => async (id: string) => {
-    setConfirmTarget({ kind, id });
+  const askToRemove = (which: "sensor" | "presence") => async (id: string) => {
+    setConfirmTarget({ kind: which, id });
   };
 
   const doRemoveConfirmedEntity = async () => {
     if (!confirmTarget) return;
-    const { kind, id } = confirmTarget;
+    const { kind: which, id } = confirmTarget;
     setConfirmTarget(null);
-    if (kind === "sensor") {
+    if (which === "sensor") {
       await wrap("Removing sensor…", (id) => removeSensor(room.id, id))(id);
     } else {
       await wrap("Removing sensor…", (id) => removePresence(room.id, id))(id);
     }
   };
 
+  const title = `${DEVICE_TITLES[kind]} in ${room.name}`;
   return (
-    <div data-testid="room-configure">
-      {/* Header */}
-      <div style={{ marginBottom: "1.25rem" }}>
-        <button
-          className="btn btn-secondary btn-sm"
-          onClick={onBack}
-          style={{ marginBottom: ".75rem" }}
-        >
-          ← My Home
-        </button>
-        <div className="flex-between">
-          <div>
-            <div className="page-title">{room.name}</div>
-            <div className="text-muted" style={{ marginTop: ".2rem", fontSize: ".85rem" }}>
-              {thermostats.find((t) => t.thermostat_entity_id === room.thermostat_entity_id)
-                ?.name || room.thermostat_entity_id}{" "}
-              <span className="font-mono" style={{ fontSize: ".75rem", color: "var(--gray-400)" }}>
-                ({room.thermostat_entity_id})
-              </span>
-            </div>
-          </div>
-          <button className="btn btn-secondary btn-sm" onClick={onEditSettings}>
-            Room Settings
+    <div
+      className="modal-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+      data-testid="room-devices"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div className="modal room-devices">
+        <div className="edit-zone-head">
+          <div className="modal-title">{title}</div>
+          <button type="button" className="btn btn-secondary" onClick={onClose}>
+            Close
           </button>
         </div>
-      </div>
 
-      {/* Quick status strip */}
-      <div className="card" style={{ marginBottom: "1.25rem", padding: ".875rem 1.25rem" }}>
-        <div className="flex gap-md" style={{ flexWrap: "wrap" }}>
-          <span className="text-sm">
-            <strong>{sensors.length}</strong>{" "}
-            <span className="text-muted">temp sensor{sensors.length !== 1 ? "s" : ""}</span>
-          </span>
-          <span className="text-muted">·</span>
-          <span className="text-sm">
-            <strong>{vents.length}</strong>{" "}
-            <span className="text-muted">vent{vents.length !== 1 ? "s" : ""}</span>
-          </span>
-          <span className="text-muted">·</span>
-          <span className="text-sm">
-            <strong>{presence.length}</strong>{" "}
-            <span className="text-muted">presence sensor{presence.length !== 1 ? "s" : ""}</span>
-          </span>
-          {room.system_wide_temp != null && (
-            <>
-              <span className="text-muted">·</span>
-              <span className="text-sm text-muted">
-                Presence temp: <strong>{fmtTemp(room.system_wide_temp)}</strong>
-              </span>
-            </>
-          )}
-          {room.temp_offset !== 0 && (
-            <>
-              <span className="text-muted">·</span>
-              <span className="text-sm text-muted">
-                Offset:{" "}
-                <strong>
-                  {room.temp_offset > 0 ? "+" : ""}
-                  {toDisplayDelta(room.temp_offset)}
-                  {unitLabel}
-                </strong>
-              </span>
-            </>
-          )}
-        </div>
-      </div>
+        {note && <p className="field-help">{note}</p>}
 
-      {/* A room with nothing in it yet is being set up, not misconfigured: say
-          what to add. Once it has been started, each kind of device it still
-          lacks gets one plain, quiet line saying what the room cannot do. */}
-      {blank ? (
-        <div className="card room-notes">
-          <p>
-            Add this room's devices below. Start with a temperature sensor. Smart vents, door and
-            window sensors and occupancy sensors are optional.
-          </p>
-        </div>
-      ) : (
-        missing.length > 0 && (
-          <div className="card room-notes">
-            {missing.map((line) => (
-              <p key={line}>{line}</p>
-            ))}
+        {busy && (
+          <div className="loading" style={{ padding: ".5rem 0", marginBottom: ".5rem" }}>
+            <div className="spinner" /> {busy}
           </div>
-        )
-      )}
+        )}
 
-      {busy && (
-        <div className="loading" style={{ padding: ".5rem 0", marginBottom: ".5rem" }}>
-          <div className="spinner" /> {busy}
-        </div>
-      )}
+        {kind === "vents" && (
+          <VentTable
+            roomId={room.id}
+            roomName={room.name}
+            vents={room.vents ?? []}
+            onChanged={refresh}
+          />
+        )}
+        {kind === "temps" && (
+          <EntitySection
+            title="Temperature Sensors"
+            description="Used to calculate the room's average temperature. Add all sensors in this room. The thermostat's own sensor can optionally be included in Room Settings."
+            icon="🌡"
+            items={sensors}
+            domain="sensor"
+            kind="temperature"
+            roomName={room.name}
+            pickerPlaceholder="Search temperature sensors…"
+            emptyHint="No sensors added yet — search above to add one."
+            onAdd={wrap("Adding sensor…", (id) => addSensor(room.id, id))}
+            onRemove={askToRemove("sensor")}
+          />
+        )}
+        {kind === "doors" && (
+          <DoorsWindowsEditor
+            roomId={room.id}
+            roomName={room.name}
+            contacts={contacts}
+            onChanged={(all) => onContactsChanged?.(all)}
+          />
+        )}
+        {kind === "occupancy" && (
+          <EntitySection
+            title="Occupancy Sensors"
+            description="When any sensor here detects motion, the room activates at the presence-triggered temperature and stays active for the configured holdover period (reset on each detection)."
+            icon="🚶"
+            items={presence}
+            domain="binary_sensor"
+            kind="presence"
+            roomName={room.name}
+            pickerPlaceholder="Search occupancy and motion sensors…"
+            emptyHint="No occupancy sensors added — the room will only activate via schedules."
+            onAdd={wrap("Adding sensor…", (id: string) => addPresence(room.id, id))}
+            onRemove={askToRemove("presence")}
+          />
+        )}
+        {kind === "shades" &&
+          (shades ? (
+            <>
+              <RoomShades room={room} data={shades} onData={onShadesChanged} />
+              <p className="field-help">
+                How shades react to the sun is set in Smart Control, under Shades.
+              </p>
+            </>
+          ) : (
+            <p className="form-error">Could not load shades.</p>
+          ))}
 
-      {/* Entity sections */}
-      <div className="card">
-        <VentTable
-          roomId={room.id}
-          roomName={room.name}
-          vents={room.vents ?? []}
-          onChanged={refresh}
-        />
-
-        <hr className="divider" />
-
-        <EntitySection
-          title="Temperature Sensors"
-          description="Used to calculate the room's average temperature. Add all sensors in this room. The thermostat's own sensor can optionally be included in Room Settings."
-          icon="🌡"
-          items={sensors}
-          domain="sensor"
-          kind="temperature"
-          roomName={room.name}
-          pickerPlaceholder="Search temperature sensors…"
-          emptyHint="No sensors added yet — search above to add one."
-          onAdd={wrap("Adding sensor…", (id) => addSensor(room.id, id))}
-          onRemove={askToRemove("sensor")}
-        />
-
-        <hr className="divider" />
-
-        <DoorsWindowsEditor
-          roomId={room.id}
-          roomName={room.name}
-          contacts={contacts}
-          onChanged={(all) => onContactsChanged?.(all)}
-        />
-
-        <hr className="divider" />
-
-        <EntitySection
-          title="Occupancy Sensors"
-          description="When any sensor here detects motion, the room activates at the presence-triggered temperature and stays active for the configured holdover period (reset on each detection)."
-          icon="🚶"
-          items={presence}
-          domain="binary_sensor"
-          kind="presence"
-          roomName={room.name}
-          pickerPlaceholder="Search occupancy and motion sensors…"
-          emptyHint="No occupancy sensors added — the room will only activate via schedules."
-          onAdd={wrap("Adding sensor…", (id: string) => addPresence(room.id, id))}
-          onRemove={askToRemove("presence")}
-        />
+        {confirmTarget && (
+          <ConfirmDialog
+            title={confirmTarget.kind === "sensor" ? "Remove sensor?" : "Remove presence sensor?"}
+            message={`Remove ${confirmTarget.kind === "sensor" ? "sensor" : "presence sensor"} "${confirmTarget.id}" from this room?`}
+            confirmLabel="Remove"
+            onConfirm={() => void doRemoveConfirmedEntity()}
+            onCancel={() => setConfirmTarget(null)}
+          />
+        )}
       </div>
-
-      {confirmTarget && (
-        <ConfirmDialog
-          title={confirmTarget.kind === "sensor" ? "Remove sensor?" : "Remove presence sensor?"}
-          message={`Remove ${confirmTarget.kind === "sensor" ? "sensor" : "presence sensor"} "${confirmTarget.id}" from this room?`}
-          confirmLabel="Remove"
-          onConfirm={() => void doRemoveConfirmedEntity()}
-          onCancel={() => setConfirmTarget(null)}
-        />
-      )}
     </div>
   );
 }
@@ -1366,35 +1322,46 @@ function ventLabel(state: EntityState): string {
 // ---------------------------------------------------------------------------
 function DeviceSection({
   title,
+  room,
   empty,
   items,
+  onOpen,
 }: {
   title: string;
+  room: string;
   empty: string;
   items: { id: string; name: string; value: string; tone?: string; tag?: string }[];
+  onOpen: () => void;
 }) {
+  // The whole box is the way in: it opens this kind of device for this room.
   return (
-    <section className="device-section" aria-label={title}>
-      <h3 className="device-section-title">
+    <button
+      type="button"
+      className="device-section"
+      aria-label={`${title} in ${room}`}
+      title={`Add, change or remove ${title.toLowerCase()} in ${room}`}
+      onClick={onOpen}
+    >
+      <span className="device-section-title">
         {title}
         <span className="device-count">{items.length}</span>
-      </h3>
+      </span>
       {items.length === 0 ? (
-        <p className="device-empty">{empty}</p>
+        <span className="device-empty">{empty}</span>
       ) : (
-        <ul className="device-list">
+        <span className="device-list">
           {items.map((d) => (
-            <li key={d.id} className="device-item" title={d.id}>
+            <span key={d.id} className="device-item" title={d.id}>
               <span className="device-name">{d.name}</span>
               <span className={`device-value${d.tone ? ` device-${d.tone}` : ""}`}>
                 {d.value}
                 {d.tag && <span className="device-tag">{d.tag}</span>}
               </span>
-            </li>
+            </span>
           ))}
-        </ul>
+        </span>
       )}
-    </section>
+    </button>
   );
 }
 
@@ -1403,18 +1370,20 @@ function friendly(state: EntityState | null | undefined, id: string): string {
   return typeof name === "string" && name ? name : id;
 }
 
-/** A room's hardware: four equal sections, one per kind of device. */
+/** A room's hardware: one box per kind of device, each opening that kind. */
 function RoomCard({
   room,
   contacts,
+  shades,
   staleSensors,
-  onConfigure,
+  onOpen,
   onEdit,
 }: {
   room: Room;
   contacts: ContactSensor[];
+  shades: Shades["shades"];
   staleSensors: StaleSensor[];
-  onConfigure: () => void;
+  onOpen: (kind: DeviceKind) => void;
   onEdit: () => void;
 }) {
   const { fmtTemp } = useUnit();
@@ -1429,9 +1398,9 @@ function RoomCard({
     getEntityStates(allIds)
       .then(setStates)
       .catch(() => {});
-    // Entity ids are re-read when the room changes (by id).
+    // Entity ids are re-read when the room or its devices change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [room.id]);
+  }, [room.id, [...sensorIds, ...ventIds, ...presenceIds].join()]);
 
   const stale = new Set(staleSensors.map((s) => s.entity_id));
   const vents = ventIds.map((id) => ({
@@ -1480,15 +1449,49 @@ function RoomCard({
         )}
       </div>
       <div className="device-grid">
-        <DeviceSection title="Smart Vents" empty="No vents" items={vents} />
-        <DeviceSection title="Temperature Sensors" empty="No sensors" items={temps} />
-        <DeviceSection title="Doors & Windows" empty="None" items={doors} />
-        <DeviceSection title="Occupancy Sensors" empty="None" items={occupancy} />
+        <DeviceSection
+          title="Smart Vents"
+          room={room.name}
+          empty="No vents"
+          items={vents}
+          onOpen={() => onOpen("vents")}
+        />
+        <DeviceSection
+          title="Temperature Sensors"
+          room={room.name}
+          empty="No sensors"
+          items={temps}
+          onOpen={() => onOpen("temps")}
+        />
+        <DeviceSection
+          title="Doors & Windows"
+          room={room.name}
+          empty="None"
+          items={doors}
+          onOpen={() => onOpen("doors")}
+        />
+        <DeviceSection
+          title="Occupancy Sensors"
+          room={room.name}
+          empty="None"
+          items={occupancy}
+          onOpen={() => onOpen("occupancy")}
+        />
+        <DeviceSection
+          title="Shades"
+          room={room.name}
+          empty="None"
+          items={shades.map((sh) => ({
+            id: sh.entity_id,
+            name: sh.name,
+            value: { open: "Open", closed: "Closed", moving: "Moving", unknown: "Unknown" }[
+              sh.state
+            ],
+          }))}
+          onOpen={() => onOpen("shades")}
+        />
       </div>
       <div className="room-card-actions">
-        <button className="btn btn-primary btn-sm" onClick={onConfigure}>
-          Edit Devices
-        </button>
         <button className="btn btn-secondary btn-sm" onClick={onEdit}>
           Room Settings
         </button>
@@ -1504,12 +1507,9 @@ export default function MyHome() {
   const [thermostats, setThermostats] = useState<ThermostatConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [reloadKey, setReloadKey] = useState(0);
-  const [configRoom, setConfigRoom] = useState<Room | null>(null);
-  const [settings, setSettings] = useState<{
-    room: Room | null;
-    returnTo: "list" | "configure";
-    zoneId?: string;
-  } | null>(null);
+  const [devices, setDevices] = useState<{ roomId: string; kind: DeviceKind } | null>(null);
+  const [shades, setShades] = useState<Shades | null>(null);
+  const [settings, setSettings] = useState<{ room: Room | null; zoneId?: string } | null>(null);
   const [staleByRoom, setStaleByRoom] = useState<Record<string, StaleSensor[]>>({});
 
   const refreshSensorHealth = async () => {
@@ -1531,6 +1531,14 @@ export default function MyHome() {
     }
   };
 
+  const loadShades = async () => {
+    try {
+      setShades(await getShades());
+    } catch {
+      setShades(null);
+    }
+  };
+
   const load = async () => {
     const [list, tcs] = await Promise.all([getRooms(), getThermostats()]);
     const detailed = await Promise.all(list.map((r) => getRoom(r.id)));
@@ -1538,7 +1546,7 @@ export default function MyHome() {
     setThermostats(tcs);
     setZoneIds(new Set(tcs.map((t) => t.thermostat_entity_id)));
     setLoading(false);
-    await Promise.all([refreshSensorHealth(), loadContacts()]);
+    await Promise.all([refreshSensorHealth(), loadContacts(), loadShades()]);
   };
 
   useEffect(() => {
@@ -1562,7 +1570,7 @@ export default function MyHome() {
     );
 
   if (settings) {
-    const { room: editing, returnTo, zoneId } = settings;
+    const { room: editing, zoneId } = settings;
     return (
       <RoomSettings
         room={editing}
@@ -1572,36 +1580,14 @@ export default function MyHome() {
         onCancel={() => setSettings(null)}
         onDeleted={async () => {
           setSettings(null);
-          setConfigRoom(null);
           setReloadKey((k) => k + 1);
           await load();
         }}
-        onSaved={async (saved) => {
+        onSaved={async () => {
           setSettings(null);
           setReloadKey((k) => k + 1);
           await load();
-          if (returnTo === "configure" || editing == null) {
-            const full = await getRoom(saved.id);
-            setConfigRoom(full);
-          }
         }}
-      />
-    );
-  }
-
-  if (configRoom) {
-    return (
-      <RoomConfigure
-        room={configRoom}
-        thermostats={thermostats}
-        contacts={contacts.filter((c) => c.room_id === configRoom.id)}
-        onContactsChanged={(all) => setContacts(all)}
-        onBack={() => {
-          setConfigRoom(null);
-          load();
-        }}
-        onEditSettings={() => setSettings({ room: configRoom, returnTo: "configure" })}
-        onRoomUpdated={(updated) => setConfigRoom(updated)}
       />
     );
   }
@@ -1611,19 +1597,21 @@ export default function MyHome() {
       key={room.id}
       room={room}
       contacts={contacts.filter((c) => c.room_id === room.id)}
+      shades={(shades?.shades ?? []).filter((sh) => sh.room_id === room.id)}
       staleSensors={staleByRoom[room.id] ?? []}
-      onConfigure={() => setConfigRoom(room)}
-      onEdit={() => setSettings({ room, returnTo: "list" })}
+      onOpen={(kind) => setDevices({ roomId: room.id, kind })}
+      onEdit={() => setSettings({ room })}
     />
   );
   const loose = rooms.filter((r) => !zoneIds.has(r.thermostat_entity_id));
+  const deviceRoom = devices && rooms.find((r) => r.id === devices.roomId);
 
   return (
     <div>
       <Zones
         reloadKey={reloadKey}
         onChanged={() => void load()}
-        onAddRoom={(zoneId) => setSettings({ room: null, returnTo: "list", zoneId })}
+        onAddRoom={(zoneId) => setSettings({ room: null, zoneId })}
         renderRooms={(zoneId) => {
           const zoneRooms = rooms.filter((r) => r.thermostat_entity_id === zoneId);
           return zoneRooms.length === 0 ? (
@@ -1635,7 +1623,7 @@ export default function MyHome() {
                 type="button"
                 className="btn btn-primary"
                 style={{ marginTop: ".6rem" }}
-                onClick={() => setSettings({ room: null, returnTo: "list", zoneId })}
+                onClick={() => setSettings({ room: null, zoneId })}
               >
                 Add Room
               </button>
@@ -1656,6 +1644,23 @@ export default function MyHome() {
           </p>
           <div className="card-grid">{loose.map(card)}</div>
         </section>
+      )}
+      {devices && deviceRoom && (
+        <RoomDeviceModal
+          room={deviceRoom}
+          kind={devices.kind}
+          contacts={contacts.filter((c) => c.room_id === deviceRoom.id)}
+          shades={shades}
+          onContactsChanged={setContacts}
+          onShadesChanged={setShades}
+          onRoomUpdated={(updated) =>
+            setRooms((all) => all.map((r) => (r.id === updated.id ? updated : r)))
+          }
+          onClose={() => {
+            setDevices(null);
+            void refreshSensorHealth();
+          }}
+        />
       )}
     </div>
   );
