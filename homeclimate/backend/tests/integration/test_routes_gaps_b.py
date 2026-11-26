@@ -367,56 +367,6 @@ class TestVacationModeNaiveTimestamp:
 # ---------------------------------------------------------------------------
 
 
-class TestVacationTestCommands:
-    @pytest.mark.asyncio
-    async def test_range_command_failure_returns_502_without_leaking_detail(self, client, fake_ha):
-        await _register_thermostat(client)
-
-        async def _boom(entity_id, low, high):
-            raise RuntimeError("ha socket closed: /secret/path")
-
-        fake_ha.set_thermostat_temperature_range = _boom
-
-        resp = await client.post(f"/api/thermostats/{THERMO}/test-vacation")
-        assert resp.status == 502
-        text = await resp.text()
-        assert (await resp.json())["error"] == "Failed to send range command"
-        assert "secret" not in text
-        assert "RuntimeError" not in text
-
-    @pytest.mark.asyncio
-    async def test_revert_sends_hvac_mode_off(self, client, fake_ha):
-        await _register_thermostat(client)
-        fake_ha.seed_state(THERMO, "heat_cool", {"current_temperature": 70.0})
-
-        resp = await client.delete(f"/api/thermostats/{THERMO}/test-vacation")
-        assert resp.status == 200
-        assert await resp.json() == {"ok": True}
-
-        mode_calls = [
-            c for c in fake_ha.calls if c.domain == "climate" and c.service == "set_hvac_mode"
-        ]
-        assert [c.data["hvac_mode"] for c in mode_calls] == ["off"]
-        assert mode_calls[0].data["entity_id"] == THERMO
-        # And the fake's own state actually flipped.
-        assert fake_ha.get_state(THERMO)["state"] == "off"
-
-    @pytest.mark.asyncio
-    async def test_revert_failure_returns_502_without_leaking_detail(self, client, fake_ha):
-        await _register_thermostat(client)
-
-        async def _boom(entity_id, mode):
-            raise RuntimeError("ha socket closed: /secret/path")
-
-        fake_ha.set_thermostat_hvac_mode = _boom
-
-        resp = await client.delete(f"/api/thermostats/{THERMO}/test-vacation")
-        assert resp.status == 502
-        text = await resp.text()
-        assert (await resp.json())["error"] == "Failed to revert thermostat mode"
-        assert "secret" not in text
-
-
 # ---------------------------------------------------------------------------
 # Rollup triggers with an unparseable body (3049-3050, 3065-3066)
 # ---------------------------------------------------------------------------

@@ -63,6 +63,14 @@ ECO_DEFAULTS_C: dict[str, float] = {
     "eco_hysteresis_band": 1.8,  # Δ1 °C
 }
 
+#: Let an empty zone drift further: how much further, on each side, a room that
+#: only follows its targets may drift once nothing has asked for any room of
+#: its zone for the configured number of hours. Fixed, so there is one number
+#: to explain; the hours are the setting (``eco_empty_zone_hours``, 0 = off).
+EMPTY_ZONE_EXTRA_F = 2.0
+EMPTY_ZONE_MIN_HOURS = 0.5
+EMPTY_ZONE_MAX_HOURS = 72.0
+
 #: The seven numeric Eco config fields, in canonical order. ``eco_mode_enabled``
 #: is a boolean and is handled separately (it is not a temperature field).
 ECO_TEMP_FIELDS: tuple[str, ...] = tuple(ECO_DEFAULTS_F.keys())

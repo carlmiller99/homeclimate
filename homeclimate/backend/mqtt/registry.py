@@ -373,19 +373,10 @@ THERMOSTAT_CONTROLS: tuple[Control, ...] = (
         max=10,
         step=0.1,
     ),
-    Control(
-        key="vacation_hvac_mode",
-        entity="select",
-        name="Vacation HVAC Mode",
-        kind=KIND_ENUM,
-        field="vacation_hvac_mode",
-        options=("range", "single"),
-    ),
     # Exposed rather than excluded (#626): it is a comfort/observability
     # choice, not part of the equipment-protection cluster that is deliberately
     # off MQTT. Turning it off cannot damage anything — it only reverts vacation
-    # to the quieter pre-#626 hold — and it pairs with the selector above, which
-    # is already exposed.
+    # to the quieter pre-#626 hold.
     Control(
         key="vacation_safety_cycles",
         entity="switch",
@@ -400,6 +391,16 @@ THERMOSTAT_CONTROLS: tuple[Control, ...] = (
         name="Eco Mode",
         kind=KIND_BOOL,
         field="eco_mode_enabled",
+    ),
+    Control(
+        key="eco_empty_zone_hours",
+        entity="number",
+        name="Eco Empty Zone Hours",
+        kind=KIND_NUMBER,
+        field="eco_empty_zone_hours",
+        min=0,
+        max=72,
+        step=0.5,
     ),
     # Eco Suspend follows the vacation-mode shape rather than #519's bare
     # switch: `POST /eco-suspend` requires a future `resume_at`, so a plain ON

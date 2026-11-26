@@ -84,7 +84,6 @@ def _make_ha(
     ha.get_numeric_state.return_value = None
     ha.get_state_age_seconds.return_value = None
     ha.set_thermostat_temperature = AsyncMock()
-    ha.set_thermostat_temperature_range = AsyncMock()
     ha.set_thermostat_hvac_mode = AsyncMock()
     ha.open_cover = AsyncMock()
     ha.close_cover = AsyncMock()
@@ -624,69 +623,7 @@ class TestVacationHoldGuards:
             await engine._apply_vacation_hold(conn, thermo_state)
 
             ha.set_thermostat_temperature.assert_not_awaited()
-            ha.set_thermostat_temperature_range.assert_not_awaited()
             ha.set_thermostat_hvac_mode.assert_not_awaited()
-        finally:
-            await conn.close()
-
-    @pytest.mark.asyncio
-    async def test_range_mode_skips_the_write_when_already_holding(self):
-        """Idempotence (#434/#296): re-commanding the identical range every
-        60 s for a week of vacation is thousands of pointless writes."""
-        conn = await _conn()
-        try:
-            await db.upsert_thermostat_config(
-                conn, _tc(vacation_hvac_mode="range", min_setpoint=62.0, max_setpoint=80.0)
-            )
-            ha = _make_ha()
-            engine = _make_engine(ha)
-            state = {
-                "state": "heat_cool",
-                "attributes": {"target_temp_low": 62.0, "target_temp_high": 80.0},
-            }
-
-            await engine._apply_vacation_hold(conn, state)
-
-            ha.set_thermostat_temperature_range.assert_not_awaited()
-        finally:
-            await conn.close()
-
-    @pytest.mark.asyncio
-    async def test_range_mode_rewrites_when_the_thermostat_drifted(self):
-        """Control for the skip above: a drifted high bound IS re-commanded."""
-        conn = await _conn()
-        try:
-            await db.upsert_thermostat_config(
-                conn, _tc(vacation_hvac_mode="range", min_setpoint=62.0, max_setpoint=80.0)
-            )
-            ha = _make_ha()
-            engine = _make_engine(ha)
-            state = {
-                "state": "heat_cool",
-                "attributes": {"target_temp_low": 62.0, "target_temp_high": 74.0},
-            }
-
-            await engine._apply_vacation_hold(conn, state)
-
-            ha.set_thermostat_temperature_range.assert_awaited_once_with(THERMO_ID, 62.0, 80.0)
-        finally:
-            await conn.close()
-
-    @pytest.mark.asyncio
-    async def test_range_mode_write_failure_is_logged_not_raised(self, caplog):
-        conn = await _conn()
-        try:
-            await db.upsert_thermostat_config(
-                conn, _tc(vacation_hvac_mode="range", min_setpoint=62.0, max_setpoint=80.0)
-            )
-            ha = _make_ha()
-            ha.set_thermostat_temperature_range.side_effect = RuntimeError("HA unreachable")
-            engine = _make_engine(ha)
-
-            with caplog.at_level(logging.ERROR, logger=ENGINE_LOGGER):
-                await engine._apply_vacation_hold(conn, {"state": "off", "attributes": {}})
-
-            assert any("failed to set range" in r.message for r in caplog.records), caplog.text
         finally:
             await conn.close()
 
@@ -1071,64 +1008,6 @@ class TestVacationHoldAnnouncements:
             await conn.close()
 
     @pytest.mark.asyncio
-    async def test_range_mode_announces_the_range_once_across_a_multi_day_trip(self):
-        """Acceptance criterion for range mode: safety cycles are structurally
-        unavailable there (#626), so the hold is the ONLY mechanism — and it
-        used to say nothing at all for the whole trip."""
-        conn = await _conn()
-        try:
-            await db.upsert_thermostat_config(
-                conn, _tc(vacation_hvac_mode="range", min_setpoint=62.0, max_setpoint=80.0)
-            )
-            ha = _make_ha()
-            logger = AsyncMock()
-            engine = _make_engine(ha, logger)
-            before = {"state": "off", "attributes": {}}
-            holding = {
-                "state": "heat_cool",
-                "attributes": {"target_temp_low": 62.0, "target_temp_high": 80.0},
-            }
-
-            await engine._apply_vacation_hold(conn, before)
-            for _ in range(10):  # stand-in for the rest of the trip
-                await engine._apply_vacation_hold(conn, holding)
-
-            ha.set_thermostat_temperature_range.assert_awaited_once_with(THERMO_ID, 62.0, 80.0)
-            events = self._events(logger)
-            assert len(events) == 1, f"one event for the trip, got {events}"
-            level, message = events[0]
-            assert level == "info"
-            assert "62.0°F" in message and "80.0°F" in message, message
-        finally:
-            await conn.close()
-
-    @pytest.mark.asyncio
-    async def test_range_mode_drift_correction_does_not_re_announce(self):
-        """External drift makes the hold re-command the identical range. The
-        write is worth making; a second identical event is not — a thermostat
-        that never accepts the value would otherwise log every 60 s for days."""
-        conn = await _conn()
-        try:
-            await db.upsert_thermostat_config(
-                conn, _tc(vacation_hvac_mode="range", min_setpoint=62.0, max_setpoint=80.0)
-            )
-            ha = _make_ha()
-            logger = AsyncMock()
-            engine = _make_engine(ha, logger)
-            drifted = {
-                "state": "heat_cool",
-                "attributes": {"target_temp_low": 62.0, "target_temp_high": 74.0},
-            }
-
-            for _ in range(4):
-                await engine._apply_vacation_hold(conn, drifted)
-
-            assert ha.set_thermostat_temperature_range.await_count == 4
-            assert len(self._events(logger)) == 1, self._events(logger)
-        finally:
-            await conn.close()
-
-    @pytest.mark.asyncio
     async def test_an_unavailable_thermostat_announces_the_bail_out_once(self):
         """The bail-out that most resembles a dead system: the hold issues no
         commands at all and, before #627, said nothing about it."""
@@ -1286,28 +1165,6 @@ class TestVacationHoldAnnouncements:
             events = self._events(logger)
             assert len(events) == 1, events
             assert events[0][0] == "error" and "could not park in heat" in events[0][1]
-        finally:
-            await conn.close()
-
-    @pytest.mark.asyncio
-    async def test_a_rejected_range_write_announces_an_error_once(self, caplog):
-        conn = await _conn()
-        try:
-            await db.upsert_thermostat_config(
-                conn, _tc(vacation_hvac_mode="range", min_setpoint=62.0, max_setpoint=80.0)
-            )
-            ha = _make_ha()
-            ha.set_thermostat_temperature_range.side_effect = RuntimeError("HA unreachable")
-            logger = AsyncMock()
-            engine = _make_engine(ha, logger)
-
-            with caplog.at_level(logging.ERROR, logger=ENGINE_LOGGER):
-                for _ in range(3):
-                    await engine._apply_vacation_hold(conn, {"state": "off", "attributes": {}})
-
-            events = self._events(logger)
-            assert len(events) == 1, events
-            assert events[0][0] == "error" and "heat_cool range" in events[0][1]
         finally:
             await conn.close()
 
@@ -1597,35 +1454,6 @@ class TestVacationHoldHysteresis:
         finally:
             await conn.close()
 
-    @pytest.mark.asyncio
-    async def test_range_mode_still_commands_the_bare_bounds(self):
-        """Deliberate, not an oversight (#628).
-
-        In heat_cool the EQUIPMENT decides heat vs cool from its own probe and
-        applies its own hysteresis, so there is no arrive-and-shut-off edge to
-        cushion. Insetting would silently condition the house more tightly than
-        the user asked for.
-        """
-        conn = await _conn()
-        try:
-            await db.upsert_thermostat_config(
-                conn,
-                _tc(
-                    vacation_hvac_mode="range",
-                    min_setpoint=62.0,
-                    max_setpoint=80.0,
-                    deadband=2.0,
-                ),
-            )
-            ha = _make_ha()
-            engine = _make_engine(ha)
-
-            await engine._apply_vacation_hold(conn, {"state": "off", "attributes": {}})
-
-            ha.set_thermostat_temperature_range.assert_awaited_once_with(THERMO_ID, 62.0, 80.0)
-        finally:
-            await conn.close()
-
 
 class TestVacationHoldLockoutRearm:
     """The compressor off-time lockout re-arms on hold-driven stops (#628).
@@ -1756,8 +1584,8 @@ class TestVacationHoldLockoutRearm:
 
     @pytest.mark.asyncio
     async def test_stopping_a_heat_cool_thermostat_arms_the_lockout(self):
-        """A single-setpoint hold meets a `heat_cool` thermostat when the user
-        switches `vacation_hvac_mode` from range to single mid-trip. The
+        """The hold meets a `heat_cool` thermostat when someone set that mode
+        by hand, or a trip began under a version with a range hold. The
         equipment owned the direction, so we cannot tell whether the compressor
         was running — arm the lockout, which is the protective reading."""
         conn = await _conn()
@@ -1860,31 +1688,6 @@ class TestVacationHoldLockoutRearm:
 
             assert engine._in_offtime_lockout(tc) is True
             assert engine._offtime_lockout_remaining(tc) == pytest.approx(6.0, abs=0.1)
-        finally:
-            await conn.close()
-
-    @pytest.mark.asyncio
-    async def test_range_mode_never_arms_the_lockout(self):
-        """The accepted #426 gap, pinned so it is a decision rather than a
-        surprise: range mode never commands the thermostat off, so there is no
-        compressor-stop instant for the hold to stamp. The honest fix for a
-        user who needs the protection is single setpoint.
-        """
-        conn = await _conn()
-        try:
-            await db.upsert_thermostat_config(
-                conn,
-                _tc(vacation_hvac_mode="range", min_cycle_offtime_min=10),
-            )
-            ha = _make_ha()
-            engine = _make_engine(ha)
-
-            await engine._apply_vacation_hold(
-                conn, {"state": "cool", "attributes": {"current_temperature": 88.0}}
-            )
-
-            ha.set_thermostat_temperature_range.assert_awaited_once()
-            assert engine._hold_compressor_off_at is None
         finally:
             await conn.close()
 

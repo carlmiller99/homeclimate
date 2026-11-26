@@ -85,6 +85,7 @@ export function RuleRow({
   title,
   help,
   enabled,
+  disabled,
   onToggle,
   children,
 }: {
@@ -92,13 +93,14 @@ export function RuleRow({
   title: string;
   help: string;
   enabled?: boolean;
+  disabled?: boolean;
   onToggle?: (v: boolean) => void;
   children: React.ReactNode;
 }) {
   return (
     <div className="rule-row">
       {onToggle ? (
-        <Switch id={id} checked={!!enabled} onChange={onToggle} />
+        <Switch id={id} checked={!!enabled} disabled={disabled} onChange={onToggle} />
       ) : (
         <span className="switch-spacer" />
       )}

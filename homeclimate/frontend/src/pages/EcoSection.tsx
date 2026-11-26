@@ -6,11 +6,21 @@ import {
   type ThermostatConfig,
 } from "../api";
 import { EcoWorkedExample } from "../components/EcoMode";
+import { RuleRow } from "../components/SmartControlControls";
 import { Switch } from "../components/SmartControlControls";
 import { useUnit } from "../contexts";
 import { ECO_NUMERIC_FIELDS, type EcoNumericKey } from "../eco";
 
-type EcoForm = { eco_mode_enabled: boolean } & Record<EcoNumericKey, number>;
+type EcoForm = { eco_mode_enabled: boolean; eco_empty_zone_hours: number } & Record<
+  EcoNumericKey,
+  number
+>;
+
+/** How much further an empty zone may drift, in °F (`eco.EMPTY_ZONE_EXTRA_F`). */
+const EMPTY_ZONE_EXTRA_F = 2;
+const EMPTY_ZONE_MIN_HOURS = 0.5;
+const EMPTY_ZONE_MAX_HOURS = 72;
+const EMPTY_ZONE_DEFAULT_HOURS = 2;
 
 const sameForm = (a: EcoForm, b: EcoForm) =>
   (Object.keys(a) as (keyof EcoForm)[]).every((k) => Object.is(a[k], b[k]));
@@ -30,6 +40,7 @@ function EcoZoneCard({
   // The form holds display units and submits them as typed; the backend converts.
   const derive = (cfg: ThermostatConfig): EcoForm => ({
     eco_mode_enabled: cfg.eco_mode_enabled ?? false,
+    eco_empty_zone_hours: cfg.eco_empty_zone_hours ?? 0,
     eco_cooling_outdoor_threshold: toDisplay(cfg.eco_cooling_outdoor_threshold),
     eco_cooling_full_drift_temp: toDisplay(cfg.eco_cooling_full_drift_temp),
     eco_cooling_max_drift: toDisplayDelta(cfg.eco_cooling_max_drift),
@@ -41,11 +52,13 @@ function EcoZoneCard({
   const derived = derive(config);
   const [form, setForm] = useState(derived);
   const [lastDerived, setLastDerived] = useState(derived);
+  const [emptyOn, setEmptyOn] = useState(derived.eco_empty_zone_hours !== 0);
   if (!sameForm(lastDerived, derived)) {
     // What is stored changed (a save, or the display unit): show it. A refetch
     // that returns the same values leaves an edit in progress alone.
     setLastDerived(derived);
     setForm(derived);
+    setEmptyOn(derived.eco_empty_zone_hours !== 0);
   }
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -70,6 +83,7 @@ function EcoZoneCard({
       const stored = derive(updated);
       setLastDerived(stored);
       setForm(stored);
+      setEmptyOn(stored.eco_empty_zone_hours !== 0);
       onSaved(updated);
       setSaved(true);
     } catch (e) {
@@ -79,6 +93,13 @@ function EcoZoneCard({
     }
   };
 
+  // Off is stored as 0 hours. The switch is its own cell so that typing a
+  // number that starts with 0 ("0.5") does not switch the row off mid-entry.
+  const hoursOk =
+    !emptyOn ||
+    (Number.isFinite(form.eco_empty_zone_hours) &&
+      form.eco_empty_zone_hours >= EMPTY_ZONE_MIN_HOURS &&
+      form.eco_empty_zone_hours <= EMPTY_ZONE_MAX_HOURS);
   // Only turning it on needs the sensor; a zone already on can still be tuned.
   const blocked = form.eco_mode_enabled && !lastDerived.eco_mode_enabled && !hasOutsideSensor;
   return (
@@ -125,6 +146,39 @@ function EcoZoneCard({
           </div>
         ))}
       </div>
+      <RuleRow
+        id={`eco-${tid}-empty`}
+        title="Let an Empty Zone Drift Further"
+        help={`With Eco Mode on, after nobody has used this zone for this long, its rooms may drift ${toDisplayDelta(EMPTY_ZONE_EXTRA_F)}${unitLabel} further. They return to their targets when someone does.`}
+        enabled={emptyOn}
+        disabled={saving}
+        onToggle={(v) => {
+          setSaved(false);
+          setEmptyOn(v);
+          setForm((f) => ({ ...f, eco_empty_zone_hours: v ? EMPTY_ZONE_DEFAULT_HOURS : 0 }));
+        }}
+      >
+        <span className="minutes-field">
+          <input
+            className="form-control minutes-input"
+            type="number"
+            min={EMPTY_ZONE_MIN_HOURS}
+            max={EMPTY_ZONE_MAX_HOURS}
+            step={0.5}
+            aria-label={`Hours before ${title} drifts further`}
+            disabled={saving || !emptyOn}
+            value={
+              emptyOn && Number.isFinite(form.eco_empty_zone_hours) ? form.eco_empty_zone_hours : ""
+            }
+            onChange={(e) => {
+              const v = parseFloat(e.target.value);
+              setSaved(false);
+              setForm((f) => ({ ...f, eco_empty_zone_hours: v }));
+            }}
+          />
+          <span className="minutes-unit">hr</span>
+        </span>
+      </RuleRow>
       <EcoWorkedExample
         params={{
           coolingThreshold: form.eco_cooling_outdoor_threshold,
@@ -144,6 +198,9 @@ function EcoZoneCard({
       {ECO_NUMERIC_FIELDS.some(({ key }) => !Number.isFinite(form[key])) && (
         <p className="form-error">Every field needs a number.</p>
       )}
+      {!hoursOk && (
+        <p className="form-error">{`Hours must be between ${EMPTY_ZONE_MIN_HOURS} and ${EMPTY_ZONE_MAX_HOURS}.`}</p>
+      )}
       {error && <p className="form-error">{error}</p>}
       <div className="eco-zone-actions">
         <button
@@ -153,6 +210,7 @@ function EcoZoneCard({
             saving ||
             !dirty ||
             blocked ||
+            !hoursOk ||
             ECO_NUMERIC_FIELDS.some(({ key }) => !Number.isFinite(form[key]))
           }
           onClick={() => void save()}

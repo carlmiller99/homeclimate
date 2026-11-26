@@ -11,6 +11,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, within, act } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import Rooms from "./Rooms";
+import RoomsSection from "./RoomsSection";
 import * as api from "../api";
 import * as zonesApi from "../zonesApi";
 import * as sc from "../smartControlApi";
@@ -50,7 +51,6 @@ const makeThermostat = (over: Partial<api.ThermostatConfig> = {}): api.Thermosta
   overshoot_delta: 0.5,
   cycle_timeout_hours: 2,
   reconciliation_interval_min: 5,
-  vacation_hvac_mode: "single" as const,
   vacation_safety_cycles: true,
   min_cycle_runtime_min: 0,
   min_cycle_offtime_min: 0,
@@ -157,6 +157,16 @@ describe("Rooms settings form — validation guards", () => {
     await screen.findByText("New Room", { selector: ".page-title" });
   };
 
+  const openTuning = async () => {
+    render(
+      <UnitContext.Provider value={buildUnitContext("F")}>
+        <RoomsSection />
+      </UnitContext.Provider>
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Change Living Room" }));
+    await screen.findByRole("dialog", { name: "Living Room heating and cooling" });
+  };
+
   it("requires a thermostat before creating a room", async () => {
     await openNewRoom();
     fireEvent.change(screen.getByLabelText(/Room name/i), { target: { value: "Den" } });
@@ -171,47 +181,35 @@ describe("Rooms settings form — validation guards", () => {
   });
 
   it("rejects a deadband override above the documented maximum", async () => {
-    await openNewRoom();
-    fireEvent.change(screen.getByLabelText(/Room name/i), { target: { value: "Den" } });
-    fireEvent.change(screen.getByRole("combobox", { name: /Thermostat/i }), {
-      target: { value: "climate.test" },
-    });
+    await openTuning();
     fireEvent.change(screen.getByLabelText(/Deadband override/i), { target: { value: "20" } });
-    fireEvent.click(screen.getByRole("button", { name: /Create room/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Save changes/i }));
 
     expect(
       await screen.findByText("Deadband override must be between 0°F and 10°F")
     ).toBeInTheDocument();
-    expect(api.createRoom).not.toHaveBeenCalled();
+    expect(api.updateRoom).not.toHaveBeenCalled();
   });
 
   it("rejects a widened deadband below the thermostat's own deadband", async () => {
-    await openNewRoom();
-    fireEvent.change(screen.getByLabelText(/Room name/i), { target: { value: "Den" } });
-    fireEvent.change(screen.getByRole("combobox", { name: /Thermostat/i }), {
-      target: { value: "climate.test" },
-    });
+    await openTuning();
     const toggle = await screen.findByLabelText(/pre-cool \/ pre-heat/i);
     await waitFor(() => expect(toggle).not.toBeDisabled());
     fireEvent.click(toggle);
 
     fireEvent.change(screen.getByLabelText(/Widened deadband/i), { target: { value: "0.1" } });
-    fireEvent.click(screen.getByRole("button", { name: /Create room/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Save changes/i }));
 
     expect(
       await screen.findByText(
         "Pre-cool/pre-heat: widened deadband must be at least the thermostat's deadband (0.5°F)"
       )
     ).toBeInTheDocument();
-    expect(api.createRoom).not.toHaveBeenCalled();
+    expect(api.updateRoom).not.toHaveBeenCalled();
   });
 
   it("rejects a negative pre-cool/pre-heat minimum outside difference", async () => {
-    await openNewRoom();
-    fireEvent.change(screen.getByLabelText(/Room name/i), { target: { value: "Den" } });
-    fireEvent.change(screen.getByRole("combobox", { name: /Thermostat/i }), {
-      target: { value: "climate.test" },
-    });
+    await openTuning();
     const toggle = await screen.findByLabelText(/pre-cool \/ pre-heat/i);
     await waitFor(() => expect(toggle).not.toBeDisabled());
     fireEvent.click(toggle);
@@ -219,20 +217,16 @@ describe("Rooms settings form — validation guards", () => {
     fireEvent.change(screen.getByLabelText(/Minimum outside difference/i), {
       target: { value: "-1" },
     });
-    fireEvent.click(screen.getByRole("button", { name: /Create room/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Save changes/i }));
 
     expect(
       await screen.findByText("Pre-cool/pre-heat: minimum outside difference must be 0 or greater")
     ).toBeInTheDocument();
-    expect(api.createRoom).not.toHaveBeenCalled();
+    expect(api.updateRoom).not.toHaveBeenCalled();
   });
 
   it("reveals the schedule-window field in off_schedule_only mode and rejects a negative window", async () => {
-    await openNewRoom();
-    fireEvent.change(screen.getByLabelText(/Room name/i), { target: { value: "Den" } });
-    fireEvent.change(screen.getByRole("combobox", { name: /Thermostat/i }), {
-      target: { value: "climate.test" },
-    });
+    await openTuning();
     const toggle = await screen.findByLabelText(/pre-cool \/ pre-heat/i);
     await waitFor(() => expect(toggle).not.toBeDisabled());
     fireEvent.click(toggle);
@@ -247,12 +241,12 @@ describe("Rooms settings form — validation guards", () => {
     expect(windowInput).toHaveValue(60);
 
     fireEvent.change(windowInput, { target: { value: "-5" } });
-    fireEvent.click(screen.getByRole("button", { name: /Create room/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Save changes/i }));
 
     expect(
       await screen.findByText("Pre-cool/pre-heat: schedule window must be 0 or greater")
     ).toBeInTheDocument();
-    expect(api.createRoom).not.toHaveBeenCalled();
+    expect(api.updateRoom).not.toHaveBeenCalled();
   });
 
   it("submits an explicit 0 for every zeroed numeric field", async () => {
@@ -260,13 +254,9 @@ describe("Rooms settings form — validation guards", () => {
     // passes the >= thermostat-deadband guard, which is what lets all four
     // `parseFloat(...) || 0` fallbacks be exercised in one save.
     vi.mocked(api.getThermostats).mockResolvedValue([makeThermostat({ deadband: 0 })]);
-    vi.mocked(api.createRoom).mockResolvedValue(makeRoom({ id: "room-9", name: "Zeroes" }));
+    vi.mocked(api.updateRoom).mockResolvedValue(makeRoom({ id: "room-9", name: "Zeroes" }));
 
-    await openNewRoom();
-    fireEvent.change(screen.getByLabelText(/Room name/i), { target: { value: "Zeroes" } });
-    fireEvent.change(screen.getByRole("combobox", { name: /Thermostat/i }), {
-      target: { value: "climate.test" },
-    });
+    await openTuning();
     fireEvent.change(screen.getByLabelText(/Presence holdover/i), { target: { value: "0" } });
 
     const toggle = await screen.findByLabelText(/pre-cool \/ pre-heat/i);
@@ -281,10 +271,10 @@ describe("Rooms settings form — validation guards", () => {
     });
     fireEvent.change(screen.getByLabelText(/Widened deadband/i), { target: { value: "0" } });
 
-    fireEvent.click(screen.getByRole("button", { name: /Create room/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Save changes/i }));
 
-    await waitFor(() => expect(api.createRoom).toHaveBeenCalled());
-    const [payload] = vi.mocked(api.createRoom).mock.calls[0];
+    await waitFor(() => expect(api.updateRoom).toHaveBeenCalled());
+    const [, payload] = vi.mocked(api.updateRoom).mock.calls[0];
     expect(payload).toMatchObject({
       presence_holdover_hours: 0,
       ambient_suppression_min_differential: 0,
@@ -333,7 +323,7 @@ describe("Rooms settings form — validation guards", () => {
 
   it("keeps pre-cool/pre-heat locked when the outside-sensor probe fails", async () => {
     vi.mocked(api.getOutsideTempEntity).mockRejectedValue(new Error("HA offline"));
-    await openNewRoom();
+    await openTuning();
 
     const toggle = await screen.findByLabelText(/pre-cool \/ pre-heat/i);
     expect(toggle).toBeDisabled();
@@ -1095,8 +1085,7 @@ describe("My Home — page edge cases", () => {
       current_value: 80,
     });
     fireEvent.click(screen.getByRole("button", { name: /Settings/i }));
-    const toggle = await screen.findByLabelText(/pre-cool \/ pre-heat/i);
-    await waitFor(() => expect(toggle).not.toBeDisabled());
+    expect(await screen.findByTestId("room-settings")).toBeInTheDocument();
   });
 });
 

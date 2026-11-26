@@ -40,7 +40,7 @@ A schedule block, a temporary hold and a room's occupancy target each hold one t
 
 - **Schedule block**: Smart Control → Schedules → add or edit a block → Cool To.
 - **Hold**: the Dashboard's hold dialog → Cool To.
-- **Occupancy target**: the room's settings in My Home → Cool To, under the presence-triggered temperature.
+- **Occupancy target**: Dashboard → the room → When Occupied → Cool To, beside the temperature.
 
 Leave Cool To blank for a single target. The same rules as targets apply: Cool To not below the target, both between 45 and 95 °F, and inside every zone's safety limits.
 

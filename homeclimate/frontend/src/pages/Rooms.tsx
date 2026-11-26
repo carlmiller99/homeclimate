@@ -38,8 +38,6 @@ import EntityPicker from "../components/EntityPicker";
 import ConfirmDialog from "../components/ConfirmDialog";
 import { EcoWorkedExample } from "../components/EcoMode";
 import { ECO_NUMERIC_FIELDS, type EcoNumericKey } from "../eco";
-import { coolToValue } from "../bands";
-import CoolToField from "../components/CoolToField";
 import { sanitizeRoomName } from "../roomNames";
 import RoomShades from "../components/RoomShades";
 import { getShades, type Shades } from "../shadesApi";
@@ -57,8 +55,16 @@ const NO_VENTS =
 const NO_OCCUPANCY =
   "No occupancy sensors selected. This room cannot use occupancy smart features without them.";
 
-function RoomSettings({
+/**
+ * A room's settings, in two parts that live in two places.
+ *
+ * "home" (My Home): what the room is. Its name, its zone, whether the
+ * thermostat's own sensor counts, and notes. "tuning" (Smart Control → Rooms):
+ * how it is heated and cooled. Each part saves only its own fields.
+ */
+export function RoomSettings({
   room,
+  part = "home",
   zoneId,
   rooms,
   thermostats,
@@ -67,6 +73,7 @@ function RoomSettings({
   onDeleted,
 }: {
   room: Room | null;
+  part?: "home" | "tuning";
   /** For a new room: the zone whose Add Room button opened the form. */
   zoneId?: string;
   // Every other room, so the sanitized-name uniqueness rule (#519) can be
@@ -92,13 +99,6 @@ function RoomSettings({
   const { toDisplay, toDisplayDelta, displayBound, unitLabel } = useUnit();
   const [name, setName] = useState(room?.name ?? "");
   const [thermostat, setThermostat] = useState(room?.thermostat_entity_id ?? zoneId ?? "");
-  const [sysTemp, setSysTemp] = useState(
-    room?.system_wide_temp != null ? String(toDisplay(room.system_wide_temp)) : ""
-  );
-  // An optional Cool To makes the occupancy target a band. Display units, sent as typed.
-  const [presenceCoolTo, setPresenceCoolTo] = useState(
-    room?.presence_cool_to != null ? String(toDisplay(room.presence_cool_to)) : ""
-  );
   const [holdover, setHoldover] = useState(room?.presence_holdover_hours?.toString() ?? "2");
   const [includeThermoSensor, setIncludeThermoSensor] = useState(
     room?.include_thermostat_sensor ?? false
@@ -173,104 +173,88 @@ function RoomSettings({
   const thermoDeadbandDisplay = toDisplayDelta(selectedThermo?.deadband ?? 0.5);
 
   const save = async () => {
-    if (!name.trim()) {
-      setError("Room name is required");
-      return;
-    }
-    // Room names must stay unique once sanitised for MQTT topics (#519). The
-    // backend enforces this too; checking here means the user finds out while
-    // the form is still in front of them.
-    if (!sanitizeRoomName(name)) {
-      setError("Room name must contain at least one letter or number");
-      return;
-    }
-    if (presenceCoolTo.trim() !== "" && !sysTemp) {
-      setError("Cool To needs a presence-triggered temperature to pair with");
-      return;
-    }
-    const clash = rooms.find(
-      (r) => r.id !== room?.id && sanitizeRoomName(r.name) === sanitizeRoomName(name)
-    );
-    if (clash) {
-      setError(
-        `Another room is already called "${clash.name}". Room names must be unique, ` +
-          "ignoring case, spacing, and punctuation."
+    if (part === "home") {
+      if (!name.trim()) {
+        setError("Room name is required");
+        return;
+      }
+      // Room names must stay unique once sanitised for MQTT topics (#519). The
+      // backend enforces this too; checking here means the user finds out while
+      // the form is still in front of them.
+      if (!sanitizeRoomName(name)) {
+        setError("Room name must contain at least one letter or number");
+        return;
+      }
+      const clash = rooms.find(
+        (r) => r.id !== room?.id && sanitizeRoomName(r.name) === sanitizeRoomName(name)
       );
-      return;
-    }
-    if (!thermostat.trim()) {
-      setError("Thermostat is required");
-      return;
-    }
-    const holdoverVal = parseFloat(holdover);
-    if (isNaN(holdoverVal) || holdoverVal < 0) {
-      setError("Presence holdover must be >= 0");
-      return;
-    }
-
-    if (sysTemp) {
-      const st = parseFloat(sysTemp);
-      // Bounds via displayBound, not a raw toDisplay of the °F limit: rounding
-      // moves the bound outward, so toDisplay(40) = 4.4 °C converts back to
-      // 39.92 °F and the backend refuses the very minimum this form advertises.
-      const minTemp = displayBound(40, "min");
-      const maxTemp = displayBound(90, "max");
-      if (isNaN(st) || st < minTemp || st > maxTemp) {
+      if (clash) {
         setError(
-          // 1dp to match fmtTemp, which every other temperature in the UI uses.
-          `Presence-triggered temperature must be between ${minTemp.toFixed(1)}${unitLabel} ` +
-            `and ${maxTemp.toFixed(1)}${unitLabel}`
+          `Another room is already called "${clash.name}". Room names must be unique, ` +
+            "ignoring case, spacing, and punctuation."
         );
         return;
       }
-    }
+      if (!thermostat.trim()) {
+        setError("Thermostat is required");
+        return;
+      }
+    } else {
+      const holdoverVal = parseFloat(holdover);
+      if (isNaN(holdoverVal) || holdoverVal < 0) {
+        setError("Presence holdover must be >= 0");
+        return;
+      }
 
-    // Per-room deadband override (Issue #277). Empty = inherit; otherwise it is
-    // a delta and must fall in 0–10°F (display equivalent), matching the
-    // backend bound.
-    if (deadbandOverride.trim() !== "") {
-      const dbVal = parseFloat(deadbandOverride);
-      const maxDeadband = displayBound(10, "max", "delta");
-      if (isNaN(dbVal) || dbVal < 0 || dbVal > maxDeadband) {
-        setError(`Deadband override must be between 0${unitLabel} and ${maxDeadband}${unitLabel}`);
-        return;
-      }
-    }
-
-    // Pre-cool/pre-heat (Issue #248): validate the same way the backend does,
-    // but only when the feature is enabled — a disabled room's defaults must
-    // never block an unrelated save (e.g. on a wide-deadband thermostat).
-    if (ambientEnabled) {
-      const minDiffVal = parseFloat(ambientMinDiff);
-      if (isNaN(minDiffVal) || minDiffVal < 0) {
-        setError("Pre-cool/pre-heat: minimum outside difference must be 0 or greater");
-        return;
-      }
-      const deadbandVal = parseFloat(ambientDeadband);
-      if (isNaN(deadbandVal) || deadbandVal < thermoDeadbandDisplay - 1e-6) {
-        setError(
-          `Pre-cool/pre-heat: widened deadband must be at least the thermostat's deadband ` +
-            `(${thermoDeadbandDisplay}${unitLabel})`
-        );
-        return;
-      }
-      if (ambientMode === "off_schedule_only") {
-        const windowVal = parseInt(ambientWindow, 10);
-        if (isNaN(windowVal) || windowVal < 0) {
-          setError("Pre-cool/pre-heat: schedule window must be 0 or greater");
+      // Per-room deadband override (Issue #277). Empty = inherit; otherwise it is
+      // a delta and must fall in 0–10°F (display equivalent), matching the
+      // backend bound.
+      if (deadbandOverride.trim() !== "") {
+        const dbVal = parseFloat(deadbandOverride);
+        const maxDeadband = displayBound(10, "max", "delta");
+        if (isNaN(dbVal) || dbVal < 0 || dbVal > maxDeadband) {
+          setError(
+            `Deadband override must be between 0${unitLabel} and ${maxDeadband}${unitLabel}`
+          );
           return;
         }
       }
-    }
 
-    // Eco Mode (Issue #404) is outdoor-temperature-driven, so it cannot be
-    // forced on without a configured outside-temperature sensor.
-    if (ecoEnabled === "on" && !hasOutsideSensor) {
-      setError(
-        "Eco Mode needs an outside-temperature sensor. Choose one in My Home, Outside " +
-          "(e.g. via a PirateWeather sensor) before forcing Eco on for this room."
-      );
-      return;
+      // Pre-cool/pre-heat (Issue #248): validate the same way the backend does,
+      // but only when the feature is enabled — a disabled room's defaults must
+      // never block an unrelated save (e.g. on a wide-deadband thermostat).
+      if (ambientEnabled) {
+        const minDiffVal = parseFloat(ambientMinDiff);
+        if (isNaN(minDiffVal) || minDiffVal < 0) {
+          setError("Pre-cool/pre-heat: minimum outside difference must be 0 or greater");
+          return;
+        }
+        const deadbandVal = parseFloat(ambientDeadband);
+        if (isNaN(deadbandVal) || deadbandVal < thermoDeadbandDisplay - 1e-6) {
+          setError(
+            `Pre-cool/pre-heat: widened deadband must be at least the thermostat's deadband ` +
+              `(${thermoDeadbandDisplay}${unitLabel})`
+          );
+          return;
+        }
+        if (ambientMode === "off_schedule_only") {
+          const windowVal = parseInt(ambientWindow, 10);
+          if (isNaN(windowVal) || windowVal < 0) {
+            setError("Pre-cool/pre-heat: schedule window must be 0 or greater");
+            return;
+          }
+        }
+      }
+
+      // Eco Mode (Issue #404) is outdoor-temperature-driven, so it cannot be
+      // forced on without a configured outside-temperature sensor.
+      if (ecoEnabled === "on" && !hasOutsideSensor) {
+        setError(
+          "Eco Mode needs an outside-temperature sensor. Choose one in My Home, Outside " +
+            "(e.g. via a PirateWeather sensor) before forcing Eco on for this room."
+        );
+        return;
+      }
     }
 
     setSaving(true);
@@ -278,34 +262,34 @@ function RoomSettings({
     try {
       // Temperatures are sent in DISPLAY units; the backend converts to °F
       // on the write boundary via _to_f / _delta_to_f.
-      const payload = {
-        name: name.trim(),
-        thermostat_entity_id: thermostat.trim(),
-        system_wide_temp: sysTemp ? parseFloat(sysTemp) : null,
-        // Sent when there is one, or when one is being taken away.
-        ...(room && (presenceCoolTo.trim() !== "" || room.presence_cool_to != null)
-          ? { presence_cool_to: sysTemp ? coolToValue(presenceCoolTo) : null }
-          : {}),
-        presence_holdover_hours: parseFloat(holdover) || 0,
-        include_thermostat_sensor: includeThermoSensor,
-        temp_offset: parseFloat(tempOffset) || 0,
-        deadband_override: deadbandOverride.trim() === "" ? null : parseFloat(deadbandOverride),
-        ambient_suppression_enabled: ambientEnabled,
-        ambient_suppression_mode: ambientMode,
-        ambient_suppression_min_differential: parseFloat(ambientMinDiff) || 0,
-        ambient_suppression_deadband: parseFloat(ambientDeadband) || 0,
-        ambient_suppression_off_schedule_window_min: parseInt(ambientWindow, 10) || 0,
-        notes,
-        // Eco Mode overrides (Issue #404). Tri-state enable; each numeric field
-        // is null (inherit) when left blank, otherwise the raw display value.
-        eco_mode_enabled: ecoEnabled === "inherit" ? null : ecoEnabled === "on",
-        ...Object.fromEntries(
-          ECO_NUMERIC_FIELDS.map(({ key }) => [
-            key,
-            eco[key].trim() === "" ? null : parseFloat(eco[key]),
-          ])
-        ),
-      };
+      const payload =
+        part === "home"
+          ? {
+              name: name.trim(),
+              thermostat_entity_id: thermostat.trim(),
+              include_thermostat_sensor: includeThermoSensor,
+              notes,
+            }
+          : {
+              presence_holdover_hours: parseFloat(holdover) || 0,
+              temp_offset: parseFloat(tempOffset) || 0,
+              deadband_override:
+                deadbandOverride.trim() === "" ? null : parseFloat(deadbandOverride),
+              ambient_suppression_enabled: ambientEnabled,
+              ambient_suppression_mode: ambientMode,
+              ambient_suppression_min_differential: parseFloat(ambientMinDiff) || 0,
+              ambient_suppression_deadband: parseFloat(ambientDeadband) || 0,
+              ambient_suppression_off_schedule_window_min: parseInt(ambientWindow, 10) || 0,
+              // Eco Mode overrides (Issue #404). Tri-state enable; each numeric field
+              // is null (inherit) when left blank, otherwise the raw display value.
+              eco_mode_enabled: ecoEnabled === "inherit" ? null : ecoEnabled === "on",
+              ...Object.fromEntries(
+                ECO_NUMERIC_FIELDS.map(({ key }) => [
+                  key,
+                  eco[key].trim() === "" ? null : parseFloat(eco[key]),
+                ])
+              ),
+            };
       const saved = room ? await updateRoom(room.id, payload) : await createRoom(payload);
       onSaved(saved);
     } catch (e: unknown) {
@@ -330,12 +314,22 @@ function RoomSettings({
       className="modal-backdrop"
       role="dialog"
       aria-modal="true"
-      aria-label={room ? `${room.name} settings` : "New room"}
+      aria-label={
+        part === "tuning"
+          ? `${room!.name} heating and cooling`
+          : room
+            ? `${room.name} settings`
+            : "New room"
+      }
     >
       <div className="modal room-settings-modal" data-testid="room-settings">
         <div className="edit-zone-head">
           <div className="page-title modal-title">
-            {room ? `${room.name} Settings` : "New Room"}
+            {part === "tuning"
+              ? `${room!.name}: Heating and Cooling`
+              : room
+                ? `${room.name} Settings`
+                : "New Room"}
           </div>
           <button type="button" className="btn btn-secondary" onClick={onCancel}>
             Close
@@ -349,365 +343,343 @@ function RoomSettings({
         )}
 
         <div className="card">
-          <div className="form-group">
-            <label className="form-label" htmlFor="room-name">
-              Room name *
-            </label>
-            <input
-              id="room-name"
-              className="form-control"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Master Bedroom"
-              autoFocus
-            />
-          </div>
-
-          <div className="form-group">
-            <label className="form-label" htmlFor="room-thermostat">
-              Thermostat *
-            </label>
-            {thermostats.length === 0 ? (
-              <div className="form-hint" style={{ color: "var(--orange)" }}>
-                No zones yet. Go back to My Home and use <strong>Add Zone</strong> first.
-              </div>
-            ) : (
-              <select
-                id="room-thermostat"
-                className="form-control"
-                value={thermostat}
-                onChange={(e) => setThermostat(e.target.value)}
-              >
-                <option value="">— select a thermostat —</option>
-                {thermostats.map((tc) => (
-                  <option key={tc.thermostat_entity_id} value={tc.thermostat_entity_id}>
-                    {tc.name} ({tc.thermostat_entity_id})
-                  </option>
-                ))}
-              </select>
-            )}
-          </div>
-
-          <hr className="divider" />
-
-          <div className="form-group">
-            <label className="form-label" htmlFor="room-sys-temp">
-              Presence-triggered temperature ({unitLabel})
-              <span className="text-muted" style={{ fontWeight: 400, marginLeft: ".5rem" }}>
-                — used when motion/presence detected, no active schedule
-              </span>
-            </label>
-            <input
-              id="room-sys-temp"
-              className="form-control"
-              type="number"
-              step="0.5"
-              value={sysTemp}
-              onChange={(e) => setSysTemp(e.target.value)}
-              placeholder="e.g. 72"
-            />
-          </div>
-
-          {room && (
-            <CoolToField
-              id="room-sys-cool-to"
-              value={presenceCoolTo}
-              onChange={setPresenceCoolTo}
-            />
-          )}
-
-          <div className="form-group">
-            <label className="form-label" htmlFor="room-holdover">
-              Presence holdover (hours)
-              <span className="text-muted" style={{ fontWeight: 400, marginLeft: ".5rem" }}>
-                — keep room active this long after last motion; 0 = disabled
-              </span>
-            </label>
-            <input
-              id="room-holdover"
-              className="form-control"
-              type="number"
-              step="0.5"
-              min="0"
-              value={holdover}
-              onChange={(e) => setHoldover(e.target.value)}
-            />
-          </div>
-
-          <div className="form-group">
-            <label
-              htmlFor="room-include-thermo"
-              style={{ display: "flex", alignItems: "center", gap: ".5rem", cursor: "pointer" }}
-            >
-              <input
-                id="room-include-thermo"
-                type="checkbox"
-                checked={includeThermoSensor}
-                onChange={(e) => setIncludeThermoSensor(e.target.checked)}
-              />
-              <span>Include thermostat's built-in sensor in room temperature average</span>
-            </label>
-          </div>
-
-          <div className="form-group">
-            <label className="form-label" htmlFor="room-temp-offset">
-              Temperature offset ({unitLabel})
-            </label>
-            <input
-              id="room-temp-offset"
-              className="form-control"
-              type="number"
-              step="0.5"
-              value={tempOffset}
-              onChange={(e) => setTempOffset(e.target.value)}
-            />
-            <div className="form-hint">
-              Use this when the room always ends up off its target. A negative number keeps the room
-              warmer, a positive one cooler: if it settles 3° too cool, enter −3.
-            </div>
-          </div>
-
-          <div className="form-group">
-            <label className="form-label" htmlFor="room-deadband-override">
-              Deadband override ({unitLabel})
-            </label>
-            <input
-              id="room-deadband-override"
-              className="form-control"
-              type="number"
-              step="0.1"
-              min={0}
-              max={displayBound(10, "max", "delta")}
-              placeholder={`Inherit thermostat (${thermoDeadbandDisplay}${unitLabel})`}
-              value={deadbandOverride}
-              onChange={(e) => setDeadbandOverride(e.target.value)}
-            />
-            <div className="form-hint">
-              How close to its target this room must be before heating or cooling stops. Leave blank
-              to use the zone&rsquo;s setting ({thermoDeadbandDisplay}
-              {unitLabel}).
-            </div>
-          </div>
-
-          <hr className="divider" />
-
-          <div className="form-group">
-            <label
-              htmlFor="room-ambient-enabled"
-              style={{ display: "flex", alignItems: "center", gap: ".5rem", cursor: "pointer" }}
-            >
-              <input
-                id="room-ambient-enabled"
-                type="checkbox"
-                checked={ambientEnabled}
-                disabled={!hasOutsideSensor}
-                onChange={(e) => setAmbientEnabled(e.target.checked)}
-              />
-              <span>
-                Skip presence heating/cooling when the weather will do it for me (pre-cool /
-                pre-heat)
-              </span>
-            </label>
-            {!hasOutsideSensor && (
-              <div className="form-hint" style={{ color: "var(--orange)" }}>
-                Add an outside temperature sensor in <strong>My Home</strong>, Outside to use this —
-                it cannot be turned on without one.
-              </div>
-            )}
-            <div className="form-hint">
-              When someone walks in and the weather will bring the room to temperature by itself,
-              HomeClimate waits instead of running the equipment.
-            </div>
-          </div>
-
-          {ambientEnabled && (
+          {part === "home" ? (
             <>
               <div className="form-group">
-                <label className="form-label" htmlFor="room-ambient-mode">
-                  When to apply
-                </label>
-                <select
-                  id="room-ambient-mode"
-                  className="form-control"
-                  value={ambientMode}
-                  onChange={(e) =>
-                    setAmbientMode(e.target.value as "any_presence" | "off_schedule_only")
-                  }
-                >
-                  <option value="any_presence">Any presence</option>
-                  <option value="off_schedule_only">Only after a schedule ends</option>
-                </select>
-                <div className="form-hint">
-                  Choose whether to wait every time someone walks in, or only just after a schedule
-                  ends.
-                </div>
-              </div>
-
-              {ambientMode === "off_schedule_only" && (
-                <div className="form-group">
-                  <label className="form-label" htmlFor="room-ambient-window">
-                    Schedule window (minutes)
-                  </label>
-                  <input
-                    id="room-ambient-window"
-                    className="form-control"
-                    type="number"
-                    step="5"
-                    min="0"
-                    value={ambientWindow}
-                    onChange={(e) => setAmbientWindow(e.target.value)}
-                  />
-                  <div className="form-hint">
-                    How long after a schedule ends this still applies. <strong>Example:</strong> 60
-                    = applies until 8am for a schedule ending at 7am.
-                  </div>
-                </div>
-              )}
-
-              <div className="form-group">
-                <label className="form-label" htmlFor="room-ambient-mindiff">
-                  Minimum outside difference ({unitLabel})
+                <label className="form-label" htmlFor="room-name">
+                  Room name *
                 </label>
                 <input
-                  id="room-ambient-mindiff"
+                  id="room-name"
+                  className="form-control"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="e.g. Master Bedroom"
+                  autoFocus
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label" htmlFor="room-thermostat">
+                  Thermostat *
+                </label>
+                {thermostats.length === 0 ? (
+                  <div className="form-hint" style={{ color: "var(--orange)" }}>
+                    No zones yet. Go back to My Home and use <strong>Add Zone</strong> first.
+                  </div>
+                ) : (
+                  <select
+                    id="room-thermostat"
+                    className="form-control"
+                    value={thermostat}
+                    onChange={(e) => setThermostat(e.target.value)}
+                  >
+                    <option value="">— select a thermostat —</option>
+                    {thermostats.map((tc) => (
+                      <option key={tc.thermostat_entity_id} value={tc.thermostat_entity_id}>
+                        {tc.name} ({tc.thermostat_entity_id})
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              <div className="form-group">
+                <label
+                  htmlFor="room-include-thermo"
+                  style={{ display: "flex", alignItems: "center", gap: ".5rem", cursor: "pointer" }}
+                >
+                  <input
+                    id="room-include-thermo"
+                    type="checkbox"
+                    checked={includeThermoSensor}
+                    onChange={(e) => setIncludeThermoSensor(e.target.checked)}
+                  />
+                  <span>Include thermostat's built-in sensor in room temperature average</span>
+                </label>
+              </div>
+
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label" htmlFor="room-notes">
+                  Notes
+                </label>
+                <textarea
+                  id="room-notes"
+                  className="form-control"
+                  rows={2}
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                />
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="form-group">
+                <label className="form-label" htmlFor="room-holdover">
+                  Presence holdover (hours)
+                  <span className="text-muted" style={{ fontWeight: 400, marginLeft: ".5rem" }}>
+                    — keep room active this long after last motion; 0 = disabled
+                  </span>
+                </label>
+                <input
+                  id="room-holdover"
                   className="form-control"
                   type="number"
                   step="0.5"
                   min="0"
-                  value={ambientMinDiff}
-                  onChange={(e) => setAmbientMinDiff(e.target.value)}
+                  value={holdover}
+                  onChange={(e) => setHoldover(e.target.value)}
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label" htmlFor="room-temp-offset">
+                  Temperature offset ({unitLabel})
+                </label>
+                <input
+                  id="room-temp-offset"
+                  className="form-control"
+                  type="number"
+                  step="0.5"
+                  value={tempOffset}
+                  onChange={(e) => setTempOffset(e.target.value)}
                 />
                 <div className="form-hint">
-                  How much warmer or cooler than the target it must be outside before HomeClimate
-                  waits. A bigger number means it waits less often.
+                  Use this when the room always ends up off its target. A negative number keeps the
+                  room warmer, a positive one cooler: if it settles 3° too cool, enter −3.
                 </div>
               </div>
 
               <div className="form-group">
-                <label className="form-label" htmlFor="room-ambient-deadband">
-                  Widened deadband ({unitLabel})
+                <label className="form-label" htmlFor="room-deadband-override">
+                  Deadband override ({unitLabel})
                 </label>
                 <input
-                  id="room-ambient-deadband"
+                  id="room-deadband-override"
                   className="form-control"
                   type="number"
-                  step="0.5"
-                  min={thermoDeadbandDisplay}
-                  value={ambientDeadband}
-                  onChange={(e) => setAmbientDeadband(e.target.value)}
+                  step="0.1"
+                  min={0}
+                  max={displayBound(10, "max", "delta")}
+                  placeholder={`Inherit thermostat (${thermoDeadbandDisplay}${unitLabel})`}
+                  value={deadbandOverride}
+                  onChange={(e) => setDeadbandOverride(e.target.value)}
                 />
                 <div className="form-hint">
-                  How far the room may slip from its target while waiting on the weather. It must be
-                  at least {thermoDeadbandDisplay}
-                  {unitLabel}, the zone&rsquo;s own setting.
+                  How close to its target this room must be before heating or cooling stops. Leave
+                  blank to use the zone&rsquo;s setting ({thermoDeadbandDisplay}
+                  {unitLabel}).
                 </div>
               </div>
-            </>
-          )}
 
-          {/* Eco Mode per-room override (Issue #404). Every field inherits the
+              <hr className="divider" />
+
+              <div className="form-group">
+                <label
+                  htmlFor="room-ambient-enabled"
+                  style={{ display: "flex", alignItems: "center", gap: ".5rem", cursor: "pointer" }}
+                >
+                  <input
+                    id="room-ambient-enabled"
+                    type="checkbox"
+                    checked={ambientEnabled}
+                    disabled={!hasOutsideSensor}
+                    onChange={(e) => setAmbientEnabled(e.target.checked)}
+                  />
+                  <span>
+                    Skip presence heating/cooling when the weather will do it for me (pre-cool /
+                    pre-heat)
+                  </span>
+                </label>
+                {!hasOutsideSensor && (
+                  <div className="form-hint" style={{ color: "var(--orange)" }}>
+                    Add an outside temperature sensor in <strong>My Home</strong>, Outside to use
+                    this — it cannot be turned on without one.
+                  </div>
+                )}
+                <div className="form-hint">
+                  When someone walks in and the weather will bring the room to temperature by
+                  itself, HomeClimate waits instead of running the equipment.
+                </div>
+              </div>
+
+              {ambientEnabled && (
+                <>
+                  <div className="form-group">
+                    <label className="form-label" htmlFor="room-ambient-mode">
+                      When to apply
+                    </label>
+                    <select
+                      id="room-ambient-mode"
+                      className="form-control"
+                      value={ambientMode}
+                      onChange={(e) =>
+                        setAmbientMode(e.target.value as "any_presence" | "off_schedule_only")
+                      }
+                    >
+                      <option value="any_presence">Any presence</option>
+                      <option value="off_schedule_only">Only after a schedule ends</option>
+                    </select>
+                    <div className="form-hint">
+                      Choose whether to wait every time someone walks in, or only just after a
+                      schedule ends.
+                    </div>
+                  </div>
+
+                  {ambientMode === "off_schedule_only" && (
+                    <div className="form-group">
+                      <label className="form-label" htmlFor="room-ambient-window">
+                        Schedule window (minutes)
+                      </label>
+                      <input
+                        id="room-ambient-window"
+                        className="form-control"
+                        type="number"
+                        step="5"
+                        min="0"
+                        value={ambientWindow}
+                        onChange={(e) => setAmbientWindow(e.target.value)}
+                      />
+                      <div className="form-hint">
+                        How long after a schedule ends this still applies. <strong>Example:</strong>{" "}
+                        60 = applies until 8am for a schedule ending at 7am.
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="form-group">
+                    <label className="form-label" htmlFor="room-ambient-mindiff">
+                      Minimum outside difference ({unitLabel})
+                    </label>
+                    <input
+                      id="room-ambient-mindiff"
+                      className="form-control"
+                      type="number"
+                      step="0.5"
+                      min="0"
+                      value={ambientMinDiff}
+                      onChange={(e) => setAmbientMinDiff(e.target.value)}
+                    />
+                    <div className="form-hint">
+                      How much warmer or cooler than the target it must be outside before
+                      HomeClimate waits. A bigger number means it waits less often.
+                    </div>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label" htmlFor="room-ambient-deadband">
+                      Widened deadband ({unitLabel})
+                    </label>
+                    <input
+                      id="room-ambient-deadband"
+                      className="form-control"
+                      type="number"
+                      step="0.5"
+                      min={thermoDeadbandDisplay}
+                      value={ambientDeadband}
+                      onChange={(e) => setAmbientDeadband(e.target.value)}
+                    />
+                    <div className="form-hint">
+                      How far the room may slip from its target while waiting on the weather. It
+                      must be at least {thermoDeadbandDisplay}
+                      {unitLabel}, the zone&rsquo;s own setting.
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* Eco Mode per-room override (Issue #404). Every field inherits the
             thermostat by default (blank); set a value to override just that
             field. A room may enable Eco even if its thermostat has it off. */}
-          <hr className="divider" />
-          <div className="text-sm" style={{ fontWeight: 600, marginBottom: ".5rem" }}>
-            Eco Mode override
-          </div>
-          <div className="form-group">
-            <label className="form-label" htmlFor="room-eco-enabled">
-              Eco Mode
-            </label>
-            <select
-              id="room-eco-enabled"
-              className="form-control"
-              value={ecoEnabled}
-              onChange={(e) => setEcoEnabled(e.target.value as "inherit" | "on" | "off")}
-            >
-              <option value="inherit">Inherit thermostat</option>
-              <option value="on" disabled={!hasOutsideSensor}>
-                On for this room
-              </option>
-              <option value="off">Off for this room</option>
-            </select>
-            {!hasOutsideSensor && (
-              <div className="form-hint" style={{ color: "var(--orange)" }}>
-                Eco Mode needs to know the outside temperature. Choose a sensor or a weather service
-                in <strong>My Home</strong>, Outside.
+              <hr className="divider" />
+              <div className="text-sm" style={{ fontWeight: 600, marginBottom: ".5rem" }}>
+                Eco Mode override
               </div>
-            )}
-            <div className="form-hint">
-              Inherit follows the zone&rsquo;s Eco Mode setting. On or Off sets it for this room
-              only, and a blank field below uses the zone&rsquo;s value.
-            </div>
-          </div>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))",
-              gap: "1rem",
-            }}
-          >
-            {ECO_NUMERIC_FIELDS.map(({ key, label, step, kind }) => {
-              const inherited = ecoInherited(key, kind);
-              const placeholder =
-                inherited != null
-                  ? `Inherit (${Math.round(inherited * 10) / 10}${unitLabel})`
-                  : "Inherit";
-              return (
-                <div className="form-group" key={key} style={{ marginBottom: 0 }}>
-                  <label className="form-label" htmlFor={`room-${key}`}>
-                    {label} ({unitLabel})
-                  </label>
-                  <input
-                    id={`room-${key}`}
-                    className="form-control"
-                    type="number"
-                    step={step}
-                    placeholder={placeholder}
-                    value={eco[key]}
-                    onChange={(e) => setEco((prev) => ({ ...prev, [key]: e.target.value }))}
+              <div className="form-group">
+                <label className="form-label" htmlFor="room-eco-enabled">
+                  Eco Mode
+                </label>
+                <select
+                  id="room-eco-enabled"
+                  className="form-control"
+                  value={ecoEnabled}
+                  onChange={(e) => setEcoEnabled(e.target.value as "inherit" | "on" | "off")}
+                >
+                  <option value="inherit">Inherit thermostat</option>
+                  <option value="on" disabled={!hasOutsideSensor}>
+                    On for this room
+                  </option>
+                  <option value="off">Off for this room</option>
+                </select>
+                {!hasOutsideSensor && (
+                  <div className="form-hint" style={{ color: "var(--orange)" }}>
+                    Eco Mode needs to know the outside temperature. Choose a sensor or a weather
+                    service in <strong>My Home</strong>, Outside.
+                  </div>
+                )}
+                <div className="form-hint">
+                  Inherit follows the zone&rsquo;s Eco Mode setting. On or Off sets it for this room
+                  only, and a blank field below uses the zone&rsquo;s value.
+                </div>
+              </div>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))",
+                  gap: "1rem",
+                }}
+              >
+                {ECO_NUMERIC_FIELDS.map(({ key, label, step, kind }) => {
+                  const inherited = ecoInherited(key, kind);
+                  const placeholder =
+                    inherited != null
+                      ? `Inherit (${Math.round(inherited * 10) / 10}${unitLabel})`
+                      : "Inherit";
+                  return (
+                    <div className="form-group" key={key} style={{ marginBottom: 0 }}>
+                      <label className="form-label" htmlFor={`room-${key}`}>
+                        {label} ({unitLabel})
+                      </label>
+                      <input
+                        id={`room-${key}`}
+                        className="form-control"
+                        type="number"
+                        step={step}
+                        placeholder={placeholder}
+                        value={eco[key]}
+                        onChange={(e) => setEco((prev) => ({ ...prev, [key]: e.target.value }))}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+              {selectedThermo && (
+                <div style={{ marginTop: ".75rem" }}>
+                  <div className="form-hint" style={{ marginBottom: ".25rem" }}>
+                    With this room&rsquo;s effective Eco settings:
+                  </div>
+                  <EcoWorkedExample
+                    params={{
+                      coolingThreshold:
+                        ecoResolved("eco_cooling_outdoor_threshold", "absolute_temp") ?? 0,
+                      coolingFullDrift:
+                        ecoResolved("eco_cooling_full_drift_temp", "absolute_temp") ?? 0,
+                      coolingMaxDrift: ecoResolved("eco_cooling_max_drift", "delta_temp") ?? 0,
+                      heatingThreshold:
+                        ecoResolved("eco_heating_outdoor_threshold", "absolute_temp") ?? 0,
+                      heatingFullDrift:
+                        ecoResolved("eco_heating_full_drift_temp", "absolute_temp") ?? 0,
+                      heatingMaxDrift: ecoResolved("eco_heating_max_drift", "delta_temp") ?? 0,
+                    }}
                   />
                 </div>
-              );
-            })}
-          </div>
-          {selectedThermo && (
-            <div style={{ marginTop: ".75rem" }}>
-              <div className="form-hint" style={{ marginBottom: ".25rem" }}>
-                With this room&rsquo;s effective Eco settings:
-              </div>
-              <EcoWorkedExample
-                params={{
-                  coolingThreshold:
-                    ecoResolved("eco_cooling_outdoor_threshold", "absolute_temp") ?? 0,
-                  coolingFullDrift:
-                    ecoResolved("eco_cooling_full_drift_temp", "absolute_temp") ?? 0,
-                  coolingMaxDrift: ecoResolved("eco_cooling_max_drift", "delta_temp") ?? 0,
-                  heatingThreshold:
-                    ecoResolved("eco_heating_outdoor_threshold", "absolute_temp") ?? 0,
-                  heatingFullDrift:
-                    ecoResolved("eco_heating_full_drift_temp", "absolute_temp") ?? 0,
-                  heatingMaxDrift: ecoResolved("eco_heating_max_drift", "delta_temp") ?? 0,
-                }}
-              />
-            </div>
+              )}
+            </>
           )}
-
-          <div className="form-group" style={{ marginBottom: 0 }}>
-            <label className="form-label" htmlFor="room-notes">
-              Notes
-            </label>
-            <textarea
-              id="room-notes"
-              className="form-control"
-              rows={2}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-            />
-          </div>
         </div>
 
         <div className="flex gap-sm" style={{ marginTop: "1.25rem", justifyContent: "flex-end" }}>
-          {room && (
+          {room && part === "home" && (
             <button
               className="btn btn-danger"
               style={{ marginRight: "auto" }}
@@ -1223,7 +1195,7 @@ function RoomDeviceModal({
         {kind === "occupancy" && (
           <EntitySection
             title="Occupancy Sensors"
-            description="When any sensor here detects motion, the room activates at the presence-triggered temperature and stays active for the configured holdover period (reset on each detection)."
+            description="When any sensor here detects motion, the room is kept at its occupied temperature, set on the Dashboard, until its holdover runs out."
             icon="🚶"
             items={presence}
             domain="binary_sensor"

@@ -65,7 +65,6 @@ const thermostat = (entity: string, name: string): api.ThermostatConfig => ({
   overshoot_delta: 0.5,
   cycle_timeout_hours: 2,
   reconciliation_interval_min: 5,
-  vacation_hvac_mode: "single" as const,
   vacation_safety_cycles: true,
   min_cycle_runtime_min: 0,
   min_cycle_offtime_min: 0,
@@ -275,6 +274,8 @@ describe("Dashboard — uncovered branches", () => {
         cycle_id: null,
         cycle_started_at: null,
         rooms: [],
+        // Eco Mode: nobody has used the zone for a while.
+        empty_drift: true,
       },
     ]);
     vi.mocked(api.getRooms).mockResolvedValue([room("r1", "Den"), room("r2", "Study")]);
@@ -293,6 +294,7 @@ describe("Dashboard — uncovered branches", () => {
     // 0 of the zone's 2 rooms are active, but both are still listed, each
     // with a dash until a sensor reports.
     expect(card).toHaveTextContent("0 of 2 rooms asking");
+    expect(within(card).getByText("Empty, drifting further")).toBeInTheDocument();
     for (const id of ["r1", "r2"]) {
       const row = within(card).getByTestId(`dash-room-${id}`);
       expect(within(row).getByText("—")).toBeInTheDocument();

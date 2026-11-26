@@ -139,8 +139,7 @@ async def test_vacation_hold_defers_cooling_after_aborting_a_cycle(client, fake_
     stops); the single-setpoint hold must not restart it in the same breath.
 
     Pinned to ``vacation_safety_cycles=False`` (#626): the hold's own #426
-    deferral is still the live path for a range-mode thermostat and for anyone
-    who opts out, so it keeps its own coverage. The safety-cycle path honours
+    deferral is still the live path for anyone who opts out, so it keeps its own coverage. The safety-cycle path honours
     the same lockout through a different guard — see the sibling test below.
     """
     fake_ha.seed_state(
@@ -157,7 +156,6 @@ async def test_vacation_hold_defers_cooling_after_aborting_a_cycle(client, fake_
             "max_setpoint": 78.0,
             "min_setpoint": 65.0,
             "min_cycle_offtime_min": 5,
-            "vacation_hvac_mode": "single",
             "vacation_safety_cycles": False,
         },
     )
@@ -216,7 +214,6 @@ async def test_vacation_safety_cycle_defers_for_the_lockout_then_runs(
             "max_setpoint": 78.0,
             "min_setpoint": 65.0,
             "min_cycle_offtime_min": 5,
-            "vacation_hvac_mode": "single",
             # vacation_safety_cycles defaults True — asserted explicitly so a
             # default flip is a deliberate, reviewed event (#213).
             "vacation_safety_cycles": True,
@@ -296,7 +293,6 @@ async def test_a_second_hold_driven_compressor_start_is_still_deferred(
             "min_setpoint": 65.0,
             "deadband": 2.0,
             "min_cycle_offtime_min": 5,
-            "vacation_hvac_mode": "single",
             "vacation_safety_cycles": False,
         },
     )

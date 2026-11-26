@@ -81,7 +81,6 @@ def _make_ha(
     ha.get_state.return_value = thermo
     ha.get_numeric_state.return_value = None
     ha.set_thermostat_temperature = AsyncMock()
-    ha.set_thermostat_temperature_range = AsyncMock()
     ha.set_thermostat_hvac_mode = AsyncMock()
     return ha
 

@@ -30,6 +30,7 @@ from .. import (
     auth,
     db,
     demo_seed,
+    eco,
     ha_import,
     house,
     oidc,
@@ -384,6 +385,18 @@ def _validate_welcome_home(field: str, val: object) -> tuple[web.Response | None
     if not (lo <= val <= hi):
         return error(f"{field} must be between {lo:g} and {hi:g}"), None
     return None, int(val) if integer else float(val)
+
+
+def _validate_empty_zone_hours(val: object) -> tuple[web.Response | None, float]:
+    """Hours a zone must be empty before Eco Mode lets it drift further; 0 is off."""
+    if isinstance(val, bool) or not isinstance(val, (int, float)):
+        return error("eco_empty_zone_hours must be a number"), 0.0
+    if val != 0 and not (eco.EMPTY_ZONE_MIN_HOURS <= val <= eco.EMPTY_ZONE_MAX_HOURS):
+        return error(
+            "eco_empty_zone_hours must be 0 (off) or between "
+            f"{eco.EMPTY_ZONE_MIN_HOURS:g} and {eco.EMPTY_ZONE_MAX_HOURS:g}"
+        ), 0.0
+    return None, float(val)
 
 
 def _validate_ambient_suppression(
@@ -1943,7 +1956,6 @@ async def create_thermostat(request: web.Request) -> web.Response:
         "overshoot_delta",
         "cycle_timeout_hours",
         "reconciliation_interval_min",
-        "vacation_hvac_mode",
         "vacation_safety_cycles",
         "welcome_home_enabled",
         "welcome_home_lead_min",
@@ -1964,6 +1976,7 @@ async def create_thermostat(request: web.Request) -> web.Response:
         "eco_heating_full_drift_temp",
         "eco_heating_max_drift",
         "eco_hysteresis_band",
+        "eco_empty_zone_hours",
     ):
         if field in body:
             if field in ("min_setpoint", "max_setpoint"):
@@ -1978,17 +1991,8 @@ async def create_thermostat(request: web.Request) -> web.Response:
                 if err is not None:
                     return err
                 setattr(tc, field, _delta_to_f(body[field], unit))
-            elif field == "vacation_hvac_mode":
-                if body[field] not in ("range", "single"):
-                    return error("vacation_hvac_mode must be 'range' or 'single'")
-                setattr(tc, field, body[field])
             elif field == "vacation_safety_cycles":
-                # Per-room safety cycles during vacation (#626). Only consulted
-                # when vacation_hvac_mode == "single"; the engine's
-                # `_vacation_safety_enabled` owns that restriction, so the value
-                # is stored as given rather than silently forced off for a range
-                # thermostat — flipping the hold strategy back to single must
-                # not also have discarded the user's choice here.
+                # Per-room safety cycles during vacation (#626).
                 setattr(tc, field, bool(body[field]))
             elif field == "cooling_lockout_below_f":
                 # Nullable absolute temperature — null disables the lockout.
@@ -2039,6 +2043,11 @@ async def create_thermostat(request: web.Request) -> web.Response:
                 if err is not None:
                     return err
                 setattr(tc, field, welcome_val)
+            elif field == "eco_empty_zone_hours":
+                err, hours = _validate_empty_zone_hours(body[field])
+                if err is not None:
+                    return err
+                setattr(tc, field, hours)
             elif field in _ECO_FIELD_SPECS:
                 # Eco Mode numeric config (Issue #404). Non-null on the
                 # thermostat; converted + range-checked after the unit boundary.
@@ -2118,7 +2127,6 @@ async def upsert_thermostat(request: web.Request) -> web.Response:
         "overshoot_delta",
         "cycle_timeout_hours",
         "reconciliation_interval_min",
-        "vacation_hvac_mode",
         "vacation_safety_cycles",
         "welcome_home_enabled",
         "welcome_home_lead_min",
@@ -2139,6 +2147,7 @@ async def upsert_thermostat(request: web.Request) -> web.Response:
         "eco_heating_full_drift_temp",
         "eco_heating_max_drift",
         "eco_hysteresis_band",
+        "eco_empty_zone_hours",
     ):
         if field in body:
             if field in ("min_setpoint", "max_setpoint"):
@@ -2153,17 +2162,8 @@ async def upsert_thermostat(request: web.Request) -> web.Response:
                 if err is not None:
                     return err
                 setattr(tc, field, _delta_to_f(body[field], unit))
-            elif field == "vacation_hvac_mode":
-                if body[field] not in ("range", "single"):
-                    return error("vacation_hvac_mode must be 'range' or 'single'")
-                setattr(tc, field, body[field])
             elif field == "vacation_safety_cycles":
-                # Per-room safety cycles during vacation (#626). Only consulted
-                # when vacation_hvac_mode == "single"; the engine's
-                # `_vacation_safety_enabled` owns that restriction, so the value
-                # is stored as given rather than silently forced off for a range
-                # thermostat — flipping the hold strategy back to single must
-                # not also have discarded the user's choice here.
+                # Per-room safety cycles during vacation (#626).
                 setattr(tc, field, bool(body[field]))
             elif field == "cooling_lockout_below_f":
                 # Nullable absolute temperature — null disables the lockout.
@@ -2208,6 +2208,11 @@ async def upsert_thermostat(request: web.Request) -> web.Response:
                 if err is not None:
                     return err
                 setattr(tc, field, welcome_val)
+            elif field == "eco_empty_zone_hours":
+                err, hours = _validate_empty_zone_hours(body[field])
+                if err is not None:
+                    return err
+                setattr(tc, field, hours)
             elif field in _ECO_FIELD_SPECS:
                 # Eco Mode numeric config (Issue #404). Non-null on the
                 # thermostat; converted + range-checked after the unit boundary.
@@ -2253,7 +2258,7 @@ async def upsert_thermostat(request: web.Request) -> web.Response:
 @response_schema(schemas.DeletedSchema)
 # {entity_id:[^/]+}, NOT .*: aiohttp matches routes in registration order and
 # a slash-matching pattern here shadows every later suffixed DELETE
-# (…/test-vacation, …/eco-suspend), silently swallowing those calls as a
+# (…/eco-suspend), silently swallowing those calls as a
 # delete of a bogus entity id. HA entity ids never contain "/".
 @routes.delete("/api/thermostats/{entity_id:[^/]+}")
 async def delete_thermostat(request: web.Request) -> web.Response:
@@ -3530,52 +3535,6 @@ async def clear_eco_suspend(request: web.Request) -> web.Response:
         {"thermostat": entity_id},
     )
     return json_response({"thermostat_entity_id": entity_id, "resume_at": None})
-
-
-@docs(tags=["thermostats"], summary="Test vacation range mode on thermostat")
-@response_schema(schemas.VacationTestSchema)
-@routes.post("/api/thermostats/{entity_id:.+}/test-vacation")
-async def test_vacation_mode(request: web.Request) -> web.Response:
-    """Temporarily send the vacation range command to a thermostat so the user
-    can verify it responded correctly in HA. Caller is responsible for
-    reverting (the engine will correct state on the next tick if vacation mode
-    is not active, or keep the range if vacation mode is enabled)."""
-    entity_id = request.match_info["entity_id"]
-    conn = await get_conn(request)
-    tc = await db.get_thermostat_config(conn, entity_id)
-    ha = request.app["ha"]
-    try:
-        await ha.set_thermostat_temperature_range(entity_id, tc.min_setpoint, tc.max_setpoint)
-    except Exception:
-        log.exception("Failed to send thermostat range command for entity_id=%s", entity_id)
-        return error("Failed to send range command", status=502)
-    # Return current HA state so the UI can surface it to the user.
-    state = ha.get_state(entity_id)
-    return json_response(
-        {
-            "ok": True,
-            "min_setpoint": tc.min_setpoint,
-            "max_setpoint": tc.max_setpoint,
-            "thermostat_state": state,
-        }
-    )
-
-
-@docs(tags=["thermostats"], summary="Revert thermostat from vacation test mode back to off")
-@response_schema(schemas.SuccessSchema)
-@routes.delete("/api/thermostats/{entity_id:.+}/test-vacation")
-async def revert_vacation_test(request: web.Request) -> web.Response:
-    """Immediately revert a thermostat from heat_cool/auto mode back to off.
-    Use after the Test auto mode button to undo the test without waiting for
-    the engine's next tick."""
-    entity_id = request.match_info["entity_id"]
-    ha = request.app["ha"]
-    try:
-        await ha.set_thermostat_hvac_mode(entity_id, "off")
-    except Exception:
-        log.exception("Failed to revert thermostat mode for entity_id=%s", entity_id)
-        return error("Failed to revert thermostat mode", status=502)
-    return json_response({"ok": True})
 
 
 @docs(tags=["system"], summary="Restart the application")

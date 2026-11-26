@@ -241,7 +241,7 @@ async def test_two_thermostats_hold_two_independent_expirations(client) -> None:
 
 @pytest.mark.asyncio
 async def test_suffixed_delete_routes_not_shadowed_by_delete_thermostat(client) -> None:
-    """DELETE /api/thermostats/{id}/eco-suspend (and /test-vacation) must reach
+    """DELETE /api/thermostats/{id}/eco-suspend must reach
     their own handlers. The old {entity_id:.*} pattern on DELETE
     /api/thermostats/{id} matched slashes and, being registered first,
     swallowed every suffixed DELETE as a delete of a bogus entity id."""

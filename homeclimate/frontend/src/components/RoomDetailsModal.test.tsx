@@ -21,6 +21,7 @@ function show(over: Partial<Parameters<typeof RoomDetailsModal>[0]> = {}, unit: 
     onCancelHold: vi.fn(),
     onOptions: vi.fn(),
     onClearedPresence: vi.fn(),
+    onRoomSaved: vi.fn(),
     onClose: vi.fn(),
   };
   const readings: SensorReading[] = [
@@ -46,6 +47,20 @@ function show(over: Partial<Parameters<typeof RoomDetailsModal>[0]> = {}, unit: 
 }
 
 describe("Room details", () => {
+  it("offers the occupied temperature when it has the room, and not without it", () => {
+    show();
+    expect(screen.queryByRole("region", { name: "When occupied" })).not.toBeInTheDocument();
+  });
+
+  it("shows the room's occupied temperature", () => {
+    show({
+      room: { id: "r1", name: "Game Room", system_wide_temp: 70, presence_cool_to: null } as never,
+    });
+    const block = screen.getByRole("region", { name: "When occupied" });
+    expect(block).toHaveTextContent("Kept here while someone is in the room");
+    expect(screen.getByLabelText(/^Temperature/)).toHaveValue(70);
+  });
+
   it("shows where the room is, its reading, what it follows and each sensor", () => {
     show();
     const dialog = screen.getByRole("dialog", { name: "Game Room details" });

@@ -4058,7 +4058,7 @@ class TestDoTickAbortGuards:
         engine, conn, cycle = await _setup_engine_with_running_cycle()
         engine._get_vacation_mode = lambda: True
         engine._ha.set_thermostat_hvac_mode = AsyncMock()
-        # Default config: vacation_hvac_mode="single", bounds 60–85. Ambient 72
+        # Default config: bounds 60–85. Ambient 72
         # is inside the band, so the hold parks (Issue #638) rather than
         # turning off. The abort just closed this thermostat's 'cooling'
         # cycle in the SAME tick, so direction recovery finds it and parks
@@ -4113,33 +4113,6 @@ class TestDoTickAbortGuards:
         engine._ha.set_thermostat_hvac_mode.assert_not_awaited()
         assert engine._ha.set_thermostat_temperature.await_count == 2
         engine._ha.set_thermostat_temperature.assert_awaited_with(THERMO_ID, 74.0, hvac_mode="cool")
-        engine._add_safety_rooms.assert_not_awaited()
-        await conn.close()
-
-    @pytest.mark.asyncio
-    async def test_vacation_range_mode_never_runs_safety_cycles(self):
-        """`vacation_safety_cycles=True` is not enough on a range thermostat.
-
-        heat_cool hands the heat/cool decision to the equipment, so the engine
-        cannot lock a cycle direction (#26/#29). The restriction is in
-        `_vacation_safety_enabled`, not merely in the UI copy.
-        """
-        from backend import db
-
-        engine, conn, cycle = await _setup_engine_with_running_cycle()
-        engine._get_vacation_mode = lambda: True
-        engine._add_safety_rooms = AsyncMock()
-        engine._ha.set_thermostat_temperature_range = AsyncMock()
-        await db.upsert_thermostat_config(
-            conn, _make_tc(vacation_hvac_mode="range", vacation_safety_cycles=True)
-        )
-
-        await engine._do_tick(conn)
-
-        assert engine.cycle_state == CycleState.IDLE
-        db_cycle = await db.get_cycle_log(conn, cycle.id)
-        assert db_cycle is not None
-        assert db_cycle.ended_reason == "aborted: vacation mode"
         engine._add_safety_rooms.assert_not_awaited()
         await conn.close()
 

@@ -455,14 +455,6 @@ class TestNonDevMode:
         payload = client._ws.send_json.call_args[0][0]
         assert payload["service_data"]["temperature"] == 21.0  # (69.8-32)*5/9
 
-    async def test_set_thermostat_range_metric_converts_to_celsius(self):
-        client = _make_auto_resolving_client()
-        client.ha_temp_unit = "C"
-        await client.set_thermostat_temperature_range("climate.main", 62.0, 80.0)
-        sd = client._ws.send_json.call_args[0][0]["service_data"]
-        assert sd["target_temp_low"] == round((62.0 - 32) * 5 / 9, 2)
-        assert sd["target_temp_high"] == round((80.0 - 32) * 5 / 9, 2)
-
     async def test_call_service_returns_result(self):
         client = _make_auto_resolving_client()
         result = await client.call_service("cover", "open_cover", {"entity_id": "cover.v1"})
@@ -833,25 +825,6 @@ class TestSetThermostatFanMode:
         payload = client._ws.send_json.call_args[0][0]
         assert (payload["domain"], payload["service"]) == ("climate", "set_fan_mode")
         assert payload["service_data"] == {"entity_id": "climate.main", "fan_mode": "auto"}
-
-
-class TestSetThermostatRangeDevMode:
-    async def test_dev_mode_skips_ha_and_logs_range(self):
-        client = HAClient("ws://ha.local", "tok")
-        client.dev_mode = True
-        mock_logger = AsyncMock()
-        client._dev_logger = mock_logger
-        await client.set_thermostat_temperature_range("climate.main", 66.0, 74.0)
-        mock_logger.log.assert_called_once()
-        details = mock_logger.log.call_args[0][3]
-        assert details["target_temp_low"] == 66.0
-        assert details["target_temp_high"] == 74.0
-        assert details["action"] == "set_temperature_range"
-
-    async def test_dev_mode_without_logger_is_noop(self):
-        client = HAClient("ws://ha.local", "tok")
-        client.dev_mode = True
-        await client.set_thermostat_temperature_range("climate.main", 66.0, 74.0)
 
 
 class TestGetForecasts:

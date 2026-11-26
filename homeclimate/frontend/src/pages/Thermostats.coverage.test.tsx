@@ -30,7 +30,6 @@ const baseConfig: api.ThermostatConfig = {
   overshoot_delta: 0.5,
   cycle_timeout_hours: 2,
   reconciliation_interval_min: 5,
-  vacation_hvac_mode: "single" as const,
   vacation_safety_cycles: true,
   min_cycle_runtime_min: 0,
   min_cycle_offtime_min: 0,
@@ -55,7 +54,6 @@ const sparseConfig = {
   min_cycle_runtime_min: null,
   overflow_during_min_runtime: null,
   reconciliation_interval_min: null,
-  vacation_hvac_mode: null,
   vacation_safety_cycles: true,
 } as unknown as api.ThermostatConfig;
 
@@ -361,7 +359,6 @@ describe("Thermostats — a legacy config with null columns", () => {
     const overflow = screen.getByLabelText(/Redirect surplus air to other rooms/i);
     expect(overflow).toBeChecked();
     expect(overflow).toBeDisabled(); // min-runtime hold is null → treated as 0
-    expect(screen.getByLabelText(/Vacation HVAC mode/i)).toHaveValue("single");
 
     // The airflow floor falls back to one third, in both the label and slider.
     expect(screen.getByText("33%")).toBeInTheDocument();
@@ -394,7 +391,6 @@ describe("Thermostats — a legacy config with null columns", () => {
     fireEvent.change(screen.getByLabelText(/Drift correction interval/i), {
       target: { value: "30" },
     });
-    fireEvent.change(screen.getByLabelText(/Vacation HVAC mode/i), { target: { value: "range" } });
 
     const card = cardOf(screen.getByLabelText(/^Total vent count$/));
     fireEvent.click(within(card).getByText("Save changes"));
@@ -409,7 +405,6 @@ describe("Thermostats — a legacy config with null columns", () => {
           min_cycle_runtime_min: 10,
           min_open_vents_fraction: 0.5,
           reconciliation_interval_min: 30,
-          vacation_hvac_mode: "range",
         })
       )
     );
@@ -534,77 +529,6 @@ describe("Thermostats — numeric coercion", () => {
 
 // ---------------------------------------------------------------------------
 // Vacation-mode test buttons
-// ---------------------------------------------------------------------------
-
-describe("Thermostats — vacation auto-mode test failures", () => {
-  beforeEach(() => {
-    vi.mocked(api.getThermostats).mockResolvedValue([
-      { ...baseConfig, vacation_hvac_mode: "range" as const },
-    ]);
-  });
-
-  it("badges a failed test in red with the backend's message", async () => {
-    vi.mocked(api.testVacationMode).mockRejectedValue(new Error("heat_cool unsupported"));
-    render(<Thermostats />);
-
-    fireEvent.click(await screen.findByRole("button", { name: /Test auto mode/i }));
-
-    const badge = await screen.findByText("Error: heat_cool unsupported");
-    expect(badge.className).toContain("badge-red");
-    // The test never became active, so the Revert button must not appear.
-    expect(screen.queryByRole("button", { name: /Revert test/i })).toBeNull();
-    expect(screen.getByRole("button", { name: /Test auto mode/i })).not.toBeDisabled();
-  });
-
-  it("falls back to a generic message when the test rejects with a non-Error", async () => {
-    vi.mocked(api.testVacationMode).mockRejectedValue("nope");
-    render(<Thermostats />);
-
-    fireEvent.click(await screen.findByRole("button", { name: /Test auto mode/i }));
-    expect(await screen.findByText("Error: Test failed")).toBeInTheDocument();
-  });
-
-  it("badges a failed revert in red and leaves the test active", async () => {
-    vi.mocked(api.testVacationMode).mockResolvedValue({
-      ok: true,
-      min_setpoint: 60,
-      max_setpoint: 80,
-      thermostat_state: {},
-    });
-    vi.mocked(api.revertVacationTest).mockRejectedValue(new Error("thermostat offline"));
-    render(<Thermostats />);
-
-    fireEvent.click(await screen.findByRole("button", { name: /Test auto mode/i }));
-    const revert = await screen.findByRole("button", { name: /Revert test/i });
-    // The successful test badge is green, which is what makes the red below
-    // an actual signal rather than the only colour this element ever wears.
-    expect(screen.getByText(/heat_cool active/).className).toContain("badge-green");
-
-    fireEvent.click(revert);
-    const badge = await screen.findByText("Error: thermostat offline");
-    expect(badge.className).toContain("badge-red");
-    // Still active — the engine will revert it on the next tick.
-    expect(screen.getByRole("button", { name: /Revert test/i })).toBeInTheDocument();
-  });
-
-  it("falls back to a generic message when the revert rejects with a non-Error", async () => {
-    vi.mocked(api.testVacationMode).mockResolvedValue({
-      ok: true,
-      min_setpoint: 60,
-      max_setpoint: 80,
-      thermostat_state: {},
-    });
-    vi.mocked(api.revertVacationTest).mockRejectedValue(0);
-    render(<Thermostats />);
-
-    fireEvent.click(await screen.findByRole("button", { name: /Test auto mode/i }));
-    fireEvent.click(await screen.findByRole("button", { name: /Revert test/i }));
-    expect(await screen.findByText("Error: Revert failed")).toBeInTheDocument();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Sensor-staleness input coercion (#600 / #211)
 // ---------------------------------------------------------------------------
 
 describe("Thermostats — sensor-staleness input", () => {

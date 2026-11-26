@@ -12,33 +12,19 @@ Vacation mode is always in one of three states:
 | `scheduled` | A trip is set up for later. Everything still runs as normal until the start time. |
 | `active` | The trip is underway: schedules, presence and holds are paused and the hold below runs. |
 
-## Two hold strategies
+## How the house is held
 
-Set per thermostat on the **Thermostats** page as **Vacation HVAC mode**.
+HomeClimate keeps deciding when to heat and when to cool for the whole trip. It never hands that choice to the thermostat's own heat-and-cool (auto) mode. If you want the thermostat to run the house by itself, turn HomeClimate off and use the thermostat's own settings.
 
-### Single setpoint (default)
-
-For thermostats that expose one target temperature at a time. Rather than turning the HVAC off, the hold **parks it in a recovered direction**: the same mode (heat or cool) as the thermostat's last completed cycle, or — before any cycle has run yet — whichever bound current ambient sits nearer to. The parked setpoint sits `overshoot_delta` degrees on the idle side of live ambient (above ambient when parked in cool, below it when parked in heat), so the equipment's own native hysteresis does not call for heat or cooling on its own; only the engine decides when the trip resumes real conditioning. A bound breach still re-engages it fully — below `min_setpoint` it switches to heat, above `max_setpoint` it switches to cool — and once back inside the band it returns to parking rather than turning off.
+Rather than turning the HVAC off, the hold **parks it in a recovered direction**: the same mode (heat or cool) as the thermostat's last completed cycle, or — before any cycle has run yet — whichever bound current ambient sits nearer to. The parked setpoint sits `overshoot_delta` degrees on the idle side of live ambient (above ambient when parked in cool, below it when parked in heat), so the equipment's own native hysteresis does not call for heat or cooling on its own; only the engine decides when the trip resumes real conditioning. A bound breach still re-engages it fully — below `min_setpoint` it switches to heat, above `max_setpoint` it switches to cool — and once back inside the band it returns to parking rather than turning off.
 
 **It triggers on the bound but recovers past it.** Crossing `min_setpoint` starts heating toward `min_setpoint + deadband`; crossing `max_setpoint` starts cooling toward `max_setpoint - deadband`. The margin is the point: recovering only to the bound itself means the hold arrives, is immediately no longer breaching, parks again immediately, drifts back across and starts again — edge short-cycling, on a hold that runs unattended for days. This matches the [safety protection](./safety.md) margin used outside vacation. If `deadband` is wider than half the band, each target is clamped to the opposite bound so heating can never overshoot into calling for cooling.
 
 Stopping the compressor also re-arms the [off-time lockout](./safety.md#off-time-lockout), so a second breach later in the same trip waits out `min_cycle_offtime_min` exactly as the first one would. The hold never creates a cycle, so before this it only inherited whatever lockout the trip started with.
 
-This is the only strategy that can also watch each room's own sensor — see [Per-room safety cycles](#per-room-safety-cycles) below.
+The hold can also watch each room's own sensor — see [Per-room safety cycles](#per-room-safety-cycles) below.
 
-### Range (heat_cool / auto)
-
-For thermostats that support `heat_cool` or `auto`. The thermostat is put into `heat_cool` with a lower bound of `min_setpoint` and an upper bound of `max_setpoint`, and manages both directions natively.
-
-> **Range mode senses only the thermostat's own built-in ambient probe.** Your rooms' temperature sensors are not consulted, so a single room can drift well past its limits without the system reacting. If you want per-room protection while you are away, use **Single setpoint**.
->
-> This is a structural limit, not an oversight. In `heat_cool` the *equipment* decides whether to heat or cool, from its own internal sensor. HomeClimate's cycle engine locks a cycle's direction at the moment the cycle starts and never re-derives it from the thermostat's live state — deriving direction from live `hvac_action` is exactly the bug that caused hours-long runaway cycles before it was fixed. HomeClimate cannot direct a single-room cycle through a thermostat whose direction it does not own, so it does not pretend to.
-
-Range mode commands the bounds **as configured**, with no deadband inset — in `heat_cool` the equipment applies its own hysteresis, so there is no arrive-and-shut-off edge to cushion and insetting would only condition the house more tightly than you asked.
-
-> **Range mode has no compressor off-time protection.** It cannot defer a start for the lockout, and it never re-arms one, because the hold never commands this thermostat off — there is no compressor-stop moment to measure from. Closing that gap would mean taking the heat/cool decision back off the equipment, which is the inversion bug described above. If your equipment needs short-cycle protection while you are away, use **Single setpoint**.
-
-The **Test auto mode** button next to the selector puts the thermostat into `heat_cool` immediately so you can confirm it accepts the command, with a **Revert test** button to undo it.
+> **Changed in 0.5.19.** There used to be a second choice, *Range*, that put the thermostat in its heat-and-cool mode and let it manage both limits. It is gone, along with the **Test auto mode** button. A thermostat that was set to Range now holds as described here, and one found in `heat_cool` is switched back.
 
 ## What the hold writes to the log
 
@@ -49,7 +35,6 @@ The hold re-evaluates every 60 seconds for as long as the trip lasts, so it logs
 | Ambient fell below `min_setpoint` — holding heat at `min_setpoint + deadband` | info |
 | Ambient rose above `max_setpoint` — holding cooling at `max_setpoint - deadband` | info |
 | Ambient back inside the band — holding parked in `<mode>` at `<setpoint>` | info |
-| Range mode took the thermostat, or its bounds changed | info |
 | Cooling deferred by the compressor [off-time lockout](./safety.md#off-time-lockout) | warning |
 | The thermostat is unavailable, so the hold issues no commands | warning |
 | The thermostat is reachable but reports no ambient temperature | warning |
@@ -61,9 +46,9 @@ Per-room safety cycles below log separately, through normal cycle history.
 
 ## Per-room safety cycles
 
-**Applies to `single` mode only. Default: on.** Toggle: **Run per-room safety cycles during vacation** in the zone's Thermostat Settings (My Home → Edit Zone).
+**Default: on.** Toggle: **Run per-room safety cycles during vacation** in the zone's Thermostat Settings (My Home → Edit Zone).
 
-The single-setpoint hold above watches the *thermostat's* ambient reading. That leaves a gap: one room can bake or freeze well past its limits while the thermostat's own probe — often in a hallway — sits comfortably inside the band and reports nothing wrong.
+The hold above watches the *thermostat's* ambient reading. That leaves a gap: one room can bake or freeze well past its limits while the thermostat's own probe — often in a hallway — sits comfortably inside the band and reports nothing wrong.
 
 With per-room safety cycles on, any room whose **own sensor** leaves the envelope starts a real cycle through the normal engine, exactly as the [#367 safety protection](./safety.md) does outside vacation:
 

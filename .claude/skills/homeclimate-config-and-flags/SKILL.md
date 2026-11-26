@@ -168,7 +168,6 @@ tick arithmetic.
 | `total_vents_count` | `None` | count (smart + passive registers) | positive int; **required at registration** (#213); null → transitional "≥1 open" fallback + UI banner | production |
 | `has_bypass_damper` | `False` | bool | — | production; True disables the airflow floor |
 | `min_open_vents_fraction` | 0.333 | fraction | 0 < v ≤ 1 | production; airflow floor = `ceil(total × fraction)` |
-| `vacation_hvac_mode` | `"single"` | enum | `"range"` or `"single"` | production |
 | `welcome_home_enabled` | `True` | bool | real bool only (400 otherwise) | production (#728); Thermostats → Welcome home checkbox; MQTT-excluded |
 | `welcome_home_lead_min` | 60 | minutes before vacation return | whole number 0–240 (`_WELCOME_HOME_BOUNDS`) | production (#728); input disabled while the toggle is off |
 | `welcome_home_hours` | 1.0 | hours of synthetic presence | 0.25–12 | production (#728); migration 22 added all three columns |
@@ -185,6 +184,7 @@ tick arithmetic.
 | `eco_heating_full_drift_temp` | 0.0 | °F absolute (outdoor) | −40–130 °F post-conversion | production (#404) |
 | `eco_heating_max_drift` | 4.0 | °F **delta** | 0–20 °F post-conversion | production (#404) |
 | `eco_hysteresis_band` | 2.0 | °F **delta** | 0–10 °F post-conversion | production (#404) |
+| `eco_empty_zone_hours` | 0 (off) | hours (not a temperature) | 0–72 | production; Smart Control → Eco Mode → Let an Empty Zone Drift Further; the extra drift is fixed at `eco.EMPTY_ZONE_EXTRA_F` (2 °F) |
 | `eco_suspend_until` | `None` | ISO-8601 UTC string, nullable | — | production (#500); **read-only** on `POST`/`PUT /api/thermostats/…` — lives in its own `eco_suspensions` table, not a `thermostat_configs` column, so a stale form save can never clobber it. Written only via `POST`/`DELETE /api/thermostats/{entity_id}/eco-suspend` |
 
 Existing thermostats registered before Eco Mode shipped were back-filled with

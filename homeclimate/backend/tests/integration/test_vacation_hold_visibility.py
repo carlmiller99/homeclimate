@@ -33,14 +33,12 @@ async def _configure(
     *,
     min_setpoint: float = 62.0,
     max_setpoint: float = 80.0,
-    vacation_hvac_mode: str = "single",
     vacation_safety_cycles: bool = False,
 ) -> None:
     """Register the thermostat with safety cycles OFF by default.
 
-    That is the #624 opt-out, and one of the three paths that still run the
-    bare hold — the others being range mode and any tick with nothing
-    breaching. With cycles off the hold is unambiguously the only thing
+    That is the #624 opt-out, and one of the two paths that still run the
+    bare hold — the other being any tick with nothing breaching. With cycles off the hold is unambiguously the only thing
     driving the thermostat, so every event below is the hold's own.
     """
     resp = await client.post(
@@ -52,7 +50,6 @@ async def _configure(
             "max_setpoint": max_setpoint,
             "deadband": 2.0,
             "overshoot_delta": 2.0,
-            "vacation_hvac_mode": vacation_hvac_mode,
             "vacation_safety_cycles": vacation_safety_cycles,
         },
     )
@@ -102,33 +99,6 @@ def _ambient(fake_ha, temp: float | None) -> None:
     attrs["current_temperature"] = temp
     attrs.setdefault("hvac_action", "idle")
     fake_ha.seed_state(THERMO, str(cur.get("state", "off")), attrs)
-
-
-@pytest.mark.asyncio
-async def test_a_range_mode_trip_is_visible_in_the_live_feed(client, fake_ha, tick) -> None:
-    """The acceptance criterion for range mode.
-
-    Safety cycles are structurally unavailable there — heat_cool hands the
-    heat/cool decision to the equipment and the engine cannot lock a direction
-    it does not own (#26/#29) — so the hold is the only mechanism, and it used
-    to say nothing at all for the entire trip.
-    """
-    await _configure(client, vacation_hvac_mode="range")
-    await _make_room(client, fake_ha)
-    _ambient(fake_ha, 70.0)
-    await _enable_vacation(client)
-
-    for _ in range(6):  # stand-in for a multi-day trip
-        await tick()
-
-    holds = await _hold_events(client)
-    assert len(holds) == 1, f"exactly one event for the trip, got {holds}"
-    message = holds[0]["message"]
-    assert "62.0°F" in message and "80.0°F" in message, message
-    assert holds[0]["level"] == "info"
-    # The hold really did take the thermostat — the event is not decoration.
-    ranges = [c for c in fake_ha.calls_for("set_temperature") if c.data["entity_id"] == THERMO]
-    assert ranges, f"the hold must command the range; calls={fake_ha.calls}"
 
 
 @pytest.mark.asyncio

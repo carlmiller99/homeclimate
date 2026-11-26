@@ -1,6 +1,6 @@
 # HomeClimate — Developer Notes for Claude
 
-HomeClimate (version line from 0.5.0) is a private fork, used with the original author's permission. The beta channel was removed. CI builds amd64 only.
+HomeClimate (version line from 0.5.0) is a public fork under the AGPL-3.0 licence. The beta channel was removed. CI builds amd64 only.
 
 ## Workflow conventions
 

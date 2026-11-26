@@ -283,42 +283,6 @@ class FakeHomeAssistant:
             "climate", "set_fan_mode", {"entity_id": entity_id, "fan_mode": mode}
         )
 
-    async def set_thermostat_temperature_range(
-        self, entity_id: str, low: float, high: float
-    ) -> None:
-        if self.dev_mode:
-            await self._dev_log(
-                f"Would set thermostat {entity_id} range → {low:.1f}–{high:.1f}°F",
-                {
-                    "entity_id": entity_id,
-                    "target_temp_low": low,
-                    "target_temp_high": high,
-                    "action": "set_temperature_range",
-                },
-            )
-            return
-        self.calls.append(
-            ServiceCall(
-                domain="climate",
-                service="set_temperature",
-                data={
-                    "entity_id": entity_id,
-                    "hvac_mode": "heat_cool",
-                    "target_temp_low": low,
-                    "target_temp_high": high,
-                },
-            )
-        )
-        cur = self._state.get(entity_id, {"attributes": {}})
-        attrs = dict(cur.get("attributes") or {})
-        attrs["target_temp_low"] = low
-        attrs["target_temp_high"] = high
-        self._state[entity_id] = {
-            "entity_id": entity_id,
-            "state": "heat_cool",
-            "attributes": attrs,
-        }
-
     async def open_cover(self, entity_id: str) -> None:
         if self.dev_mode:
             await self._dev_log(

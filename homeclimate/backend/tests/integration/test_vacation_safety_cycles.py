@@ -12,12 +12,8 @@ Vacation is now a demand FILTER. Schedules, presence and temporary holds stay
 paused — a safety breach is the only thing that may create demand — and when
 nothing is breaching, ``_apply_vacation_hold`` still owns the thermostat.
 
-Two restrictions are asserted here rather than left to UI copy:
-
-  * ``vacation_hvac_mode == "range"`` never runs safety cycles, because
-    heat_cool hands the heat/cool decision to the equipment and the engine
-    cannot lock a direction it does not own (#26/#29).
-  * ``vacation_safety_cycles=False`` is a full opt-out back to the old hold.
+One restriction is asserted here rather than left to UI copy:
+``vacation_safety_cycles=False`` is a full opt-out back to the old hold.
 
 The vent policy is deliberately NOT the #237 tier system: with nobody home the
 zone runs wide open and each non-breaching room keeps absorbing air until it
@@ -39,7 +35,6 @@ async def _configure(
     min_setpoint: float = 62.0,
     max_setpoint: float = 78.0,
     deadband: float = 2.0,
-    vacation_hvac_mode: str = "single",
     vacation_safety_cycles: bool = True,
     total_vents_count: int = 6,
     min_cycle_runtime_min: int = 0,
@@ -53,7 +48,6 @@ async def _configure(
             "max_setpoint": max_setpoint,
             "deadband": deadband,
             "overshoot_delta": 2.0,
-            "vacation_hvac_mode": vacation_hvac_mode,
             "vacation_safety_cycles": vacation_safety_cycles,
             "min_cycle_runtime_min": min_cycle_runtime_min,
         },
@@ -333,7 +327,7 @@ async def test_airflow_floor_keeps_a_vent_open_when_every_room_is_satisfied(
 
 
 # ---------------------------------------------------------------------------
-# Opt-out and the range-mode restriction
+# Opt-out
 # ---------------------------------------------------------------------------
 
 
@@ -369,39 +363,6 @@ async def test_opting_out_restores_the_old_hold(client, fake_ha, tick) -> None:
     assert cools and cools[-1].data["temperature"] == pytest.approx(76.0), (
         "the hold must recover to one deadband inside the ceiling, not to the bound"
     )
-
-
-@pytest.mark.asyncio
-async def test_range_mode_ignores_the_toggle_and_holds_the_range(client, fake_ha, tick) -> None:
-    """Range mode never runs safety cycles even with the toggle ON.
-
-    heat_cool hands direction to the equipment; the engine cannot lock a cycle
-    mode it does not own (#26/#29). The restriction lives in
-    `_vacation_safety_enabled`, so a room baking at 85°F still yields no cycle —
-    only the native range hold.
-    """
-    await _configure(client, vacation_hvac_mode="range", vacation_safety_cycles=True)
-    await _make_room(client, "Gym", "sensor.gym_temp", "cover.gym_vent")
-
-    fake_ha.seed_state(
-        THERMO, "off", {"current_temperature": 85.0, "temperature": None, "hvac_action": "idle"}
-    )
-    fake_ha.seed_state("sensor.gym_temp", "85.0", {"unit_of_measurement": "°F"})
-    fake_ha.seed_state("cover.gym_vent", "open", {})
-    await _enable_vacation(client)
-
-    await tick()
-
-    logs = await (await client.get("/api/logs")).json()
-    assert logs == [], "range mode must not run per-room safety cycles"
-    ranges = [
-        c
-        for c in fake_ha.calls_for("set_temperature")
-        if c.data["entity_id"] == THERMO and c.data.get("hvac_mode") == "heat_cool"
-    ]
-    assert ranges, f"the range hold must still run; calls={fake_ha.calls}"
-    assert ranges[-1].data["target_temp_low"] == pytest.approx(62.0)
-    assert ranges[-1].data["target_temp_high"] == pytest.approx(78.0)
 
 
 @pytest.mark.asyncio
