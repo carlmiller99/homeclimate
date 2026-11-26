@@ -2,6 +2,7 @@
 
 ## 0.5.15
 
+- Dashboard: Vacation Mode is now at the top of the page beside the System switch, drawn the same way, and reads Off, Scheduled or On. It opens the same dialog as before.
 - Settings → Sensors: you can now choose several outside temperature sensors. HomeClimate uses their average wherever it needs the outside temperature, and leaves out one that stops answering until it comes back. One sensor works as before.
 
 ## 0.5.14
