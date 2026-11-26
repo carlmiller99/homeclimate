@@ -661,6 +661,16 @@ async def test_an_open_door_or_a_lit_fireplace_keeps_the_fan_off(
     assert (await scheduler.fan_zones())[0].blocked == "A fireplace is lit"
 
 
+async def test_a_room_with_no_vents_and_a_house_with_no_log_are_no_trouble(client, fake_ha, home):
+    scheduler = client.app["scheduler"]
+    resp = await client.post("/api/rooms", json={"name": "Hall", "thermostat_entity_id": T1})
+    fake_ha.reset_calls()
+    await scheduler._open_room_vents([(await resp.json())["id"]])
+    assert fake_ha.calls_for("open_cover") == []
+    scheduler._event_logger = None
+    await scheduler._say_fan("Fan stopped for Main", {})
+
+
 async def test_the_fan_settings_are_checked(client, home):
     for body in ({"fan_level": "high"}, {"air_intake": "maybe"}):
         resp = await client.put(f"/api/zones/{T1}", json=body)

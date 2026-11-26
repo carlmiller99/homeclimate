@@ -296,11 +296,9 @@ class Manager:
             return False
         self._ours.discard(tid)
         self._for.pop(tid, None)
-        began = self._since.pop(tid, None)
-        if began is not None:
-            runs = self._runs.setdefault(tid, [])
-            runs.append((began, now))
-            self._runs[tid] = [r for r in runs if r[1] > now - WINDOW]
+        runs = self._runs.setdefault(tid, [])
+        runs.append((self._since.pop(tid, now), now))
+        self._runs[tid] = [r for r in runs if r[1] > now - WINDOW]
         await self._remember(conn)
         return True
 
@@ -336,9 +334,7 @@ class Manager:
             if _answering(ha, tid) and await self._set(ha, tid, "auto"):
                 self._ours.discard(tid)
                 self._for.pop(tid, None)
-                began = self._since.pop(tid, None)
-                if began is not None:
-                    self._runs.setdefault(tid, []).append((began, now))
+                self._runs.setdefault(tid, []).append((self._since.pop(tid, now), now))
         self._tests.clear()
         await self._remember(conn)
 
