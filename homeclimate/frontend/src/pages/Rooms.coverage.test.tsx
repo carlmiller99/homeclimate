@@ -540,6 +540,9 @@ describe("device names on a room card", () => {
     // Nothing would be left, or it does not start with the room: kept whole.
     expect(withoutRoom("Kitchen", "Kitchen")).toBe("Kitchen");
     expect(withoutRoom("Hall Sensor", "Kitchen")).toBe("Hall Sensor");
+    // A name that merely begins with the same letters is someone else's device.
+    expect(withoutRoom("Dennis Lamp", "Den")).toBe("Dennis Lamp");
+    expect(withoutRoom("Den Lamp", "Den")).toBe("Lamp");
     expect(withoutRoom("Sensor", " ")).toBe("Sensor");
   });
 });

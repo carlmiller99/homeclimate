@@ -60,7 +60,7 @@ When a cooling cycle is suppressed, the thermostat is left idle and a warning is
 
 ### Requires an outdoor sensor
 
-The lockout needs to know the outdoor temperature. The **outside temperature sensors** are configured once for the whole home, under **Settings → Sensors**: one Home Assistant temperature sensor, or several that are averaged. They are not tied to any individual thermostat. Without one, the lockout cannot evaluate.
+The lockout needs to know the outdoor temperature. The **outside temperature sensors** are configured once for the whole home, under **My Home → Outside**: one Home Assistant temperature sensor, or several that are averaged. They are not tied to any individual thermostat. Without one, the lockout cannot evaluate.
 
 With several sensors, one that stops answering is left out of the average until it comes back. The average can then step toward the remaining sensors (a shaded 60 °F and a sunny 75 °F read 67.5 °F together and 75 °F if the shaded one drops out), which can move the outside temperature across the lockout threshold from one minute to the next.
 

@@ -21,7 +21,7 @@ Eco Mode is tuned for each zone in **Smart Control → Eco Mode**: the switch, t
 
 Eco Mode is entirely driven by the outdoor temperature, so **it cannot be turned
 on until the house-wide outside-temperature entity is configured** (set it in
-**Settings → Sensors**). Until then the UI will not save Eco Mode switched on, and the
+**My Home → Outside**). Until then the UI will not save Eco Mode switched on, and the
 API rejects enabling it without a sensor.
 
 If you do not have a physical outdoor thermometer in Home Assistant, add a free

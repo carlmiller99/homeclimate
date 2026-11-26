@@ -1354,8 +1354,10 @@ function DeviceSection({
 export function withoutRoom(name: string, room: string): string {
   const lead = room.trim().toLowerCase();
   if (lead && name.toLowerCase().startsWith(lead)) {
-    const rest = name.slice(lead.length).replace(/^[\s\-–—:,.'’s]+/, "");
-    if (rest) return rest[0].toUpperCase() + rest.slice(1);
+    const after = name.slice(lead.length);
+    // Only when the room's whole name is there: "Den Lamp" in Den, not "Dennis Lamp".
+    const rest = after.replace(/^(?:['’]s)?[\s\-–—:,.]+/, "");
+    if (rest && rest !== after) return rest[0].toUpperCase() + rest.slice(1);
   }
   return name;
 }
