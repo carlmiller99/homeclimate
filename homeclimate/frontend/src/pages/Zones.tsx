@@ -12,16 +12,19 @@ import { useUnit } from "../contexts";
 import { ThermostatCard } from "./Thermostats";
 import {
   BACKUP_HEAT_LABELS,
+  heatLabels,
   createBuilding,
   deleteBuilding,
   equipmentSummary,
   getBuildings,
+  getEquipmentHint,
   getZones,
   groupByBuilding,
   updateBuilding,
   updateZone,
   type BackupHeat,
   type Building,
+  type EquipmentHint,
   type SystemType,
   type ZoneProfile,
 } from "../zonesApi";
@@ -229,7 +232,7 @@ function ZoneEditor({
             </select>
           </label>
           <label className="field-stack">
-            Auxiliary Heat
+            {hp ? "Auxiliary Heat" : "Heat"}
             <select
               className="form-control"
               value={form.backup_heat}
@@ -239,7 +242,7 @@ function ZoneEditor({
             >
               {(Object.keys(BACKUP_HEAT_LABELS) as BackupHeat[]).map((k) => (
                 <option key={k} value={k}>
-                  {BACKUP_HEAT_LABELS[k]}
+                  {heatLabels(form.system_type)[k]}
                 </option>
               ))}
             </select>
@@ -375,10 +378,12 @@ function BuildingHeader({
   building,
   onRenamed,
   onDeleted,
+  onAddZone,
 }: {
   building: Building;
   onRenamed: (b: Building) => void;
   onDeleted: () => void;
+  onAddZone: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(building.name);
@@ -431,6 +436,14 @@ function BuildingHeader({
         <>
           <h2 className="group-header-title">{building.name}</h2>
           <span className="group-header-rule" />
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            aria-label={`Add Zone to ${building.name}`}
+            onClick={onAddZone}
+          >
+            Add Zone
+          </button>
           <button type="button" className="link-button" onClick={() => setEditing(true)}>
             Rename
           </button>
@@ -444,21 +457,31 @@ function BuildingHeader({
   );
 }
 
-const BUILDING_NOT_SET =
-  "The zone was added, but could not be put in its building. Edit the zone to try again.";
+const ZONE_NOT_FINISHED =
+  "The zone was added, but its building and kind of system could not be saved. Edit the zone to set them.";
 
 const VENT_COUNT_HELP =
   "Count every register this thermostat serves, smart vents and ordinary ones. " +
   "HomeClimate uses it to keep enough vents open to protect the equipment.";
 
-/** Register a thermostat as a zone together with its first room. */
+const LOOKS_LIKE_HEAT_PUMP: Record<"aux" | "plain", string> = {
+  aux: "This looks like a heat pump with auxiliary heat. Is that right?",
+  plain: "This looks like a heat pump. Is that right?",
+};
+
+/**
+ * Register a thermostat as a zone in one building, together with its first
+ * room. The kind of system is asked for, never assumed: a heat pump left on
+ * the conventional settings gets none of its protection.
+ */
 function AddZone({
-  buildings,
+  building,
   taken,
   onAdded,
   onCancel,
 }: {
-  buildings: Building[];
+  /** The building the zone goes in; null for a zone in no building. */
+  building: Building | null;
   /** Thermostats that are already zones. */
   taken: string[];
   /** Called once the zone exists; ``warning`` when a later step failed. */
@@ -467,15 +490,35 @@ function AddZone({
 }) {
   const [thermostat, setThermostat] = useState("");
   const [name, setName] = useState("");
-  const [buildingId, setBuildingId] = useState("");
   const [roomName, setRoomName] = useState("");
   const [vents, setVents] = useState("");
+  const [systemType, setSystemType] = useState<SystemType | null>(null);
+  const [stages, setStages] = useState(1);
+  // Asked for, like the system type: "electric strips" is not a safe guess.
+  const [backupHeat, setBackupHeat] = useState<BackupHeat | "">("");
+  const [hint, setHint] = useState<EquipmentHint | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   // The backend requires a whole number of registers, at least one (#213).
   const ventCount = /^\d+$/.test(vents.trim()) ? parseInt(vents, 10) : 0;
   // Registering a thermostat again would overwrite that zone's settings.
   const isTaken = taken.includes(thermostat);
+
+  // Ask Home Assistant what the chosen thermostat looks like. A suggestion
+  // only: the answer never fills in the choice for the user.
+  useEffect(() => {
+    setHint(null);
+    if (!thermostat) return;
+    let cancelled = false;
+    getEquipmentHint(thermostat)
+      .then((h) => {
+        if (!cancelled) setHint(h);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [thermostat]);
 
   const add = async () => {
     setErr(null);
@@ -493,14 +536,17 @@ function AddZone({
         await deleteThermostat(thermostat).catch(() => {});
         throw e;
       }
-      if (buildingId) {
-        try {
-          await updateZone(thermostat, { building_id: buildingId });
-        } catch {
-          // The zone and its room exist; only the building is missing.
-          onAdded(BUILDING_NOT_SET);
-          return;
-        }
+      try {
+        await updateZone(thermostat, {
+          system_type: systemType!,
+          compressor_stages: stages,
+          backup_heat: backupHeat as BackupHeat,
+          ...(building ? { building_id: building.id } : {}),
+        });
+      } catch {
+        // The zone and its room exist; only its building and equipment are missing.
+        onAdded(ZONE_NOT_FINISHED);
+        return;
       }
       onAdded();
     } catch (e) {
@@ -513,7 +559,9 @@ function AddZone({
   return (
     <div className="card add-building" role="group" aria-label="Add Zone">
       <p className="field-help">
-        A zone is one thermostat and the rooms it serves. Every zone needs at least one room.
+        {building
+          ? `A zone in ${building.name}: one thermostat and the rooms it serves. Every zone needs at least one room.`
+          : "A zone is one thermostat and the rooms it serves. Every zone needs at least one room."}
       </p>
       <div className="add-sensor-fields">
         <div className="field-stack">
@@ -543,21 +591,6 @@ function AddZone({
           />
         </label>
         <label className="field-stack">
-          Building
-          <select
-            className="form-control"
-            value={buildingId}
-            onChange={(e) => setBuildingId(e.target.value)}
-          >
-            <option value="">Unassigned</option>
-            {buildings.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="field-stack">
           First Room
           <input
             className="form-control"
@@ -580,6 +613,78 @@ function AddZone({
         </label>
       </div>
       <p className="field-help">{VENT_COUNT_HELP}</p>
+
+      <div className="add-sensor-fields">
+        <div className="field-stack">
+          <span id="add-zone-system" className="field-label">
+            What Kind of System Is This?
+          </span>
+          <div role="radiogroup" aria-labelledby="add-zone-system" className="segmented">
+            <button
+              type="button"
+              role="radio"
+              aria-checked={systemType === "conventional"}
+              className="segmented-option"
+              title="A furnace or electric heat with a separate air conditioner"
+              onClick={() => setSystemType("conventional")}
+            >
+              Conventional
+            </button>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={systemType === "heat_pump"}
+              className="segmented-option"
+              title="One outdoor unit that both heats and cools"
+              onClick={() => setSystemType("heat_pump")}
+            >
+              Heat Pump
+            </button>
+          </div>
+        </div>
+        <label className="field-stack">
+          Compressor Stages
+          <select
+            className="form-control"
+            value={stages}
+            onChange={(e) => setStages(Number(e.target.value))}
+          >
+            <option value={1}>1 Stage</option>
+            <option value={2}>2 Stage</option>
+            <option value={3}>3 Stage</option>
+          </select>
+        </label>
+        <label className="field-stack">
+          {systemType === "heat_pump" ? "Auxiliary Heat" : "Heat"}
+          <select
+            className="form-control"
+            value={backupHeat}
+            onChange={(e) => setBackupHeat(e.target.value as BackupHeat | "")}
+          >
+            <option value="">Choose…</option>
+            {(Object.keys(BACKUP_HEAT_LABELS) as BackupHeat[]).map((k) => (
+              <option key={k} value={k}>
+                {heatLabels(systemType)[k]}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      {hint?.system_type === "heat_pump" && systemType !== "heat_pump" && (
+        <p className="field-help" role="status">
+          {LOOKS_LIKE_HEAT_PUMP[hint.auxiliary_heat ? "aux" : "plain"]}{" "}
+          <button type="button" className="link-button" onClick={() => setSystemType("heat_pump")}>
+            Yes, Heat Pump
+          </button>
+        </p>
+      )}
+      {(!systemType || !backupHeat) && (
+        <p className="field-help">
+          Choose the kind of system and its heat. HomeClimate protects a heat pump differently and
+          treats electric strips as costly to run, so it does not guess.
+        </p>
+      )}
+
       {isTaken && (
         <p className="form-error">
           That thermostat is already a zone. Use Add Room to add a room to it.
@@ -594,7 +699,14 @@ function AddZone({
           type="button"
           className="btn btn-primary"
           disabled={
-            isTaken || !thermostat || !name.trim() || !roomName.trim() || ventCount < 1 || saving
+            isTaken ||
+            !thermostat ||
+            !name.trim() ||
+            !roomName.trim() ||
+            ventCount < 1 ||
+            !systemType ||
+            !backupHeat ||
+            saving
           }
           onClick={add}
         >
@@ -612,15 +724,16 @@ function AddZone({
 export default function Zones({
   title = "My Home",
   subtitle = "Buildings, zones and rooms, and the devices in each room.",
-  extraActions,
   renderRooms,
+  onAddRoom,
   reloadKey = 0,
   onChanged,
 }: {
   title?: string;
   subtitle?: string;
-  extraActions?: ReactNode;
   renderRooms?: (thermostatEntityId: string) => ReactNode;
+  /** Opens the new-room form for one zone; each zone then gets an Add Room button. */
+  onAddRoom?: (thermostatEntityId: string) => void;
   reloadKey?: number;
   onChanged?: () => void;
 }) {
@@ -629,7 +742,8 @@ export default function Zones({
   const [configs, setConfigs] = useState<ThermostatConfig[]>([]);
   const [editing, setEditing] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
-  const [addingZone, setAddingZone] = useState(false);
+  // The group whose Add Zone form is open: a building id, or "" for Unassigned.
+  const [addingZoneIn, setAddingZoneIn] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [err, setErr] = useState<string | null>(null);
 
@@ -683,10 +797,6 @@ export default function Zones({
           <button type="button" className="btn btn-secondary" onClick={() => setAdding(true)}>
             Add Building
           </button>
-          <button type="button" className="btn btn-secondary" onClick={() => setAddingZone(true)}>
-            Add Zone
-          </button>
-          {extraActions}
         </div>
       </div>
 
@@ -712,23 +822,11 @@ export default function Zones({
         </div>
       )}
 
-      {addingZone && (
-        <AddZone
-          buildings={buildings}
-          taken={zoneList.map((z) => z.thermostat_entity_id)}
-          onCancel={() => setAddingZone(false)}
-          onAdded={(warning) => {
-            setAddingZone(false);
-            void changed().then(() => setErr(warning ?? null));
-          }}
-        />
-      )}
-
       {err && <p className="form-error">{err}</p>}
 
       {zones !== null && zones.length === 0 && buildings.length === 0 && (
         <div className="empty-panel">
-          No zones yet. Add a zone with its thermostat and first room, or set up from Home
+          Nothing here yet. Add a building, then add its zones and their rooms, or set up from Home
           Assistant.
         </div>
       )}
@@ -740,16 +838,36 @@ export default function Zones({
               building={g.building}
               onRenamed={(b) => setBuildings((all) => all.map((x) => (x.id === b.id ? b : x)))}
               onDeleted={() => void load()}
+              onAddZone={() => setAddingZoneIn(g.building!.id)}
             />
           ) : (
             <div className="group-header">
               <h2 className="group-header-title">Unassigned</h2>
               <span className="group-header-rule" />
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                aria-label="Add Zone to Unassigned"
+                onClick={() => setAddingZoneIn("")}
+              >
+                Add Zone
+              </button>
             </div>
           )}
-          {g.items.length === 0 && (
+          {addingZoneIn === (g.building?.id ?? "") && (
+            <AddZone
+              building={g.building}
+              taken={zoneList.map((z) => z.thermostat_entity_id)}
+              onCancel={() => setAddingZoneIn(null)}
+              onAdded={(warning) => {
+                setAddingZoneIn(null);
+                void changed().then(() => setErr(warning ?? null));
+              }}
+            />
+          )}
+          {g.items.length === 0 && addingZoneIn !== (g.building?.id ?? "") && (
             <div className="empty-panel">
-              No zones in this building yet. Edit a zone to move it here.
+              No zones in this building yet. Use Add Zone above, or edit a zone to move it here.
             </div>
           )}
           {g.items.map((z) => {
@@ -820,6 +938,26 @@ export default function Zones({
                       <span className="pill pill-heat" role="status">
                         Auxiliary Heat Running
                       </span>
+                    )}
+                    {z.looks_like_heat_pump && (
+                      <button
+                        type="button"
+                        className="pill pill-heat pill-button"
+                        aria-label={`${z.name || z.thermostat_entity_id} looks like a heat pump. Check its system type`}
+                        onClick={() => setEditing(z.thermostat_entity_id)}
+                      >
+                        Looks Like a Heat Pump: Check System Type
+                      </button>
+                    )}
+                    {onAddRoom && (
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        aria-label={`Add Room to ${z.name || z.thermostat_entity_id}`}
+                        onClick={() => onAddRoom(z.thermostat_entity_id)}
+                      >
+                        Add Room
+                      </button>
                     )}
                     <button
                       type="button"

@@ -47,8 +47,16 @@ import { sanitizeRoomName } from "../roomNames";
 // it renders as its own page like "Configure sensors & vents" rather than a
 // scrolling dialog that the E2E visual suite can't capture cleanly.
 // ---------------------------------------------------------------------------
+const NO_TEMP_SENSORS =
+  "No temperature sensors selected. This room cannot be controlled independently, or contribute temperature information, without them.";
+const NO_VENTS =
+  "No smart vents selected. This room cannot be controlled independently without them.";
+const NO_OCCUPANCY =
+  "No occupancy sensors selected. This room cannot use occupancy smart features without them.";
+
 function RoomSettings({
   room,
+  zoneId,
   rooms,
   thermostats,
   onCancel,
@@ -56,6 +64,8 @@ function RoomSettings({
   onDeleted,
 }: {
   room: Room | null;
+  /** For a new room: the zone whose Add Room button opened the form. */
+  zoneId?: string;
   // Every other room, so the sanitized-name uniqueness rule (#519) can be
   // reported as the user types rather than only as an API rejection.
   rooms: Room[];
@@ -78,7 +88,7 @@ function RoomSettings({
   };
   const { toDisplay, toDisplayDelta, displayBound, unitLabel } = useUnit();
   const [name, setName] = useState(room?.name ?? "");
-  const [thermostat, setThermostat] = useState(room?.thermostat_entity_id ?? "");
+  const [thermostat, setThermostat] = useState(room?.thermostat_entity_id ?? zoneId ?? "");
   const [sysTemp, setSysTemp] = useState(
     room?.system_wide_temp != null ? String(toDisplay(room.system_wide_temp)) : ""
   );
@@ -1113,6 +1123,12 @@ function RoomConfigure({
   const sensors = room.sensors?.map((s) => s.entity_id) ?? [];
   const vents = room.vents?.map((v) => v.entity_id) ?? [];
   const presence = room.presence_sensors?.map((p) => p.entity_id) ?? [];
+  const blank = sensors.length === 0 && vents.length === 0 && presence.length === 0;
+  const missing = [
+    sensors.length === 0 && NO_TEMP_SENSORS,
+    vents.length === 0 && NO_VENTS,
+    presence.length === 0 && NO_OCCUPANCY,
+  ].filter((line): line is string => line !== false);
 
   const refresh = async () => {
     const updated = await getRoom(room.id);
@@ -1213,36 +1229,24 @@ function RoomConfigure({
         </div>
       </div>
 
-      {/* Warnings */}
-      {sensors.length === 0 && (
-        <div
-          className="card"
-          style={{
-            marginBottom: "1rem",
-            borderColor: "var(--orange)",
-            background: "var(--orange-light)",
-          }}
-        >
-          <p className="text-sm" style={{ color: "var(--orange-text)" }}>
-            ⚠ No temperature sensors — this room will be skipped during HVAC cycles.
+      {/* A room with nothing in it yet is being set up, not misconfigured: say
+          what to add. Once it has been started, each kind of device it still
+          lacks gets one plain, quiet line saying what the room cannot do. */}
+      {blank ? (
+        <div className="card room-notes">
+          <p>
+            Add this room's devices below. Start with a temperature sensor. Smart vents, door and
+            window sensors and occupancy sensors are optional.
           </p>
         </div>
-      )}
-      {vents.length === 0 && (
-        <div
-          className="card"
-          style={{
-            marginBottom: "1rem",
-            borderColor: "var(--gray-200)",
-            background: "var(--gray-50)",
-          }}
-        >
-          <p className="text-sm text-muted">
-            ℹ Sensor-only room — no vents configured. This room still participates in schedules and
-            presence-based HVAC control; its target temperature contributes to the thermostat
-            setpoint. Only vent actuation is skipped.
-          </p>
-        </div>
+      ) : (
+        missing.length > 0 && (
+          <div className="card room-notes">
+            {missing.map((line) => (
+              <p key={line}>{line}</p>
+            ))}
+          </div>
+        )
       )}
 
       {busy && (
@@ -1481,6 +1485,7 @@ export default function MyHome() {
   const [settings, setSettings] = useState<{
     room: Room | null;
     returnTo: "list" | "configure";
+    zoneId?: string;
   } | null>(null);
   const [staleByRoom, setStaleByRoom] = useState<Record<string, StaleSensor[]>>({});
 
@@ -1534,10 +1539,11 @@ export default function MyHome() {
     );
 
   if (settings) {
-    const { room: editing, returnTo } = settings;
+    const { room: editing, returnTo, zoneId } = settings;
     return (
       <RoomSettings
         room={editing}
+        zoneId={zoneId}
         rooms={rooms}
         thermostats={thermostats}
         onCancel={() => setSettings(null)}
@@ -1594,14 +1600,7 @@ export default function MyHome() {
       <Zones
         reloadKey={reloadKey}
         onChanged={() => void load()}
-        extraActions={
-          <button
-            className="btn btn-primary"
-            onClick={() => setSettings({ room: null, returnTo: "list" })}
-          >
-            Add Room
-          </button>
-        }
+        onAddRoom={(zoneId) => setSettings({ room: null, returnTo: "list", zoneId })}
         renderRooms={(zoneId) => {
           const zoneRooms = rooms.filter((r) => r.thermostat_entity_id === zoneId);
           return zoneRooms.length === 0 ? (

@@ -173,12 +173,17 @@ describe("Rooms grouped by building and zone", () => {
       within(loose.closest(".building-group") as HTMLElement).getByText("Shop")
     ).toBeInTheDocument();
     expect(
-      screen.getByText("No zones in this building yet. Edit a zone to move it here.")
+      screen.getByText(
+        "No zones in this building yet. Use Add Zone above, or edit a zone to move it here."
+      )
     ).toBeInTheDocument();
-    // One page for structure: the header carries every way to add to it.
-    for (const name of ["Add Building", "Add Zone", "Add Room"]) {
-      expect(screen.getByRole("button", { name })).toBeInTheDocument();
-    }
+    // Only Add Building is at the top; zones are added inside a building and
+    // rooms inside a zone.
+    expect(screen.getByRole("button", { name: "Add Building" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add Zone" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add Room" })).toBeNull();
+    expect(within(panel).getByRole("button", { name: "Add Room to Upstairs" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /^Add Zone to / }).length).toBeGreaterThan(1);
     expect(screen.getByRole("link", { name: "Set Up from Home Assistant" })).toHaveAttribute(
       "href",
       "/import"

@@ -102,6 +102,7 @@ async def test_zones_default_and_update(client):
         "hp_aux_policy": "avoid",
         "aux_heat_running": False,
         "strips_expected": False,
+        "looks_like_heat_pump": False,
     }
 
     main = await (await client.post("/api/buildings", json={"name": "Main House"})).json()
@@ -220,3 +221,38 @@ async def test_heat_pump_guards_convert_at_the_write_boundary(client):
 async def test_unknown_zone_is_404(client):
     resp = await client.put("/api/zones/climate.nope", json={"system_type": "heat_pump"})
     assert resp.status == 404
+
+
+async def test_equipment_hint_and_the_flag_on_a_conventional_zone(client, fake_ha):
+    await _thermostat(client, T2, "South Wing")
+    await _thermostat(client, T1, "Upstairs")
+
+    # Nothing in Home Assistant says either way: no suggestion, no flag.
+    hint = await (
+        await client.get("/api/ha/equipment-hint", params={"thermostat_entity_id": T2})
+    ).json()
+    assert hint == {"system_type": None, "auxiliary_heat": False, "reason": None}
+    zones = {z["thermostat_entity_id"]: z for z in await (await client.get("/api/zones")).json()}
+    assert zones[T2]["looks_like_heat_pump"] is False
+
+    # The ecobee integration's switch for a thermostat with auxiliary heat.
+    fake_ha.seed_state("switch.wing_aux_heat_only", "off", {})
+    hint = await (
+        await client.get("/api/ha/equipment-hint", params={"thermostat_entity_id": T2})
+    ).json()
+    assert hint == {"system_type": "heat_pump", "auxiliary_heat": True, "reason": "aux_switch"}
+    zones = {z["thermostat_entity_id"]: z for z in await (await client.get("/api/zones")).json()}
+    assert zones[T2]["looks_like_heat_pump"] is True
+    assert zones[T1]["looks_like_heat_pump"] is False
+
+    # Once the zone is set as a heat pump there is nothing left to point out.
+    resp = await client.put(f"/api/zones/{T2}", json={"system_type": "heat_pump"})
+    assert resp.status == 200
+    zones = {z["thermostat_entity_id"]: z for z in await (await client.get("/api/zones")).json()}
+    assert zones[T2]["looks_like_heat_pump"] is False
+
+
+async def test_equipment_hint_needs_a_climate_entity(client):
+    for bad in ({}, {"thermostat_entity_id": "sensor.outdoor"}, {"thermostat_entity_id": "  "}):
+        resp = await client.get("/api/ha/equipment-hint", params=bad)
+        assert resp.status == 400

@@ -704,6 +704,14 @@ class BuildingWriteSchema(Schema):
     sort_order = fields.Int()
 
 
+class EquipmentHintSchema(Schema):
+    # "heat_pump", or null when Home Assistant shows no sign either way.
+    system_type = fields.Str(allow_none=True)
+    auxiliary_heat = fields.Bool()
+    # "aux_switch" or "equipment_running": what the suggestion rests on.
+    reason = fields.Str(allow_none=True)
+
+
 class ZoneProfileSchema(Schema):
     thermostat_entity_id = fields.Str()
     name = fields.Str()
@@ -731,6 +739,12 @@ class ZoneProfileSchema(Schema):
     )
     strips_expected = fields.Bool(
         metadata={"description": "Outdoors is below the compressor lockout (zone list only)"}
+    )
+    looks_like_heat_pump = fields.Bool(
+        metadata={
+            "description": "The zone is set as conventional but its thermostat shows the signs "
+            "of a heat pump in Home Assistant"
+        }
     )
     hp_compressor_lockout_f = fields.Float(
         allow_none=True, metadata={"description": "Planning only (absolute, °F stored)"}
@@ -779,6 +793,9 @@ class ImportRequestSchema(Schema):
 
 class ImportResultSchema(Schema):
     zones_added = fields.Int()
+    heat_pumps_found = fields.Int(
+        metadata={"description": "New zones set up as heat pumps from Home Assistant's entities"}
+    )
     buildings_added = fields.Int()
     rooms_added = fields.Int()
     rooms_updated = fields.Int()

@@ -32,11 +32,28 @@ export interface ZoneProfile {
   aux_heat_running?: boolean;
   /** True while outdoors is below the heat pump's compressor lockout. */
   strips_expected?: boolean;
+  /** Set as conventional, but its thermostat shows the signs of a heat pump. */
+  looks_like_heat_pump?: boolean;
+}
+
+/** What a thermostat looks like from Home Assistant's entities; a suggestion only. */
+export interface EquipmentHint {
+  /** "heat_pump", or null when nothing shows either way. */
+  system_type: SystemType | null;
+  auxiliary_heat: boolean;
+  reason: "aux_switch" | "equipment_running" | null;
 }
 
 /** Writes carry temperatures in the DISPLAY unit; the backend converts (#231). */
 export type ZoneProfileUpdate = Partial<
-  Omit<ZoneProfile, "thermostat_entity_id" | "name" | "aux_heat_running" | "strips_expected">
+  Omit<
+    ZoneProfile,
+    | "thermostat_entity_id"
+    | "name"
+    | "aux_heat_running"
+    | "strips_expected"
+    | "looks_like_heat_pump"
+  >
 >;
 
 export const getBuildings = () => api<Building[]>("/api/buildings");
@@ -51,6 +68,9 @@ export const getZones = () => api<ZoneProfile[]>("/api/zones");
 export const updateZone = (entityId: string, data: ZoneProfileUpdate) =>
   api<ZoneProfile>(`/api/zones/${entityId}`, { method: "PUT", body: JSON.stringify(data) });
 
+export const getEquipmentHint = (entityId: string) =>
+  api<EquipmentHint>(`/api/ha/equipment-hint?thermostat_entity_id=${encodeURIComponent(entityId)}`);
+
 export const SYSTEM_TYPE_LABELS: Record<SystemType, string> = {
   conventional: "Conventional",
   heat_pump: "Heat Pump",
@@ -62,11 +82,27 @@ export const BACKUP_HEAT_LABELS: Record<BackupHeat, string> = {
   none: "None",
 };
 
+/** The same three choices, named for a system with no heat pump: there the
+ *  setting is the heat itself, not a backup. */
+export const CONVENTIONAL_HEAT_LABELS: Record<BackupHeat, string> = {
+  electric: "Electric Strips",
+  gas: "Gas Furnace",
+  none: "None",
+};
+
+/** What the heat choice is called for this kind of system. */
+export const heatLabels = (system: SystemType | null) =>
+  system === "heat_pump" ? BACKUP_HEAT_LABELS : CONVENTIONAL_HEAT_LABELS;
+
 /** "Heat Pump, 2 Stage, Electric Strips" — the one-line equipment summary. */
 export function equipmentSummary(z: ZoneProfile): string {
   const parts = [SYSTEM_TYPE_LABELS[z.system_type]];
   if (z.compressor_stages > 1) parts.push(`${z.compressor_stages} Stage`);
-  parts.push(z.backup_heat === "none" ? "No Auxiliary Heat" : BACKUP_HEAT_LABELS[z.backup_heat]);
+  if (z.system_type === "heat_pump") {
+    parts.push(z.backup_heat === "none" ? "No Auxiliary Heat" : BACKUP_HEAT_LABELS[z.backup_heat]);
+  } else {
+    parts.push(z.backup_heat === "none" ? "No Heat" : CONVENTIONAL_HEAT_LABELS[z.backup_heat]);
+  }
   return parts.join(", ");
 }
 
@@ -147,6 +183,8 @@ export interface ImportRequest {
 
 export interface ImportResult {
   zones_added: number;
+  /** New zones set up as heat pumps because Home Assistant shows the signs. */
+  heat_pumps_found: number;
   buildings_added: number;
   rooms_added: number;
   rooms_updated: number;

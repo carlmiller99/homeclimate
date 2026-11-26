@@ -230,11 +230,12 @@ Once the UI is open, follow these steps in order:
 
 ### 1. Add your zones
 
-A zone is one thermostat and the rooms it serves. Go to **My Home → Add Zone** (or use **Set Up from Home Assistant** to build everything from your HA areas).
+A zone is one thermostat and the rooms it serves. Go to **My Home**, add a building with **Add Building**, then use the **Add Zone** button inside it (or use **Set Up from Home Assistant** to build everything from your HA areas).
 
 - Pick the HA climate entity for the zone's thermostat
 - Give the zone a name (e.g. "Upstairs", "Downstairs")
 - Name its first room, and enter the total vent count on that thermostat
+- Say what kind of system it is: conventional or heat pump (HomeClimate suggests heat pump when Home Assistant shows the signs of one, and never assumes)
 
 Then open **Edit Zone** to tune its Thermostat Settings:
 
@@ -243,7 +244,7 @@ Then open **Edit Zone** to tune its Thermostat Settings:
 
 ### 2. Create rooms
 
-Go to **My Home → Add Room**
+Go to **My Home** and use the **Add Room** button inside the zone the room belongs to
 
 - Give the room a name
 - Select the zone it belongs to

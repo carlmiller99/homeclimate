@@ -11,6 +11,7 @@ import {
   groupByBuilding,
   updateBuilding,
   updateZone,
+  getEquipmentHint,
   type ZoneProfile,
 } from "./zonesApi";
 
@@ -20,6 +21,15 @@ const ok = (body: unknown) =>
 afterEach(() => vi.unstubAllGlobals());
 
 describe("zonesApi requests", () => {
+  it("asks what a thermostat looks like, with the entity id escaped", async () => {
+    const fetchMock = ok({ system_type: null, auxiliary_heat: false, reason: null });
+    vi.stubGlobal("fetch", fetchMock);
+    await getEquipmentHint("climate.south wing");
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      "/api/ha/equipment-hint?thermostat_entity_id=climate.south%20wing"
+    );
+  });
+
   it("calls the buildings and zones endpoints", async () => {
     const fetchMock = ok([]);
     vi.stubGlobal("fetch", fetchMock);
@@ -65,7 +75,12 @@ const base: ZoneProfile = {
 
 describe("equipmentSummary", () => {
   it("names type, stages and backup heat", () => {
-    expect(equipmentSummary(base)).toBe("Conventional, Gas (Dual Fuel)");
+    // A conventional system's heat is named for what it is, not as a backup.
+    expect(equipmentSummary(base)).toBe("Conventional, Gas Furnace");
+    expect(equipmentSummary({ ...base, backup_heat: "none" })).toBe("Conventional, No Heat");
+    expect(equipmentSummary({ ...base, system_type: "heat_pump" })).toBe(
+      "Heat Pump, Gas (Dual Fuel)"
+    );
     expect(
       equipmentSummary({
         ...base,

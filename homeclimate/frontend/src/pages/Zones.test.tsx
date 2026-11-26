@@ -17,6 +17,7 @@ vi.mock("../zonesApi", async (orig) => {
     updateBuilding: vi.fn(),
     deleteBuilding: vi.fn(),
     updateZone: vi.fn(),
+    getEquipmentHint: vi.fn(),
   };
 });
 
@@ -89,7 +90,18 @@ beforeEach(() => {
   vi.mocked(zonesApi.getZones).mockResolvedValue([WING, LOOSE]);
   vi.mocked(zonesApi.getBuildings).mockResolvedValue([MAIN, DEN]);
   vi.mocked(api.getThermostats).mockResolvedValue([]);
+  vi.mocked(zonesApi.getEquipmentHint).mockResolvedValue({
+    system_type: null,
+    auxiliary_heat: false,
+    reason: null,
+  });
 });
+
+/** Open the Add Zone form inside one building (or the Unassigned group). */
+function openAddZone(group: string) {
+  fireEvent.click(screen.getByRole("button", { name: `Add Zone to ${group}` }));
+  return screen.getByRole("group", { name: "Add Zone" });
+}
 
 describe("Zones page", () => {
   it("groups zones by building with an Unassigned group and empty buildings", async () => {
@@ -107,7 +119,10 @@ describe("Zones page", () => {
     vi.mocked(zonesApi.getZones).mockResolvedValue([]);
     vi.mocked(zonesApi.getBuildings).mockResolvedValue([]);
     renderPage();
-    expect(await screen.findByText(/No zones yet/)).toBeInTheDocument();
+    expect(await screen.findByText(/Nothing here yet. Add a building/)).toBeInTheDocument();
+    // With no building there is nowhere to add a zone: Add Building is the only way in.
+    expect(screen.queryByRole("button", { name: /Add Zone/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "Add Building" })).toBeInTheDocument();
   });
 
   it("reports a load failure", async () => {
@@ -347,7 +362,7 @@ describe("Zones page", () => {
     expect(screen.queryByRole("region", { name: "Edit climate.loose" })).toBeNull();
   });
 
-  it("adds a zone with its thermostat, building and first room", async () => {
+  it("adds a zone inside a building, asking what kind of system it is", async () => {
     vi.mocked(api.createThermostat).mockResolvedValue({} as api.ThermostatConfig);
     vi.mocked(api.createRoom).mockResolvedValue({} as api.Room);
     vi.mocked(zonesApi.updateZone).mockResolvedValue(WING);
@@ -358,8 +373,14 @@ describe("Zones page", () => {
       </MemoryRouter>
     );
     await screen.findByText("South Wing");
-    fireEvent.click(screen.getByRole("button", { name: "Add Zone" }));
-    const form = screen.getByRole("group", { name: "Add Zone" });
+    // One Add Zone per building, none at the top of the page.
+    expect(screen.queryByRole("button", { name: "Add Zone" })).toBeNull();
+    const form = openAddZone("The Den");
+    // The empty building's placeholder gives way to the form.
+    expect(screen.queryByText(/No zones in this building yet/)).toBeNull();
+    expect(within(form).getByText(/A zone in The Den:/)).toBeInTheDocument();
+    // The building is where the button was pressed; the form does not ask again.
+    expect(within(form).queryByLabelText("Building")).toBeNull();
     const submit = within(form).getByRole("button", { name: "Add Zone" });
     expect(submit).toBeDisabled();
 
@@ -370,7 +391,6 @@ describe("Zones page", () => {
     fireEvent.change(within(form).getByLabelText("Zone Name"), { target: { value: " Shop " } });
     expect(submit).toBeDisabled();
     fireEvent.change(within(form).getByLabelText("First Room"), { target: { value: "Bay" } });
-    fireEvent.change(within(form).getByLabelText("Building"), { target: { value: "b2" } });
     // The vent count is required, and must be a whole number of at least one.
     expect(submit).toBeDisabled();
     for (const bad of ["0", "2.5", "-3", "abc"]) {
@@ -381,6 +401,20 @@ describe("Zones page", () => {
     expect(
       within(form).getByText(/Count every register this thermostat serves/)
     ).toBeInTheDocument();
+
+    // Everything else is filled in, but the kind of system is never assumed.
+    expect(submit).toBeDisabled();
+    expect(within(form).getByText(/Choose the kind of system/)).toBeInTheDocument();
+    expect(within(form).queryByRole("status")).toBeNull();
+    fireEvent.click(within(form).getByRole("radio", { name: "Conventional" }));
+    // Its heat is asked for too: electric strips is not a safe guess.
+    expect(submit).toBeDisabled();
+    expect(within(form).getByText(/Choose the kind of system and its heat/)).toBeInTheDocument();
+    expect(within(form).getByLabelText("Heat")).toHaveValue("");
+    // A conventional system's heat is named for what it is.
+    expect(within(form).getByRole("option", { name: "Gas Furnace" })).toBeInTheDocument();
+    fireEvent.change(within(form).getByLabelText("Heat"), { target: { value: "gas" } });
+    expect(within(form).queryByText(/Choose the kind of system/)).toBeNull();
     fireEvent.click(submit);
 
     await waitFor(() =>
@@ -398,6 +432,9 @@ describe("Zones page", () => {
     );
     await waitFor(() =>
       expect(zonesApi.updateZone).toHaveBeenCalledWith("climate.wing_cloud", {
+        system_type: "conventional",
+        compressor_stages: 1,
+        backup_heat: "gas",
         building_id: "b2",
       })
     );
@@ -405,40 +442,132 @@ describe("Zones page", () => {
     expect(screen.queryByRole("group", { name: "Add Zone" })).toBeNull();
   });
 
+  it("suggests a heat pump when Home Assistant shows the signs of one", async () => {
+    vi.mocked(api.createThermostat).mockResolvedValue({} as api.ThermostatConfig);
+    vi.mocked(api.createRoom).mockResolvedValue({} as api.Room);
+    vi.mocked(zonesApi.updateZone).mockResolvedValue(WING);
+    vi.mocked(zonesApi.getEquipmentHint).mockResolvedValue({
+      system_type: "heat_pump",
+      auxiliary_heat: true,
+      reason: "aux_switch",
+    });
+    renderPage();
+    await screen.findByText("South Wing");
+    const form = openAddZone("Main House");
+    fireEvent.click(within(form).getByRole("button", { name: "pick Search thermostats…" }));
+    expect(zonesApi.getEquipmentHint).toHaveBeenCalledWith("climate.wing_cloud");
+    const hint = await within(form).findByRole("status");
+    expect(hint).toHaveTextContent(
+      "This looks like a heat pump with auxiliary heat. Is that right?"
+    );
+    // A suggestion, not a choice: nothing is selected for the user.
+    expect(within(form).getByRole("radio", { name: "Heat Pump" })).not.toBeChecked();
+    // Saying it is conventional keeps the suggestion in view.
+    fireEvent.click(within(form).getByRole("radio", { name: "Conventional" }));
+    expect(within(form).getByRole("status")).toBeInTheDocument();
+    fireEvent.click(within(form).getByRole("button", { name: "Yes, Heat Pump" }));
+    expect(within(form).getByRole("radio", { name: "Heat Pump" })).toBeChecked();
+    expect(within(form).queryByRole("status")).toBeNull();
+
+    fireEvent.change(within(form).getByLabelText("Zone Name"), { target: { value: "Wing" } });
+    fireEvent.change(within(form).getByLabelText("First Room"), { target: { value: "Suite" } });
+    fireEvent.change(within(form).getByLabelText("Total Vent Count"), { target: { value: "9" } });
+    fireEvent.change(within(form).getByLabelText("Compressor Stages"), { target: { value: "2" } });
+    expect(within(form).getByRole("option", { name: "Gas (Dual Fuel)" })).toBeInTheDocument();
+    fireEvent.change(within(form).getByLabelText("Auxiliary Heat"), {
+      target: { value: "electric" },
+    });
+    fireEvent.click(within(form).getByRole("button", { name: "Add Zone" }));
+    await waitFor(() =>
+      expect(zonesApi.updateZone).toHaveBeenCalledWith("climate.wing_cloud", {
+        system_type: "heat_pump",
+        compressor_stages: 2,
+        backup_heat: "electric",
+        building_id: "b1",
+      })
+    );
+  });
+
+  it("words the suggestion without auxiliary heat, and survives a hint that cannot be read", async () => {
+    vi.mocked(zonesApi.getEquipmentHint).mockResolvedValueOnce({
+      system_type: "heat_pump",
+      auxiliary_heat: false,
+      reason: "equipment_running",
+    });
+    renderPage();
+    await screen.findByText("South Wing");
+    const form = openAddZone("Main House");
+    fireEvent.click(within(form).getByRole("button", { name: "pick Search thermostats…" }));
+    expect(await within(form).findByRole("status")).toHaveTextContent(
+      "This looks like a heat pump. Is that right?"
+    );
+    // Picking again while the first answer is gone leaves no stale suggestion.
+    vi.mocked(zonesApi.getEquipmentHint).mockRejectedValueOnce(new Error("offline"));
+    fireEvent.click(within(form).getByRole("button", { name: "Change" }));
+    expect(within(form).queryByRole("status")).toBeNull();
+    fireEvent.click(within(form).getByRole("button", { name: "pick Search thermostats…" }));
+    await waitFor(() => expect(zonesApi.getEquipmentHint).toHaveBeenCalledTimes(2));
+    expect(within(form).queryByRole("status")).toBeNull();
+  });
+
+  it("flags a conventional zone whose thermostat looks like a heat pump", async () => {
+    vi.mocked(zonesApi.getZones).mockResolvedValue([
+      { ...WING, looks_like_heat_pump: true },
+      LOOSE,
+    ]);
+    renderPage();
+    const wing = await screen.findByRole("region", { name: "South Wing" });
+    const loose = screen.getByRole("region", { name: "climate.loose" });
+    expect(within(loose).queryByText(/Looks Like a Heat Pump/)).toBeNull();
+    // The mark is the way in to fixing it.
+    fireEvent.click(
+      within(wing).getByRole("button", {
+        name: "South Wing looks like a heat pump. Check its system type",
+      })
+    );
+    expect(screen.getByRole("region", { name: "Edit South Wing" })).toBeInTheDocument();
+  });
+
   it("undoes a new zone whose first room is rejected, and reports failures", async () => {
     vi.mocked(api.createThermostat).mockResolvedValue({} as api.ThermostatConfig);
     vi.mocked(api.createRoom).mockRejectedValueOnce(new Error("A room with that name exists"));
     vi.mocked(api.deleteThermostat).mockRejectedValueOnce(new Error("gone"));
+    vi.mocked(zonesApi.updateZone).mockResolvedValue(LOOSE);
     renderPage();
     await screen.findByText("South Wing");
-    fireEvent.click(screen.getByRole("button", { name: "Add Zone" }));
-    const form = screen.getByRole("group", { name: "Add Zone" });
+    const form = openAddZone("Unassigned");
+    expect(within(form).getByText(/^A zone is one thermostat/)).toBeInTheDocument();
     fireEvent.click(within(form).getByRole("button", { name: "pick Search thermostats…" }));
     fireEvent.change(within(form).getByLabelText("Zone Name"), { target: { value: "Shop" } });
     fireEvent.change(within(form).getByLabelText("First Room"), { target: { value: "Bay" } });
     fireEvent.change(within(form).getByLabelText("Total Vent Count"), { target: { value: "6" } });
+    fireEvent.click(within(form).getByRole("radio", { name: "Conventional" }));
+    fireEvent.change(within(form).getByLabelText("Heat"), { target: { value: "electric" } });
     fireEvent.click(within(form).getByRole("button", { name: "Add Zone" }));
     expect(await within(form).findByText("A room with that name exists")).toBeInTheDocument();
     // The zone is removed again; a failure of that cleanup is not shown.
     expect(api.deleteThermostat).toHaveBeenCalledWith("climate.wing_cloud");
-    // No building chosen, so the zone is never assigned to one.
+    // Nothing more is written for a zone that was undone.
     expect(zonesApi.updateZone).not.toHaveBeenCalled();
 
     vi.mocked(api.createThermostat).mockRejectedValueOnce("nope");
     fireEvent.click(within(form).getByRole("button", { name: "Add Zone" }));
     expect(await within(form).findByText("Could not add the zone")).toBeInTheDocument();
 
-    // With no building chosen the zone is added unassigned.
+    // In the Unassigned group the zone is added with no building.
     fireEvent.click(within(form).getByRole("button", { name: "Add Zone" }));
     await waitFor(() => expect(screen.queryByRole("group", { name: "Add Zone" })).toBeNull());
-    expect(zonesApi.updateZone).not.toHaveBeenCalled();
+    expect(zonesApi.updateZone).toHaveBeenCalledWith("climate.wing_cloud", {
+      system_type: "conventional",
+      compressor_stages: 1,
+      backup_heat: "electric",
+    });
   });
 
   it("cancels adding a zone", async () => {
     renderPage();
     await screen.findByText("South Wing");
-    fireEvent.click(screen.getByRole("button", { name: "Add Zone" }));
-    const form = screen.getByRole("group", { name: "Add Zone" });
+    const form = openAddZone("Main House");
 
     fireEvent.click(within(form).getByRole("button", { name: "Cancel" }));
     expect(screen.queryByRole("group", { name: "Add Zone" })).toBeNull();
@@ -487,13 +616,14 @@ describe("Zones page", () => {
     expect(screen.queryByRole("heading", { name: "Thermostat Settings" })).toBeNull();
   });
 
-  it("renders each zone's rooms, extra actions, a custom title, and reloads on demand", async () => {
+  it("renders each zone's rooms, its Add Room button, a custom title, and reloads on demand", async () => {
+    const onAddRoom = vi.fn();
     const view = render(
       <MemoryRouter>
         <Zones
           title="Structure"
           subtitle="Everything in the house."
-          extraActions={<button type="button">Add Room</button>}
+          onAddRoom={onAddRoom}
           renderRooms={(id) => <p>rooms of {id}</p>}
           reloadKey={0}
         />
@@ -503,7 +633,11 @@ describe("Zones page", () => {
     expect(screen.getByText("rooms of climate.loose")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Structure" })).toBeInTheDocument();
     expect(screen.getByText("Everything in the house.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Add Room" })).toBeInTheDocument();
+    // Add Room lives in each zone, and says which zone the room is for.
+    fireEvent.click(screen.getByRole("button", { name: "Add Room to South Wing" }));
+    expect(onAddRoom).toHaveBeenCalledWith("climate.wing");
+    fireEvent.click(screen.getByRole("button", { name: "Add Room to climate.loose" }));
+    expect(onAddRoom).toHaveBeenLastCalledWith("climate.loose");
     expect(screen.getByRole("region", { name: "South Wing" })).toBeInTheDocument();
 
     view.rerender(
@@ -513,6 +647,8 @@ describe("Zones page", () => {
     );
     await waitFor(() => expect(zonesApi.getZones).toHaveBeenCalledTimes(2));
     expect(screen.getByRole("heading", { name: "My Home" })).toBeInTheDocument();
+    // Without a room form to open there is no Add Room button.
+    expect(screen.queryByRole("button", { name: /Add Room/ })).toBeNull();
   });
 
   it("will not add a thermostat that is already a zone", async () => {
@@ -521,12 +657,12 @@ describe("Zones page", () => {
     ]);
     renderPage();
     await screen.findByText("Cloud Wing");
-    fireEvent.click(screen.getByRole("button", { name: "Add Zone" }));
-    const form = screen.getByRole("group", { name: "Add Zone" });
+    const form = openAddZone("Main House");
     fireEvent.click(within(form).getByRole("button", { name: "pick Search thermostats…" }));
     fireEvent.change(within(form).getByLabelText("Zone Name"), { target: { value: "Again" } });
     fireEvent.change(within(form).getByLabelText("First Room"), { target: { value: "Bay" } });
     fireEvent.change(within(form).getByLabelText("Total Vent Count"), { target: { value: "4" } });
+    fireEvent.click(within(form).getByRole("radio", { name: "Conventional" }));
     expect(
       within(form).getByText("That thermostat is already a zone. Use Add Room to add a room to it.")
     ).toBeInTheDocument();
@@ -534,7 +670,7 @@ describe("Zones page", () => {
     expect(api.createThermostat).not.toHaveBeenCalled();
   });
 
-  it("keeps a new zone whose building could not be set, and says so", async () => {
+  it("keeps a new zone whose building and system could not be saved, and says so", async () => {
     vi.mocked(api.createThermostat).mockResolvedValue({} as api.ThermostatConfig);
     vi.mocked(api.createRoom).mockResolvedValue({} as api.Room);
     vi.mocked(zonesApi.updateZone).mockRejectedValueOnce(new Error("no such building"));
@@ -545,18 +681,18 @@ describe("Zones page", () => {
       </MemoryRouter>
     );
     await screen.findByText("South Wing");
-    fireEvent.click(screen.getByRole("button", { name: "Add Zone" }));
-    const form = screen.getByRole("group", { name: "Add Zone" });
+    const form = openAddZone("The Den");
     fireEvent.click(within(form).getByRole("button", { name: "pick Search thermostats…" }));
     fireEvent.change(within(form).getByLabelText("Zone Name"), { target: { value: "Shop" } });
     fireEvent.change(within(form).getByLabelText("First Room"), { target: { value: "Bay" } });
     fireEvent.change(within(form).getByLabelText("Total Vent Count"), { target: { value: "4" } });
-    fireEvent.change(within(form).getByLabelText("Building"), { target: { value: "b2" } });
+    fireEvent.click(within(form).getByRole("radio", { name: "Heat Pump" }));
+    fireEvent.change(within(form).getByLabelText("Auxiliary Heat"), { target: { value: "none" } });
     fireEvent.click(within(form).getByRole("button", { name: "Add Zone" }));
 
     expect(
       await screen.findByText(
-        "The zone was added, but could not be put in its building. Edit the zone to try again."
+        "The zone was added, but its building and kind of system could not be saved. Edit the zone to set them."
       )
     ).toBeInTheDocument();
     // The form closed and the list was reloaded; nothing was rolled back.
