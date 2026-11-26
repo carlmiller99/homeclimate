@@ -16,7 +16,93 @@ class TestOutsideTempEntityEndpoint:
         resp = await client.get("/api/settings/outside-temp-entity")
         assert resp.status == 200
         body = await resp.json()
-        assert body == {"entity_id": None, "current_value": None}
+        assert body == {
+            "entity_id": None,
+            "entity_ids": [],
+            "current_value": None,
+            "values": {},
+        }
+
+    @pytest.mark.asyncio
+    async def test_several_sensors_are_averaged(self, client, fake_ha):
+        # 20 °C is 68 °F; with a 72 °F sensor the house reads 70 °F.
+        fake_ha.seed_state("sensor.north_c", "20", {"unit_of_measurement": "°C"})
+        fake_ha.seed_state("sensor.south_f", "72", {"unit_of_measurement": "°F"})
+        resp = await client.put(
+            "/api/settings/outside-temp-entity",
+            json={"entity_ids": ["sensor.north_c", " sensor.south_f ", "sensor.north_c"]},
+        )
+        assert resp.status == 200
+        body = await resp.json()
+        assert body["entity_ids"] == ["sensor.north_c", "sensor.south_f"]
+        assert body["entity_id"] == "sensor.north_c"
+        assert body["current_value"] == pytest.approx(70.0)
+        assert body["values"] == {
+            "sensor.north_c": pytest.approx(68.0),
+            "sensor.south_f": pytest.approx(72.0),
+        }
+        again = await (await client.get("/api/settings/outside-temp-entity")).json()
+        assert again == body
+
+    @pytest.mark.asyncio
+    async def test_a_sensor_that_stops_answering_is_left_out(self, client, fake_ha):
+        fake_ha.seed_state("sensor.a", "60", {"unit_of_measurement": "°F"})
+        fake_ha.seed_state("sensor.b", "70", {"unit_of_measurement": "°F"})
+        resp = await client.put(
+            "/api/settings/outside-temp-entity", json={"entity_ids": ["sensor.a", "sensor.b"]}
+        )
+        assert resp.status == 200
+        fake_ha.seed_state("sensor.b", "unavailable", {})
+        body = await (await client.get("/api/settings/outside-temp-entity")).json()
+        assert body["current_value"] == pytest.approx(60.0)
+        assert body["values"] == {"sensor.a": pytest.approx(60.0), "sensor.b": None}
+
+    @pytest.mark.asyncio
+    async def test_put_rejects_one_bad_sensor_and_stores_none_of_them(self, client, fake_ha):
+        fake_ha.seed_state("sensor.a", "60", {"unit_of_measurement": "°F"})
+        fake_ha.seed_state("sensor.words", "sunny", {})
+        for bad in ("sensor.missing", "sensor.words"):
+            resp = await client.put(
+                "/api/settings/outside-temp-entity", json={"entity_ids": ["sensor.a", bad]}
+            )
+            assert resp.status == 400
+            assert bad in (await resp.json())["error"]
+        body = await (await client.get("/api/settings/outside-temp-entity")).json()
+        assert body["entity_ids"] == []
+
+    @pytest.mark.asyncio
+    async def test_put_rejects_a_malformed_list_or_too_many(self, client, fake_ha):
+        for bad in ("sensor.a", ["sensor.a", 3], None):
+            resp = await client.put("/api/settings/outside-temp-entity", json={"entity_ids": bad})
+            assert resp.status == 400
+        resp = await client.put("/api/settings/outside-temp-entity", json=["sensor.a"])
+        assert resp.status == 400
+        many = [f"sensor.s{i}" for i in range(9)]
+        for entity_id in many:
+            fake_ha.seed_state(entity_id, "60", {"unit_of_measurement": "°F"})
+        resp = await client.put("/api/settings/outside-temp-entity", json={"entity_ids": many})
+        assert resp.status == 400
+        assert "at most 8" in (await resp.json())["error"]
+
+    @pytest.mark.asyncio
+    async def test_the_engine_and_recorder_read_the_same_average(self, client, fake_ha):
+        from backend import db, outside
+
+        conn = await client.app["scheduler"].get_db()
+        await outside.store(conn, ["sensor.a", " sensor.b", "sensor.a"])
+        assert await db.get_system_setting(conn, outside.SETTING, "") == "sensor.a,sensor.b"
+        assert await outside.read(conn, fake_ha) is None
+        fake_ha.seed_state("sensor.a", "50", {"unit_of_measurement": "°F"})
+        fake_ha.seed_state("sensor.b", "54", {"unit_of_measurement": "°F"})
+        assert await outside.read(conn, fake_ha) == pytest.approx(52.0)
+
+    @pytest.mark.asyncio
+    async def test_an_empty_list_clears_the_setting(self, client, fake_ha):
+        fake_ha.seed_state("sensor.a", "60", {"unit_of_measurement": "°F"})
+        await client.put("/api/settings/outside-temp-entity", json={"entity_ids": ["sensor.a"]})
+        resp = await client.put("/api/settings/outside-temp-entity", json={"entity_ids": []})
+        assert resp.status == 200
+        assert (await resp.json())["entity_ids"] == []
 
     @pytest.mark.asyncio
     async def test_put_rejects_unknown_entity(self, client):
@@ -64,7 +150,12 @@ class TestOutsideTempEntityEndpoint:
             json={"entity_id": None},
         )
         assert resp.status == 200
-        assert (await resp.json()) == {"entity_id": None, "current_value": None}
+        assert (await resp.json()) == {
+            "entity_id": None,
+            "entity_ids": [],
+            "current_value": None,
+            "values": {},
+        }
 
     @pytest.mark.asyncio
     async def test_put_clears_with_empty_string(self, client, fake_ha):
@@ -78,7 +169,12 @@ class TestOutsideTempEntityEndpoint:
             json={"entity_id": ""},
         )
         assert resp.status == 200
-        assert (await resp.json()) == {"entity_id": None, "current_value": None}
+        assert (await resp.json()) == {
+            "entity_id": None,
+            "entity_ids": [],
+            "current_value": None,
+            "values": {},
+        }
 
     @pytest.mark.asyncio
     async def test_put_requires_entity_id_field(self, client):

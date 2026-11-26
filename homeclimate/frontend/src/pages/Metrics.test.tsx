@@ -108,10 +108,6 @@ describe("Metrics Page", () => {
     vi.mocked(api.getHAEntities).mockResolvedValue([
       { entity_id: "sensor.outside_temp", friendly_name: "Outside Temp", state: "42" },
     ]);
-    vi.mocked(api.setOutsideTempEntity).mockResolvedValue({
-      entity_id: "sensor.outside_temp",
-      current_value: 42,
-    });
 
     // Default mocks for charts to prevent "then" of undefined
     vi.mocked(api.getMetricsTimeseries).mockResolvedValue({

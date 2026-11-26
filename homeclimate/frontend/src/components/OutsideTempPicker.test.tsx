@@ -51,7 +51,7 @@ describe("OutsideTempPicker", () => {
     });
     renderPicker();
     expect(await screen.findByText(/None configured/)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Clear" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Remove/ })).not.toBeInTheDocument();
   });
 
   it("saves a selection made through the entity picker", async () => {
@@ -59,7 +59,7 @@ describe("OutsideTempPicker", () => {
       entity_id: null,
       current_value: null,
     });
-    vi.mocked(api.setOutsideTempEntity).mockResolvedValue({
+    vi.mocked(api.setOutsideTempEntities).mockResolvedValue({
       entity_id: "sensor.outdoor",
       current_value: 41,
     });
@@ -70,25 +70,27 @@ describe("OutsideTempPicker", () => {
     fireEvent.focus(screen.getByRole("textbox"));
     fireEvent.mouseDown(await screen.findByText("Outdoor Sensor"));
 
-    await waitFor(() => expect(api.setOutsideTempEntity).toHaveBeenCalledWith("sensor.outdoor"));
+    await waitFor(() =>
+      expect(api.setOutsideTempEntities).toHaveBeenCalledWith(["sensor.outdoor"])
+    );
     expect(await screen.findByText(/sensor\.outdoor/)).toBeInTheDocument();
     expect(onChange).toHaveBeenLastCalledWith("sensor.outdoor");
   });
 
-  it("clears the configured entity via the Clear button", async () => {
+  it("removes the configured sensor via its Remove button", async () => {
     vi.mocked(api.getOutsideTempEntity).mockResolvedValue({
       entity_id: "sensor.outdoor",
       current_value: 50,
     });
-    vi.mocked(api.setOutsideTempEntity).mockResolvedValue({
+    vi.mocked(api.setOutsideTempEntities).mockResolvedValue({
       entity_id: null,
       current_value: null,
     });
     const onChange = vi.fn();
     renderPicker("F", onChange);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Clear" }));
-    await waitFor(() => expect(api.setOutsideTempEntity).toHaveBeenCalledWith(null));
+    fireEvent.click(await screen.findByRole("button", { name: "Remove sensor.outdoor" }));
+    await waitFor(() => expect(api.setOutsideTempEntities).toHaveBeenCalledWith([]));
     expect(await screen.findByText(/None configured/)).toBeInTheDocument();
     expect(onChange).toHaveBeenLastCalledWith(null);
   });
@@ -104,28 +106,159 @@ describe("OutsideTempPicker", () => {
       entity_id: "sensor.outdoor",
       current_value: 50,
     });
-    vi.mocked(api.setOutsideTempEntity).mockRejectedValue(new Error("save exploded"));
+    vi.mocked(api.setOutsideTempEntities).mockRejectedValue(new Error("save exploded"));
     renderPicker();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Clear" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Remove sensor.outdoor" }));
     expect(await screen.findByText("save exploded")).toBeInTheDocument();
     expect(screen.getByText(/sensor\.outdoor/)).toBeInTheDocument();
   });
 
-  it("recovers from a load error once a save succeeds (#497)", async () => {
-    vi.mocked(api.getOutsideTempEntity).mockRejectedValue(new Error("boom on load"));
-    vi.mocked(api.setOutsideTempEntity).mockResolvedValue({
-      entity_id: "sensor.outdoor",
+  it("after a failed load, waits for Try Again before it will add a sensor (#497)", async () => {
+    vi.mocked(api.getOutsideTempEntity).mockRejectedValueOnce(new Error("boom on load"));
+    vi.mocked(api.setOutsideTempEntities).mockResolvedValue({
+      entity_id: "sensor.north",
+      entity_ids: ["sensor.north", "sensor.outdoor"],
       current_value: 94,
+      values: { "sensor.north": 90, "sensor.outdoor": 98 },
     });
     renderPicker();
     expect(await screen.findByText("boom on load")).toBeInTheDocument();
 
-    fireEvent.change(screen.getByPlaceholderText(/Search/i), {
-      target: { value: "outdoor" },
+    // The list on the server is unknown, so a pick now must not replace it.
+    fireEvent.focus(screen.getByRole("textbox"));
+    fireEvent.mouseDown(await screen.findByText("Outdoor Sensor"));
+    expect(api.setOutsideTempEntities).not.toHaveBeenCalled();
+
+    vi.mocked(api.getOutsideTempEntity).mockResolvedValue({
+      entity_id: "sensor.north",
+      entity_ids: ["sensor.north"],
+      current_value: 90,
+      values: { "sensor.north": 90 },
     });
-    fireEvent.mouseDown(await screen.findByText(/Outdoor Sensor/));
-    expect(await screen.findByText(/94\.0°F/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Try Again" }));
+    expect(await screen.findByText("sensor.north · 90.0°F")).toBeInTheDocument();
     expect(screen.queryByText("boom on load")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Try Again" })).toBeNull();
+
+    fireEvent.focus(screen.getByRole("textbox"));
+    fireEvent.mouseDown(await screen.findByText("Outdoor Sensor"));
+    await waitFor(() =>
+      expect(api.setOutsideTempEntities).toHaveBeenCalledWith(["sensor.north", "sensor.outdoor"])
+    );
+    expect(await screen.findByText("Average of 2 sensors: 94.0°F")).toBeInTheDocument();
+  });
+
+  it("ignores a second pick while a save is still in flight", async () => {
+    vi.mocked(api.getHAEntities).mockResolvedValue([
+      { entity_id: "sensor.north", state: "60", friendly_name: "North Porch" },
+      { entity_id: "sensor.south", state: "70", friendly_name: "South Wall" },
+    ]);
+    vi.mocked(api.getOutsideTempEntity).mockResolvedValue({
+      entity_id: null,
+      entity_ids: [],
+      current_value: null,
+      values: {},
+    });
+    let finish: (v: api.OutsideTempEntitySetting) => void = () => {};
+    vi.mocked(api.setOutsideTempEntities).mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve;
+      })
+    );
+    renderPicker();
+    await screen.findByText(/None configured/);
+    fireEvent.focus(screen.getByRole("textbox"));
+    fireEvent.mouseDown(await screen.findByText("North Porch"));
+    fireEvent.focus(screen.getByRole("textbox"));
+    fireEvent.mouseDown(await screen.findByText("South Wall"));
+    expect(api.setOutsideTempEntities).toHaveBeenCalledTimes(1);
+    expect(api.setOutsideTempEntities).toHaveBeenCalledWith(["sensor.north"]);
+    finish({
+      entity_id: "sensor.north",
+      entity_ids: ["sensor.north"],
+      current_value: 60,
+      values: { "sensor.north": 60 },
+    });
+    expect(await screen.findByText("sensor.north · 60.0°F")).toBeInTheDocument();
+  });
+
+  it("adds a second sensor and shows each reading and the average", async () => {
+    vi.mocked(api.getHAEntities).mockResolvedValue([
+      { entity_id: "sensor.north", state: "60", friendly_name: "North Porch" },
+      { entity_id: "sensor.south", state: "70", friendly_name: "South Wall" },
+    ]);
+    vi.mocked(api.getOutsideTempEntity).mockResolvedValue({
+      entity_id: "sensor.north",
+      entity_ids: ["sensor.north"],
+      current_value: 60,
+      values: { "sensor.north": 60 },
+    });
+    vi.mocked(api.setOutsideTempEntities).mockResolvedValue({
+      entity_id: "sensor.north",
+      entity_ids: ["sensor.north", "sensor.south"],
+      current_value: 65,
+      values: { "sensor.north": 60, "sensor.south": 70 },
+    });
+    renderPicker();
+    expect(await screen.findByText("sensor.north · 60.0°F")).toBeInTheDocument();
+    expect(screen.queryByText(/Average of/)).not.toBeInTheDocument();
+
+    fireEvent.focus(screen.getByPlaceholderText(/Add another sensor/));
+    fireEvent.mouseDown(await screen.findByText("South Wall"));
+    await waitFor(() =>
+      expect(api.setOutsideTempEntities).toHaveBeenCalledWith(["sensor.north", "sensor.south"])
+    );
+    expect(await screen.findByText("sensor.south · 70.0°F")).toBeInTheDocument();
+    expect(screen.getByText("Average of 2 sensors: 65.0°F")).toBeInTheDocument();
+  });
+
+  it("does not save a sensor that is already in the list", async () => {
+    vi.mocked(api.getOutsideTempEntity).mockResolvedValue({
+      entity_id: "sensor.outdoor",
+      entity_ids: ["sensor.outdoor"],
+      current_value: 50,
+      values: { "sensor.outdoor": 50 },
+    });
+    renderPicker();
+    await screen.findByText("sensor.outdoor · 50.0°F");
+    fireEvent.focus(screen.getByRole("textbox"));
+    fireEvent.mouseDown(await screen.findByText("Outdoor Sensor"));
+    expect(api.setOutsideTempEntities).not.toHaveBeenCalled();
+  });
+
+  it("says so when a sensor, or every sensor, has no reading", async () => {
+    vi.mocked(api.getOutsideTempEntity).mockResolvedValue({
+      entity_id: "sensor.north",
+      entity_ids: ["sensor.north", "sensor.south"],
+      current_value: null,
+      values: { "sensor.north": null },
+    });
+    renderPicker();
+    expect(await screen.findByText("sensor.north · no reading")).toBeInTheDocument();
+    // A sensor the backend sent no reading for at all reads the same way.
+    expect(screen.getByText("sensor.south · no reading")).toBeInTheDocument();
+    expect(screen.getByText("Average of 2 sensors: no reading right now")).toBeInTheDocument();
+  });
+
+  it("removes one sensor of several and keeps the rest", async () => {
+    vi.mocked(api.getOutsideTempEntity).mockResolvedValue({
+      entity_id: "sensor.north",
+      entity_ids: ["sensor.north", "sensor.south"],
+      current_value: 65,
+      values: { "sensor.north": 60, "sensor.south": 70 },
+    });
+    vi.mocked(api.setOutsideTempEntities).mockResolvedValue({
+      entity_id: "sensor.south",
+      entity_ids: ["sensor.south"],
+      current_value: 70,
+      values: { "sensor.south": 70 },
+    });
+    const onChange = vi.fn();
+    renderPicker("F", onChange);
+    fireEvent.click(await screen.findByRole("button", { name: "Remove sensor.north" }));
+    await waitFor(() => expect(api.setOutsideTempEntities).toHaveBeenCalledWith(["sensor.south"]));
+    expect(onChange).toHaveBeenLastCalledWith("sensor.south");
+    await waitFor(() => expect(screen.queryByText(/Average of/)).not.toBeInTheDocument());
   });
 });

@@ -41,6 +41,7 @@ from .. import (
     zones,
 )
 from .. import heat_pump as hp_rules
+from .. import outside as outside_sensors
 from ..event_logger import EventLogger
 from ..ha_client import HAClient
 from ..heat_pump import HeatPumpGuards
@@ -3242,18 +3243,13 @@ class CycleEngine:
         return filtered
 
     async def _read_outside_temp(self, conn: aiosqlite.Connection) -> float | None:
-        """Read the configured outside-temperature HA entity, or None if unset/unreadable.
+        """The outside temperature in °F, or None if unset/unreadable.
 
-        The entity_id lives in `system_settings.outside_temperature_entity_id`
-        (Issue #85 Phase 1b). HAClient.get_numeric_state handles °C → °F.
+        One sensor or the average of several (`backend/outside.py`); the ids
+        live in `system_settings.outside_temperature_entity_id` (Issue #85
+        Phase 1b). HAClient.get_numeric_state handles °C → °F.
         """
-        entity_id = await db.get_system_setting(conn, "outside_temperature_entity_id", "")
-        if not entity_id:
-            return None
-        try:
-            return self._ha.get_numeric_state(entity_id)
-        except Exception:
-            return None
+        return await outside_sensors.read(conn, self._ha)
 
     async def _cooling_lockout_state(
         self, conn: aiosqlite.Connection, tc: ThermostatConfig

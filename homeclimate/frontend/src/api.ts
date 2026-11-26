@@ -882,8 +882,14 @@ export interface MetricsLive {
 }
 
 export interface OutsideTempEntitySetting {
+  /** The first sensor; kept from when there was only one. */
   entity_id: string | null;
+  /** Every sensor. Several are averaged. */
+  entity_ids?: string[];
+  /** The average of the sensors that can be read, °F. */
   current_value: number | null;
+  /** Each sensor's own reading, °F (null when it cannot be read). */
+  values?: Record<string, number | null>;
 }
 
 const _rangeQuery = (r: MetricsRange = {}) => {
@@ -1043,10 +1049,11 @@ export function downloadMetricsCsv(
 export const getOutsideTempEntity = () =>
   api<OutsideTempEntitySetting>("/api/settings/outside-temp-entity");
 
-export const setOutsideTempEntity = (entity_id: string | null) =>
+/** Set every outside sensor at once; an empty list clears the setting. */
+export const setOutsideTempEntities = (entity_ids: string[]) =>
   api<OutsideTempEntitySetting>("/api/settings/outside-temp-entity", {
     method: "PUT",
-    body: JSON.stringify({ entity_id }),
+    body: JSON.stringify({ entity_ids }),
   });
 
 // Sensor-staleness guard (Issue #211). The threshold is a single

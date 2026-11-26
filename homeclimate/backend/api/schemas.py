@@ -362,8 +362,14 @@ class LogRetentionSettingsSchema(Schema):
 
 
 class OutsideTempEntitySettingSchema(Schema):
+    # The first sensor; kept for clients written when there was only one.
     entity_id = fields.Str(allow_none=True)
+    # Every sensor. Several are averaged.
+    entity_ids = fields.List(fields.Str())
+    # The average of the sensors that can be read, °F.
     current_value = fields.Float(allow_none=True)
+    # Each sensor's own reading, °F (null when it cannot be read).
+    values = fields.Dict(keys=fields.Str(), values=fields.Float(allow_none=True))
 
 
 class SensorStalenessSettingSchema(Schema):

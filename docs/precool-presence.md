@@ -8,7 +8,7 @@ room **coast** to its target on ambient drift instead of conditioning — a
 software version of the "pre-cool/pre-heat" idea many smart thermostats offer.
 
 It is **off by default**, configured **per room**, and requires an **outside
-temperature sensor** — the home-wide *Outside temperature sensor* picker in
+temperature sensor** — the home-wide *Outside temperature sensors* picker in
 **Settings → Sensors** (the same sensor the [cooling
 lockout](./safety.md) uses). Room Settings keeps the toggle disabled until one
 is configured, and **turning it on through the REST API or MCP is rejected**

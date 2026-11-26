@@ -6,7 +6,7 @@ The **Metrics** page (left nav → *Metrics*) shows how each thermostat — and 
 
 | Section                       | What it shows                                                                                                   |
 | ----------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| Outside-temperature picker    | Single system-wide HA entity HomeClimate reads at every cycle start/end. Live value displayed alongside.             |
+| Outside temperature           | The house-wide outside temperature (one sensor, or the average of several; set in Settings → Sensors), read at every cycle start/end. |
 | Filters                       | Thermostat selector ("All thermostats" by default), date-range picker, "Last 7 days" reset, **Export CSV**.     |
 | Summary tiles                 | Heating time, cooling time, duty cycle %, cycle count + completed count, average outside temperature.           |
 | Eco Mode impact               | Tiles (eco-relaxed cycles, eco runtime share, average drift, estimated savings) + three eco charts — shown for both the home view and a selected thermostat. See [Eco Mode](./eco-mode.md). |
@@ -43,7 +43,7 @@ The eco-impact charts (and their summary tiles) also exist home-wide via `/api/m
 
 ## Outside-temperature source
 
-Pick any HA entity in the `sensor.*` or `weather.*` domain whose state is numeric. At each cycle start and end the value is read via `HAClient.get_numeric_state()` (which normalises °C → °F) and stored on the `cycle_logs` row. Cycles still log without it; the columns just stay `NULL`.
+Pick one or more HA entities whose state is numeric (Settings → Sensors); several are averaged, leaving out any that cannot be read. At each cycle start and end the value is read via `HAClient.get_numeric_state()` (which normalises °C → °F) and stored on the `cycle_logs` row. Cycles still log without it; the columns just stay `NULL`.
 
 Backfill is **not** attempted — data starts accumulating from the moment the entity is configured.
 

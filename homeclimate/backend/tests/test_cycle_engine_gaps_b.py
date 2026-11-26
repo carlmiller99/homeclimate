@@ -932,6 +932,30 @@ class TestReadOutsideTemp:
             await conn.close()
 
     @pytest.mark.asyncio
+    async def test_several_sensors_decide_the_cooling_lockout_on_their_average(self):
+        conn = await _fresh_db()
+        try:
+            await db.set_system_setting(conn, "outside_temperature_entity_id", "sensor.a, sensor.b")
+            engine = _make_engine()
+            temps: dict[str, float | None] = {"sensor.a": 50.0, "sensor.b": 60.0}
+            engine._ha.get_numeric_state.side_effect = lambda e, *a, **k: temps[e]
+            tc = ThermostatConfig(thermostat_entity_id=THERMO_ID, cooling_lockout_below_f=58.0)
+
+            assert await engine._read_outside_temp(conn) == pytest.approx(55.0)
+            assert await engine._cooling_lockout_state(conn, tc) == (
+                "locked_out",
+                pytest.approx(55.0),
+            )
+            # A sensor that stops answering is left out, not counted as zero.
+            temps["sensor.a"] = None
+            assert await engine._cooling_lockout_state(conn, tc) == (
+                "allowed",
+                pytest.approx(60.0),
+            )
+        finally:
+            await conn.close()
+
+    @pytest.mark.asyncio
     async def test_reads_the_configured_entity_when_healthy(self):
         conn = await _fresh_db()
         try:
