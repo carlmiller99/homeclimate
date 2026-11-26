@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 import UnavailableThermostatsBanner from "./UnavailableThermostatsBanner";
 import * as api from "../api";
 import type { UnavailableThermostat } from "../api";
@@ -23,14 +24,22 @@ describe("UnavailableThermostatsBanner", () => {
 
   it("renders nothing while every thermostat is reachable", async () => {
     vi.mocked(api.getThermostatHealth).mockResolvedValue({ thermostats: [] });
-    const { container } = render(<UnavailableThermostatsBanner />);
+    const { container } = render(
+      <MemoryRouter>
+        <UnavailableThermostatsBanner />
+      </MemoryRouter>
+    );
     await waitFor(() => expect(api.getThermostatHealth).toHaveBeenCalled());
     expect(container.firstChild).toBeNull();
   });
 
   it("renders nothing when the health fetch fails", async () => {
     vi.mocked(api.getThermostatHealth).mockRejectedValue(new Error("network blip"));
-    const { container } = render(<UnavailableThermostatsBanner />);
+    const { container } = render(
+      <MemoryRouter>
+        <UnavailableThermostatsBanner />
+      </MemoryRouter>
+    );
     await waitFor(() => expect(api.getThermostatHealth).toHaveBeenCalled());
     expect(container.firstChild).toBeNull();
   });
@@ -39,7 +48,11 @@ describe("UnavailableThermostatsBanner", () => {
     vi.mocked(api.getThermostatHealth).mockResolvedValue({
       thermostats: [thermostat({ unavailable_seconds: 300 })],
     });
-    render(<UnavailableThermostatsBanner />);
+    render(
+      <MemoryRouter>
+        <UnavailableThermostatsBanner />
+      </MemoryRouter>
+    );
     const banner = await screen.findByTestId("unavailable-thermostats-banner");
     expect(banner).toHaveTextContent("1 thermostat unavailable in Home Assistant");
     expect(banner).toHaveTextContent("Downstairs");
@@ -64,22 +77,30 @@ describe("UnavailableThermostatsBanner", () => {
         }),
       ],
     });
-    render(<UnavailableThermostatsBanner />);
+    render(
+      <MemoryRouter>
+        <UnavailableThermostatsBanner />
+      </MemoryRouter>
+    );
     const banner = await screen.findByTestId("unavailable-thermostats-banner");
     expect(banner).toHaveTextContent("3 thermostats unavailable");
     expect(banner).toHaveTextContent("unavailable for under a minute");
     expect(banner).toHaveTextContent("unavailable for 2.0 h");
     expect(banner).toHaveTextContent("never seen by HA");
-    // Falls back to the entity id when the name is empty — it appears twice
-    // (as the title and as the code element).
-    expect(banner.textContent?.match(/climate\.attic/g)?.length).toBe(2);
+    // Falls back to the entity id when the name is empty: once in the
+    // sentence, and twice under Details (as the name and as the entity id).
+    expect(banner.textContent?.match(/climate\.attic/g)?.length).toBe(3);
   });
 
   it("warns that a running cycle will auto-abort after the configured delay", async () => {
     vi.mocked(api.getThermostatHealth).mockResolvedValue({
       thermostats: [thermostat({ cycle_running: true, abort_after_min: 30 })],
     });
-    render(<UnavailableThermostatsBanner />);
+    render(
+      <MemoryRouter>
+        <UnavailableThermostatsBanner />
+      </MemoryRouter>
+    );
     expect(await screen.findByTestId("unavailable-thermostats-banner")).toHaveTextContent(
       "the running cycle aborts after 30 min and all vents re-open"
     );
@@ -89,7 +110,11 @@ describe("UnavailableThermostatsBanner", () => {
     vi.mocked(api.getThermostatHealth).mockResolvedValue({
       thermostats: [thermostat({ cycle_running: true, abort_after_min: 0 })],
     });
-    render(<UnavailableThermostatsBanner />);
+    render(
+      <MemoryRouter>
+        <UnavailableThermostatsBanner />
+      </MemoryRouter>
+    );
     expect(await screen.findByTestId("unavailable-thermostats-banner")).toHaveTextContent(
       "will NOT be auto-aborted"
     );

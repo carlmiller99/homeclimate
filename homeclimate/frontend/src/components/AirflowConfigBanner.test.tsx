@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ecoThermostatDefaults } from "../testFixtures";
 import { render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 import AirflowConfigBanner from "./AirflowConfigBanner";
 import * as api from "../api";
 
@@ -42,11 +43,15 @@ describe("AirflowConfigBanner (Issue #213)", () => {
     vi.mocked(api.getThermostats).mockResolvedValue([
       tc({ thermostat_entity_id: "climate.one", name: "Upstairs" }),
     ]);
-    render(<AirflowConfigBanner />);
+    render(
+      <MemoryRouter>
+        <AirflowConfigBanner />
+      </MemoryRouter>
+    );
     const banner = await screen.findByTestId("airflow-config-banner");
-    expect(banner).toHaveTextContent(/Action required/);
+    expect(banner).toHaveTextContent(/1 zone needs a vent count/);
     expect(banner).toHaveTextContent(/Upstairs/);
-    expect(banner).toHaveTextContent(/transitional default/);
+    expect(banner).toHaveTextContent(/Until it is set, Upstairs keeps one vent open/);
   });
 
   it("lists multiple thermostats when several need configuration", async () => {
@@ -54,9 +59,13 @@ describe("AirflowConfigBanner (Issue #213)", () => {
       tc({ thermostat_entity_id: "climate.one", name: "Upstairs" }),
       tc({ thermostat_entity_id: "climate.two", name: "Downstairs" }),
     ]);
-    render(<AirflowConfigBanner />);
+    render(
+      <MemoryRouter>
+        <AirflowConfigBanner />
+      </MemoryRouter>
+    );
     const banner = await screen.findByTestId("airflow-config-banner");
-    expect(banner).toHaveTextContent(/2 thermostats/);
+    expect(banner).toHaveTextContent(/2 zones need a vent count/);
     expect(banner).toHaveTextContent(/Upstairs/);
     expect(banner).toHaveTextContent(/Downstairs/);
   });
@@ -66,7 +75,11 @@ describe("AirflowConfigBanner (Issue #213)", () => {
       tc({ total_vents_count: 12 }), // configured by setting total_vents_count
       tc({ thermostat_entity_id: "climate.two", has_bypass_damper: true }), // configured via bypass damper
     ]);
-    render(<AirflowConfigBanner />);
+    render(
+      <MemoryRouter>
+        <AirflowConfigBanner />
+      </MemoryRouter>
+    );
     // Wait long enough for the effect to settle.
     await waitFor(() => expect(api.getThermostats).toHaveBeenCalled());
     expect(screen.queryByTestId("airflow-config-banner")).not.toBeInTheDocument();
@@ -74,7 +87,11 @@ describe("AirflowConfigBanner (Issue #213)", () => {
 
   it("does not render when getThermostats fails — failing softly avoids nagging on a network blip", async () => {
     vi.mocked(api.getThermostats).mockRejectedValue(new Error("network"));
-    render(<AirflowConfigBanner />);
+    render(
+      <MemoryRouter>
+        <AirflowConfigBanner />
+      </MemoryRouter>
+    );
     await waitFor(() => expect(api.getThermostats).toHaveBeenCalled());
     expect(screen.queryByTestId("airflow-config-banner")).not.toBeInTheDocument();
   });

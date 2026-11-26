@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 import StaleSensorsBanner from "./StaleSensorsBanner";
 import * as api from "../api";
 import type { SensorHealth } from "../api";
@@ -23,14 +24,22 @@ describe("StaleSensorsBanner", () => {
 
   it("renders nothing while all sensors are fresh", async () => {
     vi.mocked(api.getSensorHealth).mockResolvedValue(healthy);
-    const { container } = render(<StaleSensorsBanner />);
+    const { container } = render(
+      <MemoryRouter>
+        <StaleSensorsBanner />
+      </MemoryRouter>
+    );
     await waitFor(() => expect(api.getSensorHealth).toHaveBeenCalled());
     expect(container.firstChild).toBeNull();
   });
 
   it("renders nothing when the health fetch fails", async () => {
     vi.mocked(api.getSensorHealth).mockRejectedValue(new Error("network blip"));
-    const { container } = render(<StaleSensorsBanner />);
+    const { container } = render(
+      <MemoryRouter>
+        <StaleSensorsBanner />
+      </MemoryRouter>
+    );
     await waitFor(() => expect(api.getSensorHealth).toHaveBeenCalled());
     expect(container.firstChild).toBeNull();
   });
@@ -47,10 +56,14 @@ describe("StaleSensorsBanner", () => {
         }),
       ],
     });
-    render(<StaleSensorsBanner />);
+    render(
+      <MemoryRouter>
+        <StaleSensorsBanner />
+      </MemoryRouter>
+    );
     const banner = await screen.findByTestId("stale-sensors-banner");
     expect(banner).toHaveTextContent("2 sensors not reporting");
-    expect(banner).toHaveTextContent("threshold: 90 min");
+    expect(banner).toHaveTextContent("a sensor silent for 90 min is left out");
     expect(banner).toHaveTextContent("Guest Room");
     // 600 s → minutes branch; never-seen branch for the uncached sensor.
     expect(banner).toHaveTextContent("10 min ago");
@@ -68,7 +81,11 @@ describe("StaleSensorsBanner", () => {
         }),
       ],
     });
-    render(<StaleSensorsBanner />);
+    render(
+      <MemoryRouter>
+        <StaleSensorsBanner />
+      </MemoryRouter>
+    );
     const banner = await screen.findByTestId("stale-sensors-banner");
     expect(banner).toHaveTextContent("1 sensor not reporting");
     expect(banner).toHaveTextContent("3.0 h ago");
@@ -85,7 +102,11 @@ describe("StaleSensorsBanner", () => {
         }),
       ],
     });
-    render(<StaleSensorsBanner />);
+    render(
+      <MemoryRouter>
+        <StaleSensorsBanner />
+      </MemoryRouter>
+    );
     expect(await screen.findByTestId("stale-sensors-banner")).toHaveTextContent("2 d ago");
   });
 });

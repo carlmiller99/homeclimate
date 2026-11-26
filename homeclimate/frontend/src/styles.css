@@ -3018,6 +3018,66 @@ button.sc-nav-item {
 }
 
 /* Room device notes: what a room cannot do yet. Information, not an alarm. */
+/* The one notice style, used on every page (components/Notice.tsx). */
+.notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1.5rem;
+  margin-bottom: 0.75rem;
+  padding: 0.85rem 1rem;
+  background: var(--gray-50);
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-sm);
+}
+.notice-text {
+  flex: 1 1 22rem;
+  min-width: 0;
+}
+.notice-title {
+  margin: 0;
+  font-weight: 600;
+  color: var(--gray-900);
+}
+.notice-mark {
+  display: inline-block;
+  width: 0.55rem;
+  height: 0.55rem;
+  margin-right: 0.5rem;
+  border-radius: 50%;
+  background: var(--red);
+}
+.notice-body {
+  margin: 0.15rem 0 0;
+  font-size: 0.875rem;
+  color: var(--gray-600);
+  max-width: 80ch;
+}
+.notice-details {
+  margin-top: 0.35rem;
+  font-size: 0.875rem;
+  color: var(--gray-600);
+}
+.notice-details > summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--blue-text);
+}
+.notice-details ul {
+  margin: 0.35rem 0 0;
+  padding-left: 1.25rem;
+}
+.notice-details p {
+  margin: 0.35rem 0 0;
+  max-width: 80ch;
+}
+.notice-action {
+  font-weight: 600;
+  font-size: 0.875rem;
+  white-space: nowrap;
+}
+
 .room-notes {
   margin-bottom: 1rem;
   background: var(--gray-50);
