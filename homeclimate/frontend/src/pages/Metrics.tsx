@@ -289,8 +289,7 @@ function EmptyStateBanners({
         <div className="card" style={{ borderLeft: "3px solid #f59e0b" }}>
           <strong>No cycle data yet for this range.</strong>{" "}
           <span className="text-muted">
-            HomeClimate starts collecting metrics the moment a cycle runs. Trigger one by enabling a
-            schedule or motion-activating a room — the page will populate automatically.
+            Charts appear here once heating or cooling has run in this range.
           </span>
         </div>
       )}
@@ -298,9 +297,8 @@ function EmptyStateBanners({
         <div className="card" style={{ borderLeft: "3px solid #3b82f6" }}>
           <strong>Outside-temperature sensor not configured.</strong>{" "}
           <span className="text-muted">
-            Set one on the <strong>Thermostats</strong> page to unlock the
-            cycles-vs-outside-temperature scatter and the average outside-temp summary tile. Cycles
-            still log without it; only the temperature columns stay NULL.
+            Choose one in <strong>My Home</strong>, Outside to see how the weather affects your
+            heating and cooling.
           </span>
         </div>
       )}
@@ -338,7 +336,7 @@ export default function Metrics() {
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load thermostats"));
   }, []);
 
-  // The outside-temperature sensors are configured in Settings → Sensors; here
+  // The outside-temperature sensors are configured in My Home → Outside; here
   // we only need to know whether one is set, to surface the right empty-state.
   useEffect(() => {
     getOutsideTempEntity()

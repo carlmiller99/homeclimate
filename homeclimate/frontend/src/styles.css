@@ -25,12 +25,12 @@
   --gray-500: #6b7680;
   --gray-600: #5b6670;
   --gray-700: #34424d;
-  --gray-900: #1c2630;
+  --gray-900: #2a3640;
   /* Semantic surfaces + text (also consumed by chart tooltips in colors.ts) */
   --bg: #eef1ef;
-  --surface: #ffffff;
-  --bg-elev: #ffffff;
-  --text: #1c2630;
+  --surface: #fbfcfb;
+  --bg-elev: #fbfcfb;
+  --text: #2a3640;
   --border: #dde3e0;
   /* Readable-on-background accent text, one per hue family */
   --blue-text: #1f5383;
@@ -45,7 +45,7 @@
   --shadow-md: 0 12px 32px -16px rgba(28, 38, 48, 0.28);
   /* HomeClimate design tokens (phase 3) */
   --font-sans: "Instrument Sans Variable", "Instrument Sans", system-ui, -apple-system, sans-serif;
-  --ink: #1c2630;
+  --ink: #2a3640;
   --on-ink: #ffffff;
   --zone-bg: #e4e9e7;
   --state-heating: #d9731f;
@@ -72,18 +72,18 @@
   --red-light: #3a1e1c;
   --orange-light: #3a2614;
   --purple-light: #2c2238;
-  --gray-50: #1f2a31;
-  --gray-100: #243039;
+  --gray-50: #222e35;
+  --gray-100: #27343d;
   --gray-200: #2c3943;
   --gray-400: #6f7d77;
   --gray-500: #85938d;
   --gray-600: #9aa8a2;
   --gray-700: #c2ccc8;
-  --gray-900: #eef2f0;
-  --bg: #10171c;
-  --surface: #1a242b;
-  --bg-elev: #243039;
-  --text: #e6ece9;
+  --gray-900: #dde3e0;
+  --bg: #161e24;
+  --surface: #1e2930;
+  --bg-elev: #27343d;
+  --text: #d8dfdc;
   --border: #2c3943;
   --blue-text: #7db4e0;
   --green-text: #8cc5a8;
@@ -94,9 +94,9 @@
   --danger: #f0a39a;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
   --shadow-md: 0 12px 32px -16px rgba(0, 0, 0, 0.6);
-  --ink: #e6ece9;
-  --on-ink: #10171c;
-  --zone-bg: #151e24;
+  --ink: #d8dfdc;
+  --on-ink: #161e24;
+  --zone-bg: #1a242a;
   --state-heating: #f0954a;
   --state-heating-bg: #4a2e14;
   --state-heating-text: #f6c08f;
@@ -119,18 +119,18 @@
     --red-light: #3a1e1c;
     --orange-light: #3a2614;
     --purple-light: #2c2238;
-    --gray-50: #1f2a31;
-    --gray-100: #243039;
+    --gray-50: #222e35;
+    --gray-100: #27343d;
     --gray-200: #2c3943;
     --gray-400: #6f7d77;
     --gray-500: #85938d;
     --gray-600: #9aa8a2;
     --gray-700: #c2ccc8;
-    --gray-900: #eef2f0;
-    --bg: #10171c;
-    --surface: #1a242b;
-    --bg-elev: #243039;
-    --text: #e6ece9;
+    --gray-900: #dde3e0;
+    --bg: #161e24;
+    --surface: #1e2930;
+    --bg-elev: #27343d;
+    --text: #d8dfdc;
     --border: #2c3943;
     --blue-text: #7db4e0;
     --green-text: #8cc5a8;
@@ -141,9 +141,9 @@
     --danger: #f0a39a;
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
     --shadow-md: 0 12px 32px -16px rgba(0, 0, 0, 0.6);
-    --ink: #e6ece9;
-    --on-ink: #10171c;
-    --zone-bg: #151e24;
+    --ink: #d8dfdc;
+    --on-ink: #161e24;
+    --zone-bg: #1a242a;
     --state-heating: #f0954a;
     --state-heating-bg: #4a2e14;
     --state-heating-text: #f6c08f;
@@ -1688,9 +1688,209 @@ tr:hover td {
 }
 .zone-editor {
   background: var(--surface);
-  border: 2px solid var(--ink);
-  border-radius: calc(var(--radius) + 4px);
-  overflow: hidden;
+}
+/* Smart Control → Zone Balance */
+.balance-building + .balance-building {
+  margin-top: 1.25rem;
+}
+.balance-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.balance-controls select {
+  width: auto;
+  min-width: 4.5rem;
+  font-weight: 600;
+}
+.balance-now {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.85rem 1rem;
+  margin-top: 0.25rem;
+}
+.balance-now-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+.balance-now-gap {
+  font-size: 0.85rem;
+  color: var(--gray-600);
+}
+.balance-zone {
+  display: grid;
+  grid-template-columns: minmax(6rem, 9rem) minmax(0, 1fr) 5.5rem;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.3rem 0;
+  font-size: 0.92rem;
+}
+.balance-track {
+  position: relative;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--gray-100);
+}
+.balance-dot {
+  position: absolute;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--state-idle);
+}
+.balance-dot.balance-heating {
+  background: var(--state-heating);
+}
+.balance-dot.balance-cooling {
+  background: var(--state-cooling);
+}
+.balance-zone-temp {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.balance-now > .rule-help {
+  margin: 0.4rem 0 0;
+}
+/* Smart Control → Schedules: whether a room is in use */
+.room-in-use {
+  margin-top: 0.9rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.room-in-use-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+.device-dot {
+  display: inline-block;
+  width: 0.6rem;
+  height: 0.6rem;
+  margin-right: 0.4rem;
+  border-radius: 50%;
+  background: var(--gray-400);
+}
+.device-dot-on {
+  background: var(--green);
+}
+/* A small pencil beside a name: opens that thing for editing. */
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  margin-left: 0.35rem;
+  vertical-align: middle;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--gray-600);
+  cursor: pointer;
+}
+.icon-button:hover {
+  background: var(--gray-100);
+  color: var(--gray-900);
+}
+.icon-button:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+/* "Add Room", "Add Zone": a square tile at the end of the list it adds to. */
+.add-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  width: 9.5rem;
+  height: 9.5rem;
+  align-self: start;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font: inherit;
+  font-weight: 600;
+  color: var(--gray-600);
+  cursor: pointer;
+}
+.add-tile:hover {
+  border-color: var(--ink);
+  color: var(--gray-900);
+}
+.add-tile:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+.add-tile-plus {
+  font-size: 2rem;
+  line-height: 1;
+  font-weight: 400;
+}
+.outside-group .card {
+  margin-bottom: 0;
+}
+.building-group > .add-tile {
+  margin-top: 0.75rem;
+}
+.edit-zone-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+}
+/* My Home → Room Settings, as a dialog */
+.modal.room-settings-modal {
+  width: min(46rem, 96vw);
+}
+.room-settings-modal .page-title {
+  font-size: 1.3rem;
+  margin: 0;
+}
+.room-settings-modal > .card {
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+  background: none;
+}
+/* My Home → Edit Zone: one sheet, two tabs */
+.modal.edit-zone {
+  width: min(56rem, 96vw);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.edit-zone-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.edit-zone-head .modal-title {
+  margin-bottom: 0.15rem;
+}
+.edit-zone .segmented {
+  align-self: flex-start;
+}
+.segmented-option[aria-selected="true"] {
+  background: var(--surface);
+  color: var(--gray-900);
+  box-shadow: var(--shadow);
+}
+.edit-zone .zone-editor-head {
+  padding: 0 0 1rem;
+  background: none;
+}
+.edit-zone .zone-editor-body {
+  padding: 1rem 0 0;
 }
 .zone-editor-head {
   display: flex;
@@ -1782,22 +1982,22 @@ tr:hover td {
   outline: 3px solid var(--state-cooling);
   outline-offset: 2px;
 }
-.notice {
+.note-box {
   display: flex;
   gap: 0.75rem;
   align-items: flex-start;
   border-radius: 14px;
   padding: 0.75rem 0.9rem;
 }
-.notice p {
+.note-box p {
   flex: 1;
   font-size: 0.875rem;
 }
-.notice-heat {
+.note-box.notice-heat {
   background: var(--orange-light);
   color: var(--orange-text);
 }
-.notice-paused {
+.note-box.notice-paused {
   background: var(--state-paused-bg);
   color: var(--state-paused-text);
 }
@@ -2060,6 +2260,22 @@ tr:hover td {
 }
 .sc-section-lead {
   margin: 0;
+  color: var(--gray-600);
+  max-width: 40rem;
+}
+/* Every card under Smart Control and Settings reads the same: a section
+   title, one or two lines about it, then its rule rows. */
+.sc-layout .card {
+  border-radius: 20px;
+  padding: 1.5rem;
+}
+.sc-layout .card > .card-title {
+  margin: 0 0 0.5rem;
+  font-size: 1.375rem;
+  font-weight: 700;
+}
+.sc-layout .card > .page-subtitle {
+  margin: 0 0 0.75rem;
   color: var(--gray-600);
   max-width: 40rem;
 }
@@ -2332,6 +2548,23 @@ button.sc-nav-item {
 .sc-nav-shades svg {
   stroke: var(--state-heating);
 }
+.shade-status {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.shade-status li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  padding: 0.6rem 0;
+  border-top: 1px solid var(--border);
+}
+.shade-status .shade-why {
+  flex: 1;
+  min-width: 12rem;
+}
 .shade-row {
   display: flex;
   align-items: center;
@@ -2428,10 +2661,34 @@ button.sc-nav-item {
   gap: 0.6rem;
 }
 .device-section {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
   background: var(--gray-50);
+  border: 1px solid transparent;
   border-radius: 12px;
   padding: 0.65rem 0.75rem;
   min-width: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.device-section:hover {
+  border-color: var(--gray-400);
+}
+.device-section:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+.device-grid > :last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
+.modal.room-devices {
+  width: min(44rem, 96vw);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
 }
 .device-section-title {
   margin: 0 0 0.35rem;
@@ -2514,60 +2771,221 @@ button.sc-nav-item {
   background: var(--state-paused-bg);
   color: var(--state-paused-text);
 }
+/* One large card per building, as on My Home: its name, mode and targets,
+   then its zones. */
 .dash-building {
   margin-bottom: 1.5rem;
+  padding: 1.25rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
 }
 .dash-building-title {
-  font-size: 1.1rem;
+  grid-area: title;
+  font-size: 1.6rem;
   font-weight: 700;
+  letter-spacing: -0.015em;
   color: var(--gray-900);
-  margin-bottom: 0.6rem;
+  margin: 0;
 }
-.dash-rooms {
-  margin-top: 1rem;
+.dash-building-targets {
+  margin: 0.25rem 0 1rem;
+}
+.dash-building-targets:empty {
+  display: none;
+}
+.dash-building .card-grid > .card {
+  background: var(--zone-bg);
+}
+.dash-building .card-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(20rem, 100%), 1fr));
+}
+/* The building's header, as one line: its name and what it is doing on the
+   left; its mode, its two targets and a hold on the right. The mode control
+   and the targets row are laid straight into this grid. */
+.dash-building-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  grid-template-areas:
+    "title mode targets hold"
+    "status mode targets hold"
+    "notes notes notes notes";
+  align-items: end;
+  gap: 0.35rem 0.9rem;
+  margin-bottom: 1rem;
+}
+.dash-building-head .building-mode {
+  display: contents;
+}
+.dash-building-head .building-mode-pick {
+  grid-area: mode;
   display: flex;
   flex-direction: column;
-  border-top: 1px solid var(--gray-200);
+  gap: 0.35rem;
+  font-size: 0.875rem;
+  color: var(--gray-600);
 }
-.dash-room {
+.dash-building-head .building-mode-status {
+  grid-area: status;
+  align-self: start;
+  font-size: 0.95rem;
+  max-width: 60ch;
+}
+.dash-building-head .building-mode > .form-error {
+  grid-area: notes;
+}
+.dash-building-head .targets-row {
+  grid-area: targets;
+  padding: 0;
+  gap: 0.35rem 0.75rem;
+}
+.dash-building-head .targets-row-name {
+  display: none;
+}
+.dash-building-head .targets-row .targets-note,
+.dash-building-head .targets-row .form-error {
+  font-size: 0.8rem;
+  max-width: 24rem;
+}
+.dash-building-head .house-band-input {
+  width: 5.25rem;
+  font-weight: 600;
+}
+.dash-building-hold {
+  grid-area: hold;
+}
+@media (max-width: 900px) {
+  .dash-building-head {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "title" "status" "mode" "targets" "hold" "notes";
+    align-items: start;
+  }
+  .dash-building-hold {
+    justify-self: start;
+  }
+}
+/* A zone inside a building: its name, one line about its thermostat, and its
+   rooms. */
+.dash-zone-sub {
+  margin-top: 0.15rem;
+  font-size: 0.82rem;
+  color: var(--gray-600);
+}
+.dash-zone-asking::before {
+  content: " · ";
+}
+/* Dashboard → a room's details */
+.room-details {
+  max-width: 44rem;
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
-  padding: 0.6rem 0;
-  border-bottom: 1px solid var(--gray-100);
+  gap: 1rem;
 }
-.dash-room:last-child {
-  border-bottom: none;
-}
-.dash-room-main {
+.room-details-head {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
+  align-items: start;
+  gap: 1rem;
+}
+.room-details-now {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem 1rem;
+}
+.room-details-temp {
+  font-size: 2.5rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.room-details-block {
+  background: var(--zone-bg);
+  border-radius: var(--radius);
+  padding: 1rem;
+}
+.room-details-title {
+  margin: 0 0 0.35rem;
+  font-size: 1rem;
+  font-weight: 700;
+}
+.room-details-actions {
+  display: flex;
+  flex-wrap: wrap;
   gap: 0.5rem;
+  margin-top: 0.6rem;
+}
+.room-details-sensors {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.room-details-sensors li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.25rem 1rem;
+  padding: 0.5rem 0;
+  border-top: 1px solid var(--border);
+  font-size: 0.9rem;
+}
+.dash-rooms {
+  margin-top: 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+/* One room: a card of its own inside the zone, and the way into its details. */
+.dash-room {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem 0.9rem;
+  width: 100%;
+  min-height: 3.5rem;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  font: inherit;
+  color: inherit;
+  text-align: left;
+}
+.dash-room-open {
+  cursor: pointer;
+}
+.dash-room-open:hover {
+  border-color: var(--gray-400);
+}
+.dash-room-open:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+.dash-room-id {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
 }
 .dash-room-name {
   font-weight: 600;
+  font-size: 1rem;
   color: var(--gray-900);
   display: flex;
   flex-wrap: wrap;
   gap: 0.35rem;
   align-items: center;
 }
+.dash-room-note {
+  font-size: 0.82rem;
+  color: var(--gray-600);
+}
 .dash-room-temp {
   text-align: right;
+  white-space: nowrap;
 }
-.dash-room-target {
-  display: block;
-  font-weight: 500;
-}
-.dash-room-actions {
-  display: flex;
-  gap: 0.4rem;
-  flex-wrap: wrap;
-}
-.dash-room-actions .btn {
-  padding: 0.1rem 0.6rem;
-  font-size: 0.78rem;
+.dash-room-temp .stat-value {
+  font-size: 1.35rem;
+  font-weight: 700;
 }
 .dash-paused {
   margin-top: 0.75rem;
@@ -2610,22 +3028,84 @@ button.sc-nav-item {
 /* Smart Control → Forecasts */
 .forecast-days {
   list-style: none;
-  margin: 0 0 1rem;
+  margin: 0.25rem 0 1rem;
   padding: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14.5rem, 1fr));
+  gap: 0.9rem;
 }
 .forecast-day {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 0.75rem 1rem;
   border: 1px solid var(--border);
-  border-radius: 10px;
-  min-width: 11rem;
-  font-size: 0.875rem;
+  border-radius: 12px;
+  padding: 0.9rem 1rem;
+}
+.forecast-day-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+}
+.forecast-chip {
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  background: var(--state-idle-bg);
+  color: var(--state-idle-text);
+}
+.forecast-chip.forecast-swing {
+  background: var(--state-paused-bg);
+  color: var(--state-paused-text);
+}
+.forecast-chip.forecast-warm {
+  background: var(--state-heating-bg);
+  color: var(--state-heating-text);
+}
+.forecast-chip.forecast-cool {
+  background: var(--state-cooling-bg);
+  color: var(--state-cooling-text);
+}
+.forecast-range {
+  font-size: 1.6rem;
+  font-weight: 700;
+  margin: 0.5rem 0 0.1rem;
+  font-variant-numeric: tabular-nums;
+}
+.forecast-sky {
+  font-size: 0.85rem;
   color: var(--gray-600);
+}
+/* How the day divides between heating, coasting and cooling, in order. The
+   sentence under it says the same in words. */
+.forecast-bar {
+  display: flex;
+  height: 12px;
+  border-radius: 6px;
+  overflow: hidden;
+  margin: 0.75rem 0 0.5rem;
+  background: var(--state-idle);
+}
+.forecast-bar > span {
+  flex: 1 1 0;
+  background: var(--state-idle);
+  opacity: 0.55;
+}
+.forecast-bar > .forecast-heat {
+  background: var(--state-heating);
+  opacity: 1;
+}
+.forecast-bar > .forecast-cool {
+  background: var(--state-cooling);
+  opacity: 1;
+}
+.forecast-plan {
+  font-size: 0.875rem;
+}
+.forecast-table > summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--blue-text);
+  padding: 0.5rem 0;
 }
 .forecast-hours {
   width: 100%;
@@ -2858,7 +3338,7 @@ button.sc-nav-item {
   justify-items: start;
 }
 
-/* Smart Control → One Side Per Building */
+/* Smart Control → Auto Mode */
 .auto-fields {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
@@ -2955,69 +3435,173 @@ button.sc-nav-item {
 }
 
 /* Dashboard → Today's Plan */
-/* The three kinds of hour differ in shape as well as colour: a coasting hour
-   is a low outlined cell, heating is full height, cooling is full height with
-   a notch of the card showing at the top. */
-.today-strip {
-  display: flex;
-  align-items: flex-end;
-  gap: 2px;
-  height: 1.5rem;
-  margin: 0.5rem 0 1.4rem;
+.today-lead {
+  margin: 0.25rem 0 0;
+  font-size: 0.97rem;
+  max-width: 64ch;
 }
-.today-hour {
-  position: relative;
+.today-chart {
+  margin: 1.1rem 0 0.9rem;
+}
+/* One block per run of hours that ask for the same thing. The word is in the
+   block, so the three never rest on colour alone. */
+.today-band {
+  display: flex;
+  height: 2.75rem;
+  border-radius: 10px;
+  overflow: hidden;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+.today-run {
   flex: 1 1 0;
-  box-sizing: border-box;
-  height: 40%;
-  border: 1px solid var(--gray-500);
-  border-radius: 4px;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 0.6rem;
+  overflow: hidden;
+  white-space: nowrap;
   background: var(--state-idle-bg);
+  color: var(--state-idle-text);
+}
+.today-run + .today-run {
+  border-left: 2px solid var(--surface);
 }
 .today-heat {
-  height: 100%;
-  border-color: var(--state-heating);
-  background: var(--state-heating);
+  background: var(--state-heating-bg);
+  color: var(--state-heating-text);
 }
 .today-cool {
-  height: 100%;
-  border-color: var(--state-cooling);
-  border-top: 5px solid var(--surface);
-  outline: 1px solid var(--state-cooling);
-  outline-offset: -1px;
-  background: var(--state-cooling);
+  background: var(--state-cooling-bg);
+  color: var(--state-cooling-text);
 }
-.today-runs {
-  margin: 0;
-  font-size: 0.875rem;
+.today-line {
+  display: block;
+  width: 100%;
+  height: 4.4rem;
+  margin-top: 0.4rem;
 }
-.today-hour-label {
-  position: absolute;
-  top: calc(100% + 0.2rem);
-  left: 0;
-  font-size: 0.75rem;
+.today-line polyline {
+  fill: none;
+  stroke: var(--gray-600);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+  stroke-linejoin: round;
+}
+.today-line .today-now {
+  stroke: var(--ink);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+.today-axis {
+  position: relative;
+  height: 1.2rem;
+  font-size: 0.78rem;
   color: var(--gray-600);
   white-space: nowrap;
 }
+/* Each time sits under its own point of the line above. */
+.today-axis > span {
+  position: absolute;
+  transform: translateX(-50%);
+}
+.today-axis > span.is-first {
+  transform: none;
+}
+.today-axis > span.is-last {
+  transform: translateX(-100%);
+}
 .today-events {
   list-style: none;
-  margin: 0.75rem 0;
+  margin: 0.9rem 0;
   padding: 0;
   display: grid;
-  gap: 0.35rem;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 0.45rem 1.5rem;
   font-size: 0.9rem;
 }
 .today-events li {
-  display: grid;
-  grid-template-columns: 5.5rem minmax(0, 1fr);
-  gap: 0.75rem;
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
 }
 .today-when {
-  color: var(--gray-600);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.today-source {
+  margin: 0.6rem 0 0;
+  font-size: 0.84rem;
+  color: var(--gray-600);
+}
+.today-source a {
+  color: var(--blue-text);
+}
+.today-card > .card-title {
+  font-size: 1.2rem;
 }
 
 /* Room device notes: what a room cannot do yet. Information, not an alarm. */
+/* The one notice style, used on every page (components/Notice.tsx). */
+.notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1.5rem;
+  margin-bottom: 0.75rem;
+  padding: 0.85rem 1rem;
+  background: var(--gray-50);
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-sm);
+}
+.notice-text {
+  flex: 1 1 22rem;
+  min-width: 0;
+}
+.notice-title {
+  margin: 0;
+  font-weight: 600;
+  color: var(--gray-900);
+}
+.notice-mark {
+  display: inline-block;
+  width: 0.55rem;
+  height: 0.55rem;
+  margin-right: 0.5rem;
+  border-radius: 50%;
+  background: var(--red);
+}
+.notice-body {
+  margin: 0.15rem 0 0;
+  font-size: 0.875rem;
+  color: var(--gray-600);
+  max-width: 80ch;
+}
+.notice-details {
+  margin-top: 0.35rem;
+  font-size: 0.875rem;
+  color: var(--gray-600);
+}
+.notice-details > summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--blue-text);
+}
+.notice-details ul {
+  margin: 0.35rem 0 0;
+  padding-left: 1.25rem;
+}
+.notice-details p {
+  margin: 0.35rem 0 0;
+  max-width: 80ch;
+}
+.notice-action {
+  font-weight: 600;
+  font-size: 0.875rem;
+  white-space: nowrap;
+}
+
 .room-notes {
   margin-bottom: 1rem;
   background: var(--gray-50);

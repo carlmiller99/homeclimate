@@ -934,8 +934,10 @@ describe("Logs — coverage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Retention" }));
     await screen.findByDisplayValue("365");
 
-    expect(screen.getByText(/display window only — it deletes nothing/)).toBeInTheDocument();
-    expect(screen.getByText(/permanently destroys history/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/This only changes what is\s+listed: it deletes nothing/)
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Lowering this deletes older history for good/)).toBeInTheDocument();
     expect(screen.getByText(/Log retention controls what you can browse/)).toBeInTheDocument();
   });
 

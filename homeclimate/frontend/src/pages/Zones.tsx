@@ -2,8 +2,15 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import AirIntakeField from "../components/AirIntakeField";
 import ConfirmDialog from "../components/ConfirmDialog";
+import OutsideTempPicker from "../components/OutsideTempPicker";
 import EntityPicker from "../components/EntityPicker";
-import { createThermostat, deleteThermostat, getThermostats, type ThermostatConfig } from "../api";
+import {
+  createThermostat,
+  deleteThermostat,
+  getEntityStates,
+  getThermostats,
+  type ThermostatConfig,
+} from "../api";
 import { useUnit } from "../contexts";
 import { ThermostatCard } from "./Thermostats";
 import {
@@ -161,10 +168,6 @@ function ZoneEditor({
   return (
     <section className="zone-editor" aria-label={`Edit ${zone.name || zone.thermostat_entity_id}`}>
       <div className="zone-editor-head">
-        <div className="zone-editor-title">
-          <div className="zone-name">{zone.name || zone.thermostat_entity_id}</div>
-          <div className="zone-entity">{zone.thermostat_entity_id}</div>
-        </div>
         <label className="field-inline">
           Building
           <select
@@ -272,7 +275,7 @@ function ZoneEditor({
         </p>
 
         {needsKitCheck && (
-          <div className="notice notice-heat" role="note">
+          <div className="note-box notice-heat" role="note">
             <p>{HEAT_KIT_WARNING}</p>
             <button
               type="button"
@@ -378,16 +381,107 @@ function ZoneEditor({
   );
 }
 
+/**
+ * My Home → Edit Zone: one dialog for everything about a zone. Its equipment
+ * and its thermostat's settings are two tabs of the same sheet; both stay
+ * mounted, so switching tabs keeps what was typed in the other. Only Close
+ * closes it: a stray click beside the sheet must not drop two unsaved forms.
+ */
+function EditZoneDialog({
+  zone,
+  equipment,
+  thermostat,
+  onClose,
+  onDelete,
+}: {
+  zone: ZoneProfile;
+  onDelete: () => void;
+  equipment: ReactNode;
+  thermostat: ReactNode;
+  onClose: () => void;
+}) {
+  const [tab, setTab] = useState<"equipment" | "thermostat">("equipment");
+  const name = zone.name || zone.thermostat_entity_id;
+  return (
+    <div
+      className="modal-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Edit zone ${name}`}
+    >
+      <div className="modal edit-zone">
+        <div className="edit-zone-head">
+          <div>
+            <div className="modal-title">{`Edit ${name}`}</div>
+            <div className="zone-entity">{zone.thermostat_entity_id}</div>
+          </div>
+          <span className="edit-zone-actions">
+            <button
+              type="button"
+              className="link-button"
+              aria-label={`Delete Zone ${name}`}
+              onClick={onDelete}
+            >
+              Delete Zone
+            </button>
+            <button type="button" className="btn btn-secondary" onClick={onClose}>
+              Close
+            </button>
+          </span>
+        </div>
+        {thermostat && (
+          <div className="segmented" role="tablist" aria-label="Zone settings">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === "equipment"}
+              className="segmented-option"
+              onClick={() => setTab("equipment")}
+            >
+              Equipment
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === "thermostat"}
+              className="segmented-option"
+              onClick={() => setTab("thermostat")}
+            >
+              Thermostat
+            </button>
+          </div>
+        )}
+        <div role="tabpanel" aria-label="Equipment" hidden={tab !== "equipment"}>
+          {equipment}
+        </div>
+        {thermostat && (
+          <div role="tabpanel" aria-label="Thermostat" hidden={tab !== "thermostat"}>
+            {thermostat}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** "climate.north_wing" as "North Wing", when Home Assistant gives no name. */
+function prettyEntity(id: string): string {
+  return id
+    .slice(id.lastIndexOf(".") + 1)
+    .split("_")
+    .filter(Boolean)
+    .map((w) => w[0].toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
 function BuildingHeader({
   building,
   onRenamed,
   onDeleted,
-  onAddZone,
 }: {
   building: Building;
   onRenamed: (b: Building) => void;
   onDeleted: () => void;
-  onAddZone: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(building.name);
@@ -437,30 +531,37 @@ function BuildingHeader({
           >
             Cancel
           </button>
-        </>
-      ) : (
-        <>
-          <h2 className="group-header-title">{building.name}</h2>
-          <span className="group-header-rule" />
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm"
-            aria-label={`Add Zone to ${building.name}`}
-            onClick={onAddZone}
-          >
-            Add Zone
-          </button>
-          <button type="button" className="link-button" onClick={() => setEditing(true)}>
-            Rename
-          </button>
           <button
             type="button"
             className="link-button"
             aria-label={`Delete ${building.name}`}
             onClick={() => setConfirming(true)}
           >
-            Delete
+            Delete Building
           </button>
+        </>
+      ) : (
+        <>
+          <h2 className="group-header-title">{building.name}</h2>
+          <button
+            type="button"
+            className="icon-button"
+            aria-label={`Edit ${building.name}`}
+            title="Rename or delete this building"
+            onClick={() => setEditing(true)}
+          >
+            <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+              <path
+                d="M8 3H4.5A1.5 1.5 0 0 0 3 4.5v9A1.5 1.5 0 0 0 4.5 15h9a1.5 1.5 0 0 0 1.5-1.5V10M13.2 2.6a1.4 1.4 0 0 1 2 2L9.5 10.3 7 11l.7-2.5 5.5-5.9Z"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </button>
+          <span className="group-header-rule" />
         </>
       )}
       {confirming && (
@@ -727,15 +828,12 @@ export default function Zones({
   title = "My Home",
   subtitle = "Buildings, zones and rooms, and the devices in each room.",
   renderRooms,
-  onAddRoom,
   reloadKey = 0,
   onChanged,
 }: {
   title?: string;
   subtitle?: string;
   renderRooms?: (thermostatEntityId: string) => ReactNode;
-  /** Opens the new-room form for one zone; each zone then gets an Add Room button. */
-  onAddRoom?: (thermostatEntityId: string) => void;
   reloadKey?: number;
   onChanged?: () => void;
 }) {
@@ -746,12 +844,36 @@ export default function Zones({
   const [adding, setAdding] = useState(false);
   // The group whose Add Zone form is open: a building id, or "" for Unassigned.
   const [addingZoneIn, setAddingZoneIn] = useState<string | null>(null);
+  // What Home Assistant calls each thermostat, for the line under a zone's name.
+  const [friendly, setFriendly] = useState<Record<string, string>>({});
+  const zoneIds = (zones ?? []).map((z) => z.thermostat_entity_id).join();
+  useEffect(() => {
+    if (!zoneIds) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const states = (await getEntityStates(zoneIds.split(","))) ?? {};
+        const names: Record<string, string> = {};
+        for (const [id, st] of Object.entries(states)) {
+          const name = st?.attributes?.friendly_name;
+          if (typeof name === "string" && name) names[id] = name;
+        }
+        if (!cancelled) setFriendly(names);
+      } catch {
+        // The entity id, tidied, stands in.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [zoneIds]);
   const [newName, setNewName] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<ZoneProfile | null>(null);
 
   const deleteZone = async (z: ZoneProfile) => {
     setDeleting(null);
+    setEditing(null);
     setErr(null);
     try {
       await deleteThermostat(z.thermostat_entity_id, true);
@@ -836,6 +958,15 @@ export default function Zones({
         </div>
       )}
 
+      {/* The weather outside belongs to the whole property, above its buildings. */}
+      <section className="building-group outside-group" aria-label="Outside">
+        <div className="group-header">
+          <h2 className="group-header-title">Outside</h2>
+          <span className="group-header-rule" />
+        </div>
+        <OutsideTempPicker />
+      </section>
+
       {err && <p className="form-error">{err}</p>}
       {deleting && (
         <ConfirmDialog
@@ -861,20 +992,11 @@ export default function Zones({
               building={g.building}
               onRenamed={(b) => setBuildings((all) => all.map((x) => (x.id === b.id ? b : x)))}
               onDeleted={() => void load()}
-              onAddZone={() => setAddingZoneIn(g.building!.id)}
             />
           ) : (
             <div className="group-header">
               <h2 className="group-header-title">Unassigned</h2>
               <span className="group-header-rule" />
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                aria-label="Add Zone to Unassigned"
-                onClick={() => setAddingZoneIn("")}
-              >
-                Add Zone
-              </button>
             </div>
           )}
           {addingZoneIn === (g.building?.id ?? "") && (
@@ -890,7 +1012,7 @@ export default function Zones({
           )}
           {g.items.length === 0 && addingZoneIn !== (g.building?.id ?? "") && (
             <div className="empty-panel">
-              No zones in this building yet. Use Add Zone above, or edit a zone to move it here.
+              No zones in this building yet. Add one below, or edit a zone to move it here.
             </div>
           )}
           {g.items.map((z) => {
@@ -901,24 +1023,78 @@ export default function Zones({
                 className="zone-panel"
                 aria-label={z.name || z.thermostat_entity_id}
               >
-                {editing === z.thermostat_entity_id ? (
-                  <>
-                    <ZoneEditor
-                      zone={z}
-                      buildings={buildings}
-                      onCancel={() => setEditing(null)}
-                      onSaved={(saved) => {
-                        setZones(
-                          zoneList.map((x) =>
-                            x.thermostat_entity_id === saved.thermostat_entity_id ? saved : x
-                          )
-                        );
-                      }}
-                    />
-                    {config && (
-                      <div className="zone-thermostat-settings">
-                        <h3 className="zone-section-title">Thermostat Settings</h3>
+                <div className="zone-row zone-panel-head">
+                  <div className="zone-row-title">
+                    <div className="zone-name">
+                      {z.name || z.thermostat_entity_id}
+                      <button
+                        type="button"
+                        className="icon-button"
+                        aria-label="Edit Zone"
+                        title="Edit or delete this zone"
+                        onClick={() => setEditing(z.thermostat_entity_id)}
+                      >
+                        <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+                          <path
+                            d="M8 3H4.5A1.5 1.5 0 0 0 3 4.5v9A1.5 1.5 0 0 0 4.5 15h9a1.5 1.5 0 0 0 1.5-1.5V10M13.2 2.6a1.4 1.4 0 0 1 2 2L9.5 10.3 7 11l.7-2.5 5.5-5.9Z"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.4"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      </button>
+                    </div>
+                    <div className="zone-entity" title={z.thermostat_entity_id}>
+                      {`Thermostat: ${friendly[z.thermostat_entity_id] ?? prettyEntity(z.thermostat_entity_id)}`}
+                    </div>
+                  </div>
+                  <span className="pill">{equipmentSummary(z)}</span>
+                  {z.strips_expected && (
+                    <span className="pill pill-heat" title={STRIPS_EXPECTED_HELP}>
+                      Strips Expected
+                    </span>
+                  )}
+                  {z.aux_heat_running && (
+                    <span className="pill pill-heat" role="status">
+                      Auxiliary Heat Running
+                    </span>
+                  )}
+                  {z.looks_like_heat_pump && (
+                    <button
+                      type="button"
+                      className="pill pill-heat pill-button"
+                      aria-label={`${z.name || z.thermostat_entity_id} looks like a heat pump. Check its system type`}
+                      onClick={() => setEditing(z.thermostat_entity_id)}
+                    >
+                      Looks Like a Heat Pump: Check System Type
+                    </button>
+                  )}
+                </div>
+                {editing === z.thermostat_entity_id && (
+                  <EditZoneDialog
+                    zone={z}
+                    onClose={() => setEditing(null)}
+                    onDelete={() => setDeleting(z)}
+                    equipment={
+                      <ZoneEditor
+                        zone={z}
+                        buildings={buildings}
+                        onCancel={() => setEditing(null)}
+                        onSaved={(saved) => {
+                          setZones(
+                            zoneList.map((x) =>
+                              x.thermostat_entity_id === saved.thermostat_entity_id ? saved : x
+                            )
+                          );
+                        }}
+                      />
+                    }
+                    thermostat={
+                      config && (
                         <ThermostatCard
+                          embedded
                           config={config}
                           onDeleted={() => {
                             setEditing(null);
@@ -942,67 +1118,27 @@ export default function Zones({
                             );
                           }}
                         />
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <div className="zone-row zone-panel-head">
-                    <div className="zone-row-title">
-                      <div className="zone-name">{z.name || z.thermostat_entity_id}</div>
-                      <div className="zone-entity">{z.thermostat_entity_id}</div>
-                    </div>
-                    <span className="pill">{equipmentSummary(z)}</span>
-                    {z.strips_expected && (
-                      <span className="pill pill-heat" title={STRIPS_EXPECTED_HELP}>
-                        Strips Expected
-                      </span>
-                    )}
-                    {z.aux_heat_running && (
-                      <span className="pill pill-heat" role="status">
-                        Auxiliary Heat Running
-                      </span>
-                    )}
-                    {z.looks_like_heat_pump && (
-                      <button
-                        type="button"
-                        className="pill pill-heat pill-button"
-                        aria-label={`${z.name || z.thermostat_entity_id} looks like a heat pump. Check its system type`}
-                        onClick={() => setEditing(z.thermostat_entity_id)}
-                      >
-                        Looks Like a Heat Pump: Check System Type
-                      </button>
-                    )}
-                    {onAddRoom && (
-                      <button
-                        type="button"
-                        className="btn btn-secondary"
-                        aria-label={`Add Room to ${z.name || z.thermostat_entity_id}`}
-                        onClick={() => onAddRoom(z.thermostat_entity_id)}
-                      >
-                        Add Room
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      className="btn btn-secondary"
-                      onClick={() => setEditing(z.thermostat_entity_id)}
-                    >
-                      Edit Zone
-                    </button>
-                    <button
-                      type="button"
-                      className="link-button"
-                      aria-label={`Delete Zone ${z.name || z.thermostat_entity_id}`}
-                      onClick={() => setDeleting(z)}
-                    >
-                      Delete Zone
-                    </button>
-                  </div>
+                      )
+                    }
+                  />
                 )}
                 {renderRooms?.(z.thermostat_entity_id)}
               </section>
             );
           })}
+          {addingZoneIn !== (g.building?.id ?? "") && (
+            <button
+              type="button"
+              className="add-tile"
+              aria-label={`Add Zone to ${g.building?.name ?? "Unassigned"}`}
+              onClick={() => setAddingZoneIn(g.building?.id ?? "")}
+            >
+              <span className="add-tile-plus" aria-hidden="true">
+                +
+              </span>
+              Add Zone
+            </button>
+          )}
         </section>
       ))}
     </div>

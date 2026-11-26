@@ -106,9 +106,9 @@ export default function VacationModeModal({ current, onClose, onChanged }: Props
               Any rooms with active schedules will resume within one minute.
             </p>
             <p style={{ marginBottom: "1rem", color: "var(--gray-600)", fontSize: ".9rem" }}>
-              <strong>Welcome home</strong> also starts now on every thermostat that has it on: each
-              room is treated as occupied once, so it heats or cools to its presence temperature.
-              Choose <em>End without welcome home</em> to skip that.
+              <strong>Welcome home</strong> also starts now where it is switched on: each room is
+              brought to its occupied temperature once. Choose <em>End without welcome home</em> to
+              skip that.
             </p>
             {errorBadge}
             <div className="modal-footer">
@@ -254,10 +254,8 @@ export default function VacationModeModal({ current, onClose, onChanged }: Props
         {editingScheduled ? "Edit scheduled vacation" : "Enable vacation mode"}
       </div>
       <p style={{ marginBottom: "1rem" }}>
-        While vacation mode is active, <strong>all room schedules</strong>, presence triggers, and
-        temporary overrides are paused. Each thermostat will be held within its configured minimum
-        and maximum setpoint limits until the return date, then{" "}
-        <strong>normal scheduling resumes automatically</strong>.
+        While you are away, <strong>schedules, occupancy and holds are paused</strong> and the house
+        is kept inside its safe temperatures. Normal running resumes on the return date.
       </p>
       <p style={{ marginBottom: "1.25rem", color: "var(--gray-600)", fontSize: ".9rem" }}>
         This applies to <strong>all thermostats</strong>. Each thermostat's hold strategy (range or

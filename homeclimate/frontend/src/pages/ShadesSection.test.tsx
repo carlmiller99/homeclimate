@@ -1,7 +1,8 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as api from "../api";
 import * as sh from "../shadesApi";
+import { MemoryRouter } from "react-router";
 import ShadesSection from "./ShadesSection";
 
 vi.mock("../shadesApi", async (orig) => ({
@@ -87,37 +88,59 @@ beforeEach(() => {
 });
 
 async function ready() {
-  render(<ShadesSection rooms={ROOMS} />);
+  render(
+    <MemoryRouter>
+      <ShadesSection rooms={ROOMS} />
+    </MemoryRouter>
+  );
   await screen.findByText("Bunk Shade");
 }
 
 describe("Shades section", () => {
   it("loads, describes the sun and each shade", async () => {
-    render(<ShadesSection rooms={ROOMS} />);
+    render(
+      <MemoryRouter>
+        <ShadesSection rooms={ROOMS} />
+      </MemoryRouter>
+    );
     expect(screen.getByText("Loading shades…")).toBeInTheDocument();
     await screen.findByText("Bunk Shade");
     expect(screen.getByText("Sun 34° up, from the south-southeast.")).toBeInTheDocument();
     expect(screen.getByText("Bunk Room. Sunlit and heating, so opened.")).toBeInTheDocument();
-    expect(screen.getByText("Waiting for the next check.")).toBeInTheDocument();
+    // A shade whose room is gone still shows, and one with nothing to say waits.
+    expect(screen.getByText("No room. Waiting for the next check.")).toBeInTheDocument();
     expect(screen.getByText("Moving")).toBeInTheDocument();
-    expect(
-      screen.getByRole("img", { name: "Bunk Shade faces S, sun at 160°" })
-    ).toBeInTheDocument();
+    // Shades are added and changed from their room, not here.
+    expect(screen.getByRole("link", { name: "My Home" })).toHaveAttribute("href", "/my-home");
+    expect(screen.queryByRole("button", { name: "Add Shade" })).toBeNull();
+    expect(screen.queryByLabelText("Which way Bunk Shade's window faces")).toBeNull();
   });
 
   it("reports a failed load and ignores late answers", async () => {
     vi.mocked(sh.getShades).mockRejectedValueOnce(new Error("x"));
-    const first = render(<ShadesSection rooms={ROOMS} />);
+    const first = render(
+      <MemoryRouter>
+        <ShadesSection rooms={ROOMS} />
+      </MemoryRouter>
+    );
     expect(await screen.findByText("Could not load shades.")).toBeInTheDocument();
     first.unmount();
     let resolve: (d: sh.Shades) => void = () => {};
     vi.mocked(sh.getShades).mockReturnValueOnce(new Promise((r) => (resolve = r)));
-    const second = render(<ShadesSection rooms={ROOMS} />);
+    const second = render(
+      <MemoryRouter>
+        <ShadesSection rooms={ROOMS} />
+      </MemoryRouter>
+    );
     second.unmount();
     resolve(data());
     let reject: (e: Error) => void = () => {};
     vi.mocked(sh.getShades).mockReturnValueOnce(new Promise((_, r) => (reject = r)));
-    const third = render(<ShadesSection rooms={ROOMS} />);
+    const third = render(
+      <MemoryRouter>
+        <ShadesSection rooms={ROOMS} />
+      </MemoryRouter>
+    );
     third.unmount();
     reject(new Error("late"));
     await Promise.resolve();
@@ -128,30 +151,13 @@ describe("Shades section", () => {
     vi.mocked(sh.getShades).mockResolvedValue(
       data({ shades: [], sun: { elevation: null, azimuth: null, cloud_pct: null } })
     );
-    render(<ShadesSection rooms={ROOMS} />);
+    render(
+      <MemoryRouter>
+        <ShadesSection rooms={ROOMS} />
+      </MemoryRouter>
+    );
     expect(await screen.findByText(/No shades yet/)).toBeInTheDocument();
     expect(screen.getByText("Sun position unknown.")).toBeInTheDocument();
-  });
-
-  it("follows saved positions and an unknown sun", async () => {
-    vi.mocked(sh.getShades).mockResolvedValue(
-      data({ sun: { elevation: null, azimuth: null, cloud_pct: null } })
-    );
-    vi.mocked(sh.saveShade)
-      .mockResolvedValueOnce(data({ shades: [{ ...SHADE, closed_position: 10 }] }))
-      .mockResolvedValueOnce(data({ shades: [{ ...SHADE, closed_position: null }] }));
-    await ready();
-    expect(screen.getByRole("img", { name: "Bunk Shade faces S" })).toBeInTheDocument();
-    const closed = screen.getAllByLabelText("Closed Position")[0];
-    fireEvent.change(closed, { target: { value: "250" } });
-    fireEvent.blur(closed);
-    expect(closed).toHaveValue(null);
-    fireEvent.change(closed, { target: { value: "10" } });
-    fireEvent.blur(closed);
-    await waitFor(() => expect(screen.getAllByLabelText("Closed Position")[0]).toHaveValue(10));
-    fireEvent.change(screen.getAllByLabelText("Closed Position")[0], { target: { value: "" } });
-    fireEvent.blur(screen.getAllByLabelText("Closed Position")[0]);
-    await waitFor(() => expect(screen.getAllByLabelText("Closed Position")[0]).toHaveValue(null));
   });
 
   it("saves every setting", async () => {
@@ -207,95 +213,6 @@ describe("Shades section", () => {
     vi.mocked(sh.updateShadeSettings).mockRejectedValueOnce(7);
     fireEvent.click(screen.getByLabelText("Quiet Hours"));
     expect(await screen.findByText("Could not save the setting")).toBeInTheDocument();
-  });
-
-  it("changes, removes and adds shades", async () => {
-    await ready();
-    fireEvent.change(screen.getByLabelText("Which way Bunk Shade's window faces"), {
-      target: { value: "SW" },
-    });
-    expect(sh.saveShade).toHaveBeenLastCalledWith("cover.bunk_shade", { facing: "SW" });
-    const row = screen
-      .getByLabelText("Which way Bunk Shade's window faces")
-      .closest(".shade-row") as HTMLElement;
-    fireEvent.click(within(row).getByLabelText("Quiet Hours Apply"));
-    expect(sh.saveShade).toHaveBeenLastCalledWith("cover.bunk_shade", { quiet_hours: true });
-    fireEvent.click(within(row).getByLabelText("Never Control This Shade"));
-    expect(sh.saveShade).toHaveBeenLastCalledWith("cover.bunk_shade", { never_control: true });
-
-    const openPos = within(row).getByLabelText("Open Position");
-    fireEvent.change(openPos, { target: { value: "70" } });
-    fireEvent.blur(openPos);
-    expect(sh.saveShade).toHaveBeenLastCalledWith("cover.bunk_shade", { open_position: 70 });
-    vi.mocked(sh.saveShade).mockClear();
-    for (const v of ["101", "1.5", ""]) {
-      fireEvent.change(openPos, { target: { value: v } });
-      fireEvent.blur(openPos);
-    }
-    expect(sh.saveShade).not.toHaveBeenCalled();
-
-    const lostRow = screen
-      .getByLabelText("Which way Lost Shade's window faces")
-      .closest(".shade-row") as HTMLElement;
-    const lostOpen = within(lostRow).getByLabelText("Open Position");
-    expect(lostOpen).toHaveValue(60);
-    fireEvent.change(lostOpen, { target: { value: "" } });
-    fireEvent.blur(lostOpen);
-    expect(sh.saveShade).toHaveBeenLastCalledWith("cover.x", { open_position: null });
-    fireEvent.change(lostOpen, { target: { value: "60" } });
-    fireEvent.blur(lostOpen);
-    expect(sh.saveShade).toHaveBeenCalledTimes(1);
-    const closedPos = within(row).getByLabelText("Closed Position");
-    fireEvent.change(closedPos, { target: { value: "5" } });
-    fireEvent.blur(closedPos);
-    expect(sh.saveShade).toHaveBeenLastCalledWith("cover.bunk_shade", { closed_position: 5 });
-
-    vi.mocked(sh.saveShade).mockRejectedValueOnce(new Error("Window Faces must be one of"));
-    fireEvent.change(screen.getByLabelText("Which way Bunk Shade's window faces"), {
-      target: { value: "N" },
-    });
-    expect(await screen.findByText("Window Faces must be one of")).toBeInTheDocument();
-    vi.mocked(sh.saveShade).mockRejectedValueOnce(null);
-    fireEvent.change(screen.getByLabelText("Which way Bunk Shade's window faces"), {
-      target: { value: "E" },
-    });
-    expect(await screen.findByText("Could not save the shade")).toBeInTheDocument();
-
-    vi.mocked(sh.deleteShade).mockRejectedValueOnce(new Error("Shade not found"));
-    fireEvent.click(screen.getByRole("button", { name: "Remove Bunk Shade" }));
-    expect(await screen.findByText("Shade not found")).toBeInTheDocument();
-    vi.mocked(sh.deleteShade).mockRejectedValueOnce(undefined);
-    fireEvent.click(screen.getByRole("button", { name: "Remove Bunk Shade" }));
-    expect(await screen.findByText("Could not remove the shade")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Add Shade" }));
-    const group = screen.getByRole("group", { name: "Add Shade" });
-    const add = within(group).getByRole("button", { name: "Add Shade" });
-    expect(add).toBeDisabled();
-    fireEvent.focus(within(group).getByPlaceholderText("Search shades…"));
-    fireEvent.mouseDown(await within(group).findByText("New Shade"));
-    fireEvent.click(within(group).getByRole("button", { name: "Change" }));
-    fireEvent.focus(within(group).getByPlaceholderText("Search shades…"));
-    fireEvent.mouseDown(await within(group).findByText("New Shade"));
-    fireEvent.change(within(group).getByLabelText("Room"), { target: { value: "r2" } });
-    fireEvent.change(within(group).getByLabelText("Window Faces"), { target: { value: "W" } });
-    vi.mocked(sh.saveShade).mockRejectedValueOnce(new Error("That cover is already a vent"));
-    fireEvent.click(add);
-    expect(await screen.findByText("That cover is already a vent")).toBeInTheDocument();
-    expect(screen.getByRole("group", { name: "Add Shade" })).toBeInTheDocument();
-    fireEvent.click(add);
-    await waitFor(() => expect(screen.queryByRole("group", { name: "Add Shade" })).toBeNull());
-    expect(sh.saveShade).toHaveBeenLastCalledWith("cover.new_shade", {
-      room_id: "r2",
-      facing: "W",
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "Add Shade" }));
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(screen.queryByRole("group", { name: "Add Shade" })).toBeNull();
-
-    fireEvent.click(screen.getByRole("button", { name: "Remove Bunk Shade" }));
-    expect(await screen.findByText(/No shades yet/)).toBeInTheDocument();
   });
 });
 

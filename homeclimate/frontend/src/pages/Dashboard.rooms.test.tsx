@@ -167,7 +167,12 @@ describe("Dashboard rooms and zones", () => {
     );
     // An active room shows the temperature the cycle is using.
     expect(screen.getByTestId("dash-room-kitchen")).toHaveTextContent("66.0°F");
-    expect(screen.getByTestId("dash-room-kitchen")).toHaveTextContent("requesting 70.0°F");
+    // What it asks for is in its details, not on the row.
+    expect(screen.getByTestId("dash-room-kitchen")).not.toHaveTextContent("70.0°F");
+    fireEvent.click(screen.getByTestId("dash-room-kitchen"));
+    expect(screen.getByRole("dialog", { name: "Kitchen details" })).toHaveTextContent(
+      "Asking for 70.0°F."
+    );
     // No reading, and no sensors at all: a dash.
     expect(within(screen.getByTestId("dash-room-bunk")).getByText("—")).toBeInTheDocument();
     expect(within(screen.getByTestId("dash-room-loft")).getByText("—")).toBeInTheDocument();
@@ -210,8 +215,10 @@ describe("Dashboard rooms and zones", () => {
 
   it("starts a hold from a room, preselecting that room", async () => {
     render(<Dashboard />);
-    const mudroom = await screen.findByTestId("dash-room-mudroom");
-    fireEvent.click(within(mudroom).getByRole("button", { name: /^Hold for / }));
+    fireEvent.click(await screen.findByTestId("dash-room-mudroom"));
+    fireEvent.click(screen.getByRole("button", { name: "Start a Hold" }));
+    // The details hand over to the hold dialog.
+    expect(screen.queryByRole("dialog", { name: "Mudroom details" })).toBeNull();
     expect(screen.getByTestId("hold-modal")).toBeInTheDocument();
     expect(screen.getByTestId("hold-modal").querySelector("#hold-room")).toHaveValue("mudroom");
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
@@ -223,15 +230,12 @@ describe("Dashboard rooms and zones", () => {
     vi.mocked(api.clearOverride).mockResolvedValue(undefined as never);
     render(<Dashboard />);
     const mudroom = await screen.findByTestId("dash-room-mudroom");
-    // A held room offers Cancel Hold in place of Hold, and carries the badge
-    // even though it is not part of a running cycle.
-    expect(within(mudroom).queryByRole("button", { name: /^Hold for / })).toBeNull();
+    // A held room carries the badge even though it is not part of a running
+    // cycle, and its details offer Cancel Hold in place of Start a Hold.
     expect(within(mudroom).getByTitle(/temporary hold is driving this room/i)).toBeInTheDocument();
-    expect(
-      within(screen.getByTestId("dash-room-kitchen")).getByRole("button", { name: /^Hold for / })
-    ).toBeInTheDocument();
-
-    fireEvent.click(within(mudroom).getByRole("button", { name: "Cancel Hold for Mudroom" }));
+    fireEvent.click(mudroom);
+    expect(screen.queryByRole("button", { name: "Start a Hold" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel Hold" }));
     await waitFor(() => expect(api.clearOverride).toHaveBeenCalledWith("mudroom"));
     await waitFor(() => expect(api.getStatus).toHaveBeenCalledTimes(2));
   });
@@ -239,9 +243,11 @@ describe("Dashboard rooms and zones", () => {
   it("clears presence only on rooms that have it", async () => {
     vi.mocked(api.clearPresenceHoldover).mockResolvedValue(undefined as never);
     render(<Dashboard />);
-    const kitchen = await screen.findByTestId("dash-room-kitchen");
-    expect(screen.getAllByRole("button", { name: /^Clear Presence for / })).toHaveLength(1);
-    fireEvent.click(within(kitchen).getByRole("button", { name: "Clear Presence for Kitchen" }));
+    fireEvent.click(await screen.findByTestId("dash-room-mudroom"));
+    expect(screen.queryByRole("button", { name: "Clear Presence" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    fireEvent.click(screen.getByTestId("dash-room-kitchen"));
+    fireEvent.click(screen.getByRole("button", { name: "Clear Presence" }));
     await waitFor(() => expect(api.clearPresenceHoldover).toHaveBeenCalledWith("kitchen"));
     await waitFor(() => expect(api.getStatus).toHaveBeenCalledTimes(2));
   });
@@ -490,21 +496,18 @@ describe("Dashboard rooms and zones", () => {
     vi.mocked(api.getOverrides).mockResolvedValue([makeHold({ room_id: "mudroom" })]);
     vi.mocked(api.clearOverride).mockRejectedValueOnce(new Error("Room not found"));
     render(<Dashboard />);
-    const mudroom = await screen.findByTestId("dash-room-mudroom");
-    fireEvent.click(within(mudroom).getByRole("button", { name: "Cancel Hold for Mudroom" }));
+    const cancel = async () => {
+      fireEvent.click(await screen.findByTestId("dash-room-mudroom"));
+      fireEvent.click(screen.getByRole("button", { name: "Cancel Hold" }));
+    };
+    await cancel();
     expect(await screen.findByText("Room not found")).toBeInTheDocument();
     vi.mocked(api.clearOverride).mockRejectedValueOnce("x");
-    fireEvent.click(
-      within(screen.getByTestId("dash-room-mudroom")).getByRole("button", {
-        name: "Cancel Hold for Mudroom",
-      })
-    );
+    await cancel();
     expect(await screen.findByText("Could not cancel the hold")).toBeInTheDocument();
 
-    const clear = () =>
-      within(screen.getByTestId("dash-room-kitchen")).getByRole("button", {
-        name: "Clear Presence for Kitchen",
-      });
+    fireEvent.click(screen.getByTestId("dash-room-kitchen"));
+    const clear = () => screen.getByRole("button", { name: "Clear Presence" });
     vi.mocked(api.clearPresenceHoldover).mockRejectedValueOnce(new Error("HA is unreachable"));
     fireEvent.click(clear());
     expect(await screen.findByText("HA is unreachable")).toBeInTheDocument();

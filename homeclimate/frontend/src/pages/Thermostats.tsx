@@ -20,7 +20,6 @@ import OutsideTempPicker from "../components/OutsideTempPicker";
 import { ECO_NUMERIC_FIELDS } from "../eco";
 import { useTimeZone, useUnit } from "../contexts";
 import { onStateChanged } from "../stateEvents";
-import { vacationHoldTarget } from "../vacationHold";
 
 // ---------------------------------------------------------------------------
 // Safety settings fields (numerical config)
@@ -85,7 +84,7 @@ const SAFETY_FIELDS: {
   {
     key: "min_cycle_runtime_min",
     label: "Min cycle runtime (min)",
-    help: "Keep the HVAC running at least this long before completing a cycle, to protect the compressor from short-cycling. Recommended: 10 min (long enough to return oil to the compressor and condition effectively). 0 = disabled.",
+    help: "Once heating or cooling starts, it runs at least this long, which protects the equipment. 10 minutes is usual; 0 turns this off.",
     step: "1",
     min: "0",
     kind: "other",
@@ -93,7 +92,7 @@ const SAFETY_FIELDS: {
   {
     key: "min_cycle_offtime_min",
     label: "Min compressor off-time (min)",
-    help: "Wait at least this long after a cycle ends before starting a new one, so the compressor is not restarted too soon. Recommended: 5 min — the industry-standard anti-short-cycle delay that lets refrigerant pressures equalize. 0 = disabled.",
+    help: "After heating or cooling stops, it waits at least this long before starting again. 5 minutes is usual; 0 turns this off.",
     step: "1",
     min: "0",
     kind: "other",
@@ -101,7 +100,7 @@ const SAFETY_FIELDS: {
   {
     key: "unavailable_abort_after_min",
     label: "Abort when thermostat unavailable (min)",
-    help: "If the thermostat entity is unavailable in Home Assistant for this long while a cycle is running, abort the cycle and re-open all vents — while it is unavailable the engine cannot supervise the cycle (no timeout, no closed-vent watchdog). Shorter outages are tolerated and the cycle resumes untouched. Recommended: 5 min. 0 = never abort (not recommended).",
+    help: "If the thermostat stops answering for this long during a run, the run is ended and every vent is opened. 0 turns this off.",
     step: "1",
     min: "0",
     kind: "other",
@@ -236,10 +235,8 @@ export function AddThermostatModal({
             onChange={(e) => setTotalVentsCount(e.target.value)}
           />
           <div className="form-hint">
-            <strong>Count every register on this thermostat — smart vents AND passive ones</strong>,
-            not only the smart ones. HomeClimate uses this to keep enough airflow open that closing
-            vents never raises duct static pressure to a point where the furnace trips its
-            high-limit, the blower strains, or the AC evaporator freezes.
+            Count every air vent this thermostat feeds, smart or not. HomeClimate keeps enough of
+            them open to protect the equipment.
           </div>
         </div>
 
@@ -257,9 +254,8 @@ export function AddThermostatModal({
             <span>I have a bypass damper</span>
           </label>
           <div className="form-hint">
-            A mechanical relief valve that opens when duct static pressure exceeds a setpoint. Most
-            residential systems do <strong>not</strong> have one. If yours does, ticking this
-            disables the airflow floor — the damper handles pressure relief.
+            A bypass damper lets extra air escape when vents close. Most homes do not have one.
+            Ticking this turns off the limit on closed vents.
           </div>
         </div>
 
@@ -355,8 +351,12 @@ export function ThermostatCard({
   onSaved,
   onSuspendEco,
   zoneHasRoomOptIn = false,
+  embedded = false,
 }: {
   config: ThermostatConfig;
+  /** Shown inside My Home's Edit Zone dialog, which names the zone itself:
+   *  no card frame and no title of its own. */
+  embedded?: boolean;
   onDeleted: () => void;
   onSaved?: (updated: ThermostatConfig) => void;
   onSuspendEco?: () => void;
@@ -491,17 +491,21 @@ export function ThermostatCard({
   };
 
   return (
-    <div className="card" style={{ marginBottom: "1rem" }}>
+    <div className={embedded ? "thermostat-embedded" : "card"} style={{ marginBottom: "1rem" }}>
       {/* Header */}
       <div className="flex-between" style={{ marginBottom: "1rem" }}>
-        <div>
-          <div className="card-title" style={{ marginBottom: ".15rem" }}>
-            {form.name || <span className="text-muted">(unnamed)</span>}
+        {embedded ? (
+          <span />
+        ) : (
+          <div>
+            <div className="card-title" style={{ marginBottom: ".15rem" }}>
+              {form.name || <span className="text-muted">(unnamed)</span>}
+            </div>
+            <div className="font-mono text-muted" style={{ fontSize: ".78rem" }}>
+              {config.thermostat_entity_id}
+            </div>
           </div>
-          <div className="font-mono text-muted" style={{ fontSize: ".78rem" }}>
-            {config.thermostat_entity_id}
-          </div>
-        </div>
+        )}
         <div style={{ display: "flex", gap: ".5rem", flexWrap: "wrap" }}>
           {/* Eco Suspend (#500): top-of-card control, present only when Eco is
               in play for this thermostat — enabled on the thermostat, opted
@@ -519,9 +523,11 @@ export function ThermostatCard({
                   : "Suspend Eco"}
               </button>
             )}
-          <button className="btn btn-danger btn-sm" onClick={() => setConfirmRemove(true)}>
-            Delete Zone
-          </button>
+          {!embedded && (
+            <button className="btn btn-danger btn-sm" onClick={() => setConfirmRemove(true)}>
+              Delete Zone
+            </button>
+          )}
         </div>
       </div>
 
@@ -655,13 +661,8 @@ export function ThermostatCard({
           <span>Redirect surplus air to other rooms during the minimum-runtime hold</span>
         </label>
         <div className="form-hint">
-          When a cycle hits its target before the minimum runtime has elapsed, the HVAC keeps
-          running. With this on (default), the engine opens vents in non-active rooms that can
-          absorb the surplus air without crossing into the opposite-direction trigger, so the
-          satisfied rooms do not overshoot and the air handler has a larger homeclimate. Turn off if
-          you would rather keep only the cycle's original rooms open during the hold. No effect
-          unless <strong>Min cycle runtime</strong> above is &gt; 0; disabled automatically in
-          vacation mode. See the{" "}
+          If rooms reach their target before the equipment may stop, the extra air goes to other
+          rooms. See the{" "}
           <a
             href="https://github.com/carlmiller99/homeclimate/blob/main/docs/overflow-conditioning.md"
             target="_blank"
@@ -669,7 +670,7 @@ export function ThermostatCard({
           >
             overflow conditioning docs
           </a>{" "}
-          for the tier-by-tier candidate selection.
+          for how rooms are chosen.
         </div>
       </div>
 
@@ -698,11 +699,8 @@ export function ThermostatCard({
           }}
         />
         <div className="form-hint">
-          Skip cooling cycles while the outdoor temperature is below this, to protect the AC
-          compressor from cold-weather operation (liquid slugging, evaporator coil icing).
-          Recommended around 55°F (about 13°C). Leave blank to disable. Requires the
-          outside-temperature sensor (configured at the top of this page). Heat pumps are not
-          supported.
+          Cooling does not run when it is colder than this outside. About 55°F (13°C) is usual, and
+          it needs an outside sensor (My Home, Outside).
         </div>
       </div>
 
@@ -717,9 +715,8 @@ export function ThermostatCard({
         Airflow floor — dead-head protection
       </div>
       <div className="form-hint" style={{ marginBottom: "1rem" }}>
-        Closing too many vents at once raises duct static pressure and can trip a furnace
-        high-limit, strain the blower, or freeze the evaporator coil. The floor keeps a fraction of
-        the thermostat's total registers open at all times.
+        Closing too many vents at once can damage the equipment. HomeClimate keeps this share of the
+        zone&apos;s vents open.
       </div>
 
       <div
@@ -779,8 +776,8 @@ export function ThermostatCard({
             <span>I have a bypass damper</span>
           </label>
           <div className="form-hint">
-            A mechanical relief valve that opens when duct pressure exceeds a setpoint. Most homes
-            don't have one. Ticking this disables the airflow floor.
+            A bypass damper lets extra air escape when vents close. Ticking this turns off the limit
+            on closed vents.
           </div>
         </div>
       </div>
@@ -844,10 +841,8 @@ export function ThermostatCard({
           }}
         />
         <div className="form-hint">
-          How often (in minutes) the engine re-checks actual vent and thermostat state in Home
-          Assistant and corrects any external changes (e.g. from other integrations or manual HA
-          overrides). Set to <strong>0</strong> to disable. Cannot exceed the cycle timeout (
-          {Math.floor(form.cycle_timeout_hours * 60)} min).
+          How often HomeClimate checks that vents and the thermostat are still set the way it left
+          them. Use <strong>0</strong> to turn this off.
         </div>
       </div>
 
@@ -891,63 +886,19 @@ export function ThermostatCard({
         <div className="form-hint">
           {form.vacation_hvac_mode === "range" ? (
             <>
-              Requires your thermostat to support <strong>heat_cool</strong> or{" "}
-              <strong>auto</strong> mode in Home Assistant. During vacation mode the thermostat will
-              be set to <em>heat_cool</em> with a lower bound of{" "}
+              The thermostat keeps the house between {form.min_setpoint}
+              {unitLabel} and {form.max_setpoint}
+              {unitLabel} by itself.{" "}
               <strong>
-                {form.min_setpoint}
-                {unitLabel}
-              </strong>{" "}
-              and an upper bound of{" "}
-              <strong>
-                {form.max_setpoint}
-                {unitLabel}
+                Room sensors are not used, and nothing guards against short cycles: Single setpoint
+                is safer.
               </strong>
-              , letting it manage both heating and cooling natively.{" "}
-              <strong>
-                In this mode vacation sensing uses only the thermostat&apos;s own built-in ambient
-                sensor — your rooms&apos; temperature sensors are not consulted, so a single room
-                can drift well past its limits without the system reacting.
-              </strong>{" "}
-              The bounds are commanded exactly as configured — in this mode the equipment applies
-              its own hysteresis — but it also has{" "}
-              <strong>no compressor off-time protection</strong>: the system never commands this
-              thermostat off, so it has no stop to measure the lockout from. For per-room protection
-              and short-cycle protection while you are away, <strong>Single setpoint</strong> is
-              recommended.
             </>
           ) : (
             <>
-              For thermostats that only support a single target temperature at a time. Rather than
-              turning the HVAC off, the system parks it in a <strong>recovered direction</strong> —
-              the same mode as the thermostat&apos;s last completed cycle, or whichever bound is
-              nearer when it has no cycle history yet — sitting the setpoint on the idle side of the
-              live reading by the configured <strong>Overshoot delta</strong>, so the equipment does
-              not call for heat or cooling on its own. If the temperature drops below{" "}
-              <strong>
-                {form.min_setpoint}
-                {unitLabel}
-              </strong>{" "}
-              it heats to{" "}
-              <strong>
-                {vacationHoldTarget(form.min_setpoint, form.deadband, form.max_setpoint, "heat")}
-                {unitLabel}
-              </strong>
-              ; if it rises above{" "}
-              <strong>
-                {form.max_setpoint}
-                {unitLabel}
-              </strong>{" "}
-              it cools to{" "}
-              <strong>
-                {vacationHoldTarget(form.max_setpoint, form.deadband, form.min_setpoint, "cool")}
-                {unitLabel}
-              </strong>
-              , then returns to parking rather than turning off. Recovering one{" "}
-              <strong>deadband</strong> past the limit rather than stopping on it keeps the hold
-              from switching on and off at the boundary for the whole trip. Stopping the compressor
-              also re-arms the <strong>Min cycle off-time</strong> lockout above. This is the only
-              mode that can also watch each room&apos;s own sensor — see below.
+              While you are away the house is kept between {form.min_setpoint}
+              {unitLabel} and {form.max_setpoint}
+              {unitLabel}: heated when it falls below, cooled when it rises above.
             </>
           )}
         </div>
@@ -974,22 +925,14 @@ export function ThermostatCard({
         <div className="form-hint">
           {form.vacation_hvac_mode === "range" ? (
             <>
-              Unavailable in <strong>Range</strong> mode. A heat_cool thermostat decides heating vs
-              cooling itself from its built-in sensor, so HomeClimate cannot direct a cycle for a
-              single room. Switch to <strong>Single setpoint</strong> above to use this.
+              Not available in <strong>Range</strong> mode. Choose <strong>Single setpoint</strong>{" "}
+              above to use this.
             </>
           ) : (
             <>
-              With this on (default), a room whose own sensor leaves the{" "}
-              <strong>
-                {form.min_setpoint}–{form.max_setpoint}
-                {unitLabel}
-              </strong>{" "}
-              envelope while you are away starts a real cycle — so it appears in Cycle History and
-              the event log, and short-cycle protection applies as usual. Every other room&apos;s
-              vent stays open to share the conditioned air, closing only once that room comes within
-              its deadband of the opposite limit. Turn off to fall back to holding the whole house
-              on the thermostat&apos;s own sensor alone.
+              While you are away, a room that gets colder than {form.min_setpoint}
+              {unitLabel} or warmer than {form.max_setpoint}
+              {unitLabel} gets heating or cooling for that room.
             </>
           )}
         </div>
@@ -1049,10 +992,8 @@ export function ThermostatCard({
             )}
           </div>
           <div className="form-hint" style={{ marginTop: ".5rem" }}>
-            <em>Test auto mode</em> sends the <strong>heat_cool</strong> command with your current
-            min/max setpoints so you can verify the thermostat responded in Home Assistant. Click{" "}
-            <em>Revert test</em> to set it back to off immediately, or the engine will revert it
-            automatically on the next tick (~60 s).
+            <em>Test auto mode</em> switches the thermostat to its heat-and-cool mode so you can
+            check it responds. <em>Revert test</em> turns it off again.
           </div>
         </div>
       )}
@@ -1117,11 +1058,8 @@ export function ThermostatCard({
           </label>
         </div>
         <div className="form-hint">
-          Before you return from vacation, HomeClimate treats every room on this thermostat as
-          occupied once, so the house is comfortable when you walk in. Rooms with an active schedule
-          follow their schedule; every other room heats or cools to its presence temperature for the
-          time set here, then normal presence detection takes over. Rooms with presence holdover set
-          to 0 are skipped. Ending vacation early fires it straight away.
+          Before you get back, each room is brought to its occupied temperature for this long, so
+          the house is comfortable when you walk in.
         </div>
       </div>
 
@@ -1213,12 +1151,8 @@ export function SensorStalenessCard() {
     <div className="card" style={{ marginBottom: "1rem" }}>
       <div className="card-title">Sensor-staleness threshold</div>
       <div className="form-hint" style={{ marginBottom: ".75rem" }}>
-        Temperature sensor readings older than this are excluded from the room temperature average
-        so the engine never drives control decisions off stale data (Issue&nbsp;#211).
-        Battery-powered Zigbee/Z-Wave sensors that drop off the mesh keep showing their last numeric
-        value in Home Assistant — without this guard, that stale value would silently poison the
-        average. Typical: <strong>30 min</strong>. Increase if your sensors report infrequently;
-        decrease if you want a tighter check.
+        A sensor that has not reported for this long is left out of its room&apos;s temperature. 30
+        minutes suits most sensors.
       </div>
       {loading ? (
         // No input exists until the GET lands, so there is nothing for a late

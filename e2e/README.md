@@ -1,3 +1,9 @@
+> **Status.** CI no longer compares screenshots: the visual-regression jobs and
+> the committed golden PNGs were removed to save Actions minutes. CI runs only
+> `temperature-units.spec.ts` (the °F/°C round-trip) from this folder, with
+> `global-setup.ts`. The rest of this page describes the screenshot suite as it
+> was, for running specs by hand; several specs predate the current screens.
+
 # HomeClimate E2E visual regression tests
 
 Playwright tests run against a real Home Assistant instance + the addon in Docker Compose.

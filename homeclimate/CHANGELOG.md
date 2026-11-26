@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.5.18
+
+- Warnings look the same on every page: a quiet row saying what and why, the particulars folded under Details, and a link to where it is fixed. The orange and yellow Dashboard banners are gone.
+- Dashboard: each building is one card, with its own targets in its header and a **Hold a Room** button. The targets card above the buildings is gone: targets belong to a building, and a zone's own targets are folded under it.
+- Dashboard: a room's row shows its name and one temperature, and the whole row opens the room's details: its targets, a hold, what it follows, occupancy, vents and each sensor's reading. The Hold, Options and Clear Presence buttons that sat on every row are in there.
+- My Home: **Edit Zone** opens one dialog with two tabs, Equipment and Thermostat, in place of two cards.
+- My Home: each device box on a room's card opens a dialog for that kind of device in that room. The separate room device page and its Edit Devices button are gone.
+- My Home: **Shades** are a fifth kind of room device, added and changed from the room. Smart Control → Shades keeps how shades react to the sun, with a status list.
+- Smart Control → **Schedules**: each room's card now also asks whether the room is in use: Always, When a Calendar Says So, or Never. The separate Rooms In Use by Calendar card is gone.
+- Colours: text and backgrounds are a little closer together in both the light and the dark theme.
+- Dashboard → **Today's Plan** is drawn as designed: a band of labelled heating, coasting and cooling blocks, the outdoor temperature as a line under it, and what is coming up in a grid.
+- Dashboard: a building's name, mode, targets and Hold a Room sit on one line. A zone shows one line about its thermostat, and each room is a card with what it follows under its name.
+- Smart Control → **Forecasts**: an outlook card per day with its kind of day (Swing, Warm, Cool, Mild), its range, its sky and its plan as a bar and a sentence. The hour-by-hour table is folded under it.
+- Smart Control → **Zone Balance** is drawn as designed: one rule row per building, and each building's zones on a line from coolest to warmest with the gap against the limit.
+- My Home: a pencil beside a building's or a zone's name opens it for editing; Rename, Delete and Edit Zone are behind it. **Add Room** and **Add Zone** are tiles at the end of the list they add to.
+- My Home: a zone shows "Thermostat: " and the thermostat's name in place of its entity id. A device's name leaves off the room's name, and occupancy is a green or grey dot.
+- My Home: **Room Settings** opens as a dialog over the page.
+- My Home: the outside temperature sensors moved here from Settings, into an **Outside** group above the buildings.
+- Explanations across the app are shorter and plainer: two sentences and thirty words at most.
+- Smart Control → **Auto Mode** (was "One Side Per Building", under Forecasts): its own section, in plain words. For each building: whether in Auto it lets each zone decide or heats and cools as one, how often it may switch between heating and cooling, and how far past its target a room must be first.
+
 ## 0.5.17
 
 - Dashboard: **Targets** replace the house band. Each building has a heating target and a cooling target, and a zone or a room can be given its own; anything without its own follows the level above, and the Dashboard says which. The two targets can be the same number, so a home can be held at 71, or between 71 and 72, all year: the 3 °F minimum between them is gone, here and on a schedule's, a hold's and an occupancy target's Cool To.

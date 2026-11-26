@@ -24,12 +24,38 @@ function effective(house: House, level: TargetLevel | undefined) {
   return null;
 }
 
+function followsText(
+  from: { heat: number; cool: number; from: TargetLevel },
+  toDisplay: (f: number) => number,
+  unitLabel: string
+): string {
+  return `Follows ${from.from.name}: ${toDisplay(from.heat)} to ${toDisplay(from.cool)}${unitLabel}`;
+}
+
+/**
+ * What a level is kept between, in a line: its own targets, the ones it
+ * follows, or that it has none. For a room's row on the Dashboard.
+ */
+export function describeTargets(
+  house: House,
+  level: TargetLevel,
+  toDisplay: (f: number) => number,
+  unitLabel: string
+): string {
+  const found = effective(house, level);
+  if (!found) return "No targets set";
+  if (found.from === level) {
+    return `Its own targets: ${toDisplay(found.heat)} to ${toDisplay(found.cool)}${unitLabel}`;
+  }
+  return followsText(found, toDisplay, unitLabel);
+}
+
 /** What clearing a level's targets does when nothing above it has any. */
 const CLEAR_WITH_NOTHING_ABOVE: Record<TargetScope, string> = {
   building:
-    "Rooms in this building that have no targets of their own, or from their zone, stop asking for heating or cooling straight away, which ends any cycle running just for them.",
-  zone: "Rooms in this zone that have no targets of their own stop asking for heating or cooling straight away, which ends any cycle running just for them.",
-  room: "This room stops asking for heating or cooling straight away, unless a hold, a schedule or occupancy gives it a target. That ends any cycle running just for it.",
+    "Rooms in this building with no targets of their own stop asking for heating or cooling straight away.",
+  zone: "Rooms in this zone with no targets of their own stop asking for heating or cooling straight away.",
+  room: "This room stops asking for heating or cooling straight away, unless a hold, a schedule or occupancy gives it a target.",
 };
 
 /**
@@ -37,7 +63,7 @@ const CLEAR_WITH_NOTHING_ABOVE: Record<TargetScope, string> = {
  * the backend converts on write (#231). Re-derived during render, keyed on the
  * stored content, so a refetch never discards what is being typed (pitfall 9).
  */
-function TargetsRow({
+export function TargetsRow({
   house,
   level,
   onSaved,
@@ -90,7 +116,7 @@ function TargetsRow({
   };
 
   const follows = inherited
-    ? `Follows ${inherited.from.name}: ${toDisplay(inherited.heat)} to ${toDisplay(inherited.cool)}${unitLabel}`
+    ? followsText(inherited, toDisplay, unitLabel)
     : level.parent
       ? `No targets set, here or for ${level.parent.name}`
       : "No targets set";
@@ -156,9 +182,8 @@ function TargetsRow({
       )}
       {valid && cool - heat < toDisplayDelta(CLOSE_F) && (
         <p className="targets-follows targets-note">
-          With targets this close, only a room&apos;s deadband separates heating from cooling. A
-          building held to one side limits how often it changes between them: Heat Only or Cool Only
-          here on the Dashboard, or Auto set to On under Smart Control.
+          With targets this close, a room can swing between heating and cooling. Set the building to
+          Heat Only or Cool Only to stop that.
         </p>
       )}
       {error && <p className="form-error">{error}</p>}
@@ -179,65 +204,5 @@ function TargetsRow({
         />
       )}
     </div>
-  );
-}
-
-/** A building (or a zone in no building) with the zones and rooms under it. */
-export interface TargetGroup {
-  top: TargetLevel;
-  /** Zones under a building, each with its rooms; or just rooms under a zone. */
-  children: { level: TargetLevel; rooms: TargetLevel[] }[];
-}
-
-/**
- * Dashboard → Targets: a heating and a cooling target for each building, with
- * its zones and rooms folded underneath for the ones that should differ.
- */
-export default function TargetsCard({
-  house,
-  groups,
-  onSaved,
-}: {
-  house: House;
-  groups: TargetGroup[];
-  onSaved: (house: House) => void;
-}) {
-  if (groups.length === 0) return null;
-  return (
-    <section className="house-band targets-card" aria-labelledby="targets-title">
-      <div className="house-band-text">
-        <h2 className="house-band-title" id="targets-title">
-          Targets
-        </h2>
-        <p className="house-band-help">
-          A heating target and a cooling target; they can be the same number. A room is heated below
-          the first and cooled above the second, unless a hold, a schedule or occupancy gives it its
-          own. A room follows its zone, and a zone its building, unless you give it targets of its
-          own.
-        </p>
-      </div>
-      {groups.map((g) => (
-        <div key={`${g.top.scope}:${g.top.id}`} className="targets-group">
-          <TargetsRow house={house} level={g.top} onSaved={onSaved} />
-          {g.children.length > 0 && (
-            <details className="targets-more">
-              <summary>
-                {g.top.scope === "building"
-                  ? `Zones and rooms in ${g.top.name}`
-                  : `Rooms in ${g.top.name}`}
-              </summary>
-              {g.children.map((c) => (
-                <div key={`${c.level.scope}:${c.level.id}`}>
-                  <TargetsRow house={house} level={c.level} onSaved={onSaved} />
-                  {c.rooms.map((r) => (
-                    <TargetsRow key={r.id} house={house} level={r} onSaved={onSaved} />
-                  ))}
-                </div>
-              ))}
-            </details>
-          )}
-        </div>
-      ))}
-    </section>
   );
 }

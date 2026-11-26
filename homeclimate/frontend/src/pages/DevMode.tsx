@@ -343,9 +343,8 @@ export default function DevModePage() {
             Seed demo metrics
           </button>
           <span className="text-muted text-sm">
-            Writes a deterministic week of demo cycles (2025-06-01 → 2025-06-07) so the Analytics
-            page charts render without waiting days for real data. Real cycle history is never
-            touched; reseeding replaces the demo rows.
+            Adds a week of sample cycles so the Analytics charts have something to show. Your real
+            history is not touched.
           </span>
         </div>
         {seedResult && (

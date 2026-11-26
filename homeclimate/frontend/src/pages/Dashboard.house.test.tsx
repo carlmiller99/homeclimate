@@ -143,7 +143,6 @@ describe("Dashboard targets", () => {
     const cool = screen.getByLabelText(COOL);
     expect(heat).toHaveValue(68);
     expect(cool).toHaveValue(75.2);
-    expect(screen.getByText(/they can be the same number/)).toBeInTheDocument();
     const save = screen.getByRole("button", { name: SAVE });
     expect(save).toBeDisabled(); // nothing changed yet
     fireEvent.change(heat, { target: { value: "66.5" } });
@@ -170,7 +169,9 @@ describe("Dashboard targets", () => {
     show();
     const heat = await screen.findByLabelText(HEAT);
     const save = screen.getByRole("button", { name: SAVE });
-    expect(screen.getByText("No targets set")).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("group", { name: "Main" })).getByText("No targets set")
+    ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Clear targets for Main" })).toBeNull();
     fireEvent.change(heat, { target: { value: "71" } });
     expect(save).toBeDisabled(); // needs both
@@ -208,8 +209,11 @@ describe("Dashboard targets", () => {
   it("gives a room its own targets, or lets it follow its zone", async () => {
     show();
     await screen.findByLabelText(HEAT);
-    // Rooms are folded under their zone and show what they follow.
-    const kitchen = screen.getByRole("group", { name: "Kitchen" });
+    // A room's targets are in its details, which say what it follows.
+    fireEvent.click(screen.getByRole("button", { name: "Details for Kitchen" }));
+    const details = screen.getByRole("dialog", { name: "Kitchen details" });
+    expect(details).toHaveTextContent("Main");
+    const kitchen = within(details).getByRole("group", { name: "Kitchen" });
     expect(within(kitchen).getByText("Follows Main: 68 to 75.2°F")).toBeInTheDocument();
     const heat = within(kitchen).getByLabelText("Heating Target for Kitchen (°F)");
     expect(heat).toHaveAttribute("placeholder", "68");
@@ -245,6 +249,16 @@ describe("Dashboard targets", () => {
     expect(await within(kitchen).findByText("Follows Main: 68 to 75.2°F")).toBeInTheDocument();
   });
 
+  it("opens a building's zone targets when a zone there has its own", async () => {
+    vi.mocked(zonesApi.getBuildings).mockResolvedValue([
+      { id: "b1", name: "Main House", sort_order: 0 },
+    ]);
+    vi.mocked(zonesApi.getZones).mockResolvedValue([{ ...ZONE, building_id: "b1" }]);
+    show();
+    const summary = await screen.findByText("Targets for zones in Main House");
+    expect(summary.closest("details")).toHaveAttribute("open");
+  });
+
   it("puts a building first, with its zones and rooms under it", async () => {
     vi.mocked(zonesApi.getBuildings).mockResolvedValue([
       { id: "b1", name: "Main House", sort_order: 0 },
@@ -258,21 +272,24 @@ describe("Dashboard targets", () => {
     );
     show();
     expect(await screen.findByLabelText("Heating Target for Main House (°F)")).toHaveValue(71);
-    expect(screen.getByText("Zones and rooms in Main House")).toBeInTheDocument();
+    // Folded while every zone follows the building.
+    expect(
+      screen.getByText("Targets for zones in Main House").closest("details")
+    ).not.toHaveAttribute("open");
     // The zone follows its building, and the room follows through the zone.
     expect(
       within(screen.getByRole("group", { name: "Main" })).getByText(
         /^Follows Main House: 71 to 72°F$/
       )
     ).toBeInTheDocument();
-    expect(
-      within(screen.getByRole("group", { name: "Kitchen" })).getByText(
-        "Follows Main House: 71 to 72°F"
-      )
-    ).toBeInTheDocument();
-    // A building with no zones has a row and nothing to unfold.
-    expect(screen.getByLabelText("Heating Target for Pool House (°F)")).toHaveValue(null);
-    expect(screen.queryByText("Zones and rooms in Pool House")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Details for Kitchen" }));
+    const details = screen.getByRole("dialog", { name: "Kitchen details" });
+    expect(details).toHaveTextContent("Main, Main House");
+    expect(within(details).getByText("Follows Main House: 71 to 72°F")).toBeInTheDocument();
+    fireEvent.click(within(details).getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog", { name: "Kitchen details" })).toBeNull();
+    // A building with no zones has nothing to show on the Dashboard.
+    expect(screen.queryByLabelText("Heating Target for Pool House (°F)")).toBeNull();
     // With targets nowhere above it, a zone says where it looked.
     vi.mocked(ha.getHouse).mockResolvedValue(UNSET);
     fireEvent.click(screen.getByRole("button", { name: /Refresh/ }));
@@ -290,7 +307,8 @@ describe("Dashboard targets", () => {
       })
     );
     show();
-    fireEvent.click(await screen.findByRole("button", { name: "Clear targets for Kitchen" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Details for Kitchen" }));
+    fireEvent.click(screen.getByRole("button", { name: "Clear targets for Kitchen" }));
     expect(screen.getByText("Clear these targets?").closest(".modal")).toHaveTextContent(
       /^.*This room stops asking for heating or cooling straight away, unless a hold/
     );
@@ -309,13 +327,28 @@ describe("Dashboard targets", () => {
   it("leaves the targets card out when the home's layout could not be loaded", async () => {
     vi.mocked(zonesApi.getBuildings).mockRejectedValue(new Error("down"));
     show();
-    await screen.findByRole("button", { name: "Options for Kitchen" });
+    await screen.findByRole("button", { name: "Details for Kitchen" });
     await waitFor(() => expect(ha.getHouse).toHaveBeenCalled());
     expect(screen.queryByText("Targets")).toBeNull();
     // It comes back with the layout.
     vi.mocked(zonesApi.getBuildings).mockResolvedValue([]);
     fireEvent.click(screen.getByRole("button", { name: /Refresh/ }));
     expect(await screen.findByLabelText(HEAT)).toHaveValue(68);
+  });
+
+  it("shows a room's reading, sensors and hold in its details", async () => {
+    show();
+    fireEvent.click(await screen.findByRole("button", { name: "Details for Kitchen" }));
+    const details = screen.getByRole("dialog", { name: "Kitchen details" });
+    expect(details).toHaveTextContent("Not asking for heating or cooling right now.");
+    expect(details).toHaveTextContent(/No temperature sensors\. This room goes by its thermostat/);
+    expect(details).toHaveTextContent(/A hold keeps this room at one temperature for 1 to 8 hours/);
+    // Its two buttons hand over to the hold and the options dialogs.
+    fireEvent.click(
+      within(details).getByRole("button", { name: "In Use, Schedules and Occupancy" })
+    );
+    expect(screen.queryByRole("dialog", { name: "Kitchen details" })).toBeNull();
+    expect(await screen.findByText(/Follow Its Schedules/)).toBeInTheDocument();
   });
 
   it("shows no targets card before there is anything to give targets to", async () => {
@@ -358,7 +391,7 @@ describe("Dashboard targets", () => {
     fireEvent.click(screen.getByRole("button", { name: /Refresh/ }));
     await waitFor(() => expect(ha.getHouse).toHaveBeenCalledTimes(2));
     expect(screen.getByLabelText(HEAT)).toHaveValue(65);
-    expect(screen.getByRole("button", { name: "Options for Kitchen" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Details for Kitchen" })).toBeInTheDocument();
   });
 
   it("shows targets that were changed somewhere else", async () => {
@@ -382,6 +415,12 @@ describe("Dashboard targets", () => {
   });
 });
 
+/** A room's options are reached through its details. */
+function openOptions(name: string) {
+  fireEvent.click(screen.getByRole("button", { name: `Details for ${name}` }));
+  fireEvent.click(screen.getByRole("button", { name: "In Use, Schedules and Occupancy" }));
+}
+
 describe("Dashboard room options", () => {
   it("marks a room that is not in use and opens its options", async () => {
     show();
@@ -390,7 +429,7 @@ describe("Dashboard room options", () => {
     const kitchen = screen.getByTestId("dash-room-kitchen");
     expect(within(kitchen).queryByText("Not In Use")).toBeNull();
 
-    fireEvent.click(within(kitchen).getByRole("button", { name: "Options for Kitchen" }));
+    openOptions("Kitchen");
     const dialog = screen.getByRole("dialog", { name: "What Kitchen Follows" });
     const inUse = within(dialog).getByRole("switch", { name: "Room In Use" });
     expect(inUse).toBeChecked();
@@ -416,8 +455,8 @@ describe("Dashboard room options", () => {
 
   it("greys out the other switches for a room that is not in use", async () => {
     show();
-    const bunk = await screen.findByTestId("dash-room-bunk");
-    fireEvent.click(within(bunk).getByRole("button", { name: "Options for Bunk Room" }));
+    await screen.findByTestId("dash-room-bunk");
+    openOptions("Bunk Room");
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByRole("switch", { name: "Room In Use" })).not.toBeChecked();
     expect(within(dialog).getByText(/asks for no heating or cooling/)).toBeInTheDocument();
@@ -445,8 +484,8 @@ describe("Dashboard room options", () => {
       })
     );
     show();
-    const kitchen = await screen.findByTestId("dash-room-kitchen");
-    fireEvent.click(within(kitchen).getByRole("button", { name: "Options for Kitchen" }));
+    await screen.findByTestId("dash-room-kitchen");
+    openOptions("Kitchen");
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByRole("switch", { name: "Room In Use" })).toBeDisabled();
     expect(
@@ -458,8 +497,8 @@ describe("Dashboard room options", () => {
   it("reports a switch that could not be saved", async () => {
     vi.mocked(ha.setRoomSwitches).mockRejectedValueOnce(new Error("Room not found"));
     show();
-    const kitchen = await screen.findByTestId("dash-room-kitchen");
-    fireEvent.click(within(kitchen).getByRole("button", { name: "Options for Kitchen" }));
+    await screen.findByTestId("dash-room-kitchen");
+    openOptions("Kitchen");
     fireEvent.click(screen.getByRole("switch", { name: "Follow Occupancy" }));
     expect(await screen.findByText("Room not found")).toBeInTheDocument();
     vi.mocked(ha.setRoomSwitches).mockRejectedValueOnce("nope");
@@ -475,7 +514,11 @@ describe("Dashboard room options", () => {
     show();
     await screen.findByTestId("dash-room-kitchen");
     expect(screen.queryByLabelText("Heat To (°F)")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Options for Kitchen" })).toBeNull();
+    // The room still opens, for a hold; it has no targets or options to offer.
+    fireEvent.click(screen.getByRole("button", { name: "Details for Kitchen" }));
+    expect(screen.getByRole("button", { name: "Start a Hold" })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Targets" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "In Use, Schedules and Occupancy" })).toBeNull();
   });
 });
 

@@ -77,5 +77,7 @@ show times in its own zone, and now shows the house's.
 - Vitest runs with `TZ=Asia/Tokyo`, so a test that accidentally uses the
   browser's zone fails instead of passing on a UTC machine.
 - The E2E stack runs the house in `America/New_York` with the browser pinned
-  to UTC; `e2e/tests/time-zones.spec.ts` views it from `Asia/Tokyo` and checks
-  the stored instant, the shown wall clock and the tooltip.
+  to UTC. `e2e/tests/time-zones.spec.ts` views it from `Asia/Tokyo` and checks
+  the stored instant, the shown wall clock and the tooltip; CI no longer runs
+  it (it rode along with the removed screenshot jobs), so run it by hand after
+  a change to time handling.

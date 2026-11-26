@@ -2,7 +2,7 @@ import { StrictMode } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ecoThermostatDefaults, ecoRoomDefaults } from "../testFixtures";
 import { act, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
-import Thermostats from "./Thermostats";
+import Thermostats, { ThermostatCard } from "./Thermostats";
 import * as api from "../api";
 import { UnitContext, buildUnitContext } from "../contexts";
 import { notifyStateChanged } from "../stateEvents";
@@ -557,8 +557,8 @@ describe("Thermostats Page", () => {
     // Initializes from the config value, no unit conversion (it's minutes).
     expect(input.value).toBe("5");
     // The helper text explains the consequence, including the 0 = never case.
-    expect(screen.getByText(/cannot supervise the cycle/i)).toBeInTheDocument();
-    expect(screen.getByText(/0 = never abort/i)).toBeInTheDocument();
+    expect(screen.getByText(/the run is ended and every vent is opened/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/0 turns this off/i).length).toBeGreaterThan(0);
 
     fireEvent.change(input, { target: { value: "12" } });
     const card = input.closest(".card") as HTMLElement;
@@ -723,9 +723,7 @@ describe("Thermostats Page — vacation mode selector", () => {
     // Issue #638: the hold parks in a recovered direction rather than
     // commanding the HVAC off; this phrase is unique to the single-setpoint
     // branch (the range branch describes a bare heat_cool range instead).
-    expect(
-      screen.getByText(/rather than\s+turning the HVAC off, the system parks it in a/i)
-    ).toBeInTheDocument();
+    expect(screen.getByText(/While you are away the house is kept between/)).toBeInTheDocument();
   });
 
   it("shows helper text and Test button for range mode", async () => {
@@ -741,12 +739,12 @@ describe("Thermostats Page — vacation mode selector", () => {
     // helper-text branch stubbed out entirely (verified by mutation). The
     // strings below are direct text nodes of the range hint, so they are
     // reachable by getByText and unique to that branch.
-    expect(screen.getByText(/letting it manage both heating and cooling natively/i)).toBeVisible();
-    expect(screen.queryByText(/Once back in range, the HVAC turns off again/i)).toBeNull();
+    expect(screen.getByText(/The thermostat keeps the house between/)).toBeVisible();
+    expect(screen.queryByText(/While you are away the house is kept between/)).toBeNull();
     // The range hint quotes the current min/max bounds, so the two setpoints
     // reach the user as the range they will actually be held between.
     const hint = screen
-      .getByText(/letting it manage both heating and cooling natively/i)
+      .getByText(/The thermostat keeps the house between/)
       .closest(".form-hint") as HTMLElement;
     expect(hint).toHaveTextContent("60°F");
     expect(hint).toHaveTextContent("80°F");
@@ -779,7 +777,7 @@ describe("Thermostats Page — vacation mode selector", () => {
     expect(toggle).toBeChecked();
     expect(toggle).toBeEnabled();
     // The single-setpoint hint points at the per-room control below it.
-    expect(screen.getByText(/only mode that can also watch each room/i)).toBeVisible();
+    expect(screen.getByText(/gets heating or cooling for that room/)).toBeVisible();
 
     fireEvent.click(toggle);
     const card = toggle.closest(".card") as HTMLElement;
@@ -801,10 +799,10 @@ describe("Thermostats Page — vacation mode selector", () => {
     // The range hint must warn that sensing falls back to the thermostat's own
     // probe, and recommend single setpoint. Asserted as whole text nodes so a
     // reword is a deliberate two-file change.
-    expect(screen.getByText(/your rooms' temperature sensors are not consulted/i)).toBeVisible();
     expect(
-      screen.getByText(/A heat_cool thermostat decides heating vs cooling itself/i)
+      screen.getByText(/Room sensors are not used, and nothing guards against short cycles/)
     ).toBeVisible();
+    expect(screen.getByText(/Not available in/)).toBeVisible();
   });
 
   it("Revert button calls revertVacationTest", async () => {
@@ -1209,6 +1207,21 @@ describe("Thermostats Page — Sensor-staleness threshold (Issue #211)", () => {
   });
 });
 
+describe("Thermostat settings inside Edit Zone", () => {
+  it("leaves the frame and the title to the dialog it sits in", () => {
+    vi.mocked(api.getOutsideTempEntity).mockResolvedValue({ entity_id: null, current_value: null });
+    const { container } = render(
+      <ThermostatCard embedded config={mockThermostats[0]} onDeleted={() => {}} />
+    );
+    expect(container.querySelector(".card")).toBeNull();
+    expect(container.querySelector(".card-title")).toBeNull();
+    // The settings and their own actions are all still there.
+    expect(screen.getByRole("button", { name: "Save changes" })).toBeInTheDocument();
+    // Deleting the zone is the dialog's job, so there is no second button for it here.
+    expect(screen.queryByRole("button", { name: "Delete Zone" })).toBeNull();
+  });
+});
+
 describe("Thermostats Page — empty state", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -1334,7 +1347,7 @@ describe("Thermostats Page — welcome home (#728)", () => {
     expect(within(g).getByLabelText(/Get the house ready/i)).toBeChecked();
     expect(within(g).getByLabelText(/minutes before return/i)).toHaveValue(60);
     expect(within(g).getByLabelText(/Keep rooms occupied for/i)).toHaveValue(1);
-    expect(g).toHaveTextContent(/Rooms with presence holdover set to 0\s+are skipped/);
+    expect(g).toHaveTextContent(/each room is brought to its occupied temperature for this long/);
   });
 
   it("bottom-aligns both timing fields so their inputs line up when one caption wraps", async () => {

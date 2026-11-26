@@ -196,38 +196,28 @@ async function setupViaUI(): Promise<void> {
       await page.locator("#room-name").fill(def.name);
       await page.locator("#room-thermostat").selectOption(def.thermostat);
       await page.getByRole("button", { name: /Create room/i }).click();
-      // After creating a room the app auto-navigates to RoomConfigure for that room
+      // Creating a room returns to My Home, where each kind of device opens
+      // from its own box on the room's card.
       await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
       await page.waitForLoadState("networkidle");
       console.log(`[e2e] ✓ Room created, configuring entities...`);
 
-      // Add temperature sensor
-      const sensorSearch = def.sensor.split("_")[1]; // "living"|"bedroom"|etc.
-      await page.locator('input[placeholder*="temperature sensor"]').fill(sensorSearch);
-      await page.waitForSelector(".entity-dropdown", { timeout: 20_000 });
-      await page.locator(".entity-option").filter({ hasText: def.sensor }).click();
-
-      // Add vent
-      const ventSearch = def.vent.split("_")[1]; // "living"|"bedroom"|etc.
-      const ventInput = page.locator('input[placeholder*="vent"]');
-      await ventInput.fill(ventSearch);
-      await page.waitForSelector(".entity-dropdown", { timeout: 20_000 });
-      await page.locator(".entity-option").filter({ hasText: def.vent }).click();
-
-      // After clicking, the dropdown closes and input clears. Wait for the input to be empty.
-      await ventInput.waitFor({ state: "visible" });
-      await page.waitForFunction(
-        () => (document.querySelector('input[placeholder*="vent"]') as HTMLInputElement)?.value === "",
-        { timeout: 10_000 }
-      );
-
-      // Wait for any loading state to clear before clicking Back (same pattern as after room creation)
-      await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
-
-      // Now click Back button (labeled "← My Home")
-      await page.getByRole("button", { name: /My Home/i }).click();
-      await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
-      console.log(`[e2e] ✓ Room "${def.name}" configured and back to room list`);
+      const pickDevice = async (box: string, placeholder: string, entity: string) => {
+        await page.getByRole("button", { name: `${box} in ${def.name}`, exact: true }).click();
+        const dialog = page.getByRole("dialog", { name: `${box} in ${def.name}` });
+        await dialog.waitFor({ state: "visible", timeout: 10_000 });
+        const input = dialog.locator(`input[placeholder*="${placeholder}"]`);
+        await input.fill(entity.split("_")[1]); // "living"|"bedroom"|etc.
+        await page.waitForSelector(".entity-dropdown", { timeout: 20_000 });
+        await page.locator(".entity-option").filter({ hasText: entity }).click();
+        // The room is re-read after the add; the entity then shows in the dialog.
+        await dialog.getByText(entity).first().waitFor({ state: "visible", timeout: 15_000 });
+        await dialog.getByRole("button", { name: "Close", exact: true }).click();
+        await dialog.waitFor({ state: "detached", timeout: 10_000 });
+      };
+      await pickDevice("Temperature Sensors", "temperature sensor", def.sensor);
+      await pickDevice("Smart Vents", "vent", def.vent);
+      console.log(`[e2e] ✓ Room "${def.name}" configured`);
     }
     console.log("[e2e] All rooms configured successfully!");
 

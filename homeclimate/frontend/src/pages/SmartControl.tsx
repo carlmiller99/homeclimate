@@ -27,7 +27,6 @@ import ZoneBalanceSection from "./ZoneBalanceSection";
 import PeakSection from "./PeakSection";
 import ForecastSection from "./ForecastSection";
 import LearningSection from "./LearningSection";
-import RoomCalendarsCard from "./RoomCalendarsCard";
 import ShadesSection from "./ShadesSection";
 
 type Minutes = "zone_pause_min" | "room_pause_min" | "resume_min";
@@ -283,7 +282,7 @@ export default function SmartControl() {
   return (
     <SectionLayout
       title="Smart Control"
-      subtitle="Tune how HomeClimate runs on its own: schedules, pauses, shades, learning, forecasts, fireplaces, Eco Mode, Zone Balance, the fan and Peak Hours."
+      subtitle="Tune how HomeClimate runs your home."
       basePath="/smart-control"
       sections={SMART_CONTROL_SECTIONS}
       current={section}
@@ -295,11 +294,10 @@ export default function SmartControl() {
           <LearningSection />
           <SuggestionsCard />
         </>
+      ) : section === "auto-mode" ? (
+        <BuildingAutoCard />
       ) : section === "forecasts" ? (
-        <>
-          <ForecastSection />
-          <BuildingAutoCard />
-        </>
+        <ForecastSection />
       ) : section === "fireplace" ? (
         <FireplaceSection />
       ) : section === "eco-mode" ? (
@@ -313,7 +311,6 @@ export default function SmartControl() {
       ) : (
         <div className="embedded-page">
           <Schedules />
-          <RoomCalendarsCard />
         </div>
       )}
     </SectionLayout>

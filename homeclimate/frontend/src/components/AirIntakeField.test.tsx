@@ -50,7 +50,7 @@ describe("Outside air intake", () => {
     const onChange = show();
     const select = screen.getByLabelText("Outside air intake for Upstairs");
     expect(select).toHaveValue("unsure");
-    expect(screen.getByText(/Not Sure is treated as No/)).toBeInTheDocument();
+    expect(screen.getByText(/Not Sure counts as No/)).toBeInTheDocument();
     fireEvent.change(select, { target: { value: "yes" } });
     expect(onChange).toHaveBeenCalledWith("yes");
     expect(await screen.findByText("Not tested yet.")).toBeInTheDocument();

@@ -1352,8 +1352,8 @@ function RetentionSettings() {
           disabled={saving}
         />
         <div className="form-hint">
-          Event logs capture every engine action, vent movement, presence event, and state change.
-          High volume — recommended 7 days. Older rows are deleted automatically.
+          How long to keep the detailed record of what HomeClimate did. Older entries are deleted. 7
+          days is usually enough.
         </div>
       </div>
 
@@ -1377,12 +1377,8 @@ function RetentionSettings() {
           disabled={saving}
         />
         <div className="form-hint">
-          How far back the <strong>Cycle History</strong> tab lists cycles. This is a display window
-          only — it deletes nothing itself. Cycles older than this stay in the database and stay
-          counted by every chart on the Analytics page, for as long as{" "}
-          <strong>metrics retention</strong> below keeps them. That setting is also a hard cap on
-          this one: if it is the smaller of the two, this list stops where it does, because the
-          older cycles really are gone.
+          How far back the <strong>Cycle History</strong> list goes. This only changes what is
+          listed: it deletes nothing.
         </div>
       </div>
 
@@ -1410,14 +1406,9 @@ function RetentionSettings() {
           disabled={saving}
         />
         <div className="form-hint">
-          How far back the <strong>Analytics</strong> page can reach, and the only setting that
-          deletes cycle records. Every chart is computed live from them, and deleting one takes its
-          whole detail with it: the per-room results, the temperature samples, the setpoint history
-          and the vent events. <strong>Lowering this permanently destroys history</strong> on the
-          next purge; there is no undo. Use <strong>0</strong> to keep everything forever. This is
-          also the setting that decides database size — the bulk is one temperature sample per
-          active room per minute of run time, so the cost tracks how much your system actually runs,
-          not how many cycles it logs. Maximum {MAX_RETENTION_DAYS} days.
+          How long to keep run history for <strong>Analytics</strong>.{" "}
+          <strong>Lowering this deletes older history for good.</strong> Use <strong>0</strong> to
+          keep everything.
         </div>
       </div>
 

@@ -107,7 +107,7 @@ def _classify(state: dict) -> str | None:
     return None
 
 
-# The kinds a room's device pickers ask for (My Home → Edit Devices).
+# The kinds a room's device pickers ask for (My Home → a room's device boxes).
 PICKER_KINDS = ("temperature", "presence", "contacts", "vents")
 
 

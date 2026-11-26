@@ -36,9 +36,8 @@ export default function CoolToField({
         placeholder="Single target"
       />
       <div className="form-hint">
-        Leave blank to hold one temperature. With a Cool To, the temperature above becomes the Heat
-        To and the room is kept between the two: heated below it, cooled above Cool To, and left
-        alone in between.
+        Leave blank to hold one temperature. Fill it in and the room is kept between the two
+        temperatures.
       </div>
     </div>
   );

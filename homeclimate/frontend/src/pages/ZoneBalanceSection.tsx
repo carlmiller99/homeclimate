@@ -14,10 +14,62 @@ import {
 const REFRESH_MS = 30_000;
 
 const LEVEL_HELP: Record<BalanceLevel, string> = {
-  off: "Zones are left to drift apart.",
-  watch: "Logs what it would heat or cool, and does nothing.",
-  on: "A zone too far behind one that is in use is brought back to the limit.",
+  off: "Off: zones are left to drift apart.",
+  watch: "Watch Only: records what it would do, and does nothing.",
+  on: "On: a zone that falls further behind than this is brought back to it.",
 };
+
+/**
+ * A building's zones right now: each on a line from the coolest reading to the
+ * warmest, so how far apart they are can be seen as well as read.
+ */
+function BalanceNow({
+  building: b,
+  fmtTemp,
+  fmtDelta,
+}: {
+  building: BalanceBuilding;
+  fmtTemp: (f: number) => string;
+  fmtDelta: (f: number) => string;
+}) {
+  const temps = b.zones.map((z) => z.temp).filter((t): t is number => t !== null);
+  const low = Math.min(...temps);
+  const high = Math.max(...temps);
+  // Half the line is always in use, so two zones a degree apart do not sit
+  // at opposite ends of it.
+  const span = Math.max(high - low, b.zone_gap);
+  const mid = (high + low) / 2;
+  const at = (t: number) => 50 + ((t - mid) / span) * 80;
+  return (
+    <div className="balance-now">
+      <div className="balance-now-head">
+        <strong>{`${b.name} right now`}</strong>
+        <span className="balance-now-gap">
+          {b.spread === null
+            ? "Waiting for two readings"
+            : `Gap ${fmtDelta(b.spread)} of ${fmtDelta(b.zone_gap)} allowed`}
+        </span>
+      </div>
+      {b.zones.map((z) => (
+        <div key={z.thermostat_entity_id} className="balance-zone">
+          <span className="balance-zone-name">{z.name}</span>
+          <span className="balance-track" aria-hidden="true">
+            {z.temp !== null && (
+              <span
+                className={`balance-dot${z.target !== null ? ` balance-${b.direction ?? "heating"}` : ""}`}
+                style={{ left: `${at(z.temp).toFixed(1)}%` }}
+              />
+            )}
+          </span>
+          <strong className="balance-zone-temp">
+            {z.temp === null ? "No reading" : fmtTemp(z.temp)}
+          </strong>
+        </div>
+      ))}
+      <p className="rule-help">{describeBalance(b, fmtTemp, fmtDelta)}</p>
+    </div>
+  );
+}
 
 /** Smart Control → Zone Balance: keep a building's zones within a gap of each other. */
 export default function ZoneBalanceSection() {
@@ -68,12 +120,9 @@ export default function ZoneBalanceSection() {
   return (
     <div className="card">
       <h3 className="card-title">Zone Balance</h3>
-      <p className="page-subtitle">
-        When one zone of a building is in use and another has drifted, the gap between them grows
-        until one is heating or cooling the other through the walls. With this on, a zone further
-        behind than the limit is brought back to it: the least that keeps it within the limit, only
-        in the direction the building is already working, and only while another zone is in use.
-        Rooms with a hold, a schedule or occupancy are left alone, and so are paused zones.
+      <p className="sc-section-lead">
+        Zones in one building share walls, stairs and doorways. When one runs far warmer or cooler
+        than the others, they work against it.
       </p>
       {loadFailed && !buildings && <p className="form-error">Could not load the buildings.</p>}
       {!loadFailed && !buildings && <p className="page-subtitle">Loading the buildings…</p>}
@@ -86,56 +135,47 @@ export default function ZoneBalanceSection() {
         if (!choices.includes(shown)) choices.push(shown);
         choices.sort((x, y) => x - y);
         return (
-          <div key={b.building_id} className="calendar-row" role="group" aria-label={b.name}>
-            <div className="calendar-room">
-              <span className="sensor-title">{b.name}</span>
-              <span className="shade-why">
-                <Frozen>{describeBalance(b, fmtTemp, fmtDelta)}</Frozen>
-              </span>
-              <span className="form-hint">
-                <Frozen>
-                  {b.zones
-                    .map((z) => `${z.name} ${z.temp === null ? "no reading" : fmtTemp(z.temp)}`)
-                    .join(" · ")}
-                </Frozen>
-              </span>
+          <div key={b.building_id} className="balance-building" role="group" aria-label={b.name}>
+            <div className="rule-row">
+              <div className="rule-text">
+                <span className="rule-title">{`Limit the Gap Between Zones in ${b.name} To`}</span>
+                <p className="rule-help">{LEVEL_HELP[b.level]}</p>
+              </div>
+              <div className="rule-value balance-controls">
+                <select
+                  className="form-control"
+                  aria-label={`Gap limit for ${b.name}`}
+                  value={shown}
+                  disabled={busy}
+                  onChange={(e) => void change(b.building_id, { zone_gap: Number(e.target.value) })}
+                >
+                  {choices.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+                <span className="minutes-unit">{unitLabel}</span>
+                <select
+                  className="form-control"
+                  aria-label={`Balance for ${b.name}`}
+                  value={b.level}
+                  disabled={busy}
+                  onChange={(e) =>
+                    void change(b.building_id, { level: e.target.value as BalanceLevel })
+                  }
+                >
+                  {(Object.keys(BALANCE_LEVEL_LABELS) as BalanceLevel[]).map((l) => (
+                    <option key={l} value={l}>
+                      {BALANCE_LEVEL_LABELS[l]}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
-            <label className="field-stack">
-              Balance
-              <select
-                className="form-control"
-                aria-label={`Balance for ${b.name}`}
-                value={b.level}
-                disabled={busy}
-                onChange={(e) =>
-                  void change(b.building_id, { level: e.target.value as BalanceLevel })
-                }
-              >
-                {(Object.keys(BALANCE_LEVEL_LABELS) as BalanceLevel[]).map((l) => (
-                  <option key={l} value={l}>
-                    {BALANCE_LEVEL_LABELS[l]}
-                  </option>
-                ))}
-              </select>
-              <span className="form-hint">{LEVEL_HELP[b.level]}</span>
-            </label>
-            <label className="field-stack">
-              Gap Limit ({unitLabel})
-              <select
-                className="form-control"
-                aria-label={`Gap limit for ${b.name}`}
-                value={shown}
-                disabled={busy}
-                onChange={(e) => void change(b.building_id, { zone_gap: Number(e.target.value) })}
-              >
-                {choices.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
-              <span className="form-hint">How far apart zones may be.</span>
-            </label>
+            <Frozen>
+              <BalanceNow building={b} fmtTemp={fmtTemp} fmtDelta={fmtDelta} />
+            </Frozen>
           </div>
         );
       })}

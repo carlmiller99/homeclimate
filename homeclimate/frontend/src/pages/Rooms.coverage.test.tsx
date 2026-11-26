@@ -18,6 +18,7 @@ import { zoneFor, smartControl } from "../zoneFixtures";
 import { SystemContext, UnitContext, buildUnitContext } from "../contexts";
 import { ecoThermostatDefaults, ecoRoomDefaults } from "../testFixtures";
 
+vi.mock("../components/OutsideTempPicker", () => ({ default: () => <p>outside sensors</p> }));
 vi.mock("../api");
 vi.mock("../zonesApi", async (orig) => ({
   ...(await orig<typeof import("../zonesApi")>()),
@@ -344,17 +345,29 @@ describe("Rooms settings form — validation guards", () => {
 // Configure view — empty / absent entity lists
 // ---------------------------------------------------------------------------
 
-describe("Rooms configure view", () => {
-  const openConfigure = async () => {
+const KINDS = ["Smart Vents", "Temperature Sensors", "Doors & Windows", "Occupancy Sensors"];
+
+/** Opens one kind of device from its box on the (only) room card. */
+async function openDevices(title: string) {
+  fireEvent.click(await screen.findByRole("button", { name: `${title} in Living Room` }));
+  return screen.findByRole("dialog", { name: `${title} in Living Room` });
+}
+const closeDevices = () => fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+describe("Room device dialogs", () => {
+  const openConfigure = async (title = "Smart Vents") => {
     renderPage();
-    fireEvent.click(await screen.findByRole("button", { name: "Edit Devices" }));
-    await screen.findByTestId("room-configure");
+    return openDevices(title);
   };
 
   it("asks each device search for its own kind of device, in this room's area first", async () => {
     const room = makeRoom();
     useRooms([room]);
-    await openConfigure();
+    renderPage();
+    for (const title of KINDS) {
+      await openDevices(title);
+      closeDevices();
+    }
     await waitFor(() => {
       for (const [domain, kind] of [
         ["cover", "vents"],
@@ -379,18 +392,23 @@ describe("Rooms configure view", () => {
       { entity_id: "binary_sensor.den_motion" },
     ] as api.Room["presence_sensors"];
     useRooms([started]);
-    await openConfigure();
-    expect(screen.queryByText(/Add this room's devices below/)).toBeNull();
+    // Each dialog says what the room cannot do without that kind of device.
+    await openConfigure("Temperature Sensors");
     expect(
       screen.getByText(
         "No temperature sensors selected. This room cannot be controlled independently, or contribute temperature information, without them."
       )
     ).toBeInTheDocument();
+    expect(screen.queryByText(/No smart vents selected/)).toBeNull();
+    closeDevices();
+    await openDevices("Smart Vents");
     expect(
       screen.getByText(
         "No smart vents selected. This room cannot be controlled independently without them."
       )
     ).toBeInTheDocument();
+    closeDevices();
+    await openDevices("Occupancy Sensors");
     expect(screen.queryByText(/No occupancy sensors selected/)).toBeNull();
   });
 
@@ -398,17 +416,25 @@ describe("Rooms configure view", () => {
     const room = makeRoom();
     room.presence_sensors = [];
     useRooms([room]);
-    await openConfigure();
+    await openConfigure("Occupancy Sensors");
     expect(
       screen.getByText(
         "No occupancy sensors selected. This room cannot use occupancy smart features without them."
       )
     ).toBeInTheDocument();
+    closeDevices();
+    await openDevices("Temperature Sensors");
     expect(screen.queryByText(/No temperature sensors selected/)).toBeNull();
+    closeDevices();
+    await openDevices("Smart Vents");
     expect(screen.queryByText(/No smart vents selected/)).toBeNull();
+    closeDevices();
+    // Doors and shades have nothing a room cannot do without.
+    await openDevices("Doors & Windows");
+    expect(screen.queryByText(/selected\. This room/)).toBeNull();
   });
 
-  it("renders a setup hint, empty hints and plural counts for a room with no entities", async () => {
+  it("renders empty hints for a room with no entities", async () => {
     // `sensors` / `vents` / `presence_sensors` absent entirely — the API omits
     // them on some payloads, so the `?? []` fallbacks must hold.
     const bare = makeRoom();
@@ -417,21 +443,13 @@ describe("Rooms configure view", () => {
     delete (bare as Partial<api.Room>).presence_sensors;
     useRooms([bare]);
 
-    await openConfigure();
-
-    // Quick-status strip pluralises on 0.
-    expect(screen.getByText("temp sensors")).toBeInTheDocument();
-    expect(screen.getByText("vents")).toBeInTheDocument();
-    expect(screen.getByText("presence sensors")).toBeInTheDocument();
-
-    // A room with nothing in it yet is being set up: it gets a hint, not warnings.
-    expect(screen.getByText(/Add this room's devices below/)).toBeInTheDocument();
-    expect(screen.queryByText(/No temperature sensors selected/)).toBeNull();
-    expect(screen.queryByText(/No smart vents selected/)).toBeNull();
-
-    // Empty hints from EntitySection / VentTable.
+    await openConfigure("Temperature Sensors");
     expect(screen.getByText("No sensors added yet — search above to add one.")).toBeInTheDocument();
+    closeDevices();
+    await openDevices("Smart Vents");
     expect(screen.getByText(/No vents added yet — search above to add one/i)).toBeInTheDocument();
+    closeDevices();
+    await openDevices("Occupancy Sensors");
     expect(
       screen.getByText("No occupancy sensors added — the room will only activate via schedules.")
     ).toBeInTheDocument();
@@ -463,30 +481,12 @@ describe("Rooms configure view", () => {
 
     await waitFor(() => expect(api.addVent).toHaveBeenCalledWith("room-1", "cover.new_vent"));
     // The refresh landed: the vent table now lists the entity.
-    expect(await screen.findByText("cover.new_vent")).toBeInTheDocument();
+    expect(
+      await within(screen.getByRole("dialog")).findByText("cover.new_vent")
+    ).toBeInTheDocument();
+    // The card behind the dialog follows.
+    expect(screen.getAllByText("cover.new_vent")).toHaveLength(2);
     expect(screen.queryByText(/No vents added yet/i)).not.toBeInTheDocument();
-  });
-
-  it("falls back to the raw entity id when the room's thermostat is not registered", async () => {
-    useRooms([makeRoom({ thermostat_entity_id: "climate.ghost" })]);
-    await openConfigure();
-
-    const header = screen.getByTestId("room-configure");
-    // No matching ThermostatConfig → the id stands in for the friendly name and
-    // is therefore rendered twice (name slot + the parenthesised mono id).
-    expect(within(header).getAllByText(/climate\.ghost/)).toHaveLength(2);
-  });
-
-  it("shows a positive temperature offset in the quick-status strip", async () => {
-    useRooms([makeRoom({ temp_offset: 2 })]);
-    await openConfigure();
-    expect(screen.getByText("+2°F")).toBeInTheDocument();
-  });
-
-  it("shows a negative temperature offset without a plus sign", async () => {
-    useRooms([makeRoom({ temp_offset: -1.5 })]);
-    await openConfigure();
-    expect(screen.getByText("-1.5°F")).toBeInTheDocument();
   });
 
   it("reports a failed vent test on the row", async () => {
@@ -521,8 +521,8 @@ const state = (
   numeric: number | null = null
 ): api.EntityState => ({ state: s, numeric, unit: "", attributes });
 
-/** The four device sections of the (only) room card. */
-const section = (name: string) => screen.getByRole("region", { name });
+/** The device boxes of the (only) room card. */
+const section = (name: string) => screen.getByRole("button", { name: `${name} in Living Room` });
 
 /** [name, value] for every device listed in a section. */
 const devices = (name: string) =>
@@ -531,6 +531,22 @@ const devices = (name: string) =>
     li.querySelector(".device-value")?.textContent,
   ]);
 
+describe("device names on a room card", () => {
+  it("leaves the room's own name off the front of a device's name", async () => {
+    const { withoutRoom } = await import("./Rooms");
+    expect(withoutRoom("Kitchen Motion", "Kitchen")).toBe("Motion");
+    expect(withoutRoom("kitchen - door", "Kitchen")).toBe("Door");
+    expect(withoutRoom("Kitchen's fan", "Kitchen")).toBe("Fan");
+    // Nothing would be left, or it does not start with the room: kept whole.
+    expect(withoutRoom("Kitchen", "Kitchen")).toBe("Kitchen");
+    expect(withoutRoom("Hall Sensor", "Kitchen")).toBe("Hall Sensor");
+    // A name that merely begins with the same letters is someone else's device.
+    expect(withoutRoom("Dennis Lamp", "Den")).toBe("Dennis Lamp");
+    expect(withoutRoom("Den Lamp", "Den")).toBe("Lamp");
+    expect(withoutRoom("Sensor", " ")).toBe("Sensor");
+  });
+});
+
 describe("Room card — devices", () => {
   it("gives each kind of device its own section, in a fixed order", async () => {
     const { container } = renderPage();
@@ -538,14 +554,9 @@ describe("Room card — devices", () => {
     const titles = [...container.querySelectorAll(".device-section")].map((s) =>
       s.getAttribute("aria-label")
     );
-    expect(titles).toEqual([
-      "Smart Vents",
-      "Temperature Sensors",
-      "Doors & Windows",
-      "Occupancy Sensors",
-    ]);
-    // The card edits hardware only: no manual controls live here any more.
-    expect(screen.getByRole("button", { name: "Edit Devices" })).toBeInTheDocument();
+    expect(titles).toEqual([...KINDS, "Shades"].map((k) => `${k} in Living Room`));
+    // The card edits hardware only: each box opens its own kind of device.
+    expect(screen.queryByRole("button", { name: "Edit Devices" })).toBeNull();
     expect(screen.getByRole("button", { name: "Room Settings" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Hold/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /Clear presence/i })).toBeNull();
@@ -562,8 +573,8 @@ describe("Room card — devices", () => {
     renderPage();
     await screen.findByText("Living Room");
 
-    // No entity ids at all → the HA state fetch is skipped entirely.
-    expect(api.getEntityStates).not.toHaveBeenCalled();
+    // No device ids at all → no state fetch for the room (only the zone's thermostat is read).
+    expect(api.getEntityStates).not.toHaveBeenCalledWith([]);
     expect(within(section("Smart Vents")).getByText("No vents")).toBeInTheDocument();
     expect(within(section("Temperature Sensors")).getByText("No sensors")).toBeInTheDocument();
     expect(within(section("Doors & Windows")).getByText("None")).toBeInTheDocument();
@@ -734,15 +745,17 @@ describe("Room card — devices", () => {
 
     await waitFor(() =>
       expect(devices("Occupancy Sensors")).toEqual([
-        ["Desk", "Occupied"],
-        ["binary_sensor.sofa", "Clear"],
+        // Occupied and clear are a green or grey dot; the word is still there to be read out.
+        ["Desk: Occupied", ""],
+        ["binary_sensor.sofa: Clear", ""],
         ["binary_sensor.lost", "Offline"],
         ["binary_sensor.late", "…"],
       ])
     );
     const occupancy = section("Occupancy Sensors");
-    expect(occupancy.querySelectorAll(".device-occupied")).toHaveLength(1);
-    expect(within(occupancy).getByText("Occupied")).toHaveClass("device-occupied");
+    expect(occupancy.querySelectorAll(".device-dot-on")).toHaveLength(1);
+    expect(occupancy.querySelectorAll(".device-dot-off")).toHaveLength(1);
+    expect(occupancy.querySelector(".device-dot-on")).toHaveAttribute("title", "Occupied");
   });
 
   it("keeps the stale badge singular for exactly one sensor", async () => {
@@ -804,13 +817,65 @@ describe("Room card — devices", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Doors & Windows inside Edit Devices
+// Doors & Windows in its dialog
 // ---------------------------------------------------------------------------
 
-describe("Edit Devices — doors and windows", () => {
+describe("Room device dialogs — shades", () => {
+  const SHADES = {
+    settings: {},
+    sun: { elevation: 34, azimuth: 160, cloud_pct: null },
+    shades: [
+      {
+        entity_id: "cover.bay",
+        name: "Bay Shade",
+        room_id: "room-1",
+        facing: "S",
+        never_control: false,
+        quiet_hours: false,
+        open_position: null,
+        closed_position: null,
+        state: "closed",
+        reason: "Sunlit and cooling, so closed.",
+        last_moved_at: null,
+        hold_until: null,
+      },
+      { entity_id: "cover.else", name: "Elsewhere", room_id: "other", facing: "N", state: "open" },
+    ],
+  };
+
+  it("lists the room's shades on its card and edits them in their own dialog", async () => {
+    vi.mocked(api.api).mockImplementation(async (path: string, init?: RequestInit) =>
+      path === "/api/shades"
+        ? SHADES
+        : init?.method === "DELETE"
+          ? { ...SHADES, shades: [] }
+          : undefined
+    );
+    renderPage();
+    await waitFor(() => expect(devices("Shades")).toEqual([["Bay Shade", "Closed"]]));
+    const dialog = await openDevices("Shades");
+    expect(within(dialog).getByText("Sunlit and cooling, so closed.")).toBeInTheDocument();
+    expect(within(dialog).queryByText("Elsewhere")).toBeNull();
+    expect(
+      within(dialog).getByText("How shades react to the sun is set in Smart Control, under Shades.")
+    ).toBeInTheDocument();
+    // Removing it there empties the box on the card behind.
+    fireEvent.click(within(dialog).getByRole("button", { name: "Remove Bay Shade" }));
+    await waitFor(() => expect(devices("Shades")).toEqual([]));
+  });
+
+  it("says so when the shades could not be read", async () => {
+    vi.mocked(api.api).mockRejectedValue(new Error("down"));
+    renderPage();
+    const dialog = await openDevices("Shades");
+    expect(within(dialog).getByText("Could not load shades.")).toBeInTheDocument();
+  });
+});
+
+describe("Room device dialogs — doors and windows", () => {
   const open = async () => {
     renderPage();
-    fireEvent.click(await screen.findByRole("button", { name: "Edit Devices" }));
+    await openDevices("Doors & Windows");
     await screen.findByPlaceholderText(/Search door and window sensors/);
   };
 
@@ -971,10 +1036,9 @@ describe("My Home — page edge cases", () => {
     const note = await screen.findByText(
       "This zone has no rooms. It cannot be controlled until at least one room is added."
     );
-    // The button beside the note opens the new-room form on that zone.
-    fireEvent.click(
-      within(note.closest(".empty-panel") as HTMLElement).getByRole("button", { name: "Add Room" })
-    );
+    expect(note).toBeInTheDocument();
+    // The Add Room tile opens the new-room form on that zone.
+    fireEvent.click(screen.getByRole("button", { name: "Add Room to Test Thermostat" }));
     await screen.findByText("New Room", { selector: ".page-title" });
     expect(screen.getByRole("combobox", { name: /Thermostat/i })).toHaveValue("climate.test");
   });
@@ -1036,7 +1100,7 @@ describe("My Home — page edge cases", () => {
   });
 });
 
-describe("Rooms configure view — refresh after a mutation", () => {
+describe("Room device dialogs — refresh after a mutation", () => {
   it("re-reads the room after adding a sensor so the tag list reflects the server", async () => {
     const before = makeRoom({ sensors: [] });
     const after = makeRoom({
@@ -1052,8 +1116,7 @@ describe("Rooms configure view — refresh after a mutation", () => {
     });
 
     renderPage();
-    fireEvent.click(await screen.findByRole("button", { name: "Edit Devices" }));
-    await screen.findByTestId("room-configure");
+    await openDevices("Temperature Sensors");
     expect(screen.getByText("No sensors added yet — search above to add one.")).toBeInTheDocument();
 
     const picker = screen.getByPlaceholderText(/Search temperature sensors/i);
@@ -1063,7 +1126,11 @@ describe("Rooms configure view — refresh after a mutation", () => {
 
     await waitFor(() => expect(api.addSensor).toHaveBeenCalledWith("room-1", "sensor.new_temp"));
     // Only a real refetch can put the server's sensor into the tag list.
-    expect(await screen.findByText("sensor.new_temp")).toBeInTheDocument();
+    expect(
+      await within(screen.getByRole("dialog")).findByText("sensor.new_temp")
+    ).toBeInTheDocument();
+    // The card behind the dialog follows.
+    expect(screen.getAllByText("sensor.new_temp")).toHaveLength(2);
     expect(screen.queryByText("No sensors added yet — search above to add one.")).toBeNull();
   });
 });

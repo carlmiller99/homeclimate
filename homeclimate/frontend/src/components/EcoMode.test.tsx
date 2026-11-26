@@ -29,63 +29,14 @@ describe("EcoWorkedExample (#404)", () => {
     );
 
     const box = screen.getByTestId("eco-worked-example");
-    expect(box).toHaveTextContent(/Cooling example:/);
-    expect(box).toHaveTextContent(/Heating example:/);
+    expect(box).toHaveTextContent(/^Example:/);
+    expect(box).toHaveTextContent(/In heating it drifts down to/);
     // Sample indoor target, thresholds, and relaxed targets.
     expect(box).toHaveTextContent("70°F");
     expect(box).toHaveTextContent("86°F"); // cooling threshold
     expect(box).toHaveTextContent("74°F"); // cooling relaxed
     expect(box).toHaveTextContent("40°F"); // heating threshold
     expect(box).toHaveTextContent("66°F"); // heating relaxed
-  });
-
-  it("explains the fractional-target / whole-degree-setpoint split (°F)", () => {
-    render(
-      <UnitContext.Provider value={buildUnitContext("F")}>
-        <EcoWorkedExample
-          params={{
-            coolingThreshold: 86,
-            coolingFullDrift: 100,
-            coolingMaxDrift: 4,
-            heatingThreshold: 40,
-            heatingFullDrift: 0,
-            heatingMaxDrift: 4,
-          }}
-        />
-      </UnitContext.Provider>
-    );
-
-    const box = screen.getByTestId("eco-worked-example");
-    // The relaxed target keeps its fraction — the room runs to it as-is …
-    expect(box).toHaveTextContent(/the relaxed target can be a fraction/);
-    expect(box).toHaveTextContent("71.6°F");
-    expect(box).toHaveTextContent(/the room runs until it actually reaches that value/);
-    // … and only the commanded setpoint is rounded, half-up.
-    expect(box).toHaveTextContent(
-      /Only the setpoint sent to the thermostat is rounded to the closest whole degree/
-    );
-    expect(box).toHaveTextContent(".5 rounds up");
-  });
-
-  it("renders the fractional-target example in Celsius numbers under °C", () => {
-    render(
-      <UnitContext.Provider value={buildUnitContext("C")}>
-        <EcoWorkedExample
-          params={{
-            coolingThreshold: 30,
-            coolingFullDrift: 38,
-            coolingMaxDrift: 2,
-            heatingThreshold: 4,
-            heatingFullDrift: -18,
-            heatingMaxDrift: 2,
-          }}
-        />
-      </UnitContext.Provider>
-    );
-
-    const box = screen.getByTestId("eco-worked-example");
-    expect(box).toHaveTextContent("21.6°C");
-    expect(box).toHaveTextContent(/the relaxed target can be a fraction/);
   });
 
   it("uses a 21°C sample room and °C labels in Celsius", () => {
@@ -108,8 +59,8 @@ describe("EcoWorkedExample (#404)", () => {
     );
 
     const box = screen.getByTestId("eco-worked-example");
-    expect(box).toHaveTextContent(/Cooling example:/);
-    expect(box).toHaveTextContent(/Heating example:/);
+    expect(box).toHaveTextContent(/^Example:/);
+    expect(box).toHaveTextContent(/In heating it drifts down to/);
     expect(box).toHaveTextContent("21°C"); // sample indoor target
     expect(box).toHaveTextContent("30°C"); // cooling threshold
     expect(box).toHaveTextContent("23°C"); // cooling relaxed

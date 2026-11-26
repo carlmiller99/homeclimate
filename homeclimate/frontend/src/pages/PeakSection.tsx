@@ -110,11 +110,8 @@ export default function PeakSection() {
     <div className="card">
       <h3 className="card-title">Peak Hours</h3>
       <p className="sc-section-lead">
-        If your electricity costs more at certain hours, HomeClimate can do some of the heating or
-        cooling just before them. Rooms that follow a band are worked a little way into it ahead of
-        the peak, so they can drift back across it before anything has to run. It never goes past
-        the band, never touches a hold, and only acts when the forecast for those hours calls for
-        it.
+        If electricity costs more at certain hours, HomeClimate heats or cools a little just before
+        them. Rooms then need less during those hours.
       </p>
       <p className="shade-why" role="status">
         <Frozen>{describePeak(data, (iso) => tz.format(iso))}</Frozen>
@@ -183,7 +180,7 @@ export default function PeakSection() {
       <RuleRow
         id="peak-depth"
         title={`How Far to Bank (${unitLabel})`}
-        help="How far inside the band's edge to take a room: cooler than its Cool To before a hot peak, warmer than its Heat To before a cold one. Always at least a degree short of the band's other edge."
+        help="How many degrees of extra heating or cooling to do before the costly hours. It never goes past a room's targets."
       >
         <select
           className="form-control"

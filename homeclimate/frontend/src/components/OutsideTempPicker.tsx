@@ -88,11 +88,8 @@ export default function OutsideTempPicker({
     <div className="card" style={{ marginBottom: "1rem" }}>
       <div className="card-title">Outside temperature sensors</div>
       <div className="text-sm text-muted" style={{ marginBottom: "1rem" }}>
-        One Home Assistant temperature sensor for the whole home, or several: with more than one,
-        HomeClimate uses their average, and leaves out any that stops answering. It is not tied to a
-        specific thermostat. The reading is recorded at the start and end of every cycle for the
-        analytics, and it is <strong>required</strong> for the cooling lockout, Eco Mode and
-        pre-cool/pre-heat.
+        The temperature outside, from one sensor or the average of several. Eco Mode and the limit
+        on cooling in cold weather <strong>need</strong> it.
       </div>
 
       {error && (

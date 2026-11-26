@@ -1,14 +1,14 @@
 import { useEffect, useState } from "react";
 import { getSensorHealth, type SensorHealth } from "../api";
 import { Frozen } from "../ci";
+import Notice from "./Notice";
 
 /**
  * Surfaces sensor-staleness on the Dashboard (Issue #211).
  *
  * Polls ``/api/sensor-health`` every 30 s. Renders nothing when every
- * configured room sensor is fresh; renders an amber card listing the stale
- * sensors otherwise. A control loop that quietly trusts a dead battery is the
- * worst failure mode this app has, so the banner is deliberately loud.
+ * configured room sensor is fresh; otherwise a notice naming the rooms, with
+ * the sensors folded under Details.
  */
 export default function StaleSensorsBanner() {
   const [health, setHealth] = useState<SensorHealth | null>(null);
@@ -36,43 +36,34 @@ export default function StaleSensorsBanner() {
 
   const total = health.rooms.reduce((n, r) => n + r.stale_sensors.length, 0);
 
+  const names = health.rooms.map((r) => r.room_name);
   return (
-    <div
-      className="card"
-      role="alert"
-      data-testid="stale-sensors-banner"
-      style={{ borderLeft: "3px solid #f59e0b", marginBottom: "1rem" }}
-    >
-      <div style={{ display: "flex", alignItems: "baseline", gap: ".5rem" }}>
-        <strong>
-          ⚠ {total} sensor{total === 1 ? "" : "s"} not reporting
-        </strong>
-        <span className="text-sm text-muted">
-          (threshold: {Math.round(health.stale_after_min)} min — configurable in Settings, Sensors)
-        </span>
-      </div>
-      <div className="text-sm" style={{ marginTop: ".5rem", color: "var(--gray-700)" }}>
-        These rooms are running on partial sensor coverage; check the device batteries or
-        connectivity. The engine excludes stale readings from the room temperature average so
-        control decisions are not driven by them.
-      </div>
-      <ul style={{ margin: "0.5rem 0 0", paddingLeft: "1.25rem" }}>
-        {health.rooms.map((room) => (
-          <li key={room.room_id} style={{ marginBottom: ".25rem" }}>
-            <strong>{room.room_name}</strong>{" "}
-            {room.stale_sensors.map((s, i) => (
-              <span key={s.entity_id}>
-                {i > 0 && ", "}
-                <code>{s.entity_id}</code>{" "}
-                <span className="text-sm text-muted">
-                  (<Frozen>{formatAge(s)}</Frozen>)
+    <Notice
+      title={`${total} sensor${total === 1 ? "" : "s"} not reporting`}
+      details={
+        <ul>
+          {health.rooms.map((room) => (
+            <li key={room.room_id}>
+              <strong>{room.room_name}</strong>{" "}
+              {room.stale_sensors.map((s, i) => (
+                <span key={s.entity_id}>
+                  {i > 0 && ", "}
+                  <code>{s.entity_id}</code>{" "}
+                  <span className="text-muted">
+                    (<Frozen>{formatAge(s)}</Frozen>)
+                  </span>
                 </span>
-              </span>
-            ))}
-          </li>
-        ))}
-      </ul>
-    </div>
+              ))}
+            </li>
+          ))}
+        </ul>
+      }
+      to="/settings?section=sensors"
+      action="Sensor Settings"
+      testId="stale-sensors-banner"
+    >
+      {`${names.join(", ")}: a sensor silent for ${Math.round(health.stale_after_min)} min is left out of its room's average. Check its battery or connection.`}
+    </Notice>
   );
 }
 

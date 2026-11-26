@@ -30,36 +30,52 @@ beforeEach(() => {
   vi.mocked(bm.setBuildingMode).mockImplementation(async (_id, patch) => [{ ...MAIN, ...patch }]);
 });
 
-describe("One Side Per Building", () => {
+describe("Smart Control → Auto Mode", () => {
   it("shows each building's level and changes it", async () => {
     render(<BuildingAutoCard />);
     expect(screen.getByText("Loading the buildings…")).toBeInTheDocument();
-    const select = await screen.findByLabelText("Auto for Main House");
+    const select = await screen.findByLabelText("In Auto, Main House");
     expect(select).toHaveValue("off");
-    expect(screen.getByText(/^Zones run independently/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/^Each zone heats or cools whenever its own rooms need it/)
+    ).toBeInTheDocument();
     fireEvent.change(select, { target: { value: "watch" } });
     await waitFor(() =>
       expect(bm.setBuildingMode).toHaveBeenCalledWith("b1", { auto_level: "watch" })
     );
-    await waitFor(() => expect(screen.getByLabelText("Auto for Main House")).toHaveValue("watch"));
-    expect(screen.getByText(/but holds nothing/)).toBeInTheDocument();
-    expect(screen.queryByText(/fixed mode/)).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByLabelText("In Auto, Main House")).toHaveValue("watch"));
+    expect(
+      screen.getByText(/the log shows what the building would have done as one/)
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/not set to Auto/)).not.toBeInTheDocument();
   });
 
   it("chooses how often Auto may change sides, and explains each choice", async () => {
+    // Left to its zones, a building has no use for the limit, and says so.
+    const { unmount } = render(<BuildingAutoCard />);
+    const idle = await screen.findByLabelText("How often Main House may switch");
+    expect(idle).toBeDisabled();
+    expect(
+      screen.getByText("Only used when the building heats or cools as one.")
+    ).toBeInTheDocument();
+    unmount();
+    vi.mocked(bm.getBuildingModes).mockResolvedValue([{ ...MAIN, auto_level: "on" }]);
+    vi.mocked(bm.setBuildingMode).mockImplementation(async (_id, patch) => [
+      { ...MAIN, auto_level: "on", ...patch },
+    ]);
     render(<BuildingAutoCard />);
-    const select = await screen.findByLabelText("Auto may change sides for Main House");
+    const select = await screen.findByLabelText("How often Main House may switch");
     expect(select).toHaveValue("often");
     // The chosen one is explained under the list, and all four further down.
     expect(screen.getAllByText(/no more than twice a day/)).toHaveLength(2);
-    expect(screen.getByText("What each choice means")).toBeInTheDocument();
-    expect(screen.getAllByText(/One change in any 30 days/)).toHaveLength(1);
+    expect(screen.getByText("How often it may switch: what each choice means")).toBeInTheDocument();
+    expect(screen.getAllByText(/Once in any 30 days/)).toHaveLength(1);
     fireEvent.change(select, { target: { value: "monthly" } });
     await waitFor(() =>
       expect(bm.setBuildingMode).toHaveBeenCalledWith("b1", { switching: "monthly" })
     );
     await waitFor(() => expect(select).toHaveValue("monthly"));
-    expect(screen.getAllByText(/One change in any 30 days/)).toHaveLength(2);
+    expect(screen.getAllByText(/Once in any 30 days/)).toHaveLength(2);
     expect(select.querySelector("option[value=weekly]")).toHaveAttribute(
       "title",
       expect.stringContaining("7 days")
@@ -78,7 +94,7 @@ describe("One Side Per Building", () => {
     fireEvent.change(field, { target: { value: "" } });
     expect(save).toBeDisabled();
     fireEvent.change(field, { target: { value: "4.5" } });
-    expect(screen.getByText(/before Auto considers changing sides/)).toBeInTheDocument();
+    expect(screen.getByText(/before the building thinks about switching/)).toBeInTheDocument();
     fireEvent.click(save);
     await waitFor(() =>
       expect(bm.setBuildingMode).toHaveBeenCalledWith("b1", { switch_threshold: 4.5 })
@@ -112,12 +128,12 @@ describe("One Side Per Building", () => {
   it("says when a fixed mode means Auto is not in use", async () => {
     vi.mocked(bm.getBuildingModes).mockResolvedValue([{ ...MAIN, mode: "heat_only" }]);
     render(<BuildingAutoCard />);
-    expect(await screen.findByText(/fixed mode on the Dashboard/)).toBeInTheDocument();
+    expect(await screen.findByText(/not set to Auto on the Dashboard/)).toBeInTheDocument();
   });
 
   it("reports a refused change and keeps what is stored", async () => {
     render(<BuildingAutoCard />);
-    const select = await screen.findByLabelText("Auto for Main House");
+    const select = await screen.findByLabelText("In Auto, Main House");
     vi.mocked(bm.setBuildingMode).mockRejectedValueOnce(new Error("Building not found"));
     fireEvent.change(select, { target: { value: "on" } });
     expect(await screen.findByText("Building not found")).toBeInTheDocument();

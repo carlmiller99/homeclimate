@@ -40,7 +40,7 @@ The thermostat has to offer `on` and `auto` fan settings in Home Assistant. One 
 
 Some air handlers have a duct that brings in outside air whenever the fan runs. On those, running the fan does more than mix rooms: it draws the outside in. So each zone has an **Outside Air Intake** setting under **My Home → Edit Zone**:
 
-- **Yes.** The fan only runs by itself while outside air would help the room: cooler than a room that is too warm, or warmer than one that is too cold. With no outside temperature (Settings → Sensors), it does not run.
+- **Yes.** The fan only runs by itself while outside air would help the room: cooler than a room that is too warm, or warmer than one that is too cold. With no outside temperature (My Home → Outside), it does not run.
 - **No**, or **Not Sure** (the default, treated as No). The outside temperature is not considered.
 
 ### Test

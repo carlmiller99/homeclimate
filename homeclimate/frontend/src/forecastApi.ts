@@ -25,6 +25,53 @@ export interface ForecastDay {
   high: number;
   low: number;
   hours: number;
+  /** Consecutive forecast hours asking for the same thing, in order. */
+  runs: ForecastRun[];
+  /** Home Assistant's condition id for the sky most of the day's hours share. */
+  condition: string;
+}
+
+export interface ForecastRun {
+  need: "heat" | "coast" | "cool";
+  /** The run's first forecast hour. */
+  at: string;
+  hours: number;
+}
+
+/** A day in a word, from what its hours ask for. */
+export function dayType(runs: ForecastRun[]): "Swing" | "Warm" | "Cool" | "Mild" {
+  const heat = runs.some((r) => r.need === "heat");
+  const cool = runs.some((r) => r.need === "cool");
+  return heat && cool ? "Swing" : cool ? "Warm" : heat ? "Cool" : "Mild";
+}
+
+/** Fewer forecast hours than this is only part of a day. */
+const WHOLE_DAY_HOURS = 20;
+
+/**
+ * A day's plan in a sentence: "Heat until 10 AM, coast, cool from 2 PM."
+ * `hour` names the clock hour of an instant. A day with only a few forecast
+ * hours left is not called "all day".
+ */
+export function dayPlan(runs: ForecastRun[], hour: (at: string) => string): string {
+  if (runs.length === 0) return "";
+  if (runs.length === 1) {
+    const whole = runs[0].hours >= WHOLE_DAY_HOURS;
+    return {
+      heat: whole ? "Heat all day." : "Heat for these hours.",
+      cool: whole ? "Cool all day." : "Cool for these hours.",
+      coast: "No heating or cooling.",
+    }[runs[0].need];
+  }
+  const parts = runs.map((r, i) =>
+    i === 0
+      ? `${r.need} until ${hour(runs[1].at)}`
+      : i === runs.length - 1 || r.need !== "coast"
+        ? `${r.need} from ${hour(r.at)}`
+        : r.need
+  );
+  const text = parts.join(", ");
+  return `${text[0].toUpperCase()}${text.slice(1)}.`;
 }
 
 export interface ForecastHour {
@@ -78,7 +125,7 @@ export function accuracyText(
   unitLabel: string
 ): string {
   if (a.comparisons === 0) {
-    return "Nothing to compare yet. This needs an outside temperature sensor (Settings, Sensors) and Smart Learning recording.";
+    return "Nothing to compare yet. This needs an outside temperature sensor (My Home, Outside) and Smart Learning recording.";
   }
   const hours = `${a.comparisons} ${a.comparisons === 1 ? "hour" : "hours"}`;
   if (!a.ready || a.mean_error === null || a.mean_abs === null) {

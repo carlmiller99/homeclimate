@@ -1,6 +1,6 @@
 # Shades
 
-Smart Control can move shades so the sun helps: open when a zone is heating, closed when it is cooling. Add each shade in **Smart Control → Doors & Windows → Shades → Add Shade** with its room and the direction its window faces. A shade is a `cover` that is not one of the room's vents; a cover can't be both.
+Smart Control can move shades so the sun helps: open when a zone is heating, closed when it is cooling. Add each shade from its room in **My Home**: click the room's **Shades** box, then **Add Shade**, and give the direction its window faces. How shades react is set in **Smart Control → Shades**. A shade is a `cover` that is not one of the room's vents; a cover can't be both.
 
 ## When a shade moves
 

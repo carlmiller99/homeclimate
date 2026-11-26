@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { useUnit } from "../contexts";
 import {
-  AUTO_LEVEL_LABELS,
   SWITCHING_LABELS,
   THRESHOLD_MAX_F,
   THRESHOLD_MIN_F,
@@ -13,22 +12,27 @@ import {
   type Switching,
 } from "../buildingModeApi";
 
+const LEVEL_LABELS: Record<AutoLevel, string> = {
+  off: "Lets Each Zone Decide",
+  watch: "Lets Each Zone Decide, and Logs What It Would Do",
+  on: "Heats or Cools as One",
+};
+
 const LEVEL_HELP: Record<AutoLevel, string> = {
-  off: "Zones run independently: each chooses heating or cooling for itself.",
+  off: "Each zone heats or cools whenever its own rooms need it. Two zones can be heating and cooling at the same time.",
   watch:
-    "Works out the side for the whole building and logs what it would hold, but holds nothing.",
-  on: "Keeps every zone in the building on one side, and changes sides only as often as you allow below.",
+    "Zones still decide for themselves, but the log shows what the building would have done as one. A way to try it first.",
+  on: "The whole building is either heating or cooling. A zone that wants the other one waits until the building switches.",
 };
 
 const SWITCHING_HELP: Record<Switching, string> = {
   often:
-    "Changes at least 4 hours apart, and no more than twice a day. For days that need heat in the morning and cooling in the afternoon.",
-  daily:
-    "One change in any 24 hours, counted from the last one. The building heats or cools for the day, and the other side waits.",
+    "At least 4 hours apart, and no more than twice a day. For days that need heat in the morning and cooling in the afternoon.",
+  daily: "Once in any 24 hours. The building heats or cools for the day, and the other one waits.",
   weekly:
-    "One change in any 7 days, counted from the last one. It also waits until the forecast for the coming days favours the other side, so one odd day does not use it up.",
+    "Once in any 7 days. It also waits until the forecast for the coming days calls for the switch, so one odd day does not use it up.",
   monthly:
-    "One change in any 30 days, counted from the last one: a change of season. It also waits until the forecast for the coming days favours the other side.",
+    "Once in any 30 days: a change of season. It also waits until the forecast for the coming days calls for the switch.",
 };
 
 type Patch = Parameters<typeof setBuildingMode>[1];
@@ -62,7 +66,7 @@ function ThresholdField({
   const valid = Number.isFinite(value) && value >= low && value <= high;
   return (
     <label className="field-stack">
-      {`Switching Threshold (${unitLabel})`}
+      {`A Room Must Be This Far Past Its Target First (${unitLabel})`}
       <span className="threshold-row">
         <input
           className="form-control house-band-input"
@@ -88,14 +92,14 @@ function ThresholdField({
       </span>
       <span className="form-hint">
         {valid || text === stored
-          ? "How far past its target on the other side a room must be before Auto considers changing sides."
+          ? "With a building that is heating and a cooling target of 72, a room has to reach 72 plus this much before the building thinks about switching to cooling."
           : `Between ${low} and ${high}${unitLabel}.`}
       </span>
     </label>
   );
 }
 
-/** Smart Control → Forecasts: what Auto means for each building. */
+/** Smart Control → Auto Mode: what Auto means for each building. */
 export default function BuildingAutoCard() {
   const [buildings, setBuildings] = useState<BuildingMode[] | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -130,14 +134,10 @@ export default function BuildingAutoCard() {
 
   return (
     <div className="card">
-      <h3 className="card-title">One Side Per Building</h3>
+      <h3 className="card-title">Auto Mode</h3>
       <p className="page-subtitle">
-        Zones that share a building share its air. Auto keeps them all heating or all cooling, so
-        one zone is never cooling what another just heated. It changes sides only when a room is the
-        switching threshold past its target on the other side, the running cycle has ended, a zone
-        has waited 10 minutes, the limit you choose here allows it, and the forecast does not rule
-        it out. The limit always holds, however far out a room is: to change sides sooner, set the
-        building to Heat Only or Cool Only on the Dashboard. Safety limits are never held back.
+        What a building does when its mode on the Dashboard is Auto. A building set to Heat Only,
+        Cool Only or Off does not use this page.
       </p>
       {loadFailed && <p className="form-error">Could not load the buildings.</p>}
       {!loadFailed && !buildings && <p className="page-subtitle">Loading the buildings…</p>}
@@ -152,36 +152,36 @@ export default function BuildingAutoCard() {
           </div>
           <div className="auto-fields">
             <label className="field-stack">
-              Auto
+              In Auto, This Building
               <select
                 className="form-control"
-                aria-label={`Auto for ${b.name}`}
+                aria-label={`In Auto, ${b.name}`}
                 value={b.auto_level}
                 disabled={busy}
                 onChange={(e) =>
                   void change(b.building_id, { auto_level: e.target.value as AutoLevel })
                 }
               >
-                {(Object.keys(AUTO_LEVEL_LABELS) as AutoLevel[]).map((l) => (
+                {(Object.keys(LEVEL_LABELS) as AutoLevel[]).map((l) => (
                   <option key={l} value={l} title={LEVEL_HELP[l]}>
-                    {AUTO_LEVEL_LABELS[l]}
+                    {LEVEL_LABELS[l]}
                   </option>
                 ))}
               </select>
               <span className="form-hint">{LEVEL_HELP[b.auto_level]}</span>
               {b.mode !== "auto" && (
                 <span className="form-hint">
-                  This building is set to a fixed mode on the Dashboard, so Auto is not in use.
+                  This building is not set to Auto on the Dashboard, so none of this is in use.
                 </span>
               )}
             </label>
             <label className="field-stack">
-              Auto May Change Sides
+              It May Switch Between Heating and Cooling
               <select
                 className="form-control"
-                aria-label={`Auto may change sides for ${b.name}`}
+                aria-label={`How often ${b.name} may switch`}
                 value={b.switching}
-                disabled={busy}
+                disabled={busy || b.auto_level === "off"}
                 onChange={(e) =>
                   void change(b.building_id, { switching: e.target.value as Switching })
                 }
@@ -192,7 +192,11 @@ export default function BuildingAutoCard() {
                   </option>
                 ))}
               </select>
-              <span className="form-hint">{SWITCHING_HELP[b.switching]}</span>
+              <span className="form-hint">
+                {b.auto_level === "off"
+                  ? "Only used when the building heats or cools as one."
+                  : SWITCHING_HELP[b.switching]}
+              </span>
             </label>
             <ThresholdField
               building={b}
@@ -204,7 +208,7 @@ export default function BuildingAutoCard() {
       ))}
       {buildings && buildings.length > 0 && (
         <details className="targets-more">
-          <summary>What each choice means</summary>
+          <summary>How often it may switch: what each choice means</summary>
           <dl className="choice-list">
             {(Object.keys(SWITCHING_LABELS) as Switching[]).map((s) => (
               <div key={s}>

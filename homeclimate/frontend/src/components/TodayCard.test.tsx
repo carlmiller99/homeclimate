@@ -2,6 +2,7 @@ import { act, cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildTimeZoneContext, buildUnitContext, TimeZoneContext, UnitContext } from "../contexts";
 import * as ta from "../todayApi";
+import { MemoryRouter } from "react-router";
 import TodayCard from "./TodayCard";
 
 vi.mock("../todayApi", async (orig) => ({
@@ -103,27 +104,44 @@ describe("Today's Plan card", () => {
   it("shows the strip, what is coming up in the house's time, and yesterday", async () => {
     show();
     expect(screen.getByText("Loading today's plan…")).toBeInTheDocument();
+    // The plan in a sentence, in the house's time: 08:00 UTC is 4 AM in New York.
     expect(
       await screen.findByText(
-        "Next 8 hours: 6 hours heating, 1 hour coasting, 1 hour cooling. Outside 58.0°F to 86.0°F."
+        "Heating from 4 AM, coasting from 10 AM, cooling from 11 AM. Low 58.0°F, high 86.0°F."
       )
     ).toBeInTheDocument();
-    const strip = screen.getByRole("img", {
-      name: "Hour by hour: 6 hours heating, 1 hour coasting, 1 hour cooling",
+    // One block per run of hours, as wide as the run is long, with its word in it.
+    const band = screen.getByRole("img", {
+      name: "Next 8 hours: 6 hours heating, 1 hour coasting, 1 hour cooling",
     });
-    expect(strip.children).toHaveLength(8);
-    // 08:00 UTC is 4 AM in New York; every sixth hour is labelled.
-    expect(strip.children[0]).toHaveAttribute("title", "4 AM: 58.0°F outside, heating");
-    expect(strip.children[0]).toHaveClass("today-heat");
-    expect(strip.children[7]).toHaveAttribute("title", "11 AM: 86.0°F outside, cooling");
-    expect(
-      within(strip)
-        .getAllByText(/AM$/)
-        .map((n) => n.textContent)
-    ).toEqual(["4 AM", "10 AM"]);
-    expect(
-      screen.getByText("Heating from 4 AM, coasting from 10 AM, cooling from 11 AM.")
-    ).toBeInTheDocument();
+    expect(band.children).toHaveLength(3);
+    expect(band.children[0]).toHaveClass("today-heat");
+    expect(band.children[0]).toHaveTextContent("Heating");
+    expect(band.children[0]).toHaveStyle({ flexGrow: "6" });
+    expect(band.children[0]).toHaveAttribute("title", "Heating from 4 AM, 6 hours");
+    // A one-hour block is too narrow for a word; its tooltip still says.
+    expect(band.children[1]).toHaveTextContent("");
+    expect(band.children[1]).toHaveAttribute("title", "Coasting from 10 AM, 1 hour");
+    expect(band.children[2]).toHaveClass("today-cool");
+    // The outdoor line runs from now, on the left, to the last hour on the right.
+    const line = screen.getByRole("img", {
+      name: "Outside: 58.0°F now, low 58.0°F at 4 AM, high 86.0°F at 11 AM",
+    });
+    const points = line.querySelector("polyline")!.getAttribute("points")!.split(" ");
+    expect(points).toHaveLength(8);
+    expect(points[0]).toBe("0.0,60.0");
+    expect(points[7]).toBe("720.0,10.0");
+    // Times under the line; now, the low and the high carry their temperature.
+    expect([...document.querySelectorAll(".today-axis span")].map((n) => n.textContent)).toEqual([
+      "Now 58.0°F",
+      "5 AM",
+      "6 AM",
+      "7 AM",
+      "8 AM",
+      "9 AM",
+      "10 AM",
+      "11 AM 86.0°F",
+    ]);
     expect(
       screen.getByText(
         "Heating when it is colder than 66.0°F outside, cooling when warmer than 76.0°F: your targets."
@@ -139,11 +157,42 @@ describe("Today's Plan card", () => {
     ]);
     expect(coming.getAllByRole("listitem")[0]).toHaveAttribute("title", "EDT");
     expect(screen.getByText(TODAY.yesterday)).toBeInTheDocument();
+    expect(screen.getByText(/Forecast updated 4:00 AM\./)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Tune in Smart Control" })).toHaveAttribute(
+      "href",
+      "/smart-control?section=forecasts"
+    );
+  });
+
+  it("links through the router when it is inside one", async () => {
+    render(
+      <MemoryRouter>
+        <TimeZoneContext.Provider value={buildTimeZoneContext("America/New_York")}>
+          <TodayCard />
+        </TimeZoneContext.Provider>
+      </MemoryRouter>
+    );
+    expect(await screen.findByRole("link", { name: "Tune in Smart Control" })).toHaveAttribute(
+      "href",
+      "/smart-control?section=forecasts"
+    );
+  });
+
+  it("draws a flat line for a day that stays at one temperature, and a single hour", async () => {
+    vi.mocked(ta.getToday).mockResolvedValue({
+      ...TODAY,
+      forecast_fetched_at: null,
+      hours: [{ at: "2026-07-06T08:00:00+00:00", temp: 70, need: "coast" }],
+    });
+    show();
+    const line = await screen.findByRole("img", { name: /^Outside: 70\.0°F now/ });
+    expect(line.querySelector("polyline")).toHaveAttribute("points", "0.0,35.0");
+    expect(screen.getByText(/No forecast has been read yet\./)).toBeInTheDocument();
   });
 
   it("shows temperatures in the house's unit", async () => {
     show("C");
-    expect(await screen.findByText(/Outside 14\.4°C to 30\.0°C\./)).toBeInTheDocument();
+    expect(await screen.findByText(/Low 14\.4°C, high 30\.0°C\./)).toBeInTheDocument();
     expect(screen.getByText(/Bunk Room: schedule to 20\.0°C to 23\.3°C/)).toBeInTheDocument();
   });
 

@@ -17,7 +17,7 @@ describe("VacationModeModal — enable flow", () => {
     render(<VacationModeModal current={OFF} onClose={vi.fn()} onChanged={vi.fn()} />);
     expect(screen.getAllByText(/Enable vacation mode/i).length).toBeGreaterThan(0);
     expect(screen.getByLabelText(/Return date/i)).toBeInTheDocument();
-    expect(screen.getByText(/all room schedules/i)).toBeInTheDocument();
+    expect(screen.getByText(/schedules, occupancy and holds are paused/i)).toBeInTheDocument();
   });
 
   it("shows error when no date selected", async () => {

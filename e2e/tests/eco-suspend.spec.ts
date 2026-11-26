@@ -132,9 +132,7 @@ test.describe.serial("Eco Suspend (#500)", () => {
 
     // Then Downstairs, independently, through its own zone card's control
     // (which opens the modal pre-scoped to it). The same banner picks it up.
-    const downstairsCard = page
-      .locator(".card-grid > .card")
-      .filter({ hasText: DOWNSTAIRS });
+    const downstairsCard = page.getByTestId(`dash-zone-${DOWNSTAIRS}`);
     await downstairsCard.getByRole("button", { name: /Suspend Eco/ }).click();
     await expect(modal.locator("#eco-suspend-thermostat")).toHaveValue(
       DOWNSTAIRS,

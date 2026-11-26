@@ -66,7 +66,7 @@ Holds, schedules and occupancy each have one target, not a band.
 
 ## Per-room options
 
-Each room on the Dashboard has **Options**:
+Each room's details on the Dashboard (click the room's row) have **In Use, Schedules and Occupancy**:
 
 | Switch | Off means |
 |---|---|
@@ -78,7 +78,7 @@ All three are on for every room until changed.
 
 ### Room In Use from a calendar
 
-Under **Smart Control → Schedules → Rooms In Use by Calendar**, a room's In Use can follow a Home Assistant calendar instead of being set by hand, for rooms that are only lived in some of the time.
+Under **Smart Control → Schedules**, on the room's card, choose **When a Calendar Says So** and a room's In Use can follow a Home Assistant calendar instead of being set by hand, for rooms that are only lived in some of the time.
 
 - The room is in use while an event is on, and from **Get Ready Ahead** (2 hours by default, up to 24) before one starts, so it is at temperature on arrival. The lead is a fixed time; on a heat pump zone in cold weather, allow more.
 - **Only Events Containing** limits it to events whose title contains that text; leave it empty for any event. Every event in the window is looked at, so an unrelated event at the same time does not hide the one that matters.

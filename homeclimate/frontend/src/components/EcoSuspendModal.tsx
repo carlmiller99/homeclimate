@@ -101,9 +101,8 @@ export default function EcoSuspendModal({
       <div className="modal">
         <div className="modal-title">{activeUntil ? "Eco Mode suspended" : "Suspend Eco Mode"}</div>
         <p style={{ marginBottom: "1rem" }}>
-          Temporarily turn Eco Mode's target relaxation <strong>off for one thermostat</strong> —
-          e.g. while hosting guests — so every room in that zone runs to its real target. Eco
-          resumes automatically at the date you pick; your Eco settings are not changed.
+          Turns Eco Mode <strong>off for one zone</strong> for a while, such as when guests are
+          staying. It comes back by itself on the date you pick.
         </p>
         <p style={{ marginBottom: "1.25rem", color: "var(--gray-600)", fontSize: ".9rem" }}>
           Applies zone-wide, including rooms with a room-level Eco opt-in. A cycle already running

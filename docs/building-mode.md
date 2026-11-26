@@ -25,17 +25,17 @@ Things to know:
 - **Off is the exception.** It ends running cycles on the next check, the same way an open door or window does.
 - Vacation Mode's own hold on each thermostat is separate from building mode and is not changed by it.
 
-## Auto (Smart Control → Forecasts)
+## Auto (Smart Control → Auto Mode)
 
 What Auto means is set for each building, in three parts.
 
-### Auto: whether zones are held to one side
+### In Auto, This Building: whether it heats or cools as one
 
-- **Off** (the default). Zones run independently: each chooses heating or cooling for itself.
-- **Watch Only.** HomeClimate works out the building's side and logs each time it would have made a zone wait, but holds nothing. Use this to see what On would do.
-- **On.** Every zone in the building is kept to the building's side.
+- **Lets Each Zone Decide** (the default). Each zone heats or cools whenever its own rooms need it.
+- **Lets Each Zone Decide, and Logs What It Would Do.** HomeClimate works out the building's side and logs each time it would have made a zone wait, but holds nothing. Use this to see what On would do.
+- **Heats or Cools as One.** Every zone in the building is kept to the building's side.
 
-### Auto May Change Sides: how often
+### It May Switch Between Heating and Cooling: how often
 
 | Choice | What it allows |
 | --- | --- |

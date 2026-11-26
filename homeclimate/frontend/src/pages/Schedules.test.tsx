@@ -56,6 +56,33 @@ describe("Schedules Page", () => {
     expect(await screen.findByText("Living Room")).toBeInTheDocument();
   });
 
+  it("asks, on each room's card, whether the room is in use", async () => {
+    vi.mocked(api.api).mockResolvedValue({
+      rooms: [
+        {
+          room_id: mockRooms[0].id,
+          in_use: false,
+          use_schedules: true,
+          use_presence: true,
+          calendar: null,
+        },
+      ],
+    });
+    render(<Schedules />);
+    const group = await screen.findByRole("radiogroup", { name: "Living Room is in use" });
+    expect(group).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Never" })).toBeChecked();
+    // It is there without opening the room's time blocks.
+    expect(screen.queryByText(/Add schedule/i)).toBeNull();
+  });
+
+  it("still lists the time blocks when the home's layout cannot be read", async () => {
+    vi.mocked(api.api).mockRejectedValue(new Error("down"));
+    render(<Schedules />);
+    expect(await screen.findByText("Living Room")).toBeInTheDocument();
+    expect(screen.queryByRole("radiogroup")).toBeNull();
+  });
+
   it("shows validation error for overlapping schedule", async () => {
     render(<Schedules />);
 

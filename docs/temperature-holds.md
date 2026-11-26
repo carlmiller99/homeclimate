@@ -57,13 +57,13 @@ per-schedule deadband (#215, #517).
 One shared modal — room picker, temperature, duration, the Eco checkbox —
 opens from the Dashboard, where every manual control lives:
 
-- **Dashboard** — the page-level **🕒 Temporary hold** button (reading
-  "*N* holds active — manage" while any are live). Every live hold gets a
-  strip row under the header — room, target, countdown, whether it ignores
-  Eco — with a **Cancel** button, and a held room carries a purple **Hold**
-  badge on its zone card.
-- **Dashboard room rows** — every room has a **Hold** button that opens the
-  modal for that room, and a held room shows **Cancel Hold** instead.
+- **Dashboard, a building's header** — **Hold a Room** opens the modal with
+  that building's rooms to pick from. Every live hold gets a strip row under
+  the page header — room, target, countdown, whether it ignores Eco — with a
+  **Cancel** button, and a held room carries a purple **Hold** badge on its
+  row.
+- **Dashboard, a room's details** — click a room's row, then **Start a
+  Hold**; a held room offers **Cancel Hold** instead.
 - **Schedules** — a held room's expanded section shows a read-only
   **Temporary hold** notice above the block table (target, countdown, Eco
   tag), because the hold overrides those blocks. It is changed and cancelled

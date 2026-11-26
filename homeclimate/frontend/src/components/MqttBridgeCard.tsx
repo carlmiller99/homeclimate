@@ -76,17 +76,14 @@ export default function MqttBridgeCard() {
       </div>
 
       <div className="form-hint" style={{ marginTop: ".75rem" }}>
-        Lets Home Assistant automations control HomeClimate directly — enable or disable a schedule,
-        hold a room, clear presence, flip vacation mode. Controls appear as real HA entities, so
-        they are usable in the automation UI with no YAML.
+        Lets Home Assistant automations control HomeClimate: turn a schedule on or off, hold a room,
+        or switch Vacation Mode.
       </div>
 
       {!status.configured && (
         <div className="form-hint" style={{ color: "var(--orange)", marginTop: ".5rem" }}>
-          No MQTT broker was found, so the bridge cannot be turned on. On Home Assistant OS, install
-          and start the <strong>Mosquitto broker</strong> add-on, then restart HomeClimate — the
-          broker and topic prefix are discovered automatically, nothing to configure. For standalone
-          Docker, set <code>MQTT_HOST</code> in the container environment.
+          No MQTT broker was found. Install and start the <strong>Mosquitto broker</strong> add-on
+          in Home Assistant, then restart HomeClimate.
         </div>
       )}
 

@@ -9,6 +9,7 @@ import * as sc from "../smartControlApi";
 import { zoneFor, smartControl } from "../zoneFixtures";
 import { SystemContext, UnitContext, buildUnitContext } from "../contexts";
 
+vi.mock("../components/OutsideTempPicker", () => ({ default: () => <p>outside sensors</p> }));
 vi.mock("../api");
 vi.mock("../zonesApi", async (orig) => ({
   ...(await orig<typeof import("../zonesApi")>()),
@@ -121,6 +122,13 @@ function renderPage() {
     </SystemContext.Provider>
   );
 }
+
+/** Opens one kind of device for the room, from its box on the room's card. */
+async function openDevices(title: string) {
+  fireEvent.click(await screen.findByRole("button", { name: `${title} in Living Room` }));
+  return screen.getByRole("dialog", { name: `${title} in Living Room` });
+}
+const closeDevices = () => fireEvent.click(screen.getByRole("button", { name: "Close" }));
 
 describe("Rooms Page", () => {
   beforeEach(() => {
@@ -426,7 +434,7 @@ describe("Rooms Page", () => {
     expect(screen.queryByRole("button", { name: "Delete Room" })).toBeNull();
   });
 
-  it("navigates to configure view and manages entities", async () => {
+  it("opens each kind of device from its box and manages entities", async () => {
     render(
       <SystemContext.Provider value={mockSystem}>
         <MemoryRouter>
@@ -435,10 +443,8 @@ describe("Rooms Page", () => {
       </SystemContext.Provider>
     );
 
-    const configBtn = await screen.findByRole("button", { name: "Edit Devices" });
-    fireEvent.click(configBtn);
-
-    expect(await screen.findByText("Temperature Sensors")).toBeInTheDocument();
+    // Each kind of device opens from its own box on the room's card.
+    let devices = await openDevices("Temperature Sensors");
 
     // Add a sensor
     const sensorPicker = screen.getByPlaceholderText(/Search temperature sensors/i);
@@ -452,42 +458,45 @@ describe("Rooms Page", () => {
     });
 
     // Remove a sensor — requires confirmation naming the entity
-    const sensorSection = screen.getByText("Temperature Sensors").closest("div")?.parentElement;
-    const removeSensorBtn = within(sensorSection!).getAllByTitle("Remove")[0];
-    fireEvent.click(removeSensorBtn);
+    fireEvent.click(within(devices).getAllByTitle("Remove")[0]);
     let dialog = await screen.findByTestId("confirm-dialog");
     expect(within(dialog).getByText(/sensor\.temp/)).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "Remove" }));
     await waitFor(() => {
       expect(api.removeSensor).toHaveBeenCalledWith("room-1", "sensor.temp");
     });
+    // Only this kind of device is in the dialog.
+    expect(screen.queryByText("Test open")).toBeNull();
+    closeDevices();
+    expect(screen.queryByRole("dialog")).toBeNull();
 
     // Test vent
-    const testOpenBtn = screen.getByText("Test open");
-    fireEvent.click(testOpenBtn);
+    devices = await openDevices("Smart Vents");
+    fireEvent.click(screen.getByText("Test open"));
     expect(api.testVent).toHaveBeenCalledWith("cover.vent", "open_close", "open");
 
     // Remove vent — requires confirmation naming the entity
-    const ventSection = screen.getByText("Smart Vents").closest("div")?.parentElement;
-    const removeVentBtn = within(ventSection!).getAllByTitle("Remove")[0];
-    fireEvent.click(removeVentBtn);
+    fireEvent.click(within(devices).getAllByTitle("Remove")[0]);
     dialog = await screen.findByTestId("confirm-dialog");
     expect(within(dialog).getByText(/cover\.vent/)).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "Remove" }));
     await waitFor(() => {
       expect(api.removeVent).toHaveBeenCalledWith("room-1", "cover.vent");
     });
+    closeDevices();
 
     // Remove a presence sensor — requires confirmation naming the entity
-    const presenceSection = screen.getByText("Occupancy Sensors").closest("div")?.parentElement;
-    const removePresenceBtn = within(presenceSection!).getAllByTitle("Remove")[0];
-    fireEvent.click(removePresenceBtn);
+    devices = await openDevices("Occupancy Sensors");
+    fireEvent.click(within(devices).getAllByTitle("Remove")[0]);
     dialog = await screen.findByTestId("confirm-dialog");
     expect(within(dialog).getByText(/binary_sensor\.existing_motion/)).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "Remove" }));
     await waitFor(() => {
       expect(api.removePresence).toHaveBeenCalledWith("room-1", "binary_sensor.existing_motion");
     });
+    // A click outside the sheet closes it too.
+    fireEvent.click(devices);
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("does not remove sensor, vent, or presence sensor when confirmation is cancelled", async () => {
@@ -499,32 +508,21 @@ describe("Rooms Page", () => {
       </SystemContext.Provider>
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Edit Devices" }));
-    expect(await screen.findByText("Temperature Sensors")).toBeInTheDocument();
-
-    const sensorSection = screen.getByText("Temperature Sensors").closest("div")?.parentElement;
-    fireEvent.click(within(sensorSection!).getAllByTitle("Remove")[0]);
-    let dialog = await screen.findByTestId("confirm-dialog");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
-    await waitFor(() => expect(screen.queryByTestId("confirm-dialog")).not.toBeInTheDocument());
-
-    const ventSection = screen.getByText("Smart Vents").closest("div")?.parentElement;
-    fireEvent.click(within(ventSection!).getAllByTitle("Remove")[0]);
-    dialog = await screen.findByTestId("confirm-dialog");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
-    await waitFor(() => expect(screen.queryByTestId("confirm-dialog")).not.toBeInTheDocument());
-
-    const presenceSection = screen.getByText("Occupancy Sensors").closest("div")?.parentElement;
-    fireEvent.click(within(presenceSection!).getAllByTitle("Remove")[0]);
-    dialog = await screen.findByTestId("confirm-dialog");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    for (const title of ["Temperature Sensors", "Smart Vents", "Occupancy Sensors"]) {
+      const devices = await openDevices(title);
+      fireEvent.click(within(devices).getAllByTitle("Remove")[0]);
+      const dialog = await screen.findByTestId("confirm-dialog");
+      fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+      await waitFor(() => expect(screen.queryByTestId("confirm-dialog")).not.toBeInTheDocument());
+      closeDevices();
+    }
 
     expect(api.removeSensor).not.toHaveBeenCalled();
     expect(api.removeVent).not.toHaveBeenCalled();
     expect(api.removePresence).not.toHaveBeenCalled();
   });
 
-  it("changes a vent's control method in the configure view", async () => {
+  it("changes a vent's control method from its box on the room card", async () => {
     vi.mocked(api.updateVentControlMethod).mockResolvedValue({
       updated: true,
       control_method: "set_position",
@@ -537,8 +535,7 @@ describe("Rooms Page", () => {
       </SystemContext.Provider>
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Edit Devices" }));
-    await screen.findByText("Smart Vents");
+    await openDevices("Smart Vents");
 
     const methodSelect = screen.getByDisplayValue(/Open \/ close/i);
     fireEvent.change(methodSelect, { target: { value: "set_position" } });
@@ -562,8 +559,7 @@ describe("Rooms Page", () => {
       </SystemContext.Provider>
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Edit Devices" }));
-    await screen.findByText("Smart Vents");
+    await openDevices("Smart Vents");
 
     const methodSelect = screen.getByDisplayValue(/Open \/ close/i) as HTMLSelectElement;
     fireEvent.change(methodSelect, { target: { value: "toggle" } });
@@ -574,7 +570,7 @@ describe("Rooms Page", () => {
     expect(methodSelect.value).toBe("open_close");
   });
 
-  it("runs the vent close test in the configure view", async () => {
+  it("runs the vent close test from its box on the room card", async () => {
     vi.mocked(api.testVent).mockResolvedValue({ ok: true });
     render(
       <SystemContext.Provider value={mockSystem}>
@@ -584,14 +580,14 @@ describe("Rooms Page", () => {
       </SystemContext.Provider>
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Edit Devices" }));
+    await openDevices("Smart Vents");
     fireEvent.click(await screen.findByText("Test close"));
 
     expect(api.testVent).toHaveBeenCalledWith("cover.vent", "open_close", "close");
     expect(await screen.findByText(/Close command accepted/i)).toBeInTheDocument();
   });
 
-  it("adds a presence sensor from the configure view", async () => {
+  it("adds a presence sensor from its box on the room card", async () => {
     vi.mocked(api.addPresence).mockResolvedValue({
       id: "p1",
       room_id: "room-1",
@@ -605,7 +601,7 @@ describe("Rooms Page", () => {
       </SystemContext.Provider>
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Edit Devices" }));
+    await openDevices("Occupancy Sensors");
     const picker = await screen.findByPlaceholderText(/Search occupancy and motion sensors/i);
     fireEvent.focus(picker);
     fireEvent.change(picker, { target: { value: "Motion" } });
@@ -616,7 +612,7 @@ describe("Rooms Page", () => {
     });
   });
 
-  it("edits room settings from the configure view, exercising every field", async () => {
+  it("edits room settings, exercising every field", async () => {
     vi.mocked(api.updateRoom).mockResolvedValue(mockRooms[0]);
     render(
       <SystemContext.Provider value={mockSystem}>
@@ -626,7 +622,6 @@ describe("Rooms Page", () => {
       </SystemContext.Provider>
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Edit Devices" }));
     fireEvent.click(await screen.findByRole("button", { name: "Room Settings" }));
 
     fireEvent.change(screen.getByLabelText(/Room name/i), { target: { value: "Renamed" } });
@@ -664,7 +659,6 @@ describe("Rooms Page", () => {
         </MemoryRouter>
       </SystemContext.Provider>
     );
-    fireEvent.click(await screen.findByRole("button", { name: "Edit Devices" }));
     fireEvent.click(await screen.findByRole("button", { name: "Room Settings" }));
     const coolTo = screen.getByLabelText(/Cool To/i);
     expect(coolTo).toHaveValue(74);
@@ -710,7 +704,6 @@ describe("Rooms Page", () => {
       </SystemContext.Provider>
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Edit Devices" }));
     fireEvent.click(await screen.findByRole("button", { name: "Room Settings" }));
 
     // mockRooms[0] has no deadband_override → the field renders blank and the
@@ -740,7 +733,6 @@ describe("Rooms Page", () => {
       </SystemContext.Provider>
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Edit Devices" }));
     fireEvent.click(await screen.findByRole("button", { name: "Room Settings" }));
 
     // Field initialises with the stored override (1.5°F → "1.5" in °F mode).
@@ -757,22 +749,6 @@ describe("Rooms Page", () => {
         expect.objectContaining({ deadband_override: null })
       );
     });
-  });
-
-  it("returns to the room list with the back button", async () => {
-    render(
-      <SystemContext.Provider value={mockSystem}>
-        <MemoryRouter>
-          <Rooms />
-        </MemoryRouter>
-      </SystemContext.Provider>
-    );
-
-    fireEvent.click(await screen.findByRole("button", { name: "Edit Devices" }));
-    fireEvent.click(await screen.findByRole("button", { name: /My Home/i }));
-
-    // Back on the list view: the "Add Room" button is present again
-    expect(await screen.findByText("Add Room")).toBeInTheDocument();
   });
 
   it("closes the settings page via Cancel without saving", async () => {
@@ -1219,7 +1195,7 @@ describe("Rooms Page — Eco Mode override (#404)", () => {
     });
 
     // The gating hint is shown when no sensor is configured.
-    expect(screen.getByText(/PirateWeather/i)).toBeInTheDocument();
+    expect(screen.getByText(/Eco Mode needs to know the outside temperature/)).toBeInTheDocument();
 
     // Force "on" (the option is disabled in the UI, but the save still guards).
     const ecoSelect = screen.getByLabelText(/^Eco Mode$/) as HTMLSelectElement;

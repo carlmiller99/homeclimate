@@ -2,7 +2,7 @@ name: Container CI
 
 # Single source of truth for the per-PR container pipeline. Builds the addon
 # image ONCE and reuses it for the smoke test, the temperature-conversion E2E
-# legs (F / C), and the visual-regression E2E legs instead of each rebuilding
+# legs (F / C), and the MQTT and MCP legs instead of each rebuilding
 # it. Previously the same image was built ~4× per PR (build-pr + smoke + E2E
 # F + E2E C).
 #
@@ -33,14 +33,14 @@ name: Container CI
 # severity gate has exactly one definition.
 #
 # Cross-job reuse needs `needs:` (same workflow), which is why the smoke test
-# (was lint.yml), the conversion matrix (was e2e-conversion.yml), and the
-# visual-regression matrix (was e2e.yml) live here alongside the build.
+# (was lint.yml) and the conversion matrix (was e2e-conversion.yml) live
+# here alongside the build.
 # Issues #330, #331, #332, #333 and #334 follow-ups (#337, #596).
 
 on:
   pull_request:
     branches: [main]
-  workflow_dispatch: # manual trigger — useful for regenerating golden screenshots on demand
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -67,32 +67,30 @@ jobs:
   # (#412). This MUST stay a job-level `if:` gate, never a workflow-level
   # `paths:` filter: a job skipped by `if:` still reports "skipped" (which
   # satisfies branch protection), while a path-filtered workflow never
-  # creates its required check and the PR hangs forever. Replacing the old
-  # `paths-ignore: e2e/screenshots/**` here also retires the goldens-only
-  # stuck-PR trap; the golden-bot loop protection is independently
-  # guaranteed by GITHUB_TOKEN pushes not re-triggering workflows.
+  # creates its required check and the PR hangs forever.
   # -----------------------------------------------------------------------
   changes:
     name: Detect changed paths
     runs-on: ubuntu-latest
     outputs:
       code: ${{ steps.filter.outputs.code }}
-      ui: ${{ steps.filter.outputs.ui }}
+      units: ${{ steps.filter.outputs.units }}
+      mqtt: ${{ steps.filter.outputs.mqtt }}
+      mcp: ${{ steps.filter.outputs.mcp }}
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0 # merge-base diff against the PR base
 
-      - name: Classify diff (code vs docs-only, and UI-affecting)
+      - name: Classify diff (code vs docs-only, and which slow legs)
         id: filter
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_REF: ${{ github.head_ref }}
         run: |
           if [ -z "${BASE_SHA}" ]; then
-            # workflow_dispatch has no PR diff — run everything (this is the
-            # manual golden-regeneration path).
-            echo "code=true" >> "$GITHUB_OUTPUT"
-            echo "ui=true" >> "$GITHUB_OUTPUT"
+            # workflow_dispatch has no PR diff — run everything.
+            for flag in code units mqtt mcp; do echo "${flag}=true" >> "$GITHUB_OUTPUT"; done
             exit 0
           fi
           git diff --name-only "${BASE_SHA}...HEAD" > /tmp/changed.txt
@@ -100,8 +98,7 @@ jobs:
           cat /tmp/changed.txt
           # Docs-only (skip the container pipeline): root-level markdown
           # (README/CLAUDE/DESIGN/RELEASE), docs/, the .claude/ skill library,
-          # .jules/, .vscode/, the README screenshots dir, and committed golden
-          # PNGs. NOTE: .github/ is deliberately NOT docs — a workflow change
+          # .jules/, .vscode/ and the README screenshots dir. NOTE: .github/ is deliberately NOT docs — a workflow change
           # must run the pipeline so we can validate CI still works. Nested
           # markdown outside those dirs (e.g. homeclimate/CHANGELOG.md) counts as
           # code too; only root *.md is treated as docs. Anything not matched
@@ -112,21 +109,38 @@ jobs:
             echo "Docs-only diff — container jobs will be skipped."
             echo "code=false" >> "$GITHUB_OUTPUT"
           fi
-          # UI-affecting: only these paths can change a rendered pixel — the
-          # frontend bundle, the E2E specs/fixtures/config (not committed
-          # goldens), the image the bundle is built in, the compose test
-          # stack, config.yaml (version → frozen-UI build), this workflow.
-          # Backend-only diffs skip the VISUAL legs: goldens capture the
-          # frontend's rendering, and smoke + round-trip still exercise the
-          # backend. Known trade-off: a backend change that alters what the
-          # fixture pages display (e.g. a setpoint computation) won't refresh
-          # goldens until the next UI-touching PR regenerates them.
-          if grep -E '^(homeclimate/frontend/|e2e/|docker-compose\.test|homeclimate/config\.yaml|homeclimate/Dockerfile|\.github/workflows/container-ci\.yml)' /tmp/changed.txt | grep -vE '^e2e/screenshots/' | grep -q .; then
-            echo "ui=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "No UI-affecting paths — visual-regression legs will be skipped."
-            echo "ui=false" >> "$GITHUB_OUTPUT"
-          fi
+          # The three slow integration legs each run only when something they
+          # exercise changed, to spare Actions minutes (a private repo has a
+          # monthly allowance).
+          #   full  an image, compose or workflow change, or a release PR's
+          #         version bump: runs the temperature round-trip, the one leg
+          #         that drives the whole stack through the browser. The MQTT
+          #         and MCP legs do not run for these: a release, image or
+          #         workflow change that touched nothing of theirs has nothing
+          #         new for them to find.
+          #   deps  pyproject.toml outside a release PR, where it is only the
+          #         version line: a dependency bump (the mcp SDK, aiomqtt) is
+          #         exactly what the MQTT and MCP legs exist to catch.
+          full=false
+          if grep -qE '^(homeclimate/config\.yaml|homeclimate/Dockerfile|homeclimate/run\.sh|homeclimate/pyproject\.toml|docker-compose\.test|\.github/)' /tmp/changed.txt; then full=true; fi
+          deps=false
+          case "${HEAD_REF}" in
+            release/v*) ;;
+            *) if grep -qE '^homeclimate/pyproject\.toml$' /tmp/changed.txt; then deps=true; fi ;;
+          esac
+          leg() {
+            if { [ "$3" = on-full ] && [ "$full" = true ]; } || { [ "$3" = on-deps ] && [ "$deps" = true ]; } || grep -qE "$2" /tmp/changed.txt; then
+              echo "$1=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "Nothing the $1 leg exercises changed — it will be skipped."
+              echo "$1=false" >> "$GITHUB_OUTPUT"
+            fi
+          }
+          # Temperature round-trip: the forms, the specs, their fixtures and
+          # everything that converts or feeds a value on the way to storage.
+          leg units '^(homeclimate/frontend/|homeclimate/config\.yaml|e2e/(tests|global-setup|playwright|fixtures|scripts/setup-ha|package)|homeclimate/backend/(api/|units\.py|db\.py|models\.py|house\.py|building_mode\.py|ha_client\.py|scheduler\.py|zones\.py))' on-full
+          leg mqtt '^(homeclimate/backend/(mqtt/|api/|models\.py|db\.py|scheduler\.py|units\.py|ha_client\.py|main\.py)|e2e/scripts/(mqtt|setup-ha)|e2e/fixtures/|docker-compose\.test\.mqtt|homeclimate/run\.sh)' on-deps
+          leg mcp '^(homeclimate/backend/(mcp|api/|auth\.py|oidc\.py|session\.py|scopes\.py|main\.py|tests/integration/|tests/conftest)|e2e/scripts/setup-ha|e2e/fixtures/|docker-compose\.test\.mcp)' on-deps
 
   # -----------------------------------------------------------------------
   # Build the image once. Mode (ci-<sha> / release :<version> / fork artifact)
@@ -137,7 +151,7 @@ jobs:
   build:
     name: Build (PR validation)
     # Docs-only PRs skip the build too. The `changes` gate already skips the
-    # downstream smoke/round-trip/visual jobs; `build` was the one expensive
+    # downstream smoke/round-trip jobs; `build` was the one expensive
     # job still running unconditionally on a docs-only diff. `build` is the
     # required check, but a job skipped by `if:` reports "skipped", which
     # satisfies branch protection — the same contract every gated job below
@@ -239,7 +253,7 @@ jobs:
 
       # ── Normal same-repo PR: throwaway ci-<sha> tag ─────────────────────────
       # amd64-only (#413): every downstream consumer — smoke, both round-trip
-      # legs, both visual legs — runs on amd64 ubuntu-latest, and the tag is
+      # legs — runs on amd64 ubuntu-latest, and the tag is
       # pruned nightly. The QEMU-emulated arm64 half was never pulled by
       # anything and sat on the critical path of all six downstream jobs
       # (2m49s measured WITH a warm cache; far worse cold). Multi-arch remains
@@ -255,27 +269,12 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # ── Release PR only: pin config.yaml to "CI" *after* the real image above
-      # has already been built and pushed. The published image must bake the
-      # real version (VITE_APP_VERSION drives the footer AND the frontend's
-      # `isCI` determinism flag — see frontend/src/ci.tsx), so it can't also be
-      # the image the visual-regression job screenshots: without `isCI`, pages
-      # with live/engine-driven content (device uptime, event feeds) render
-      # differently on every capture and can never match a committed golden.
-      # This mutates config.yaml on disk for the *next* build only; it has no
-      # effect on the release image already pushed above.
-      - name: Pin addon version to CI for the release PR's test-only image
-        if: steps.meta.outputs.is_release == 'true'
-        run: |
-          sed -i 's/^version:.*/version: CI/' homeclimate/config.yaml
-
-      # ── Fork PR, or release PR needing a frozen-UI test image: can't/shouldn't
-      # push; build single-arch and hand off via artifact. `load: true` only
+      # ── Fork PR: can't push; build single-arch and hand off via artifact. `load: true` only
       # supports a single platform, which is fine: CI runners are amd64 and
       # neither case needs the arm64 variant (that exists only so the pushed
       # release tag is locally pullable on Apple Silicon — see #332).
-      - name: Build fork/frozen-UI image (single-arch, load)
-        if: steps.meta.outputs.is_fork == 'true' || steps.meta.outputs.is_release == 'true'
+      - name: Build fork image (single-arch, load)
+        if: steps.meta.outputs.is_fork == 'true'
         uses: docker/build-push-action@v7
         with:
           context: ./homeclimate
@@ -286,12 +285,12 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Save fork/frozen-UI image to artifact
-        if: steps.meta.outputs.is_fork == 'true' || steps.meta.outputs.is_release == 'true'
+      - name: Save fork image to artifact
+        if: steps.meta.outputs.is_fork == 'true'
         run: docker save homeclimate-e2e:latest -o /tmp/homeclimate-image.tar
 
-      - name: Upload fork/frozen-UI image artifact
-        if: steps.meta.outputs.is_fork == 'true' || steps.meta.outputs.is_release == 'true'
+      - name: Upload fork image artifact
+        if: steps.meta.outputs.is_fork == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: homeclimate-image
@@ -309,9 +308,7 @@ jobs:
       # (.github/actions/scan-image) so their severity gates cannot drift —
       # issue #596's "matches between this job and the release scan".
       #
-      # The image scanned here is the real :<version> that gets published, not
-      # the version-pinned "CI" rebuild the visual legs consume; the pin above
-      # only affects the *next* build.
+      # The image scanned here is the real :<version> that gets published.
       - name: Scan the published release image
         if: steps.meta.outputs.is_release == 'true'
         uses: ./.github/actions/scan-image
@@ -570,7 +567,7 @@ jobs:
     needs: [build, changes]
     # Skipped (not absent) on docs-only PRs — a skipped job still reports its
     # check, so branch protection cannot hang (#412).
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.units == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     permissions:
@@ -727,7 +724,7 @@ jobs:
     needs: [build, changes]
     # Skipped (not absent) on docs-only PRs — a skipped job still reports its
     # check, so branch protection cannot hang (#412).
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.mqtt == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     permissions:
@@ -849,7 +846,7 @@ jobs:
     needs: [build, changes]
     # Skipped (not absent) on docs-only PRs — a skipped job still reports its
     # check, so branch protection cannot hang (#412).
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.mcp == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     permissions:
@@ -991,501 +988,3 @@ jobs:
       - name: Tear down
         if: always()
         run: docker compose ${{ steps.compose.outputs.files }} down -v
-
-  # -----------------------------------------------------------------------
-  # Visual regression: screenshot every page against committed golden PNGs
-  # and fail on any pixel deviation. Moved from e2e.yml so it can declare
-  # `needs: build` and pull the prebuilt image directly — no polling loop.
-  #
-  # Both matrix legs run in parallel. When goldens need updating, each leg
-  # uploads only its own unit's regenerated PNGs as a GitHub Actions artifact
-  # (goldens-F / goldens-C). The fan-in `commit-goldens` job waits for both
-  # legs, downloads all artifacts, and makes a single combined commit — no
-  # more two-commit double-CI-trigger or max-parallel serialisation.
-  # -----------------------------------------------------------------------
-  e2e:
-    name: E2E visual regression (${{ matrix.unit }})
-    needs: [build, changes]
-    # Skipped (not absent) unless the diff touches a UI-affecting path —
-    # goldens capture frontend rendering, so backend-only and docs-only PRs
-    # skip the visual legs entirely. A skipped job still reports its check,
-    # so branch protection cannot hang (#412).
-    if: needs.changes.outputs.ui == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    permissions:
-      contents: read  # read-only: commits happen in the fan-in commit-goldens job
-      packages: read  # pull container-ci's prebuilt image
-    strategy:
-      fail-fast: false
-      matrix:
-        unit: [F, C]
-
-    steps:
-      - uses: actions/checkout@v6
-
-      # ── Reuse path: same-repo, non-release PRs pull the pushed ci-<sha> tag.
-      # Release PRs do NOT take this path even though they're same-repo: the
-      # published :<version> tag bakes the real VITE_APP_VERSION, so its UI
-      # isn't `isCI`-frozen and can never match a committed golden (frozen vs.
-      # live device-uptime/event-feed content). They use the artifact path
-      # below instead, same as forks.
-      - name: Log in to GitHub Container Registry
-        if: needs.build.outputs.is_fork != 'true' && needs.build.outputs.is_release != 'true'
-        uses: docker/login-action@v4
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Pull prebuilt image (reuse container-ci build)
-        if: needs.build.outputs.is_fork != 'true' && needs.build.outputs.is_release != 'true'
-        run: |
-          docker pull "${{ needs.build.outputs.image }}"
-          docker tag "${{ needs.build.outputs.image }}" homeclimate-e2e
-          echo "Reusing prebuilt image ${{ needs.build.outputs.image }}"
-
-      # ── Fork / workflow_dispatch / release PR: load from saved artifact.
-      # For a release PR this is the frozen-UI throwaway image the build job
-      # built specifically for this job (see container-ci's build job) — not
-      # the published :<version> image.
-      - name: Download fork/frozen-UI image artifact
-        if: needs.build.outputs.is_fork == 'true' || needs.build.outputs.is_release == 'true'
-        uses: actions/download-artifact@v8
-        with:
-          name: homeclimate-image
-          path: /tmp
-
-      - name: Load fork/frozen-UI image
-        if: needs.build.outputs.is_fork == 'true' || needs.build.outputs.is_release == 'true'
-        run: docker load -i /tmp/homeclimate-image.tar
-
-      - name: Resolve HOMECLIMATE_IMAGE for compose
-        run: |
-          if [ "${{ needs.build.outputs.is_fork }}" = "true" ] || [ "${{ needs.build.outputs.is_release }}" = "true" ]; then
-            echo "HOMECLIMATE_IMAGE=homeclimate-e2e" >> "$GITHUB_ENV"
-          else
-            echo "HOMECLIMATE_IMAGE=${{ needs.build.outputs.image }}" >> "$GITHUB_ENV"
-          fi
-
-      # The °C leg layers the celsius override (TEMPERATURE_UNIT=C on homeclimate)
-      # on top of the base compose file; the °F leg uses the base file alone.
-      - name: Compose file list
-        id: compose
-        run: |
-          if [ "${{ matrix.unit }}" = "C" ]; then
-            echo "files=-f docker-compose.test.yml -f docker-compose.test.celsius.yml" >> "$GITHUB_OUTPUT"
-          else
-            echo "files=-f docker-compose.test.yml" >> "$GITHUB_OUTPUT"
-          fi
-
-      # Start HA (ha-init copies configuration.yaml first via depends_on) and
-      # wait until the healthcheck passes. The HA image is ~1.5 GB; pulling it
-      # in CI can take 60–120 s, so we use --wait and let Docker track liveness
-      # rather than racing against a fixed poll timeout.
-      - name: Start Home Assistant (wait for healthy)
-        run: docker compose ${{ steps.compose.outputs.files }} up --wait homeassistant
-        timeout-minutes: 10
-
-      # HA is now confirmed healthy. Create an admin user + long-lived token.
-      - name: Create HA token
-        run: |
-          pip install requests websocket-client --quiet
-          python3 e2e/scripts/setup-ha.py \
-            --ha-url http://localhost:8123 \
-            --output /tmp/ha_token.txt
-
-      # Inject the token and start HomeClimate (it connects to HA on the Docker network)
-      - name: Start HomeClimate
-        run: |
-          HA_TOKEN=$(cat /tmp/ha_token.txt) \
-          docker compose ${{ steps.compose.outputs.files }} up -d homeclimate
-
-      - name: Wait for HomeClimate health
-        run: |
-          echo "Waiting for HomeClimate..."
-          for i in $(seq 1 30); do
-            if curl -sf http://localhost:8099/api/healthz -o /dev/null; then
-              echo "HomeClimate is healthy."
-              exit 0
-            fi
-            sleep 3
-          done
-          echo "ERROR: HomeClimate did not become healthy within 90s" >&2
-          docker compose ${{ steps.compose.outputs.files }} logs homeclimate >&2
-          exit 1
-
-      - name: Verify active temperature unit matches matrix
-        run: |
-          UNIT=$(curl -sf http://localhost:8099/api/settings | python3 -c \
-            'import json,sys; print(json.load(sys.stdin).get("temperature_unit","?"))')
-          echo "HomeClimate reports temperature_unit=${UNIT}"
-          if [ "${UNIT}" != "${{ matrix.unit }}" ]; then
-            echo "ERROR: expected ${{ matrix.unit }}, got ${UNIT}" >&2
-            exit 1
-          fi
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version: "20"
-          cache: "npm"
-          # The lockfile, not package.json (#414): npm ci resolves from the
-          # lock, so keying the cache on package.json reused stale caches on
-          # lockfile-only bumps and busted them on no-op manifest edits.
-          cache-dependency-path: e2e/package-lock.json
-
-      # Cache the Playwright browser download (#414) — it was re-fetched in
-      # every E2E-family leg on every push. --with-deps apt packages are not
-      # cacheable and still install each run.
-      - name: Cache Playwright browsers
-        id: pw-cache
-        uses: actions/cache@v6
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('e2e/package-lock.json') }}
-
-      - name: Install Playwright
-        working-directory: e2e
-        run: |
-          npm ci
-          npx playwright install --with-deps chromium
-
-      # First pass: run tests normally. If all screenshots match the committed
-      # goldens for this unit, the job passes here and nothing is committed.
-      - name: Run E2E tests
-        id: run_tests
-        working-directory: e2e
-        env:
-          HOMECLIMATE_URL: "http://localhost:8099"
-          HOMECLIMATE_TEMP_UNIT: ${{ matrix.unit }}
-        # Exclude the temperature-conversion round-trip: it mutates shared
-        # backend state (creates schedules), so it can't run across two
-        # projects (chromium + mobile) or the update→verify double pass against
-        # one stack. It's covered by the conversion job above.
-        run: npx playwright test --grep-invert "Temperature round-trip|@auth"
-        continue-on-error: true
-
-      # Second pass: only reached when the first run failed. Regenerates
-      # screenshots so they reflect the current Linux/Chromium rendering. If a
-      # test fails for a non-screenshot reason (e.g. missing element), this
-      # step will also fail — no spurious golden update in that case.
-      - name: Regenerate golden screenshots on failure
-        if: steps.run_tests.outcome == 'failure'
-        working-directory: e2e
-        env:
-          HOMECLIMATE_URL: "http://localhost:8099"
-          HOMECLIMATE_TEMP_UNIT: ${{ matrix.unit }}
-        run: npx playwright test --update-snapshots --grep-invert "Temperature round-trip|@auth"
-
-      # Verify that the regenerated goldens actually fix the failures before
-      # we hand them off to the commit-goldens fan-in. If tests fail here for
-      # a non-screenshot reason (missing element, timeout), this step also
-      # fails — no artifact is uploaded and the real error surfaces.
-      - name: Verify tests pass with updated goldens
-        id: verify
-        if: steps.run_tests.outcome == 'failure'
-        working-directory: e2e
-        env:
-          HOMECLIMATE_URL: "http://localhost:8099"
-          HOMECLIMATE_TEMP_UNIT: ${{ matrix.unit }}
-        run: npx playwright test --grep-invert "Temperature round-trip|@auth"
-
-      # Stage ONLY this leg's unit-specific goldens for the fan-in commit.
-      # Uploading the full screenshots dir would mix in the sibling unit's
-      # stale goldens and risk reverting whatever the other leg regenerated.
-      # The auth leg's goldens (every toHaveScreenshot name in auth.spec.ts)
-      # are excluded too: this leg never regenerates them (@auth is
-      # grep-inverted out), and a stale copy could make the fan-in's
-      # merge-multiple revert a fresh auth golden. The script fails the job if
-      # the regenerate pass wrote a golden it is not uploading.
-      - name: Stage regenerated goldens for artifact
-        if: steps.run_tests.outcome == 'failure' && steps.verify.outcome == 'success'
-        run: python3 e2e/scripts/stage-goldens.py --leg "${{ matrix.unit }}" --dest /tmp/goldens
-
-      - name: Upload regenerated goldens artifact
-        if: steps.run_tests.outcome == 'failure' && steps.verify.outcome == 'success'
-        uses: actions/upload-artifact@v7
-        with:
-          name: goldens-${{ matrix.unit }}
-          path: /tmp/goldens/
-          if-no-files-found: ignore
-          retention-days: 1
-
-      # Upload test results only on failure so reviewers can inspect diffs
-      # when a test fails for a non-screenshot reason.
-      - name: Upload test results
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: playwright-results-${{ matrix.unit }}
-          path: e2e/test-results/
-          retention-days: 14
-
-      - name: Tear down
-        if: always()
-        run: docker compose ${{ steps.compose.outputs.files }} down -v
-
-  # -----------------------------------------------------------------------
-  # Auth visual-regression leg (#373). Runs the SAME image but with
-  # require_auth=true (docker-compose.test.auth.yml) so the authentication UI —
-  # login screen, MCP-token card, settings "Signed in / Log out" — renders and
-  # is captured as goldens. Isolated from the F/C legs: it runs only the `@auth`
-  # specs (which those legs grep-invert out), and the harness authenticates by
-  # injecting a session cookie signed with the stack's pinned HOMECLIMATE_SESSION_SECRET
-  # (e2e/auth-cookie.ts). Its `goldens-auth` artifact is picked up by the same
-  # commit-goldens fan-in (which globs goldens-*).
-  # -----------------------------------------------------------------------
-  e2e-auth:
-    name: E2E visual regression (auth)
-    needs: [build, changes]
-    if: needs.changes.outputs.ui == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    permissions:
-      contents: read
-      packages: read
-
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Log in to GitHub Container Registry
-        if: needs.build.outputs.is_fork != 'true' && needs.build.outputs.is_release != 'true'
-        uses: docker/login-action@v4
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Pull prebuilt image (reuse container-ci build)
-        if: needs.build.outputs.is_fork != 'true' && needs.build.outputs.is_release != 'true'
-        run: |
-          docker pull "${{ needs.build.outputs.image }}"
-          docker tag "${{ needs.build.outputs.image }}" homeclimate-e2e
-
-      - name: Download fork/frozen-UI image artifact
-        if: needs.build.outputs.is_fork == 'true' || needs.build.outputs.is_release == 'true'
-        uses: actions/download-artifact@v8
-        with:
-          name: homeclimate-image
-          path: /tmp
-
-      - name: Load fork/frozen-UI image
-        if: needs.build.outputs.is_fork == 'true' || needs.build.outputs.is_release == 'true'
-        run: docker load -i /tmp/homeclimate-image.tar
-
-      - name: Resolve HOMECLIMATE_IMAGE for compose
-        run: |
-          if [ "${{ needs.build.outputs.is_fork }}" = "true" ] || [ "${{ needs.build.outputs.is_release }}" = "true" ]; then
-            echo "HOMECLIMATE_IMAGE=homeclimate-e2e" >> "$GITHUB_ENV"
-          else
-            echo "HOMECLIMATE_IMAGE=${{ needs.build.outputs.image }}" >> "$GITHUB_ENV"
-          fi
-
-      - name: Compose file list
-        id: compose
-        run: echo "files=-f docker-compose.test.yml -f docker-compose.test.auth.yml" >> "$GITHUB_OUTPUT"
-
-      - name: Start Home Assistant (wait for healthy)
-        run: docker compose ${{ steps.compose.outputs.files }} up --wait homeassistant
-        timeout-minutes: 10
-
-      - name: Create HA token
-        run: |
-          pip install requests websocket-client --quiet
-          python3 e2e/scripts/setup-ha.py \
-            --ha-url http://localhost:8123 \
-            --output /tmp/ha_token.txt
-
-      - name: Start HomeClimate
-        run: |
-          HA_TOKEN=$(cat /tmp/ha_token.txt) \
-          docker compose ${{ steps.compose.outputs.files }} up -d homeclimate
-
-      - name: Wait for HomeClimate health
-        run: |
-          echo "Waiting for HomeClimate..."
-          for i in $(seq 1 30); do
-            if curl -sf http://localhost:8099/api/healthz -o /dev/null; then
-              echo "HomeClimate is healthy."
-              exit 0
-            fi
-            sleep 3
-          done
-          echo "ERROR: HomeClimate did not become healthy within 90s" >&2
-          docker compose ${{ steps.compose.outputs.files }} logs homeclimate >&2
-          exit 1
-
-      - name: Verify auth is enforced
-        run: |
-          # With require_auth on and no credential, a guarded endpoint must 401.
-          CODE=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8099/api/rooms)
-          echo "GET /api/rooms (no credential) => $CODE"
-          if [ "$CODE" != "401" ]; then
-            echo "ERROR: expected 401 (require_auth on), got $CODE" >&2
-            docker compose ${{ steps.compose.outputs.files }} logs homeclimate >&2
-            exit 1
-          fi
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version: "20"
-          cache: "npm"
-          cache-dependency-path: e2e/package-lock.json
-
-      - name: Cache Playwright browsers
-        id: pw-cache
-        uses: actions/cache@v6
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('e2e/package-lock.json') }}
-
-      - name: Install Playwright
-        working-directory: e2e
-        run: |
-          npm ci
-          npx playwright install --with-deps chromium
-
-      - name: Run auth E2E tests
-        id: run_tests
-        working-directory: e2e
-        env:
-          HOMECLIMATE_URL: "http://localhost:8099"
-          HOMECLIMATE_TEMP_UNIT: F
-          HOMECLIMATE_E2E_AUTH: "1"
-        run: npx playwright test --grep "@auth"
-        continue-on-error: true
-
-      - name: Regenerate golden screenshots on failure
-        if: steps.run_tests.outcome == 'failure'
-        working-directory: e2e
-        env:
-          HOMECLIMATE_URL: "http://localhost:8099"
-          HOMECLIMATE_TEMP_UNIT: F
-          HOMECLIMATE_E2E_AUTH: "1"
-        run: npx playwright test --update-snapshots --grep "@auth"
-
-      - name: Verify tests pass with updated goldens
-        id: verify
-        if: steps.run_tests.outcome == 'failure'
-        working-directory: e2e
-        env:
-          HOMECLIMATE_URL: "http://localhost:8099"
-          HOMECLIMATE_TEMP_UNIT: F
-          HOMECLIMATE_E2E_AUTH: "1"
-        run: npx playwright test --grep "@auth"
-
-      # Stages every golden named in auth.spec.ts (read from the spec, not a
-      # hardcoded list, which silently dropped newly added auth screenshots)
-      # and fails the job if the regenerate pass wrote one it is not uploading.
-      - name: Stage regenerated goldens for artifact
-        if: steps.run_tests.outcome == 'failure' && steps.verify.outcome == 'success'
-        run: python3 e2e/scripts/stage-goldens.py --leg auth --dest /tmp/goldens
-
-      - name: Upload regenerated goldens artifact
-        if: steps.run_tests.outcome == 'failure' && steps.verify.outcome == 'success'
-        uses: actions/upload-artifact@v7
-        with:
-          name: goldens-auth
-          path: /tmp/goldens/
-          if-no-files-found: ignore
-          retention-days: 1
-
-      - name: Upload test results
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: playwright-results-auth
-          path: e2e/test-results/
-          retention-days: 14
-
-      - name: Tear down
-        if: always()
-        run: docker compose ${{ steps.compose.outputs.files }} down -v
-
-  # -----------------------------------------------------------------------
-  # Fan-in: collect goldens from both parallel e2e legs and make one commit.
-  # Runs after both legs finish (always, so it also runs when a leg fails).
-  # If neither leg uploaded a goldens artifact (both passed), the download
-  # step finds nothing and the git diff is empty — job exits cleanly.
-  # -----------------------------------------------------------------------
-  commit-goldens:
-    name: Commit updated goldens
-    needs: [e2e, e2e-auth]
-    if: always() && (needs.e2e.result != 'skipped' || needs.e2e-auth.result != 'skipped')
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write # push the combined golden update back to the PR branch
-      pull-requests: write # announce the golden rewrite on the PR (#415)
-
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      # Download goldens-F and goldens-C (if uploaded) into the screenshots
-      # dir. merge-multiple flattens both artifacts into the same target path.
-      # continue-on-error handles the common case where no artifacts exist
-      # (both legs passed with no screenshot changes).
-      - name: Download regenerated goldens
-        uses: actions/download-artifact@v8
-        with:
-          pattern: goldens-*
-          path: e2e/screenshots/
-          merge-multiple: true
-        continue-on-error: true
-
-      - name: Commit and push if goldens changed
-        run: |
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git config user.name "github-actions[bot]"
-          git add -- e2e/screenshots/
-          if git diff --cached --quiet; then
-            echo "No golden screenshot content changed — nothing to commit."
-            exit 0
-          fi
-          # This checkout is the PR MERGE ref (head merged into main), so
-          # NEVER rebase it onto the branch: replaying the merge commit
-          # conflicts the moment the PR is behind main (the v0.26.0 release
-          # on main broke exactly this). Instead snapshot the regenerated
-          # goldens here, switch to the real branch tip, and transplant ONLY
-          # e2e/screenshots/ onto it.
-          git commit -m "ci: goldens snapshot (transplant source, never pushed)"
-          GOLDEN_SRC=$(git rev-parse HEAD)
-          BRANCH="${{ github.head_ref || github.ref_name }}"
-          git fetch origin "$BRANCH"
-          git checkout -f -B golden-update "origin/$BRANCH"
-          git checkout "$GOLDEN_SRC" -- e2e/screenshots/
-          git add -- e2e/screenshots/
-          if git diff --cached --quiet; then
-            echo "Branch tip already carries these goldens — nothing to push."
-            exit 0
-          fi
-          CHANGED=$(git diff --cached --name-only | tr '\n' ' ')
-          echo "Updated goldens: $CHANGED"
-          git commit -m "ci: update E2E golden screenshots (F + C)"
-          git push origin HEAD:"$BRANCH"
-          echo "GOLDENS_CHANGED<<EOF" >> "$GITHUB_ENV"
-          echo "$CHANGED" | tr ' ' '\n' | sed '/^$/d' >> "$GITHUB_ENV"
-          echo "EOF" >> "$GITHUB_ENV"
-
-      # Make the rewrite impossible to miss (#415): the visual legs go GREEN
-      # when their regenerate+verify pass succeeds, so without this comment
-      # the only sign that every page screenshot changed is the bot commit in
-      # the diff. The PNGs must be reviewed like code.
-      - name: Announce the golden rewrite on the PR
-        if: env.GOLDENS_CHANGED != '' && github.event_name == 'pull_request'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR: ${{ github.event.pull_request.number }}
-        run: |
-          COUNT=$(echo "$GOLDENS_CHANGED" | sed '/^$/d' | wc -l)
-          {
-            echo "🖼️ **CI regenerated $COUNT golden screenshot(s) and committed them to this branch.**"
-            echo ""
-            echo "The visual-regression legs are green because the regenerated goldens verified — review the changed PNGs in the diff like code before merging:"
-            echo ""
-            echo "$GOLDENS_CHANGED" | sed '/^$/d' | sed 's/^/- `/' | sed 's/$/`/'
-          } > comment.md
-          gh pr comment "$PR" --body-file comment.md

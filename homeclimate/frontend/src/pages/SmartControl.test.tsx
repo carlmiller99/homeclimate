@@ -15,7 +15,6 @@ vi.mock("../smartControlApi", async (orig) => ({
 }));
 // Both have their own suites; here they only need to show where they render.
 vi.mock("./Schedules", () => ({ default: () => <p>schedules page</p> }));
-vi.mock("./RoomCalendarsCard", () => ({ default: () => <p>room calendars</p> }));
 vi.mock("./LearningSection", () => ({ default: () => <p>learning section</p> }));
 vi.mock("./ForecastSection", () => ({ default: () => <p>forecast section</p> }));
 vi.mock("./BuildingAutoCard", () => ({ default: () => <p>building auto</p> }));
@@ -159,7 +158,7 @@ describe("Smart Control", () => {
     // Nothing is waiting to be built: every section is a link.
     expect(sc.PLANNED_SECTIONS).toEqual([]);
     expect(within(nav).queryByText("Planned")).toBeNull();
-    expect(within(nav).getAllByRole("link")).toHaveLength(9);
+    expect(within(nav).getAllByRole("link")).toHaveLength(10);
     expect(sc.getSmartControl).not.toHaveBeenCalled();
   });
 

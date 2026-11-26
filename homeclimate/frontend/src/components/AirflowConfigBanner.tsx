@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { getThermostats, type ThermostatConfig } from "../api";
-import Alert from "./Alert";
+import Notice from "./Notice";
 
 /**
  * Surfaces thermostats that still need the airflow-floor fields filled in
@@ -37,35 +37,29 @@ export default function AirflowConfigBanner() {
 
   if (unconfigured.length === 0) return null;
 
+  const n = unconfigured.length;
+  const names = unconfigured.map((tc) => tc.name || tc.thermostat_entity_id);
   return (
-    <Alert variant="warning" testId="airflow-config-banner">
-      <strong>Action required: configure the airflow-floor safety</strong>
-      <div style={{ marginTop: "0.5rem" }}>
-        {unconfigured.length === 1 ? (
-          <>
-            <strong>{unconfigured[0].name || unconfigured[0].thermostat_entity_id}</strong> is
-            running on the transitional default (≥1 vent always open). Open its card below and fill
-            in <em>total vent count</em> — or tick <em>I have a bypass damper</em> — so the proper
-            airflow-floor safety takes effect.
-          </>
-        ) : (
-          <>
-            {unconfigured.length} thermostats are running on the transitional default (≥1 vent
-            always open). Open each card below and fill in <em>total vent count</em> — or tick
-            <em> I have a bypass damper</em>:
-            <ul style={{ margin: "0.25rem 0 0 1rem" }}>
-              {unconfigured.map((tc) => (
-                <li key={tc.thermostat_entity_id}>{tc.name || tc.thermostat_entity_id}</li>
-              ))}
-            </ul>
-          </>
-        )}
-      </div>
-      <div style={{ marginTop: "0.5rem", fontSize: "0.85rem" }}>
-        Closing too many vents at once raises duct static pressure and can trip a furnace
-        high-limit, strain the blower, or freeze the evaporator coil. The floor keeps a fraction of
-        the home's total registers open at all times.
-      </div>
-    </Alert>
+    <Notice
+      title={`${n} zone${n === 1 ? " needs" : "s need"} a vent count`}
+      details={
+        <>
+          <ul>
+            {names.map((name) => (
+              <li key={name}>{name}</li>
+            ))}
+          </ul>
+          <p>
+            Closing too many vents at once can damage the equipment. With a vent count, HomeClimate
+            always keeps enough of them open.
+          </p>
+        </>
+      }
+      to="/my-home"
+      action="Set Up in My Home"
+      testId="airflow-config-banner"
+    >
+      {`Until it is set, ${n === 1 ? names[0] : "each"} keeps one vent open and nothing more. Enter the total vent count, or mark a bypass damper, under Edit Zone.`}
+    </Notice>
   );
 }

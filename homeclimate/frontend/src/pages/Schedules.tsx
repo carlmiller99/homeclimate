@@ -1,3 +1,5 @@
+import RoomInUse from "../components/RoomInUse";
+import { getHouse, type House } from "../houseApi";
 import { useEffect, useState } from "react";
 import {
   getRooms,
@@ -283,9 +285,8 @@ function ScheduleModal({
             placeholder="e.g. Weekday night setback"
           />
           <div className="text-sm text-muted" style={{ marginTop: ".3rem" }}>
-            A label for this block, so the list says what it is for and not only when it runs. Leave
-            it blank and the block is identified by its ID instead — either way, the{" "}
-            <span className="badge badge-gray font-mono">ID</span> chip in the list shows it.
+            A name for this block, so the list says what it is for. Leave it blank to list it by its{" "}
+            <span className="badge badge-gray font-mono">ID</span>.
           </div>
         </div>
 
@@ -503,9 +504,8 @@ function CopyModal({
       <div className="modal">
         <div className="modal-title">Copy schedule to other rooms</div>
         <div className="text-sm text-muted" style={{ marginBottom: "1rem" }}>
-          Copies the name, days, times and target. The copy is created enabled and never-expiring.
-          If it conflicts with an existing block in a room, it is copied disabled so you can resolve
-          it.
+          Copies the name, days, times and temperature. A copy that overlaps a block already in a
+          room is added switched off.
         </div>
         {error && (
           <div className="badge badge-red" style={{ marginBottom: "1rem" }}>
@@ -553,9 +553,14 @@ function RoomSchedules({
   room,
   allRooms,
   hold,
+  house,
+  onHouse,
 }: {
   room: Room;
   allRooms: Room[];
+  /** Null when the home's layout could not be read: no In Use control. */
+  house: House | null;
+  onHouse: (h: House) => void;
   // Temporary hold (#576): this room's live hold, if any. Holds are not
   // schedule blocks — they take precedence over every block below and are
   // never conflict-checked against them.
@@ -637,6 +642,8 @@ function RoomSchedules({
         </div>
       </div>
 
+      {house && <RoomInUse room={room} house={house} onHouse={onHouse} />}
+
       {expanded && (
         <div style={{ marginTop: "1rem" }}>
           {actionError && (
@@ -690,9 +697,8 @@ function RoomSchedules({
                 {hold.respect_eco ? "Eco may relax" : "ignores Eco"}
               </div>
               <div className="text-sm text-muted">
-                Overrides the schedule blocks below (and presence) until it ends, then deletes
-                itself. Holds are not schedule blocks and are never conflict-checked. Change or
-                cancel it from the Dashboard.
+                A hold comes ahead of the time blocks below until it ends. Change or cancel it from
+                the Dashboard.
               </div>
             </div>
           )}
@@ -892,6 +898,7 @@ export default function Schedules() {
   // Temporary holds (#576), keyed by room_id — one page-level fetch feeds
   // every room card and the shared hold modal.
   const [holds, setHolds] = useState<Record<string, RoomOverrideHold>>({});
+  const [house, setHouse] = useState<House | null>(null);
 
   const refreshHolds = async () => {
     try {
@@ -908,6 +915,15 @@ export default function Schedules() {
       setLoading(false);
     });
     refreshHolds();
+    // Whether each room is in use. Supplementary: the time blocks still show
+    // without it.
+    void (async () => {
+      try {
+        setHouse((await getHouse()) ?? null);
+      } catch {
+        setHouse(null);
+      }
+    })();
   }, []);
 
   if (loading)
@@ -922,7 +938,10 @@ export default function Schedules() {
       <div className="page-header">
         <div>
           <div className="page-title">Schedules</div>
-          <div className="page-subtitle">Time-based temperature targets per room</div>
+          <div className="page-subtitle">
+            Two questions per room: is it in use, and while it is, what temperature at what time? A
+            room that is not in use asks for no heating or cooling.
+          </div>
         </div>
       </div>
 
@@ -935,7 +954,16 @@ export default function Schedules() {
           </div>
         </div>
       ) : (
-        rooms.map((r) => <RoomSchedules key={r.id} room={r} allRooms={rooms} hold={holds[r.id]} />)
+        rooms.map((r) => (
+          <RoomSchedules
+            key={r.id}
+            room={r}
+            allRooms={rooms}
+            hold={holds[r.id]}
+            house={house}
+            onHouse={setHouse}
+          />
+        ))
       )}
     </div>
   );

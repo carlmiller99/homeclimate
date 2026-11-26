@@ -58,13 +58,8 @@ export default function FanSection() {
     <div className="card">
       <h3 className="card-title">Fan</h3>
       <p className="page-subtitle">
-        A building held to heating leaves a room that is too warm to cool by itself, and one held to
-        cooling leaves a cold room to warm by itself. When another room of the same zone is closer
-        to where that room should be, running the fan with nothing else on mixes the two. It runs
-        only while the zone is idle and its building holds it to one side, never for a room paused
-        by an open door or window, for no more than 30 minutes in any hour, and not for 15 minutes
-        after a run. A zone with an outside air intake (set in My Home) runs it only while outside
-        air would help.
+        Runs the fan by itself to even out the rooms of a zone. Only while the zone is idle and its
+        building is heating or cooling as one.
       </p>
       {loadFailed && !zones && <p className="form-error">Could not load the zones.</p>}
       {!loadFailed && !zones && <p className="page-subtitle">Loading the zones…</p>}
