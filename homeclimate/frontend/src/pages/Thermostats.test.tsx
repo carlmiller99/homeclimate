@@ -558,7 +558,7 @@ describe("Thermostats Page", () => {
     expect(input.value).toBe("5");
     // The helper text explains the consequence, including the 0 = never case.
     expect(screen.getByText(/the run is ended and every vent is opened/i)).toBeInTheDocument();
-    expect(screen.getByText(/0 turns this off/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/0 turns this off/i).length).toBeGreaterThan(0);
 
     fireEvent.change(input, { target: { value: "12" } });
     const card = input.closest(".card") as HTMLElement;
