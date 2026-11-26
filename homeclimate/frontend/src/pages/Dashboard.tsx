@@ -808,7 +808,7 @@ export default function Dashboard() {
             >
               <span
                 className="system-toggle-dot"
-                style={{ background: system.enabled ? "var(--green)" : "#fff" }}
+                style={{ background: system.enabled ? "var(--green)" : "var(--red)" }}
               />
               <span>System</span>
               <strong className="system-toggle-state">{system.enabled ? "On" : "Off"}</strong>
@@ -832,7 +832,7 @@ export default function Dashboard() {
                 className="system-toggle-dot"
                 style={{
                   background: vacationMode.enabled
-                    ? "#fff"
+                    ? "var(--orange)"
                     : vacationScheduled
                       ? "var(--orange)"
                       : "var(--gray-400)",

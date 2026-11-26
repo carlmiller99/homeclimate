@@ -977,6 +977,16 @@ a.btn {
 .btn-danger:hover {
   background: var(--red-light);
 }
+/* The amber twin of .btn-danger: a state that is on and worth noticing
+   (Vacation Mode active), not an error. */
+.btn-warning {
+  background: var(--surface);
+  border-color: var(--orange);
+  color: var(--orange-text);
+}
+.btn-warning:hover {
+  background: var(--orange-light);
+}
 .btn-sm {
   min-height: 32px;
   padding: 0.3rem 0.7rem;

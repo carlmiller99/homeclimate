@@ -363,6 +363,7 @@ describe("Dashboard Page", () => {
     const button = await screen.findByRole("button", { name: /Vacation mode active/i });
     // Drawn like the System switch beside it: name, then state.
     expect(button).toHaveTextContent("VacationOn");
+    expect(button).toHaveClass("btn-warning");
     expect(button.parentElement).toBe(screen.getByRole("switch", { name: /System/ }).parentElement);
     expect(screen.getByText(/Schedules paused until/i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Vacation mode active/i }));
@@ -385,6 +386,7 @@ describe("Dashboard Page", () => {
     );
     const scheduled = await screen.findByRole("button", { name: /Vacation scheduled/i });
     expect(scheduled).toHaveTextContent("VacationScheduled");
+    expect(scheduled).toHaveClass("btn-secondary");
     fireEvent.click(scheduled);
     expect(screen.queryByText(/Schedules paused until/i)).toBeNull();
     expect(screen.getByRole("button", { name: /Cancel scheduled vacation/i })).toBeInTheDocument();
