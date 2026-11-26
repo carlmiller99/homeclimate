@@ -48,13 +48,20 @@ async function roomsByName(): Promise<Record<string, string>> {
 }
 
 async function clearSchedules(roomId: string): Promise<void> {
-  const scheds: ApiSchedule[] = await (await fetch(`${API}/rooms/${roomId}/schedules`)).json();
+  const scheds: ApiSchedule[] = await (
+    await fetch(`${API}/rooms/${roomId}/schedules`)
+  ).json();
   for (const s of scheds) {
-    await fetch(`${API}/rooms/${roomId}/schedules/${s.id}`, { method: "DELETE" });
+    await fetch(`${API}/rooms/${roomId}/schedules/${s.id}`, {
+      method: "DELETE",
+    });
   }
 }
 
-async function addSchedule(roomId: string, body: Record<string, unknown>): Promise<void> {
+async function addSchedule(
+  roomId: string,
+  body: Record<string, unknown>,
+): Promise<void> {
   await fetch(`${API}/rooms/${roomId}/schedules`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -75,10 +82,14 @@ test.describe.serial("Scheduling flow (#359)", () => {
 
   test("scheduling UI flow", async ({ page }) => {
     await page.goto("/smart-control?section=schedules");
-    await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
+    await page.waitForSelector(".loading", {
+      state: "detached",
+      timeout: 15_000,
+    });
     await page.waitForLoadState("networkidle");
 
-    const card = () => page.locator(".card").filter({ hasText: SOURCE_ROOM }).first();
+    const card = () =>
+      page.locator(".card").filter({ hasText: SOURCE_ROOM }).first();
     const modal = page.locator(".modal");
 
     // Every modal capture goes through captureModal, which expands the modal
@@ -89,7 +100,9 @@ test.describe.serial("Scheduling flow (#359)", () => {
 
     // ── Step 1: empty state ────────────────────────────────────────────────
     await card().getByText(SOURCE_ROOM).click();
-    await expect(card().getByText("No schedules. Add one below.")).toBeVisible();
+    await expect(
+      card().getByText("No schedules. Add one below."),
+    ).toBeVisible();
     await expect(card()).toHaveScreenshot("schedule-empty.png");
 
     // ── Step 2: create modal (default "Never expire", no name yet) ─────────
@@ -113,7 +126,9 @@ test.describe.serial("Scheduling flow (#359)", () => {
     // are deliberate duplicates of what the screenshots show — a golden that
     // gets silently regenerated proves nothing; these fail loudly.
     const driftInherit = modal.getByRole("radio", { name: /normal deadband/i });
-    const driftCustom = modal.getByRole("radio", { name: /override deadband/i });
+    const driftCustom = modal.getByRole("radio", {
+      name: /override deadband/i,
+    });
     const bandInput = modal.getByLabel(/^Deadband/i);
 
     await expect(driftInherit).toBeChecked();
@@ -153,10 +168,13 @@ test.describe.serial("Scheduling flow (#359)", () => {
       await fetch(`${API}/rooms/${roomIds[SOURCE_ROOM]}/schedules`)
     ).json();
     const namedBlock = stored.find((s) => s.name === BLOCK_NAME);
-    expect(namedBlock, `a block named "${BLOCK_NAME}" should exist`).toBeTruthy();
+    expect(
+      namedBlock,
+      `a block named "${BLOCK_NAME}" should exist`,
+    ).toBeTruthy();
     await expect(created.getByTestId("schedule-id")).toHaveAttribute(
       "title",
-      `Schedule ID: ${namedBlock!.id}`
+      `Schedule ID: ${namedBlock!.id}`,
     );
     await expect(card()).toHaveScreenshot("schedule-created.png");
 
@@ -171,7 +189,9 @@ test.describe.serial("Scheduling flow (#359)", () => {
     // ── Step 6: validation error (out-of-range target) ─────────────────────
     await modal.getByLabel(/Target temperature/i).fill("999");
     await modal.getByRole("button", { name: /^Save$/ }).click();
-    await expect(modal.getByText(/Target temperature must be between/)).toBeVisible();
+    await expect(
+      modal.getByText(/Target temperature must be between/),
+    ).toBeVisible();
     await modalShot("schedule-validation-error.png");
     await modal.getByRole("button", { name: /Cancel/ }).click();
     await modal.waitFor({ state: "detached" });
@@ -198,7 +218,9 @@ test.describe.serial("Scheduling flow (#359)", () => {
       .filter({ hasText: "22:00" })
       .getByRole("button", { name: "Enable" })
       .click();
-    await expect(card().getByText(/Overlaps with existing block/)).toBeVisible();
+    await expect(
+      card().getByText(/Overlaps with existing block/),
+    ).toBeVisible();
     await expect(card()).toHaveScreenshot("schedule-reenable-conflict.png");
 
     // ── Step 9: copy modal (multi-room select) ─────────────────────────────

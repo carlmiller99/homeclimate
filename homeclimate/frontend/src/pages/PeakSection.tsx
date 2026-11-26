@@ -122,7 +122,7 @@ export default function PeakSection() {
       <RuleRow
         id="peak-enabled"
         title="Bank Ahead of Peak Hours"
-        help="Off until you turn it on. It needs rooms that follow a band: the house band, or a schedule or occupancy target with a Cool To."
+        help="Off until you turn it on. It needs rooms that follow a band: targets that are not the same number, or a schedule or occupancy target with a Cool To."
         enabled={data.enabled}
         onToggle={(v) => void set({ enabled: v })}
       >

@@ -40,7 +40,9 @@ const HOLD_TARGET = UNIT === "C" ? 22 : 72;
 const HOLD_TARGET_LABEL = UNIT === "C" ? "22.0°C" : "72.0°F";
 
 async function kitchenRoomId(): Promise<string> {
-  const rooms: Array<{ id: string; name: string }> = await (await fetch(`${API}/rooms`)).json();
+  const rooms: Array<{ id: string; name: string }> = await (
+    await fetch(`${API}/rooms`)
+  ).json();
   const kitchen = rooms.find((r) => r.name === "Kitchen");
   if (!kitchen) throw new Error("Kitchen room not seeded — check global-setup");
   return kitchen.id;
@@ -56,7 +58,11 @@ test.describe.serial("Temporary hold (#576)", () => {
     const res = await fetch(`${API}/rooms/${roomId}/override`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ target_temp: HOLD_TARGET, duration_hours: 8, respect_eco: false }),
+      body: JSON.stringify({
+        target_temp: HOLD_TARGET,
+        duration_hours: 8,
+        respect_eco: false,
+      }),
     });
     // Fail loudly: a golden captured without the hold would silently bake the
     // idle-baseline card instead of the state this spec exists to cover.
@@ -73,7 +79,9 @@ test.describe.serial("Temporary hold (#576)", () => {
     }
   });
 
-  test("dashboard room row shows the held state and its cancel control", async ({ page }) => {
+  test("dashboard room row shows the held state and its cancel control", async ({
+    page,
+  }) => {
     await page.goto("/");
     await page.waitForSelector(".loading", {
       state: "detached",
@@ -84,16 +92,24 @@ test.describe.serial("Temporary hold (#576)", () => {
     const row = page.getByTestId(`dash-room-${roomId}`);
     await expect(row).toContainText("Kitchen");
     // A held room carries the Hold badge and swaps Hold for Cancel Hold.
-    await expect(row.getByTitle(/temporary hold is driving this room/i)).toBeVisible();
-    await expect(row.getByRole("button", { name: "Cancel Hold" })).toBeVisible();
-    await expect(row.getByRole("button", { name: /^Hold for / })).toHaveCount(0);
+    await expect(
+      row.getByTitle(/temporary hold is driving this room/i),
+    ).toBeVisible();
+    await expect(
+      row.getByRole("button", { name: "Cancel Hold" }),
+    ).toBeVisible();
+    await expect(row.getByRole("button", { name: /^Hold for / })).toHaveCount(
+      0,
+    );
 
     // Element-scoped shot of just the held row. Live temps come from the
     // fixed fake sensors; cycle membership is frozen under CI.
     await expect(row).toHaveScreenshot("room-hold-card.png");
   });
 
-  test("dashboard lists the hold in a strip with its own cancel", async ({ page }) => {
+  test("dashboard lists the hold in a strip with its own cancel", async ({
+    page,
+  }) => {
     await page.goto("/");
     await page.waitForSelector(".loading", {
       state: "detached",
@@ -102,7 +118,9 @@ test.describe.serial("Temporary hold (#576)", () => {
     await page.waitForLoadState("networkidle");
 
     // The page-level button reflects the active hold count.
-    await expect(page.getByTestId("dashboard-hold-btn")).toContainText("1 hold active — manage");
+    await expect(page.getByTestId("dashboard-hold-btn")).toContainText(
+      "1 hold active — manage",
+    );
 
     // One strip row per live hold: room, target, frozen countdown, eco tag,
     // and a per-row cancel.
@@ -135,7 +153,7 @@ test.describe.serial("Temporary hold (#576)", () => {
     // option is suffixed so held rooms are visible from the picker itself.
     await modal.locator("#hold-room").selectOption(roomId);
     await expect(
-      modal.locator("#hold-room option", { hasText: "Kitchen — hold active" })
+      modal.locator("#hold-room option", { hasText: "Kitchen — hold active" }),
     ).toHaveCount(1);
 
     // Selecting a held room flips the modal to its replace/cancel state and
@@ -144,7 +162,9 @@ test.describe.serial("Temporary hold (#576)", () => {
     await expect(modal).toContainText(`held at ${HOLD_TARGET_LABEL}`);
     await expect(modal.locator("#hold-allow-eco")).not.toBeChecked();
     await expect(modal.getByTestId("hold-modal-cancel-hold")).toBeVisible();
-    await expect(modal.getByTestId("hold-modal-save")).toHaveText("Replace hold");
+    await expect(modal.getByTestId("hold-modal-save")).toHaveText(
+      "Replace hold",
+    );
 
     await captureModal(page, modal, "room-hold-modal.png");
 

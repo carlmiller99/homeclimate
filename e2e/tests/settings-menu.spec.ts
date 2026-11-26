@@ -5,7 +5,10 @@ import { test, expect } from "./fixtures";
 // are visible in PR diffs across both themes.
 test("settings dropdown menu open", async ({ page }) => {
   await page.goto("/");
-  await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
+  await page.waitForSelector(".loading", {
+    state: "detached",
+    timeout: 15_000,
+  });
   await page.waitForLoadState("networkidle");
 
   await page.getByRole("button", { name: "Settings" }).click();

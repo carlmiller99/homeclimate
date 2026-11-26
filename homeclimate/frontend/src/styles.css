@@ -2737,6 +2737,66 @@ button.sc-nav-item {
   width: 6.5rem;
   font-variant-numeric: tabular-nums;
 }
+/* Dashboard → Targets: the band card's frame, one row per level. */
+.targets-card {
+  display: block;
+}
+.targets-card .house-band-text {
+  margin-bottom: 0.75rem;
+}
+.targets-group + .targets-group {
+  border-top: 1px solid var(--border);
+  margin-top: 0.85rem;
+  padding-top: 0.85rem;
+}
+.targets-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  justify-content: space-between;
+  gap: 0.5rem 1.5rem;
+  padding: 0.35rem 0;
+}
+.targets-row-zone {
+  padding-left: 1rem;
+}
+.targets-row-room {
+  padding-left: 2rem;
+}
+.targets-group > .targets-row-zone {
+  padding-left: 0;
+}
+.targets-group > .targets-more .targets-row-room:first-child {
+  padding-left: 1rem;
+}
+.targets-row-name {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 12rem;
+}
+.targets-name {
+  font-weight: 600;
+  color: var(--gray-900);
+}
+.targets-follows {
+  font-size: 0.875rem;
+  color: var(--gray-600);
+}
+.targets-row .form-error {
+  flex-basis: 100%;
+  margin: 0;
+}
+.targets-more {
+  margin-top: 0.35rem;
+}
+.targets-more > summary {
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--blue-text);
+  padding: 0.35rem 0;
+}
 @media (max-width: 720px) {
   .house-band {
     grid-template-columns: minmax(0, 1fr);

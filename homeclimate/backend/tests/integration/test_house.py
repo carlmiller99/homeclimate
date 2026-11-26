@@ -34,14 +34,27 @@ async def _sources(client) -> dict[str, tuple]:
     }
 
 
+TARGETS = f"/api/house/targets/zone/{T1}"
+
+
 async def _set(client, heat, cool):
-    return await client.put("/api/house", json={"house_heat_to": heat, "house_cool_to": cool})
+    """Set the zone's targets, which every room in it inherits."""
+    return await client.put(TARGETS, json={"house_heat_to": heat, "house_cool_to": cool})
+
+
+def _band(snap) -> tuple:
+    """The zone's (heating, cooling) targets in a snapshot, or (None, None)."""
+    for level in snap["targets"]:
+        if (level["scope"], level["scope_id"]) == ("zone", T1):
+            return level["house_heat_to"], level["house_cool_to"]
+    return None, None
 
 
 async def test_with_no_house_band_nothing_changes(client, rooms):
     snap = await (await client.get("/api/house")).json()
-    assert (snap["house_heat_to"], snap["house_cool_to"]) == (None, None)
-    assert (snap["min_gap"], snap["low"], snap["high"]) == (3.0, 45.0, 95.0)
+    assert _band(snap) == (None, None)
+    assert (snap["min_gap"], snap["low"], snap["high"]) == (0.0, 45.0, 95.0)
+    assert snap["targets"] == []
     assert snap["rooms"] == [
         {
             "room_id": rooms["bunk"],
@@ -63,7 +76,7 @@ async def test_with_no_house_band_nothing_changes(client, rooms):
 
 async def test_every_room_follows_the_house_band(client, rooms):
     snap = await (await _set(client, 68, 74)).json()
-    assert (snap["house_heat_to"], snap["house_cool_to"]) == (68.0, 74.0)
+    assert _band(snap) == (68.0, 74.0)
     assert await _sources(client) == {
         "Bunk Room": ("house", 68.0, 74.0),
         "Craft Room": ("house", 68.0, 74.0),
@@ -163,7 +176,10 @@ async def test_a_room_not_in_use_follows_nothing_but_a_hold(client, rooms):
 async def test_the_band_is_validated_and_converted(client, rooms):
     both = "Send both house_heat_to and house_cool_to: two numbers, or two nulls"
     numbers = "house_heat_to and house_cool_to must be numbers"
-    span = "Heat-to and cool-to must be between 45.0 and 95.0°F, at least 3.0° apart"
+    span = (
+        "The targets must be between 45.0 and 95.0°F, and the cooling"
+        " target cannot be below the heating target"
+    )
     for body, message in (
         ({"house_heat_to": 68, "house_cool_to": None}, both),
         ({"house_heat_to": None, "house_cool_to": 74}, both),
@@ -172,26 +188,30 @@ async def test_the_band_is_validated_and_converted(client, rooms):
         ({"house_heat_to": "68", "house_cool_to": 74}, numbers),
         ({"house_heat_to": 68, "house_cool_to": True}, numbers),
         ({"house_heat_to": 68, "house_cool_to": 10**400}, numbers),
-        ({"house_heat_to": 72, "house_cool_to": 74}, span),
+        ({"house_heat_to": 74, "house_cool_to": 72}, span),
         ({"house_heat_to": 40, "house_cool_to": 74}, span),
         ({"house_heat_to": 68, "house_cool_to": 99}, span),
     ):
-        resp = await client.put("/api/house", json=body)
+        resp = await client.put(TARGETS, json=body)
         assert resp.status == 400, body
         assert (await resp.json())["error"] == message
-    resp = await client.put("/api/house", json={"house_heat_to": 68, "nope": 1})
-    assert (await resp.json())["error"] == "Unknown house setting"
-    assert (await _set(client, 71, 74)).status == 200  # exactly the minimum gap
+    resp = await client.put(TARGETS, json={"house_heat_to": 68, "nope": 1})
+    assert (await resp.json())["error"] == "Unknown targets setting"
+    # The two may be close together, or the same number.
+    assert (await _set(client, 71, 72)).status == 200
+    assert (await _set(client, 71, 71)).status == 200
+    assert _band(await (await client.get("/api/house")).json()) == (71.0, 71.0)
 
     scheduler = client.app["scheduler"]
     scheduler._active_unit = "C"
     try:
         snap = await (await _set(client, 20, 24)).json()
-        assert (snap["house_heat_to"], snap["house_cool_to"]) == (68.0, 75.2)  # always °F out
-        resp = await _set(client, 20, 21)
+        assert _band(snap) == (68.0, 75.2)  # always °F out
+        resp = await _set(client, 20, 19)
         # The bounds named are ones that would be accepted.
         assert (await resp.json())["error"] == (
-            "Heat-to and cool-to must be between 7.3 and 35.0°C, at least 1.7° apart"
+            "The targets must be between 7.3 and 35.0°C, and the cooling"
+            " target cannot be below the heating target"
         )
         assert (await _set(client, 7.3, 35)).status == 200
     finally:
@@ -212,8 +232,8 @@ async def test_the_band_must_sit_inside_every_zones_safety_limits(client, rooms)
     )
     assert resp.status in (200, 201), await resp.text()
     message = (
-        "The band must sit inside every zone's safety limits: Heat To at most 84.0°F"
-        " and Cool To at least 61.0°F"
+        "The targets must sit inside every zone's safety limits: heating at most 84.0°F"
+        " and cooling at least 61.0°F"
     )
     for heat, cool in ((88, 95), (45, 50), (84.5, 90)):
         resp = await _set(client, heat, cool)
@@ -226,8 +246,8 @@ async def test_the_band_must_sit_inside_every_zones_safety_limits(client, rooms)
         resp = await _set(client, 30, 35)
         # 84 °F is 28.89 °C and 61 °F is 16.11 °C: named so that they are accepted.
         assert (await resp.json())["error"] == (
-            "The band must sit inside every zone's safety limits: Heat To at most 28.8°C"
-            " and Cool To at least 16.2°C"
+            "The targets must sit inside every zone's safety limits: heating at most 28.8°C"
+            " and cooling at least 16.2°C"
         )
         assert (await _set(client, 28.8, 35)).status == 200
         assert (await _set(client, 7.3, 16.2)).status == 200
@@ -294,7 +314,7 @@ async def test_room_switches_are_validated(client, rooms):
 
 async def test_a_stored_band_that_is_unreadable_is_no_band(client, rooms):
     conn = await client.app["scheduler"].get_db()
-    for stored in ("warm,74", "68", "74,68", "68,69", "68,74,80"):
+    for stored in ("warm,74", "68", "74,68", "40,74", "68,74,80"):
         await db.set_system_setting(conn, "house_band", stored)
         assert (await house.load(conn)).band is None, stored
     await db.set_system_setting(conn, "house_band", "68.00,74.00")
@@ -541,3 +561,121 @@ async def test_calendar_links_are_validated(client, fake_ha, rooms):
     await client.delete(f"/api/rooms/{rooms['bunk']}")
     conn = await client.app["scheduler"].get_db()
     assert (await house.load(conn)).calendars == {}
+
+
+async def test_targets_inherit_room_from_zone_from_building(client, rooms):
+    """The most specific level wins; clearing one falls back to the level above."""
+    building = (await (await client.post("/api/buildings", json={"name": "Main House"})).json())[
+        "id"
+    ]
+    assert (await client.put(f"/api/zones/{T1}", json={"building_id": building})).status == 200
+
+    async def put(scope, scope_id, heat, cool):
+        return await client.put(
+            f"/api/house/targets/{scope}/{scope_id}",
+            json={"house_heat_to": heat, "house_cool_to": cool},
+        )
+
+    # Nothing set anywhere: rooms follow nothing.
+    assert {v[0] for v in (await _sources(client)).values()} <= {"idle"}
+    # The building's targets reach every room in it, and may be one degree apart.
+    assert (await put("building", building, 71, 72)).status == 200
+    assert await _sources(client) == {
+        "Bunk Room": ("house", 71.0, 72.0),
+        "Craft Room": ("house", 71.0, 72.0),
+    }
+    # The zone's own targets come first for its rooms...
+    assert (await put("zone", T1, 69, 75)).status == 200
+    assert (await _sources(client))["Bunk Room"] == ("house", 69.0, 75.0)
+    # ...and a room's own come first for that room only.
+    assert (await put("room", rooms["bunk"], 66, 66)).status == 200
+    assert await _sources(client) == {
+        "Bunk Room": ("house", 66.0, 66.0),
+        "Craft Room": ("house", 69.0, 75.0),
+    }
+    snap = await (await client.get("/api/house")).json()
+    assert [(t["scope"], t["house_heat_to"], t["house_cool_to"]) for t in snap["targets"]] == [
+        ("building", 71.0, 72.0),
+        ("room", 66.0, 66.0),
+        ("zone", 69.0, 75.0),
+    ]
+    # Clearing a level hands its rooms back to the level above.
+    assert (await put("room", rooms["bunk"], None, None)).status == 200
+    assert (await put("zone", T1, None, None)).status == 200
+    assert (await _sources(client))["Bunk Room"] == ("house", 71.0, 72.0)
+
+    # A level's targets go with it when it is deleted.
+    assert (await put("room", rooms["craft"], 65, 77)).status == 200
+    assert (await client.delete(f"/api/rooms/{rooms['craft']}")).status == 200
+    assert (await client.delete(f"/api/buildings/{building}")).status == 200
+    snap = await (await client.get("/api/house")).json()
+    assert snap["targets"] == []
+    assert (await put("zone", T1, 70, 71)).status == 200
+    assert (await client.delete(f"/api/thermostats/{T1}?with_rooms=true")).status == 200
+    assert (await (await client.get("/api/house")).json())["targets"] == []
+
+    # What is not a level, or does not exist, is refused.
+    assert (await put("house", "all", 70, 74)).status == 400
+    for scope, missing in (("building", "nope"), ("zone", "climate.nope"), ("room", "nope")):
+        resp = await put(scope, missing, 70, 74)
+        assert (resp.status, (await resp.json())["error"]) == (
+            404,
+            "That building, zone or room was not found",
+        )
+
+
+async def test_a_house_band_from_an_earlier_version_is_handed_to_the_levels(client, rooms):
+    conn = await client.app["scheduler"].get_db()
+    # With nothing to give it to, the old band is kept.
+    await conn.execute("DELETE FROM rooms")
+    await conn.execute("DELETE FROM thermostat_configs")
+    await conn.commit()
+    await house.set_band(conn, 68, 74)
+    assert await house.adopt_house_band(conn) == 0
+    assert (await house.load(conn)).band == house.Band(68.0, 74.0)
+
+    building = (await (await client.post("/api/buildings", json={"name": "Main House"})).json())[
+        "id"
+    ]
+    other = (await (await client.post("/api/buildings", json={"name": "Pool House"})).json())["id"]
+    for tid in (T1, "climate.loose"):
+        resp = await client.post(
+            "/api/thermostats",
+            json={"thermostat_entity_id": tid, "name": tid, "total_vents_count": 4},
+        )
+        assert resp.status in (200, 201), await resp.text()
+    await client.put(f"/api/zones/{T1}", json={"building_id": building})
+    # A level that already has targets keeps them.
+    await house.set_level(conn, "building", other, 60, 80)
+
+    assert await house.adopt_house_band(conn) == 2
+    loaded = await house.load(conn)
+    assert loaded.band is None
+    assert loaded.levels == {
+        ("building", building): house.Band(68.0, 74.0),
+        ("building", other): house.Band(60.0, 80.0),
+        ("zone", "climate.loose"): house.Band(68.0, 74.0),
+    }
+    assert loaded.band_for("any-room", T1) == house.Band(68.0, 74.0)
+    assert loaded.outer_band() == house.Band(60.0, 80.0)
+    # Running it again changes nothing.
+    assert await house.adopt_house_band(conn) == 0
+    # The scheduler's own call never raises, whatever the database says.
+    await client.app["scheduler"].adopt_house_band()
+
+
+async def test_the_scheduler_carries_the_old_band_over_and_survives_a_failure(
+    client, rooms, monkeypatch
+):
+    scheduler = client.app["scheduler"]
+    conn = await scheduler.get_db()
+    await house.set_band(conn, 68, 74)
+    await scheduler.adopt_house_band()
+    loaded = await house.load(conn)
+    assert (loaded.band, loaded.levels) == (None, {("zone", T1): house.Band(68.0, 74.0)})
+
+    async def _boom(_conn):
+        raise RuntimeError("database is locked")
+
+    monkeypatch.setattr(house, "adopt_house_band", _boom)
+    await scheduler.adopt_house_band()  # logged, never raised

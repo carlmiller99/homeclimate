@@ -5,7 +5,10 @@ import { test, expect } from "./fixtures";
 // table's mobile card layout renders, so it needs visual coverage.
 test("room configure — edit devices page", async ({ page }) => {
   await page.goto("/my-home");
-  await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
+  await page.waitForSelector(".loading", {
+    state: "detached",
+    timeout: 15_000,
+  });
   await page.waitForLoadState("networkidle");
 
   // Living Room: the one room whose fixture state no other spec mutates

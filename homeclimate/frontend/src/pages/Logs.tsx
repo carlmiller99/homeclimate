@@ -166,7 +166,7 @@ function triggerSummary(
     return "safety protection";
   }
   if (source === "house") {
-    return "house band";
+    return "targets";
   }
   if (source === "balance") {
     return "zone balance";

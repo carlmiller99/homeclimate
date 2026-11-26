@@ -178,8 +178,8 @@ async def delete_building(conn: aiosqlite.Connection, building_id: str) -> str:
     """Delete a building. Returns "deleted" or "missing".
 
     Its zones are kept and left in no building, where each chooses heating or
-    cooling for itself. The building's own settings (its mode and its zone
-    balance) go with it.
+    cooling for itself. The building's own settings (its mode, its zone
+    balance and its targets) go with it.
     """
     if await get_building(conn, building_id) is None:
         return "missing"
@@ -188,6 +188,9 @@ async def delete_building(conn: aiosqlite.Connection, building_id: str) -> str:
     )
     for table in ("building_modes", "zone_balance"):
         await conn.execute(f"DELETE FROM {table} WHERE building_id=?", (building_id,))  # noqa: S608
+    await conn.execute(
+        "DELETE FROM level_targets WHERE scope='building' AND scope_id=?", (building_id,)
+    )
     await conn.execute("DELETE FROM buildings WHERE id=?", (building_id,))
     await conn.commit()
     return "deleted"

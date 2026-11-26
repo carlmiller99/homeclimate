@@ -1,10 +1,15 @@
-"""The house band, and the per-room switches that decide what a room follows.
+"""Targets, and the per-room switches that decide what a room follows.
 
-**The house band** is one heat-to and one cool-to temperature for the whole
-house, set on the Dashboard. A room with nothing more specific to follow is
-held inside it: heated when it falls below heat-to, cooled when it rises above
-cool-to, left alone in between. With no house band set, such a room asks for
-nothing, exactly as before this feature existed.
+**Targets** are a heating target and a cooling target, set on the Dashboard
+for a building, a zone or a room. The most specific one wins: a room with its
+own uses those, else its zone's, else its building's. A room with nothing more
+specific to follow (a hold, a schedule, occupancy) is held between the two:
+heated when it falls below the heating target, cooled when it rises above the
+cooling target, left alone in between. The two may be the same number. With no
+targets at any level, such a room asks for nothing.
+
+Internally the pair is a ``Band`` (heat-to, cool-to), which is what the engine
+and the features built on it work with.
 
 **Per-room switches** decide what may give a room its own target instead:
 
@@ -35,9 +40,13 @@ from .user_errors import UserError, fixed
 
 # Both edges in one setting ("68.00,74.00"), so a reader never sees half a change.
 BAND_SETTING = "house_band"
-# °F. A band narrower than this is no longer two different targets once the
-# deadband on each edge is counted.
-MIN_GAP_F = 3.0
+# °F between the heating and the cooling target. None is required: they may be
+# the same number, and the building's mode decides which side is worked.
+MIN_GAP_F = 0.0
+# The setting that held the one house-wide band before targets had levels. It
+# is read once, copied to every building (and every zone in no building), and
+# cleared.
+SCOPES = ("building", "zone", "room")
 # °F a band edge must stay inside a zone's safety limits, so a cycle working
 # toward it can always finish.
 SAFETY_MARGIN_F = 1.0
@@ -123,10 +132,44 @@ def hold_stamp(expires_at: datetime) -> str:
 
 @dataclass(frozen=True)
 class House:
+    # A band for every room that has no level of its own. Nothing sets it in a
+    # running system (targets always belong to a building, zone or room); it is
+    # the fallback the levels below are checked ahead of.
     band: Band | None = None
     rooms: dict[str, RoomSwitches] = field(default_factory=dict)
     calendars: dict[str, RoomCalendar] = field(default_factory=dict)
     targets: dict[tuple[str, str], TargetBand] = field(default_factory=dict)
+    # (scope, scope id) → the targets set at that level.
+    levels: dict[tuple[str, str], Band] = field(default_factory=dict)
+    # thermostat entity id → its building's id, for zones that are in one.
+    zone_building: dict[str, str] = field(default_factory=dict)
+
+    def band_for(self, room_id: str, zone_id: str) -> Band | None:
+        """The targets a room follows: its own, else its zone's, else its building's."""
+        return (
+            self.levels.get(("room", room_id))
+            or self.levels.get(("zone", zone_id))
+            or self.building_band(self.zone_building.get(zone_id))
+        )
+
+    def building_band(self, building_id: str | None) -> Band | None:
+        """A building's own targets (the fallback when it has none)."""
+        if building_id is None:
+            return self.band
+        return self.levels.get(("building", building_id)) or self.band
+
+    def outer_band(self) -> Band | None:
+        """The lowest heating and highest cooling target of any building.
+
+        For a view of the whole home (Today's Plan): outdoors colder than this
+        heats somewhere, warmer cools somewhere.
+        """
+        bands = [b for (scope, _id), b in self.levels.items() if scope == "building"]
+        if self.band is not None:
+            bands.append(self.band)
+        if not bands:
+            return None
+        return Band(min(b.heat_to for b in bands), max(b.cool_to for b in bands))
 
     def cool_to(self, kind: str, ref_id: str, target: float, stamp: str = "") -> float | None:
         """The cool-to that makes ``target`` a band, or None for a single target.
@@ -157,8 +200,85 @@ def _stored(value: str) -> Band | None:
     return Band(heat, cool) if band_in_range(heat, cool) else None
 
 
+async def adopt_house_band(conn: aiosqlite.Connection) -> int:
+    """Copy a house-wide band left by an earlier version to the levels, once.
+
+    Every building gets it, and every zone in no building; a level that already
+    has targets keeps them. The old setting is then cleared. Returns how many
+    levels were given the band.
+    """
+    band = _stored(await db.get_system_setting(conn, BAND_SETTING, ""))
+    if band is None:
+        return 0
+    async with conn.execute("SELECT id FROM buildings") as cur:
+        wanted = [("building", r["id"]) for r in await cur.fetchall()]
+    async with conn.execute(
+        "SELECT t.thermostat_entity_id AS tid FROM thermostat_configs t"
+        " LEFT JOIN zone_profiles z ON z.thermostat_entity_id = t.thermostat_entity_id"
+        " WHERE z.building_id IS NULL"
+    ) as cur:
+        wanted += [("zone", r["tid"]) for r in await cur.fetchall()]
+    if not wanted:
+        # Nothing to give it to yet; keep it until there is.
+        return 0
+    given = 0
+    for scope, scope_id in wanted:
+        cur = await conn.execute(
+            "INSERT OR IGNORE INTO level_targets (scope, scope_id, heat_to, cool_to)"
+            " VALUES (?,?,?,?)",
+            (scope, scope_id, band.heat_to, band.cool_to),
+        )
+        given += cur.rowcount
+    await conn.commit()
+    await db.set_system_setting(conn, BAND_SETTING, "")
+    return given
+
+
+async def set_level(
+    conn: aiosqlite.Connection,
+    scope: str,
+    scope_id: str,
+    heat_to: float | None,
+    cool_to: float | None,
+) -> None:
+    """Store a level's targets (°F, already validated), or clear them with two Nones."""
+    if heat_to is None or cool_to is None:
+        await conn.execute(
+            "DELETE FROM level_targets WHERE scope=? AND scope_id=?", (scope, scope_id)
+        )
+    else:
+        await conn.execute(
+            "INSERT INTO level_targets (scope, scope_id, heat_to, cool_to) VALUES (?,?,?,?)"
+            " ON CONFLICT(scope, scope_id) DO UPDATE SET heat_to=excluded.heat_to,"
+            " cool_to=excluded.cool_to",
+            (scope, scope_id, round(heat_to, 2), round(cool_to, 2)),
+        )
+    await conn.commit()
+
+
+async def level_exists(conn: aiosqlite.Connection, scope: str, scope_id: str) -> bool:
+    """Whether ``scope_id`` names a building, a zone or a room that exists."""
+    query = {
+        "building": "SELECT 1 FROM buildings WHERE id=?",
+        "zone": "SELECT 1 FROM thermostat_configs WHERE thermostat_entity_id=?",
+        "room": "SELECT 1 FROM rooms WHERE id=?",
+    }[scope]
+    async with conn.execute(query, (scope_id,)) as cur:
+        return await cur.fetchone() is not None
+
+
 async def load(conn: aiosqlite.Connection) -> House:
     band = _stored(await db.get_system_setting(conn, BAND_SETTING, ""))
+    async with conn.execute("SELECT * FROM level_targets") as cur:
+        levels = {
+            (r["scope"], r["scope_id"]): Band(r["heat_to"], r["cool_to"])
+            for r in await cur.fetchall()
+            if band_in_range(r["heat_to"], r["cool_to"])
+        }
+    async with conn.execute(
+        "SELECT thermostat_entity_id, building_id FROM zone_profiles WHERE building_id IS NOT NULL"
+    ) as cur:
+        zone_building = {r["thermostat_entity_id"]: r["building_id"] for r in await cur.fetchall()}
     async with conn.execute("SELECT * FROM room_switches") as cur:
         rooms = {
             r["room_id"]: RoomSwitches(
@@ -178,7 +298,7 @@ async def load(conn: aiosqlite.Connection) -> House:
             (r["kind"], r["ref_id"]): TargetBand(r["heat_to"], r["cool_to"], r["stamp"])
             for r in await cur.fetchall()
         }
-    return House(band, rooms, calendars, targets)
+    return House(band, rooms, calendars, targets, levels, zone_building)
 
 
 async def set_target_band(

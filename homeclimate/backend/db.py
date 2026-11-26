@@ -291,6 +291,17 @@ CREATE TABLE IF NOT EXISTS target_bands (
     PRIMARY KEY (kind, ref_id)
 );
 
+-- Targets (backend/house.py): a heating target and a cooling target for a
+-- building, a zone or a room. The most specific one a room has wins; a room
+-- with none inherits its zone's, then its building's.
+CREATE TABLE IF NOT EXISTS level_targets (
+    scope TEXT NOT NULL,     -- 'building' | 'zone' | 'room'
+    scope_id TEXT NOT NULL,  -- building id, thermostat entity id, or room id
+    heat_to REAL NOT NULL,
+    cool_to REAL NOT NULL,
+    PRIMARY KEY (scope, scope_id)
+);
+
 -- Zone Balance (backend/zone_balance.py): per building, whether zones are kept
 -- within a gap of each other, and the gap (°F).
 CREATE TABLE IF NOT EXISTS zone_balance (
@@ -1559,6 +1570,7 @@ async def delete_room(conn: aiosqlite.Connection, room_id: str) -> None:
     await conn.execute("DELETE FROM fireplace_rooms WHERE room_id=?", (room_id,))
     await conn.execute("DELETE FROM room_switches WHERE room_id=?", (room_id,))
     await conn.execute("DELETE FROM room_calendars WHERE room_id=?", (room_id,))
+    await conn.execute("DELETE FROM level_targets WHERE scope='room' AND scope_id=?", (room_id,))
     await conn.execute(
         "DELETE FROM target_bands WHERE ref_id=? OR (kind='schedule' AND ref_id NOT IN"
         " (SELECT id FROM schedules))",
@@ -1932,6 +1944,8 @@ async def delete_thermostat_config(conn: aiosqlite.Connection, entity_id: str) -
     await conn.execute("DELETE FROM thermostat_configs WHERE thermostat_entity_id=?", (entity_id,))
     # A deleted thermostat takes its Eco suspension with it (Issue #500).
     await conn.execute("DELETE FROM eco_suspensions WHERE thermostat_entity_id=?", (entity_id,))
+    # A thermostat added again later starts with no targets of its own.
+    await conn.execute("DELETE FROM level_targets WHERE scope='zone' AND scope_id=?", (entity_id,))
     await conn.commit()
 
 

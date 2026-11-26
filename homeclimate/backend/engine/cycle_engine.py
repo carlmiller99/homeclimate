@@ -4435,7 +4435,7 @@ class CycleEngine:
                     ar.deadband_override = match.deadband_override
             elif source == "house":
                 # The band is not in the snapshot: re-read it as it stands now.
-                band = (await house.load(conn)).band
+                band = (await house.load(conn)).band_for(room_id, self.thermostat_entity_id)
                 if band is not None:
                     ar.heat_to, ar.cool_to = band.heat_to, band.cool_to
             elif source == "override":

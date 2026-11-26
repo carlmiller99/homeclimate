@@ -20,7 +20,7 @@ High-level guide to what HomeClimate does and how the pieces fit together. For i
 - [Building mode](./building-mode.md) — keep every zone in a building on one side, heating or cooling (Dashboard, Smart Control)
 - [Forecasts](./forecasts.md) — fetch, keep and archive the hourly weather forecast (Smart Control)
 - [Notifications](./notifications.md) — send chosen warnings and a daily summary through a Home Assistant notify service (Settings)
-- [House band](./house-band.md) — one heat-to and cool-to for the whole house, and per-room options for what each room follows (Dashboard)
+- [Targets](./house-band.md) — a heating and a cooling target per building, zone or room, and per-room options for what each room follows (Dashboard)
 - [Fireplace](./fireplace.md) — keep rooms a fire is warming out of the heating and cooling's way (Smart Control)
 - [Temperature holds](./temperature-holds.md) — hold one room at an exact temperature for 1–8 hours, overriding schedules and presence
 - [Pre-cool / pre-heat](./precool-presence.md) — let a room coast to target on outside air instead of running HVAC for presence

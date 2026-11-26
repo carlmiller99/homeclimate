@@ -1,4 +1,9 @@
-import { test as base, expect, type Locator, type Page } from "@playwright/test";
+import {
+  test as base,
+  expect,
+  type Locator,
+  type Page,
+} from "@playwright/test";
 import { AUTH_MODE, SESSION_COOKIE, mintSession } from "../auth-cookie";
 
 // The browser's wall clock, pinned to the SAME absolute instant the backend is
@@ -37,7 +42,9 @@ export const test = base.extend<{ hideNavVersion: void }>({
       if (AUTH_MODE && baseURL) {
         await page
           .context()
-          .addCookies([{ name: SESSION_COOKIE, value: mintSession(), url: baseURL }]);
+          .addCookies([
+            { name: SESSION_COOKIE, value: mintSession(), url: baseURL },
+          ]);
       }
       await page.addInitScript(() => {
         const style = document.createElement("style");
@@ -96,7 +103,9 @@ export async function captureModal(
 ): Promise<void> {
   // +1 absorbs sub-pixel rounding on fractional-DPI projects, so a modal that
   // fits exactly is not needlessly expanded.
-  const overflows = await modal.evaluate((el) => el.scrollHeight > el.clientHeight + 1);
+  const overflows = await modal.evaluate(
+    (el) => el.scrollHeight > el.clientHeight + 1,
+  );
   if (!overflows) {
     await expect(modal).toHaveScreenshot(name, options);
     return;
@@ -129,13 +138,17 @@ export async function captureModal(
  */
 export async function markDocument(page: Page): Promise<void> {
   await page.evaluate(() => {
-    (window as unknown as { __homeclimateNoReload?: true }).__homeclimateNoReload = true;
+    (
+      window as unknown as { __homeclimateNoReload?: true }
+    ).__homeclimateNoReload = true;
   });
 }
 
 export async function expectSameDocument(page: Page): Promise<void> {
   const marked = await page.evaluate(
-    () => (window as unknown as { __homeclimateNoReload?: true }).__homeclimateNoReload === true,
+    () =>
+      (window as unknown as { __homeclimateNoReload?: true })
+        .__homeclimateNoReload === true,
   );
   expect(marked, "the page reloaded or navigated during the flow").toBe(true);
 }

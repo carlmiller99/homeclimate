@@ -4,7 +4,10 @@ import { test, expect } from "./fixtures";
 // is the Dev Mode section of Settings.
 test("devmode", async ({ page }) => {
   await page.goto("/settings?section=dev-mode");
-  await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
+  await page.waitForSelector(".loading", {
+    state: "detached",
+    timeout: 15_000,
+  });
   await page.waitForLoadState("networkidle");
 
   // No masks: under the CI build the isCI flag freezes the action-log feed to

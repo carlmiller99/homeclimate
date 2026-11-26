@@ -491,7 +491,7 @@ TEMPERATURE_FIELDS: dict[str, str] = {
     "deadband": "delta",
     "overshoot_delta": "delta",
     "cooling_lockout_below_f": "absolute_nullable",
-    # House band (backend/house.py) — PUT /api/house
+    # Targets (backend/house.py) — PUT /api/house/targets/{scope}/{scope_id}
     "house_heat_to": "absolute_nullable",
     "house_cool_to": "absolute_nullable",
     # Room
@@ -1533,10 +1533,9 @@ async def _check_cool_to(
         # Bounds shown rounded inward, so the numbers in the message are accepted.
         low = math.ceil(round((house.LOW_F - shift) * scale, 6) * 10) / 10
         high = math.floor(round((house.HIGH_F - shift) * scale, 6) * 10) / 10
-        gap = math.ceil(round(house.MIN_GAP_F * scale, 6) * 10) / 10
         return None, error(
             f"{key} and its target must be between {low} and {high}°{unit},"
-            f" with {key} at least {gap}° above the target"
+            f" with {key} not below the target"
         )
     if problem == "safety":
         top, bottom = await house.safety_window(await get_conn(request))

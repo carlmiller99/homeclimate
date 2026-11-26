@@ -41,7 +41,7 @@ The building takes the side of the first cycle that starts in it. After that it 
 2. That zone has been waiting at least 10 minutes.
 3. At least 4 hours have passed since the last switch.
 4. The building has switched fewer than 2 times today.
-5. The forecast does not rule it out. A switch to cooling needs at least 2 of the next 6 forecast hours above the house band's Cool To; a switch to heating needs 2 below its Heat To. With no house band the limits are 70 °F and 60 °F. With no forecast, this check is skipped.
+5. The forecast does not rule it out. A switch to cooling needs at least 2 of the next 6 forecast hours above the building's cooling target; a switch to heating needs 2 below its heating target. With no targets for the building the limits are 70 °F and 60 °F. With no forecast, this check is skipped.
 
 One exception: when a zone has been waiting 3 minutes and a room is 2 °F (1.1 °C) or more past the point where it would normally start, the building switches without checks 2 to 5. That exception has limits of its own: at least 1 hour since the last switch, and no more than 6 switches in a day.
 

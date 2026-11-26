@@ -2,7 +2,10 @@ import { test, expect } from "./fixtures";
 
 test("add zone — thermostat picker open", async ({ page, request }) => {
   await page.goto("/my-home");
-  await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
+  await page.waitForSelector(".loading", {
+    state: "detached",
+    timeout: 15_000,
+  });
   await page.waitForLoadState("networkidle");
 
   // Detect whether a real HA instance is reachable.
@@ -37,7 +40,7 @@ test("add zone — thermostat picker open", async ({ page, request }) => {
             domain: "climate",
           },
         ]),
-      })
+      }),
     );
   }
 
@@ -56,9 +59,13 @@ test("add zone — thermostat picker open", async ({ page, request }) => {
   // Allow up to 2 s for the dropdown to appear.
   // With HA: real entities populate from the proxy.
   // Without HA (mock): the intercepted response resolves immediately.
-  await page.waitForSelector(".entity-dropdown", { timeout: 5_000 }).catch(() => {
-    // If the dropdown still didn't appear, the screenshot captures that state.
-  });
+  await page
+    .waitForSelector(".entity-dropdown", { timeout: 5_000 })
+    .catch(() => {
+      // If the dropdown still didn't appear, the screenshot captures that state.
+    });
 
-  await expect(page).toHaveScreenshot("thermostat-modal.png", { fullPage: true });
+  await expect(page).toHaveScreenshot("thermostat-modal.png", {
+    fullPage: true,
+  });
 });

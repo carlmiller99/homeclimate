@@ -115,7 +115,6 @@ test.describe.serial("Eco Suspend visibility (#500)", () => {
       fullPage: true,
     });
 
-
     // Leave the room opted out again; the next test sets its own state anyway.
     await setBedroomEco(null);
   });
@@ -137,7 +136,6 @@ test.describe.serial("Eco Suspend visibility (#500)", () => {
         fullPage: true,
       },
     );
-
 
     await setThermostatEco(UPSTAIRS, false);
   });

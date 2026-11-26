@@ -152,7 +152,7 @@ Known limits: on the two days a year the clocks change, an arrival in the change
 
 A room is cooled early only when all of these hold:
 
-- It follows a band (the house band, or a schedule or occupancy band), not a hold, and is inside it.
+- It follows a band (its targets, or a schedule or occupancy band), not a hold, and is inside it.
 - The forecast for the next three hours is warmer than the room's Cool To and at least 3 °F (1.7 °C) warmer than now. A day that has already peaked is left alone.
 - The room's own model, fitted in the last week with its heat loss learned, says the room would pass its Cool To within those three hours if nothing ran.
 - The thermostat is not in heat mode and the building is not held to heating.

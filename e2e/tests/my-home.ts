@@ -8,7 +8,10 @@ import type { Locator, Page } from "@playwright/test";
 
 export async function gotoMyHome(page: Page): Promise<void> {
   await page.goto("/my-home");
-  await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
+  await page.waitForSelector(".loading", {
+    state: "detached",
+    timeout: 15_000,
+  });
   await page.waitForLoadState("networkidle");
 }
 
@@ -21,7 +24,10 @@ export function zonePanel(page: Page, entityId: string): Locator {
  * Open a zone's editor (equipment + thermostat settings) and wait for the
  * thermostat card's inputs. Returns the zone panel.
  */
-export async function openZoneEditor(page: Page, entityId: string): Promise<Locator> {
+export async function openZoneEditor(
+  page: Page,
+  entityId: string,
+): Promise<Locator> {
   const panel = zonePanel(page, entityId);
   await panel.getByRole("button", { name: "Edit Zone" }).click();
   await page.locator(`[id="thermo-${entityId}-name"]`).waitFor({
@@ -37,8 +43,13 @@ export function roomCard(page: Page, roomName: string): Locator {
 }
 
 /** Open a room's settings page from its card. Returns the settings container. */
-export async function openRoomSettings(page: Page, roomName: string): Promise<Locator> {
-  await roomCard(page, roomName).getByRole("button", { name: "Room Settings" }).click();
+export async function openRoomSettings(
+  page: Page,
+  roomName: string,
+): Promise<Locator> {
+  await roomCard(page, roomName)
+    .getByRole("button", { name: "Room Settings" })
+    .click();
   const settings = page.getByTestId("room-settings");
   await settings.waitFor({ state: "visible", timeout: 10_000 });
   return settings;

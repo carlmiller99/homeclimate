@@ -4,7 +4,10 @@ const API = `${process.env.HOMECLIMATE_URL ?? "http://localhost:8099"}/api`;
 
 test("schedules list", async ({ page }) => {
   await page.goto("/smart-control?section=schedules");
-  await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
+  await page.waitForSelector(".loading", {
+    state: "detached",
+    timeout: 15_000,
+  });
   await page.waitForLoadState("networkidle");
 
   await expect(page).toHaveScreenshot("schedules.png", { fullPage: true });
@@ -12,7 +15,10 @@ test("schedules list", async ({ page }) => {
 
 test("schedule delete confirmation dialog", async ({ page }) => {
   await page.goto("/smart-control?section=schedules");
-  await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
+  await page.waitForSelector(".loading", {
+    state: "detached",
+    timeout: 15_000,
+  });
   await page.waitForLoadState("networkidle");
 
   // Expand a room to reveal its schedule rows and the "Del" button.
@@ -24,7 +30,9 @@ test("schedule delete confirmation dialog", async ({ page }) => {
   // used for the other confirm-dialog specs (see rooms.spec.ts).
   await expect(dialog.locator("p")).toContainText("Delete this schedule");
 
-  await expect(page).toHaveScreenshot("schedule-delete-confirm.png", { maxDiffPixels: 800 });
+  await expect(page).toHaveScreenshot("schedule-delete-confirm.png", {
+    maxDiffPixels: 800,
+  });
 
   // Cancel — don't actually delete a schedule other specs depend on.
   await dialog.getByRole("button", { name: "Cancel" }).click();
@@ -44,7 +52,9 @@ test("schedule delete confirmation dialog", async ({ page }) => {
  * actually returns, which is the value someone needs to address this block from
  * REST/MCP (and, per #519, an MQTT command topic).
  */
-test("named schedule blocks keep their id reachable (#520)", async ({ page }) => {
+test("named schedule blocks keep their id reachable (#520)", async ({
+  page,
+}) => {
   interface ApiRoom {
     id: string;
     name: string;
@@ -58,13 +68,18 @@ test("named schedule blocks keep their id reachable (#520)", async ({ page }) =>
   const rooms: ApiRoom[] = await (await fetch(`${API}/rooms`)).json();
   const living = rooms.find((r) => r.name === "Living Room");
   expect(living, "Living Room should be seeded by global-setup").toBeTruthy();
-  const blocks: ApiSchedule[] = await (await fetch(`${API}/rooms/${living!.id}/schedules`)).json();
+  const blocks: ApiSchedule[] = await (
+    await fetch(`${API}/rooms/${living!.id}/schedules`)
+  ).json();
   // The API orders by start_time, and so does the table — so row 1 is 08:00.
   const first = blocks[0];
   expect(first.name).toBe("Daytime comfort");
 
   await page.goto("/smart-control?section=schedules");
-  await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
+  await page.waitForSelector(".loading", {
+    state: "detached",
+    timeout: 15_000,
+  });
   await page.waitForLoadState("networkidle");
 
   const card = page.locator(".card").filter({ hasText: "Living Room" }).first();
@@ -76,7 +91,7 @@ test("named schedule blocks keep their id reachable (#520)", async ({ page }) =>
   // …and the id is still one hover away, without dev tools or a DB query.
   await expect(card.getByTestId("schedule-id").first()).toHaveAttribute(
     "title",
-    `Schedule ID: ${first.id}`
+    `Schedule ID: ${first.id}`,
   );
 
   await expect(card).toHaveScreenshot("schedules-named.png");

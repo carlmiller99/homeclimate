@@ -197,7 +197,9 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
       .getByLabel(/Presence-triggered temperature/i)
       .fill(ROOM_SYS_TEMP);
     await settings.getByLabel(/Temperature offset/i).fill(ROOM_TEMP_OFFSET);
-    await settings.getByLabel(/Deadband override/i).fill(ROOM_DEADBAND_OVERRIDE);
+    await settings
+      .getByLabel(/Deadband override/i)
+      .fill(ROOM_DEADBAND_OVERRIDE);
 
     await settings.getByRole("button", { name: /Save changes/i }).click();
     await settings.waitFor({ state: "detached", timeout: 5_000 });
@@ -329,7 +331,8 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
 
     const putResponse = page.waitForResponse(
       (r) =>
-        r.url().includes(`/api/thermostats/${TC_ID}`) && r.request().method() === "PUT",
+        r.url().includes(`/api/thermostats/${TC_ID}`) &&
+        r.request().method() === "PUT",
     );
     await card.getByRole("button", { name: "Save" }).click();
     const response = await putResponse;
@@ -352,7 +355,10 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
   }) => {
     // @covers: eco_cooling_outdoor_threshold, eco_cooling_full_drift_temp, eco_cooling_max_drift, eco_heating_outdoor_threshold, eco_heating_full_drift_temp, eco_heating_max_drift, eco_hysteresis_band
     await page.goto("/my-home");
-    await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
+    await page.waitForSelector(".loading", {
+      state: "detached",
+      timeout: 15_000,
+    });
     await page.waitForLoadState("networkidle");
 
     const openSettings = async () => {
@@ -378,8 +384,13 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
 
     settings = await openSettings();
     for (const [key, value] of Object.entries(ECO_VALUES)) {
-      const readBack = parseFloat(await settings.locator(`[id="room-${key}"]`).inputValue());
-      expect(readBack, `room eco field ${key}`).toBeCloseTo(parseFloat(value), 1);
+      const readBack = parseFloat(
+        await settings.locator(`[id="room-${key}"]`).inputValue(),
+      );
+      expect(readBack, `room eco field ${key}`).toBeCloseTo(
+        parseFloat(value),
+        1,
+      );
     }
   });
 
@@ -466,7 +477,7 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
     const reopened = page.locator(".modal");
     await reopened.waitFor({ state: "visible", timeout: 10_000 });
     await expect(
-      reopened.getByRole("radio", { name: /override deadband/i })
+      reopened.getByRole("radio", { name: /override deadband/i }),
     ).toBeChecked();
     const band = await reopened.getByLabel(/^Deadband/i).inputValue();
     expect(parseFloat(band)).toBeCloseTo(parseFloat(SCHEDULE_DRIFT), 1);
@@ -482,9 +493,13 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
     const COOL = isCelsius ? "24" : "76";
 
     await page.goto("/schedules");
-    await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
+    await page.waitForSelector(".loading", {
+      state: "detached",
+      timeout: 15_000,
+    });
     await page.waitForLoadState("networkidle");
-    const card = () => page.locator(".card").filter({ hasText: "Living Room" }).first();
+    const card = () =>
+      page.locator(".card").filter({ hasText: "Living Room" }).first();
     await card().getByText("Living Room").click();
     await card().getByText("+ Add schedule block").click();
     const modal = page.locator(".modal");
@@ -498,13 +513,18 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
     await modal.waitFor({ state: "detached", timeout: 5_000 });
 
     await page.reload();
-    await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
+    await page.waitForSelector(".loading", {
+      state: "detached",
+      timeout: 15_000,
+    });
     await page.waitForLoadState("networkidle");
     await card().getByText("Living Room").click();
     const row = card().locator("tr").filter({ hasText: "05:00" });
     await expect(row).toBeVisible();
     const text = await row.innerText();
-    const band = text.match(/(\d+(?:\.\d+)?)\s*°[CF]\s+to\s+(\d+(?:\.\d+)?)\s*°[CF]/);
+    const band = text.match(
+      /(\d+(?:\.\d+)?)\s*°[CF]\s+to\s+(\d+(?:\.\d+)?)\s*°[CF]/,
+    );
     expect(band, `band not found in row: ${text}`).not.toBeNull();
     expect(parseFloat(band![1])).toBeCloseTo(parseFloat(HEAT), 1);
     expect(parseFloat(band![2])).toBeCloseTo(parseFloat(COOL), 1);
@@ -518,7 +538,10 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
 
     // The occupancy target's Cool To, in the room's settings under My Home.
     await page.goto("/my-home");
-    await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
+    await page.waitForSelector(".loading", {
+      state: "detached",
+      timeout: 15_000,
+    });
     await page.waitForLoadState("networkidle");
     const openSettings = async () => {
       await page
@@ -594,7 +617,8 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
         `POST /api/rooms/{id}/override failed: ${responseText}`,
       ).toBeLessThan(400);
       // Remember the room for cleanup — the POST URL carries its id.
-      heldRoomId = response.url().match(/\/api\/rooms\/([^/]+)\/override/)?.[1] ?? null;
+      heldRoomId =
+        response.url().match(/\/api\/rooms\/([^/]+)\/override/)?.[1] ?? null;
       await modal.waitFor({ state: "detached", timeout: 5_000 });
 
       // Reload and read back through the Dashboard's hold strip. The target
@@ -612,7 +636,10 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
       await expect(strip).toContainText("Living Room");
       const stripText = await strip.innerText();
       const match = stripText.match(/held at\s*(\d+(?:\.\d+)?)\s*°[CF]/);
-      expect(match, `hold target not found in the hold strip: ${stripText}`).not.toBeNull();
+      expect(
+        match,
+        `hold target not found in the hold strip: ${stripText}`,
+      ).not.toBeNull();
       expect(parseFloat(match![1])).toBeCloseTo(parseFloat(HOLD_TARGET), 1);
     } finally {
       // Clear the hold so later specs see Living Room back on its schedule.
@@ -683,37 +710,49 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
     }
   });
 
-  test("house band persists exactly as entered", async ({ page }) => {
+  test("a zone's targets persist exactly as entered", async ({ page }) => {
     // @covers: house_heat_to, house_cool_to
+    const heatLabel = /^Heating Target for Downstairs Thermostat/;
+    const coolLabel = /^Cooling Target for Downstairs Thermostat/;
     try {
       await page.goto("/");
-      await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
-      const heat = page.getByLabel(/^Heat To/);
-      const cool = page.getByLabel(/^Cool To/);
-      await heat.fill(HOUSE_HEAT_TO);
-      await cool.fill(HOUSE_COOL_TO);
-      await page.getByRole("button", { name: /Set House Band|^Save$/ }).click();
-      await expect(page.getByRole("button", { name: "Turn Off" })).toBeVisible();
+      await page.waitForSelector(".loading", {
+        state: "detached",
+        timeout: 15_000,
+      });
+      await page.getByLabel(heatLabel).fill(HOUSE_HEAT_TO);
+      await page.getByLabel(coolLabel).fill(HOUSE_COOL_TO);
+      await page
+        .getByRole("button", { name: "Save targets for Downstairs Thermostat" })
+        .click();
+      await expect(
+        page.getByRole("button", {
+          name: "Clear targets for Downstairs Thermostat",
+        }),
+      ).toBeVisible();
 
       await page.reload();
-      await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
-      expect(parseFloat(await page.getByLabel(/^Heat To/).inputValue())).toBeCloseTo(
-        parseFloat(HOUSE_HEAT_TO),
-        1,
-      );
-      expect(parseFloat(await page.getByLabel(/^Cool To/).inputValue())).toBeCloseTo(
-        parseFloat(HOUSE_COOL_TO),
-        1,
-      );
+      await page.waitForSelector(".loading", {
+        state: "detached",
+        timeout: 15_000,
+      });
+      expect(
+        parseFloat(await page.getByLabel(heatLabel).inputValue()),
+      ).toBeCloseTo(parseFloat(HOUSE_HEAT_TO), 1);
+      expect(
+        parseFloat(await page.getByLabel(coolLabel).inputValue()),
+      ).toBeCloseTo(parseFloat(HOUSE_COOL_TO), 1);
     } finally {
-      // Leave no band behind: with one set, every room becomes active.
-      await page.request.put("/api/house", {
+      // Leave no targets behind: with them set, every room in the zone becomes active.
+      await page.request.put(`/api/house/targets/zone/${TC_ID}`, {
         data: { house_heat_to: null, house_cool_to: null },
       });
     }
   });
 
-  test("zone balance gap limit persists exactly as chosen", async ({ page }) => {
+  test("zone balance gap limit persists exactly as chosen", async ({
+    page,
+  }) => {
     // @covers: zone_gap
     // A difference, not a temperature: 2.5°C ≡ 4.5°F, with no 32° offset.
     const GAP = isCelsius ? "2.5" : "5";
@@ -734,15 +773,17 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
       await saved;
 
       await page.reload();
-      await expect(
-        page.getByLabel("Gap limit for Gap Test House"),
-      ).toHaveValue(GAP);
+      await expect(page.getByLabel("Gap limit for Gap Test House")).toHaveValue(
+        GAP,
+      );
     } finally {
       await page.request.delete(`/api/buildings/${building}`);
     }
   });
 
-  test("peak hours banking depth persists exactly as chosen", async ({ page }) => {
+  test("peak hours banking depth persists exactly as chosen", async ({
+    page,
+  }) => {
     // @covers: peak_depth
     // A difference, not a temperature: 1.5°C ≡ 2.7°F, with no 32° offset.
     const DEPTH = isCelsius ? "1.5" : "3";

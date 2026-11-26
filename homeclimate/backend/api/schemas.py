@@ -1053,7 +1053,16 @@ class HouseRoomSchema(RoomSwitchesSchema):
     calendar = fields.Nested(RoomCalendarSchema, allow_none=True)
 
 
+class LevelTargetsSchema(HouseBandSchema):
+    scope = fields.Str(metadata={"description": "building, zone or room"})
+    scope_id = fields.Str(metadata={"description": "Building id, thermostat entity id, or room id"})
+
+
 class HouseSchema(HouseBandSchema):
+    targets = fields.List(
+        fields.Nested(LevelTargetsSchema),
+        metadata={"description": "The targets set at each level, in °F"},
+    )
     min_gap = fields.Float(metadata={"description": "°F delta required between the two"})
     low = fields.Float(metadata={"description": "°F, lowest heat-to allowed"})
     high = fields.Float(metadata={"description": "°F, highest cool-to allowed"})

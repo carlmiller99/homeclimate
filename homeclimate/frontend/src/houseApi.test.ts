@@ -5,7 +5,8 @@ import {
   clearRoomCalendar,
   setRoomCalendar,
   getHouse,
-  setHouseBand,
+  setTargets,
+  targetsFor,
   setRoomSwitches,
   switchesFor,
   type House,
@@ -14,6 +15,16 @@ import {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("houseApi", () => {
+  it("finds one level's own targets, and nothing for a level without any", () => {
+    const house = {
+      targets: [{ scope: "zone", scope_id: "climate.a", house_heat_to: 71, house_cool_to: 72 }],
+    } as House;
+    expect(targetsFor(house, "zone", "climate.a")).toEqual({ heat: 71, cool: 72 });
+    expect(targetsFor(house, "room", "climate.a")).toBeNull();
+    expect(targetsFor({} as House, "zone", "climate.a")).toBeNull();
+    expect(targetsFor(null, "zone", "climate.a")).toBeNull();
+  });
+
   it("calls the house endpoints with the values as typed", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
@@ -22,15 +33,23 @@ describe("houseApi", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     await getHouse();
-    await setHouseBand(20, 24);
-    await setHouseBand(null, null);
+    await setTargets("building", "b1", 20, 24);
+    await setTargets("zone", "climate.south wing", null, null);
     await setRoomSwitches("r 1", { in_use: false });
     await setRoomCalendar("r 1", { entity_id: "calendar.custody" });
     await clearRoomCalendar("r 1");
     expect(fetchMock.mock.calls.map(([u, i]) => [u, i?.method ?? "GET", i?.body])).toEqual([
       ["/api/house", "GET", undefined],
-      ["/api/house", "PUT", JSON.stringify({ house_heat_to: 20, house_cool_to: 24 })],
-      ["/api/house", "PUT", JSON.stringify({ house_heat_to: null, house_cool_to: null })],
+      [
+        "/api/house/targets/building/b1",
+        "PUT",
+        JSON.stringify({ house_heat_to: 20, house_cool_to: 24 }),
+      ],
+      [
+        "/api/house/targets/zone/climate.south%20wing",
+        "PUT",
+        JSON.stringify({ house_heat_to: null, house_cool_to: null }),
+      ],
       ["/api/house/rooms/r%201", "PUT", JSON.stringify({ in_use: false })],
       ["/api/house/rooms/r%201/calendar", "PUT", JSON.stringify({ entity_id: "calendar.custody" })],
       ["/api/house/rooms/r%201/calendar", "DELETE", undefined],

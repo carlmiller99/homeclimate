@@ -126,7 +126,7 @@ describe("Today's Plan card", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByText(
-        "Heating when it is colder than 66.0°F outside, cooling when warmer than 76.0°F: the house band."
+        "Heating when it is colder than 66.0°F outside, cooling when warmer than 76.0°F: your targets."
       )
     ).toBeInTheDocument();
     const coming = within(screen.getByRole("list", { name: "Coming up" }));

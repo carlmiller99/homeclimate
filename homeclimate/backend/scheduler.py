@@ -255,6 +255,7 @@ class Scheduler:
         await self._load_heat_pumps()
         await self.adopt_zone_contacts()
         await self.adopt_first_build_readings()
+        await self.adopt_house_band()
         # Learn which door and window sensors to watch before events arrive.
         await self._evaluate_openings()
         await self._evaluate_fireplaces()
@@ -1750,6 +1751,15 @@ class Scheduler:
                 {"shade": move.entity_id, "action": move.action},
             )
 
+    async def adopt_house_band(self) -> None:
+        """Give a house-wide band from an earlier version to each building; never raises."""
+        try:
+            given = await house.adopt_house_band(self._db_conn)
+            if given:
+                log.info("House band copied to %d building and zone targets", given)
+        except Exception:
+            log.exception("Could not carry the house band over to building targets")
+
     async def adopt_first_build_readings(self) -> None:
         """Move Smart Learning readings out of the first recorder build's table."""
         try:
@@ -1816,7 +1826,11 @@ class Scheduler:
             hours, _fetched = await forecast.load(self._db_conn, now=now)
             if (await forecast.get_settings(self._db_conn))["correct"]:
                 hours = (await forecast_bias.load(self._db_conn)).correct(hours)
-            band = (await house.load(self._db_conn)).band
+            the_house = await house.load(self._db_conn)
+            band = {
+                b.id: the_house.building_band(b.id)
+                for b in await zones.list_buildings(self._db_conn)
+            }
             zones_now = self.zones_now()
             self._waiting_at_plan = {
                 z.thermostat_entity_id: z.wait["direction"] for z in zones_now if z.wait

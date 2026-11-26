@@ -151,7 +151,7 @@ async def update(conn: aiosqlite.Connection, building_id: str, body: dict[str, A
 def forecast_wants(hours: list[Any], side: str, band: Any, now: datetime) -> bool | None:
     """Whether the forecast needs ``side`` soon; None when there is no forecast.
 
-    ``hours`` are ``forecast.Hour`` objects; ``band`` is the house band or None.
+    ``hours`` are ``forecast.Hour`` objects; ``band`` is the building's targets or None.
     """
     window = [h for h in hours if now <= h.at < now + timedelta(hours=FORECAST_LOOKAHEAD_HOURS)]
     if not window:
@@ -295,8 +295,11 @@ class Planner:
         switched: list[tuple[str, str]] = []
         decisions: dict[str, Decision] = {}
         for building_id, m in (await load(conn)).items():
+            # ``band`` is each building's own targets by building id (or, for a
+            # caller with one band for everything, that band).
+            its_band = band.get(building_id) if isinstance(band, dict) else band
             decision = await self._decide(
-                conn, m, by_building.get(building_id, []), hours, band, now
+                conn, m, by_building.get(building_id, []), hours, its_band, now
             )
             decisions[building_id] = decision
             if decision.switched_to:

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.17
+
+- Dashboard: **Targets** replace the house band. Each building has a heating target and a cooling target, and a zone or a room can be given its own; anything without its own follows the level above, and the Dashboard says which. The two targets can be the same number, so a home can be held at 71, or between 71 and 72, all year: the 3 °F minimum between them is gone, here and on a schedule's, a hold's and an occupancy target's Cool To.
+- Upgrading: the house band you had becomes the targets of every building, and of every zone that is in no building, so every room is kept where it was.
+- API: `PUT /api/house/targets/{scope}/{scope_id}` replaces `PUT /api/house`, and `GET /api/house` lists the targets set at each level.
+
 ## 0.5.16
 
 - Room devices: each search now lists only the right kind of device (temperature sensors, vents, door and window sensors, occupancy sensors), and leads with the ones in the Home Assistant area named like the room.

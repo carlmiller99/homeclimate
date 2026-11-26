@@ -12,7 +12,10 @@ test("metrics", async ({ page }) => {
   await page.goto("/metrics");
 
   // Metrics page lazy-loads recharts — wait for the Suspense fallback to clear
-  await page.waitForSelector(".loading", { state: "detached", timeout: 20_000 });
+  await page.waitForSelector(".loading", {
+    state: "detached",
+    timeout: 20_000,
+  });
   await page.waitForSelector(".page-header, .page-title", { timeout: 15_000 });
 
   // Home view: summary tiles, the Eco Mode impact section, and the two donuts.
@@ -20,10 +23,15 @@ test("metrics", async ({ page }) => {
   // clear — a lingering skeleton is static under `animations: "disabled"` and
   // would get baked into the update-pass golden, then mismatch the verify
   // pass once the data arrives.
-  await page.waitForSelector(".chart-card svg.recharts-surface", { timeout: 20_000 });
+  await page.waitForSelector(".chart-card svg.recharts-surface", {
+    timeout: 20_000,
+  });
   await page.waitForFunction(
-    () => !document.querySelector(".skeleton-bar, .skeleton-block, .chart-card .loading"),
-    { timeout: 20_000 }
+    () =>
+      !document.querySelector(
+        ".skeleton-bar, .skeleton-block, .chart-card .loading",
+      ),
+    { timeout: 20_000 },
   );
 
   // The native <input type="date"> controls render with sub-pixel jitter that
@@ -38,7 +46,10 @@ test("metrics", async ({ page }) => {
 
 test("metrics per-thermostat charts", async ({ page }) => {
   await page.goto("/metrics");
-  await page.waitForSelector(".loading", { state: "detached", timeout: 20_000 });
+  await page.waitForSelector(".loading", {
+    state: "detached",
+    timeout: 20_000,
+  });
   await page.waitForSelector(".page-header, .page-title", { timeout: 15_000 });
 
   // Switch to a specific thermostat — this is where the full chart set
@@ -52,11 +63,16 @@ test("metrics per-thermostat charts", async ({ page }) => {
   // Full grid fetches ~16 feeds; wait for chart surfaces, the vent-timeline
   // table (the last, table-based card), and for every loading placeholder to
   // clear before capturing.
-  await page.waitForSelector(".chart-card svg.recharts-surface", { timeout: 20_000 });
+  await page.waitForSelector(".chart-card svg.recharts-surface", {
+    timeout: 20_000,
+  });
   await page.waitForSelector(".chart-card .data-table", { timeout: 20_000 });
   await page.waitForFunction(
-    () => !document.querySelector(".skeleton-bar, .skeleton-block, .chart-card .loading"),
-    { timeout: 20_000 }
+    () =>
+      !document.querySelector(
+        ".skeleton-bar, .skeleton-block, .chart-card .loading",
+      ),
+    { timeout: 20_000 },
   );
 
   await expect(page).toHaveScreenshot("metrics-thermostat.png", {
