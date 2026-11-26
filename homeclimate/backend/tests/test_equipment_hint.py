@@ -39,13 +39,19 @@ def test_a_running_heat_pump_stage_is_a_sign_without_auxiliary_heat():
     }
 
 
-def test_auxiliary_heat_running_is_a_sign_too():
-    ha = _HA({"climate.south": _climate("fan,auxHeat1")})
+def test_a_heat_pump_running_with_auxiliary_heat_says_so():
+    ha = _HA({"climate.south": _climate("fan,heatPump2,auxHeat1")})
     assert equipment_hint.looks_like(ha, "climate.south") == {
         "system_type": "heat_pump",
         "auxiliary_heat": True,
         "reason": "equipment_running",
     }
+
+
+def test_auxiliary_heat_alone_is_no_sign():
+    # ecobee reports a conventional furnace's heat stages as auxHeat1/auxHeat2.
+    ha = _HA({"climate.north": _climate("fan,auxHeat1")})
+    assert equipment_hint.looks_like(ha, "climate.north") is None
 
 
 def test_no_sign_is_cannot_tell_not_conventional():

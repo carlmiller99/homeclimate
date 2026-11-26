@@ -134,7 +134,8 @@ async def list_zones(request: web.Request) -> web.Response:
                 "aux_heat_running": scheduler.aux_heat_running(z.thermostat_entity_id),
                 "strips_expected": scheduler.strips_expected(z.thermostat_entity_id),
                 # A zone left on conventional settings whose thermostat shows
-                # the signs of a heat pump: My Home says so and offers to fix it.
+                # the signs of a heat pump: My Home marks it, and the mark opens
+                # Edit Zone.
                 "looks_like_heat_pump": not z.is_heat_pump
                 and equipment_hint.looks_like(request.app["ha"], z.thermostat_entity_id)
                 is not None,
@@ -245,7 +246,7 @@ async def run_import(request: web.Request) -> web.Response:
     }
     conn = await get_conn(request)
     try:
-        result = await ha_import.apply_import(conn, body, climates)
+        result = await ha_import.apply_import(conn, body, climates, request.app["ha"])
     except UserError as exc:
         return error(safe_text(exc))
     await refresh(request)

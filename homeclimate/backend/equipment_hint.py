@@ -8,8 +8,9 @@ Two signs are read, both from the ecobee integration:
 
 * an ``aux heat only`` switch beside the thermostat, which the integration
   creates only for a thermostat configured with auxiliary heat;
-* the thermostat's ``equipment_running`` attribute naming a heat pump stage or
-  auxiliary heat right now.
+* the thermostat's ``equipment_running`` attribute naming a heat pump stage
+  right now. ``auxHeat`` by itself is no sign: ecobee reports a conventional
+  furnace's own heat stages under that name.
 
 No sign means "cannot tell", never "conventional".
 """
@@ -39,6 +40,6 @@ def looks_like(ha: Any, thermostat_entity_id: str) -> dict[str, Any] | None:
     running = str(((state or {}).get("attributes") or {}).get("equipment_running") or "").lower()
     if switch is not None:
         return {"system_type": HEAT_PUMP, "auxiliary_heat": True, "reason": AUX_SWITCH}
-    if "heatpump" in running or "aux" in running:
+    if "heatpump" in running:
         return {"system_type": HEAT_PUMP, "auxiliary_heat": "aux" in running, "reason": RUNNING}
     return None

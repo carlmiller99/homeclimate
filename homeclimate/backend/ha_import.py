@@ -14,7 +14,7 @@ from typing import Any
 
 import aiosqlite
 
-from . import db, openings, zones
+from . import db, equipment_hint, openings, zones
 from .models import Room, RoomPresenceSensor, RoomSensor, RoomVent, ThermostatConfig
 from .mqtt.naming import sanitize
 from .user_errors import UserError, fixed
@@ -205,6 +205,8 @@ def _str_list(raw: Any, name: str) -> list[str]:
 @dataclass
 class ImportResult:
     zones_added: int = 0
+    # New zones set up as heat pumps because Home Assistant shows the signs.
+    heat_pumps_found: int = 0
     buildings_added: int = 0
     rooms_added: int = 0
     rooms_updated: int = 0
@@ -240,7 +242,10 @@ async def _building_for(
 
 
 async def apply_import(
-    conn: aiosqlite.Connection, body: dict[str, Any], known_climates: set[str]
+    conn: aiosqlite.Connection,
+    body: dict[str, Any],
+    known_climates: set[str],
+    ha: Any = None,
 ) -> ImportResult:
     """Create zones and rooms from reviewed choices. Additive only."""
     zone_rows = body.get("zones") or []
@@ -265,6 +270,11 @@ async def apply_import(
             )
             configured.add(eid)
             result.zones_added += 1
+            # Nobody is asked per zone here, so read what Home Assistant shows:
+            # a heat pump left on the conventional settings gets no protection.
+            if ha is not None and equipment_hint.looks_like(ha, eid) is not None:
+                await zones.update_zone_profile(conn, eid, {"system_type": "heat_pump"})
+                result.heat_pumps_found += 1
         building_id = await _building_for(conn, row, result, building_cache)
         if building_id is not None:
             await zones.update_zone_profile(conn, eid, {"building_id": building_id})

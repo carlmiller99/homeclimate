@@ -115,12 +115,20 @@ export default function ImportFromHA() {
   for (const [owner, c] of Object.entries(roomChoices)) {
     for (const a of c.areas.slice(1)) mergedInto.set(a, owner);
   }
-  const zoneOptions = [
+  const namedZones = [
     ...configured.map((c) => ({ id: c.id, name: c.name || c.id })),
     ...preview.zones
       .filter((z) => !z.configured && zoneChoices[z.entity_id]?.include)
       .map((z) => ({ id: z.entity_id, name: zoneChoices[z.entity_id].name || z.entity_id })),
   ];
+  // Two thermostats can carry one name (the same thermostat seen through two
+  // integrations, say). Their entity ids tell them apart in the list.
+  const sharedNames = new Set(
+    namedZones.map((z) => z.name).filter((n, i, all) => all.indexOf(n) !== i)
+  );
+  const zoneOptions = namedZones.map((z) =>
+    sharedNames.has(z.name) ? { id: z.id, name: `${z.name} (${z.id})` } : z
+  );
   const label = (eid: string) => preview.labels[eid] ?? eid;
   const visible = preview.rooms.filter((r) => !mergedInto.has(r.area_id));
   const active = visible.filter((r) => !r.skipped || roomChoices[r.area_id]?.include);
@@ -207,6 +215,13 @@ export default function ImportFromHA() {
         <p className="page-subtitle">
           {`Added ${result.zones_added} zones, ${result.rooms_added} rooms and ${result.entities_added} sensors and vents.`}
         </p>
+        {result.zones_added > 0 && (
+          <p className="field-help">
+            {result.heat_pumps_found > 0
+              ? `${result.heat_pumps_found} of the new zones looked like heat pumps and were set up as heat pumps. Check each new zone's system type under Edit Zone; the rest were set as conventional with electric strips.`
+              : "The new zones were set as conventional with electric strips. Check each one's system type under Edit Zone."}
+          </p>
+        )}
         <div className="zone-editor-actions">
           <Link className="btn btn-primary" to="/my-home">
             Go to My Home
@@ -343,6 +358,11 @@ export default function ImportFromHA() {
       <section className="import-section">
         <h2 className="zone-section-title">Zones</h2>
         <p className="field-help">One for each thermostat. Names start from its area or floor.</p>
+        {sharedNames.size > 0 && (
+          <p className="field-help" role="status">
+            {`More than one thermostat is named ${[...sharedNames].join(", ")}. If they are the same thermostat seen through two integrations, include only one of them.`}
+          </p>
+        )}
         <div className="table-scroll">
           <table className="import-table">
             <thead>

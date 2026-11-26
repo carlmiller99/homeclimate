@@ -144,10 +144,14 @@ async def test_import_is_additive_and_remembers_skips(client, fake_ha):
         ],
         "skipped_areas": ["drive", "drive"],
     }
+    # The ecobee integration's switch for a thermostat with auxiliary heat:
+    # that zone comes in as a heat pump, the other is left conventional.
+    fake_ha.seed_state("switch.mud_aux_heat_only", "off", {})
     resp = await client.post("/api/ha/import", json=body)
     assert resp.status == 200, await resp.text()
     assert await resp.json() == {
         "zones_added": 2,
+        "heat_pumps_found": 1,
         "buildings_added": 1,
         "rooms_added": 2,
         "rooms_updated": 0,
@@ -158,6 +162,10 @@ async def test_import_is_additive_and_remembers_skips(client, fake_ha):
         ("binary_sensor.mud_door", True)
     ]
     zones = await (await client.get("/api/zones")).json()
+    assert {z["thermostat_entity_id"]: z["system_type"] for z in zones} == {
+        "climate.landing": "conventional",
+        "climate.mud": "heat_pump",
+    }
     buildings = await (await client.get("/api/buildings")).json()
     assert [b["name"] for b in buildings] == ["Main House"]
     assert {z["building_id"] for z in zones} == {buildings[0]["id"]}
@@ -169,6 +177,7 @@ async def test_import_is_additive_and_remembers_skips(client, fake_ha):
     again = await (await client.post("/api/ha/import", json=body)).json()
     assert again == {
         "zones_added": 0,
+        "heat_pumps_found": 0,
         "buildings_added": 0,
         "rooms_added": 0,
         "rooms_updated": 2,
@@ -255,6 +264,7 @@ async def test_zone_rows_without_a_building_and_unplaced_entities(client, fake_h
     )
     assert await resp.json() == {
         "zones_added": 2,
+        "heat_pumps_found": 0,
         "buildings_added": 1,
         "rooms_added": 0,
         "rooms_updated": 0,

@@ -77,6 +77,7 @@ const PREVIEW: zonesApi.ImportPreview = {
 
 const RESULT = {
   zones_added: 1,
+  heat_pumps_found: 0,
   buildings_added: 1,
   rooms_added: 2,
   rooms_updated: 0,
@@ -179,6 +180,66 @@ describe("Set Up from Home Assistant", () => {
     );
     expect(await screen.findByText("Imported from Home Assistant")).toBeInTheDocument();
     expect(screen.getByText("Added 1 zones, 2 rooms and 4 sensors and vents.")).toBeInTheDocument();
+    // Nobody was asked what kind of system each zone is, so the page says what it did.
+    expect(
+      screen.getByText(
+        "The new zones were set as conventional with electric strips. Check each one's system type under Edit Zone."
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("says when new zones were set up as heat pumps, and nothing when no zone was added", async () => {
+    vi.mocked(zonesApi.runImport).mockResolvedValueOnce({
+      ...RESULT,
+      zones_added: 2,
+      heat_pumps_found: 1,
+    });
+    const first = renderPage();
+    await screen.findByLabelText("Zone name for Landing Thermostat");
+    fireEvent.click(screen.getByRole("button", { name: /^Import/ }));
+    expect(
+      await screen.findByText(
+        /1 of the new zones looked like heat pumps and were set up as heat pumps/
+      )
+    ).toBeInTheDocument();
+    first.unmount();
+
+    vi.mocked(zonesApi.runImport).mockResolvedValueOnce({ ...RESULT, zones_added: 0 });
+    renderPage();
+    await screen.findByLabelText("Zone name for Landing Thermostat");
+    fireEvent.click(screen.getByRole("button", { name: /^Import/ }));
+    await screen.findByText("Imported from Home Assistant");
+    expect(screen.queryByText(/system type under Edit Zone/)).toBeNull();
+  });
+
+  it("tells apart two thermostats that share a name", async () => {
+    const preview = structuredClone(PREVIEW);
+    preview.zones.push({
+      ...preview.zones[0],
+      entity_id: "climate.landing_cloud",
+      friendly_name: "Landing Thermostat Cloud",
+    });
+    vi.mocked(zonesApi.getImportPreview).mockResolvedValue(preview);
+    renderPage();
+    await screen.findByLabelText("Zone name for Landing Thermostat");
+    // Both start from the same suggested name, so each is shown with its entity.
+    const picker = screen.getByLabelText("Zone for Bunk Bath");
+    expect(
+      within(picker).getByRole("option", { name: "Upstairs (climate.landing)" })
+    ).toBeInTheDocument();
+    expect(
+      within(picker).getByRole("option", { name: "Upstairs (climate.landing_cloud)" })
+    ).toBeInTheDocument();
+    expect(within(picker).getByRole("option", { name: "climate.old" })).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "More than one thermostat is named Upstairs. If they are the same thermostat seen through two integrations, include only one of them."
+    );
+    // Renaming one clears it up.
+    fireEvent.change(screen.getByLabelText("Zone name for Landing Thermostat Cloud"), {
+      target: { value: "Upstairs Cloud" },
+    });
+    expect(within(picker).getByRole("option", { name: "Upstairs" })).toBeInTheDocument();
+    expect(screen.queryByRole("status")).toBeNull();
   });
 
   it("combines and splits areas, includes skipped ones, and leaves zoneless rooms out", async () => {

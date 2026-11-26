@@ -407,10 +407,14 @@ describe("Zones page", () => {
     expect(within(form).getByText(/Choose the kind of system/)).toBeInTheDocument();
     expect(within(form).queryByRole("status")).toBeNull();
     fireEvent.click(within(form).getByRole("radio", { name: "Conventional" }));
-    expect(within(form).queryByText(/Choose the kind of system/)).toBeNull();
+    // Its heat is asked for too: electric strips is not a safe guess.
+    expect(submit).toBeDisabled();
+    expect(within(form).getByText(/Choose the kind of system and its heat/)).toBeInTheDocument();
+    expect(within(form).getByLabelText("Heat")).toHaveValue("");
     // A conventional system's heat is named for what it is.
-    fireEvent.change(within(form).getByLabelText("Heat"), { target: { value: "gas" } });
     expect(within(form).getByRole("option", { name: "Gas Furnace" })).toBeInTheDocument();
+    fireEvent.change(within(form).getByLabelText("Heat"), { target: { value: "gas" } });
+    expect(within(form).queryByText(/Choose the kind of system/)).toBeNull();
     fireEvent.click(submit);
 
     await waitFor(() =>
@@ -470,6 +474,9 @@ describe("Zones page", () => {
     fireEvent.change(within(form).getByLabelText("Total Vent Count"), { target: { value: "9" } });
     fireEvent.change(within(form).getByLabelText("Compressor Stages"), { target: { value: "2" } });
     expect(within(form).getByRole("option", { name: "Gas (Dual Fuel)" })).toBeInTheDocument();
+    fireEvent.change(within(form).getByLabelText("Auxiliary Heat"), {
+      target: { value: "electric" },
+    });
     fireEvent.click(within(form).getByRole("button", { name: "Add Zone" }));
     await waitFor(() =>
       expect(zonesApi.updateZone).toHaveBeenCalledWith("climate.wing_cloud", {
@@ -510,9 +517,15 @@ describe("Zones page", () => {
     ]);
     renderPage();
     const wing = await screen.findByRole("region", { name: "South Wing" });
-    expect(within(wing).getByText("Looks Like a Heat Pump")).toBeInTheDocument();
     const loose = screen.getByRole("region", { name: "climate.loose" });
-    expect(within(loose).queryByText("Looks Like a Heat Pump")).toBeNull();
+    expect(within(loose).queryByText(/Looks Like a Heat Pump/)).toBeNull();
+    // The mark is the way in to fixing it.
+    fireEvent.click(
+      within(wing).getByRole("button", {
+        name: "South Wing looks like a heat pump. Check its system type",
+      })
+    );
+    expect(screen.getByRole("region", { name: "Edit South Wing" })).toBeInTheDocument();
   });
 
   it("undoes a new zone whose first room is rejected, and reports failures", async () => {
@@ -529,6 +542,7 @@ describe("Zones page", () => {
     fireEvent.change(within(form).getByLabelText("First Room"), { target: { value: "Bay" } });
     fireEvent.change(within(form).getByLabelText("Total Vent Count"), { target: { value: "6" } });
     fireEvent.click(within(form).getByRole("radio", { name: "Conventional" }));
+    fireEvent.change(within(form).getByLabelText("Heat"), { target: { value: "electric" } });
     fireEvent.click(within(form).getByRole("button", { name: "Add Zone" }));
     expect(await within(form).findByText("A room with that name exists")).toBeInTheDocument();
     // The zone is removed again; a failure of that cleanup is not shown.
@@ -673,6 +687,7 @@ describe("Zones page", () => {
     fireEvent.change(within(form).getByLabelText("First Room"), { target: { value: "Bay" } });
     fireEvent.change(within(form).getByLabelText("Total Vent Count"), { target: { value: "4" } });
     fireEvent.click(within(form).getByRole("radio", { name: "Heat Pump" }));
+    fireEvent.change(within(form).getByLabelText("Auxiliary Heat"), { target: { value: "none" } });
     fireEvent.click(within(form).getByRole("button", { name: "Add Zone" }));
 
     expect(

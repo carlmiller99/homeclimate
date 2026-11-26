@@ -351,21 +351,42 @@ describe("Rooms configure view", () => {
     await screen.findByTestId("room-configure");
   };
 
-  it("warns about a started room with no temperature sensor or no vents", async () => {
+  it("says in plain lines what a started room cannot do yet", async () => {
     // A presence sensor only: the room has been started but cannot be controlled.
-    const noTemp = makeRoom();
-    noTemp.sensors = [];
-    noTemp.vents = [];
-    noTemp.presence_sensors = [
+    const started = makeRoom();
+    started.sensors = [];
+    started.vents = [];
+    started.presence_sensors = [
       { entity_id: "binary_sensor.den_motion" },
     ] as api.Room["presence_sensors"];
-    useRooms([noTemp]);
+    useRooms([started]);
     await openConfigure();
     expect(screen.queryByText(/Add this room's devices below/)).toBeNull();
     expect(
-      screen.getByText(/No temperature sensors — this room will be skipped/i)
+      screen.getByText(
+        "No temperature sensors selected. This room cannot be controlled independently, or contribute temperature information, without them."
+      )
     ).toBeInTheDocument();
-    expect(screen.getByText(/Sensor-only room — no vents configured/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "No smart vents selected. This room cannot be controlled independently without them."
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/No occupancy sensors selected/)).toBeNull();
+  });
+
+  it("notes only missing occupancy sensors on a room that has the rest", async () => {
+    const room = makeRoom();
+    room.presence_sensors = [];
+    useRooms([room]);
+    await openConfigure();
+    expect(
+      screen.getByText(
+        "No occupancy sensors selected. This room cannot use occupancy smart features without them."
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/No temperature sensors selected/)).toBeNull();
+    expect(screen.queryByText(/No smart vents selected/)).toBeNull();
   });
 
   it("renders a setup hint, empty hints and plural counts for a room with no entities", async () => {
@@ -386,8 +407,8 @@ describe("Rooms configure view", () => {
 
     // A room with nothing in it yet is being set up: it gets a hint, not warnings.
     expect(screen.getByText(/Add this room's devices below/)).toBeInTheDocument();
-    expect(screen.queryByText(/No temperature sensors — this room will be skipped/i)).toBeNull();
-    expect(screen.queryByText(/Sensor-only room — no vents configured/i)).toBeNull();
+    expect(screen.queryByText(/No temperature sensors selected/)).toBeNull();
+    expect(screen.queryByText(/No smart vents selected/)).toBeNull();
 
     // Empty hints from EntitySection / VentTable.
     expect(screen.getByText("No sensors added yet — search above to add one.")).toBeInTheDocument();

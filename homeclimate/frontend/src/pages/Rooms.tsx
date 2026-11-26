@@ -47,6 +47,13 @@ import { sanitizeRoomName } from "../roomNames";
 // it renders as its own page like "Configure sensors & vents" rather than a
 // scrolling dialog that the E2E visual suite can't capture cleanly.
 // ---------------------------------------------------------------------------
+const NO_TEMP_SENSORS =
+  "No temperature sensors selected. This room cannot be controlled independently, or contribute temperature information, without them.";
+const NO_VENTS =
+  "No smart vents selected. This room cannot be controlled independently without them.";
+const NO_OCCUPANCY =
+  "No occupancy sensors selected. This room cannot use occupancy smart features without them.";
+
 function RoomSettings({
   room,
   zoneId,
@@ -1117,6 +1124,11 @@ function RoomConfigure({
   const vents = room.vents?.map((v) => v.entity_id) ?? [];
   const presence = room.presence_sensors?.map((p) => p.entity_id) ?? [];
   const blank = sensors.length === 0 && vents.length === 0 && presence.length === 0;
+  const missing = [
+    sensors.length === 0 && NO_TEMP_SENSORS,
+    vents.length === 0 && NO_VENTS,
+    presence.length === 0 && NO_OCCUPANCY,
+  ].filter((line): line is string => line !== false);
 
   const refresh = async () => {
     const updated = await getRoom(room.id);
@@ -1218,44 +1230,23 @@ function RoomConfigure({
       </div>
 
       {/* A room with nothing in it yet is being set up, not misconfigured: say
-          what to add, and keep the warnings for a room that has been started. */}
-      {blank && (
-        <div className="card" style={{ marginBottom: "1rem" }}>
-          <p className="text-sm text-muted">
-            Add this room's devices below. Start with a temperature sensor, which the room needs
-            before it can be heated or cooled. Vents and presence sensors are optional.
+          what to add. Once it has been started, each kind of device it still
+          lacks gets one plain, quiet line saying what the room cannot do. */}
+      {blank ? (
+        <div className="card room-notes">
+          <p>
+            Add this room's devices below. Start with a temperature sensor. Smart vents, door and
+            window sensors and occupancy sensors are optional.
           </p>
         </div>
-      )}
-      {!blank && sensors.length === 0 && (
-        <div
-          className="card"
-          style={{
-            marginBottom: "1rem",
-            borderColor: "var(--orange)",
-            background: "var(--orange-light)",
-          }}
-        >
-          <p className="text-sm" style={{ color: "var(--orange-text)" }}>
-            ⚠ No temperature sensors — this room will be skipped during HVAC cycles.
-          </p>
-        </div>
-      )}
-      {!blank && vents.length === 0 && (
-        <div
-          className="card"
-          style={{
-            marginBottom: "1rem",
-            borderColor: "var(--gray-200)",
-            background: "var(--gray-50)",
-          }}
-        >
-          <p className="text-sm text-muted">
-            ℹ Sensor-only room — no vents configured. This room still participates in schedules and
-            presence-based HVAC control; its target temperature contributes to the thermostat
-            setpoint. Only vent actuation is skipped.
-          </p>
-        </div>
+      ) : (
+        missing.length > 0 && (
+          <div className="card room-notes">
+            {missing.map((line) => (
+              <p key={line}>{line}</p>
+            ))}
+          </div>
+        )
       )}
 
       {busy && (

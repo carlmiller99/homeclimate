@@ -75,7 +75,12 @@ const base: ZoneProfile = {
 
 describe("equipmentSummary", () => {
   it("names type, stages and backup heat", () => {
-    expect(equipmentSummary(base)).toBe("Conventional, Gas (Dual Fuel)");
+    // A conventional system's heat is named for what it is, not as a backup.
+    expect(equipmentSummary(base)).toBe("Conventional, Gas Furnace");
+    expect(equipmentSummary({ ...base, backup_heat: "none" })).toBe("Conventional, No Heat");
+    expect(equipmentSummary({ ...base, system_type: "heat_pump" })).toBe(
+      "Heat Pump, Gas (Dual Fuel)"
+    );
     expect(
       equipmentSummary({
         ...base,

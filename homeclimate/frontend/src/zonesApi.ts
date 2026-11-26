@@ -82,11 +82,27 @@ export const BACKUP_HEAT_LABELS: Record<BackupHeat, string> = {
   none: "None",
 };
 
+/** The same three choices, named for a system with no heat pump: there the
+ *  setting is the heat itself, not a backup. */
+export const CONVENTIONAL_HEAT_LABELS: Record<BackupHeat, string> = {
+  electric: "Electric Strips",
+  gas: "Gas Furnace",
+  none: "None",
+};
+
+/** What the heat choice is called for this kind of system. */
+export const heatLabels = (system: SystemType | null) =>
+  system === "heat_pump" ? BACKUP_HEAT_LABELS : CONVENTIONAL_HEAT_LABELS;
+
 /** "Heat Pump, 2 Stage, Electric Strips" — the one-line equipment summary. */
 export function equipmentSummary(z: ZoneProfile): string {
   const parts = [SYSTEM_TYPE_LABELS[z.system_type]];
   if (z.compressor_stages > 1) parts.push(`${z.compressor_stages} Stage`);
-  parts.push(z.backup_heat === "none" ? "No Auxiliary Heat" : BACKUP_HEAT_LABELS[z.backup_heat]);
+  if (z.system_type === "heat_pump") {
+    parts.push(z.backup_heat === "none" ? "No Auxiliary Heat" : BACKUP_HEAT_LABELS[z.backup_heat]);
+  } else {
+    parts.push(z.backup_heat === "none" ? "No Heat" : CONVENTIONAL_HEAT_LABELS[z.backup_heat]);
+  }
   return parts.join(", ");
 }
 
@@ -167,6 +183,8 @@ export interface ImportRequest {
 
 export interface ImportResult {
   zones_added: number;
+  /** New zones set up as heat pumps because Home Assistant shows the signs. */
+  heat_pumps_found: number;
   buildings_added: number;
   rooms_added: number;
   rooms_updated: number;

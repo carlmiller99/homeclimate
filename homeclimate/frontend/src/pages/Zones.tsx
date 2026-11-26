@@ -12,6 +12,7 @@ import { useUnit } from "../contexts";
 import { ThermostatCard } from "./Thermostats";
 import {
   BACKUP_HEAT_LABELS,
+  heatLabels,
   createBuilding,
   deleteBuilding,
   equipmentSummary,
@@ -231,7 +232,7 @@ function ZoneEditor({
             </select>
           </label>
           <label className="field-stack">
-            Auxiliary Heat
+            {hp ? "Auxiliary Heat" : "Heat"}
             <select
               className="form-control"
               value={form.backup_heat}
@@ -241,7 +242,7 @@ function ZoneEditor({
             >
               {(Object.keys(BACKUP_HEAT_LABELS) as BackupHeat[]).map((k) => (
                 <option key={k} value={k}>
-                  {BACKUP_HEAT_LABELS[k]}
+                  {heatLabels(form.system_type)[k]}
                 </option>
               ))}
             </select>
@@ -463,13 +464,6 @@ const VENT_COUNT_HELP =
   "Count every register this thermostat serves, smart vents and ordinary ones. " +
   "HomeClimate uses it to keep enough vents open to protect the equipment.";
 
-/** The same three choices, named for a system with no heat pump. */
-const CONVENTIONAL_HEAT_LABELS: Record<BackupHeat, string> = {
-  electric: "Electric Strips",
-  gas: "Gas Furnace",
-  none: "None",
-};
-
 const LOOKS_LIKE_HEAT_PUMP: Record<"aux" | "plain", string> = {
   aux: "This looks like a heat pump with auxiliary heat. Is that right?",
   plain: "This looks like a heat pump. Is that right?",
@@ -500,7 +494,8 @@ function AddZone({
   const [vents, setVents] = useState("");
   const [systemType, setSystemType] = useState<SystemType | null>(null);
   const [stages, setStages] = useState(1);
-  const [backupHeat, setBackupHeat] = useState<BackupHeat>("electric");
+  // Asked for, like the system type: "electric strips" is not a safe guess.
+  const [backupHeat, setBackupHeat] = useState<BackupHeat | "">("");
   const [hint, setHint] = useState<EquipmentHint | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -545,7 +540,7 @@ function AddZone({
         await updateZone(thermostat, {
           system_type: systemType!,
           compressor_stages: stages,
-          backup_heat: backupHeat,
+          backup_heat: backupHeat as BackupHeat,
           ...(building ? { building_id: building.id } : {}),
         });
       } catch {
@@ -664,11 +659,12 @@ function AddZone({
           <select
             className="form-control"
             value={backupHeat}
-            onChange={(e) => setBackupHeat(e.target.value as BackupHeat)}
+            onChange={(e) => setBackupHeat(e.target.value as BackupHeat | "")}
           >
+            <option value="">Choose…</option>
             {(Object.keys(BACKUP_HEAT_LABELS) as BackupHeat[]).map((k) => (
               <option key={k} value={k}>
-                {systemType === "heat_pump" ? BACKUP_HEAT_LABELS[k] : CONVENTIONAL_HEAT_LABELS[k]}
+                {heatLabels(systemType)[k]}
               </option>
             ))}
           </select>
@@ -682,10 +678,10 @@ function AddZone({
           </button>
         </p>
       )}
-      {!systemType && (
+      {(!systemType || !backupHeat) && (
         <p className="field-help">
-          Choose the kind of system. HomeClimate protects a heat pump differently, so it does not
-          guess.
+          Choose the kind of system and its heat. HomeClimate protects a heat pump differently and
+          treats electric strips as costly to run, so it does not guess.
         </p>
       )}
 
@@ -709,6 +705,7 @@ function AddZone({
             !roomName.trim() ||
             ventCount < 1 ||
             !systemType ||
+            !backupHeat ||
             saving
           }
           onClick={add}
@@ -943,13 +940,14 @@ export default function Zones({
                       </span>
                     )}
                     {z.looks_like_heat_pump && (
-                      <span
-                        className="pill pill-heat"
-                        role="status"
-                        title="Home Assistant shows the signs of a heat pump on this thermostat. Edit Zone to change the system type; a heat pump set as conventional gets none of its protection."
+                      <button
+                        type="button"
+                        className="pill pill-heat pill-button"
+                        aria-label={`${z.name || z.thermostat_entity_id} looks like a heat pump. Check its system type`}
+                        onClick={() => setEditing(z.thermostat_entity_id)}
                       >
-                        Looks Like a Heat Pump
-                      </span>
+                        Looks Like a Heat Pump: Check System Type
+                      </button>
                     )}
                     {onAddRoom && (
                       <button

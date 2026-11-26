@@ -793,6 +793,9 @@ class ImportRequestSchema(Schema):
 
 class ImportResultSchema(Schema):
     zones_added = fields.Int()
+    heat_pumps_found = fields.Int(
+        metadata={"description": "New zones set up as heat pumps from Home Assistant's entities"}
+    )
     buildings_added = fields.Int()
     rooms_added = fields.Int()
     rooms_updated = fields.Int()

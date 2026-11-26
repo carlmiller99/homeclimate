@@ -3,8 +3,10 @@
 ## 0.5.16
 
 - My Home: only Add Building is at the top of the page. Add Zone is inside each building and Add Room inside each zone, so a new zone or room goes where its button is.
-- Add Zone now asks what kind of system the zone is (conventional or heat pump) and no longer assumes conventional. When Home Assistant shows the signs of a heat pump the form suggests it, and a zone left as conventional whose thermostat looks like a heat pump is marked in My Home.
-- A room that has just been added shows what to add first, in place of warnings about missing sensors and vents.
+- Add Zone now asks what kind of system the zone is (conventional or heat pump) and what its heat is, and no longer assumes conventional with electric strips. When Home Assistant shows the signs of a heat pump the form suggests it, and a zone left as conventional whose thermostat looks like a heat pump is marked in My Home; the mark opens Edit Zone.
+- Set Up from Home Assistant sets a new zone up as a heat pump when Home Assistant shows the signs of one, and says what it did when it finishes. When two thermostats share a name it tells them apart by their entity ids.
+- A conventional zone's heat is now called Electric Strips, Gas Furnace or None in its summary and under Edit Zone.
+- Room devices: a room that has just been added shows what to add first. After that, each kind of device it still lacks gets one plain line saying what the room cannot do without it, in place of the orange and blue warnings.
 - The dot beside anything that is off (System, the MCP server, the MQTT bridge) is now gray instead of red.
 
 ## 0.5.15

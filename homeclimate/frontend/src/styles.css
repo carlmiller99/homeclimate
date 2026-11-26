@@ -2305,6 +2305,15 @@ tr:hover td {
   background: var(--state-heating-bg);
   color: var(--state-heating-text);
 }
+.pill-button {
+  cursor: pointer;
+  font-family: inherit;
+  border: 0;
+}
+.pill-button:focus-visible {
+  outline: 3px solid var(--state-cooling);
+  outline-offset: 2px;
+}
 
 /* ── Shades ── */
 button.sc-nav-item {
@@ -2897,4 +2906,19 @@ button.sc-nav-item {
 .today-when {
   color: var(--gray-600);
   font-variant-numeric: tabular-nums;
+}
+
+/* Room device notes: what a room cannot do yet. Information, not an alarm. */
+.room-notes {
+  margin-bottom: 1rem;
+  background: var(--gray-50);
+  border-color: var(--gray-200);
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.room-notes p {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--gray-600);
 }
