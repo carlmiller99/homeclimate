@@ -41,6 +41,23 @@ interface RoomChoice {
   excluded: string[];
 }
 
+/** What kind of system the new zones were given, since nobody was asked. */
+function systemNote(result: ImportResult): string {
+  const pumps = result.heat_pumps_found;
+  const rest = result.zones_added - pumps;
+  const check = "Check each new zone's system type under Edit Zone.";
+  if (pumps === 0) {
+    return `The new zones were set as conventional with electric strips. ${check}`;
+  }
+  const found =
+    pumps === 1
+      ? "1 new zone looked like a heat pump and was set up as one."
+      : `${pumps} new zones looked like heat pumps and were set up as heat pumps.`;
+  return rest > 0
+    ? `${found} The rest were set as conventional with electric strips. ${check}`
+    : `${found} ${check}`;
+}
+
 export default function ImportFromHA() {
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [buildings, setBuildings] = useState<Building[]>([]);
@@ -215,13 +232,7 @@ export default function ImportFromHA() {
         <p className="page-subtitle">
           {`Added ${result.zones_added} zones, ${result.rooms_added} rooms and ${result.entities_added} sensors and vents.`}
         </p>
-        {result.zones_added > 0 && (
-          <p className="field-help">
-            {result.heat_pumps_found > 0
-              ? `${result.heat_pumps_found} of the new zones looked like heat pumps and were set up as heat pumps. Check each new zone's system type under Edit Zone; the rest were set as conventional with electric strips.`
-              : "The new zones were set as conventional with electric strips. Check each one's system type under Edit Zone."}
-          </p>
-        )}
+        {result.zones_added > 0 && <p className="field-help">{systemNote(result)}</p>}
         <div className="zone-editor-actions">
           <Link className="btn btn-primary" to="/my-home">
             Go to My Home

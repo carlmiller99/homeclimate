@@ -914,11 +914,10 @@ async def mcp_tokens_update(request: web.Request) -> web.Response:
 # ---------------------------------------------------------------------------
 
 
-# My Home structure (HomeClimate): every room belongs to a zone, every zone
-# keeps at least one room, and a zone's rooms are only deleted with it on
-# request. The rules live in backend/structure.py, shared with the MCP tools.
+# My Home structure (HomeClimate): every room belongs to a zone, a zone may be
+# empty (it is not controlled until it has a room), and a zone's rooms are
+# only deleted with it on request. The rules live in backend/structure.py, shared with the MCP tools.
 _zone_registered = structure.zone_registered
-_is_last_room = structure.is_last_room
 
 
 async def _ensure_zone(request: web.Request, conn: aiosqlite.Connection, entity_id: str) -> None:
@@ -1126,12 +1125,10 @@ async def update_room(request: web.Request) -> web.Response:
     effective_thermostat = body.get("thermostat_entity_id", room.thermostat_entity_id)
     if effective_thermostat != room.thermostat_entity_id:
         # My Home structure: the room must land in a zone (registered below,
-        # just before the write), and the zone it leaves keeps its last room.
+        # just before the write). The zone it leaves may be left empty.
         problem = structure.zone_id_problem(effective_thermostat)
         if problem is not None:
             return error(problem)
-        if await _is_last_room(conn, room):
-            return error(structure.ZONE_NEEDS_A_ROOM, status=409)
     tc = await db.get_thermostat_config(conn, effective_thermostat)
     ambient_enabled = bool(
         body.get("ambient_suppression_enabled", room.ambient_suppression_enabled)
@@ -1204,8 +1201,6 @@ async def delete_room(request: web.Request) -> web.Response:
     room = await db.get_room(conn, request.match_info["room_id"])
     if not room:
         return error("Room not found", 404)
-    if await _is_last_room(conn, room):
-        return error(structure.ZONE_NEEDS_A_ROOM, status=409)
     await db.delete_room(conn, room.id)
     await refresh(request)
     await emit(request, "info", "api", f"Room deleted: {room.name}", {"room_id": room.id})

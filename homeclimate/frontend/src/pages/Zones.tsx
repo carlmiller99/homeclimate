@@ -1,13 +1,8 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router";
+import ConfirmDialog from "../components/ConfirmDialog";
 import EntityPicker from "../components/EntityPicker";
-import {
-  createRoom,
-  createThermostat,
-  deleteThermostat,
-  getThermostats,
-  type ThermostatConfig,
-} from "../api";
+import { createThermostat, deleteThermostat, getThermostats, type ThermostatConfig } from "../api";
 import { useUnit } from "../contexts";
 import { ThermostatCard } from "./Thermostats";
 import {
@@ -398,7 +393,9 @@ function BuildingHeader({
       setErr(e instanceof Error ? e.message : "Could not rename this building");
     }
   };
+  const [confirming, setConfirming] = useState(false);
   const remove = async () => {
+    setConfirming(false);
     setErr(null);
     try {
       await deleteBuilding(building.id);
@@ -447,10 +444,24 @@ function BuildingHeader({
           <button type="button" className="link-button" onClick={() => setEditing(true)}>
             Rename
           </button>
-          <button type="button" className="link-button" onClick={remove}>
+          <button
+            type="button"
+            className="link-button"
+            aria-label={`Delete ${building.name}`}
+            onClick={() => setConfirming(true)}
+          >
             Delete
           </button>
         </>
+      )}
+      {confirming && (
+        <ConfirmDialog
+          title="Delete building?"
+          message={`Delete "${building.name}"? Its zones and rooms are kept and moved to Unassigned, where each zone chooses heating or cooling for itself. The building's mode and zone balance settings are removed.`}
+          confirmLabel="Delete Building"
+          onCancel={() => setConfirming(false)}
+          onConfirm={() => void remove()}
+        />
       )}
       {err && <p className="form-error group-header-error">{err}</p>}
     </div>
@@ -490,7 +501,6 @@ function AddZone({
 }) {
   const [thermostat, setThermostat] = useState("");
   const [name, setName] = useState("");
-  const [roomName, setRoomName] = useState("");
   const [vents, setVents] = useState("");
   const [systemType, setSystemType] = useState<SystemType | null>(null);
   const [stages, setStages] = useState(1);
@@ -530,13 +540,6 @@ function AddZone({
         total_vents_count: ventCount,
       });
       try {
-        await createRoom({ name: roomName.trim(), thermostat_entity_id: thermostat });
-      } catch (e) {
-        // A zone must have a room: undo the zone if its first room failed.
-        await deleteThermostat(thermostat).catch(() => {});
-        throw e;
-      }
-      try {
         await updateZone(thermostat, {
           system_type: systemType!,
           compressor_stages: stages,
@@ -544,7 +547,7 @@ function AddZone({
           ...(building ? { building_id: building.id } : {}),
         });
       } catch {
-        // The zone and its room exist; only its building and equipment are missing.
+        // The zone exists; only its building and equipment are missing.
         onAdded(ZONE_NOT_FINISHED);
         return;
       }
@@ -560,8 +563,8 @@ function AddZone({
     <div className="card add-building" role="group" aria-label="Add Zone">
       <p className="field-help">
         {building
-          ? `A zone in ${building.name}: one thermostat and the rooms it serves. Every zone needs at least one room.`
-          : "A zone is one thermostat and the rooms it serves. Every zone needs at least one room."}
+          ? `A zone in ${building.name}: one thermostat and the rooms it serves. Add its rooms once the zone exists.`
+          : "A zone is one thermostat and the rooms it serves. Add its rooms once the zone exists."}
       </p>
       <div className="add-sensor-fields">
         <div className="field-stack">
@@ -588,15 +591,6 @@ function AddZone({
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Upstairs"
-          />
-        </label>
-        <label className="field-stack">
-          First Room
-          <input
-            className="form-control"
-            value={roomName}
-            onChange={(e) => setRoomName(e.target.value)}
-            placeholder="Living Room"
           />
         </label>
         <label className="field-stack">
@@ -702,7 +696,6 @@ function AddZone({
             isTaken ||
             !thermostat ||
             !name.trim() ||
-            !roomName.trim() ||
             ventCount < 1 ||
             !systemType ||
             !backupHeat ||
@@ -746,6 +739,18 @@ export default function Zones({
   const [addingZoneIn, setAddingZoneIn] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [err, setErr] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<ZoneProfile | null>(null);
+
+  const deleteZone = async (z: ZoneProfile) => {
+    setDeleting(null);
+    setErr(null);
+    try {
+      await deleteThermostat(z.thermostat_entity_id, true);
+      await changed();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Could not delete this zone");
+    }
+  };
 
   const load = useCallback(async () => {
     try {
@@ -823,6 +828,15 @@ export default function Zones({
       )}
 
       {err && <p className="form-error">{err}</p>}
+      {deleting && (
+        <ConfirmDialog
+          title="Delete zone?"
+          message={`Delete the zone "${deleting.name || deleting.thermostat_entity_id}" and all of its rooms? HomeClimate stops controlling its thermostat. This cannot be undone.`}
+          confirmLabel="Delete Zone"
+          onCancel={() => setDeleting(null)}
+          onConfirm={() => void deleteZone(deleting)}
+        />
+      )}
 
       {zones !== null && zones.length === 0 && buildings.length === 0 && (
         <div className="empty-panel">
@@ -965,6 +979,14 @@ export default function Zones({
                       onClick={() => setEditing(z.thermostat_entity_id)}
                     >
                       Edit Zone
+                    </button>
+                    <button
+                      type="button"
+                      className="link-button"
+                      aria-label={`Delete Zone ${z.name || z.thermostat_entity_id}`}
+                      onClick={() => setDeleting(z)}
+                    >
+                      Delete Zone
                     </button>
                   </div>
                 )}

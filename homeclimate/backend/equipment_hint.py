@@ -1,8 +1,10 @@
 """What kind of system a thermostat looks like, from Home Assistant's entities.
 
-Nothing here decides a zone's equipment: the person adding the zone does. This
-only offers a suggestion ("this looks like a heat pump, is that right?") so a
-heat pump is not left on the conventional settings because nobody was asked.
+For a zone added by hand this only offers a suggestion ("this looks like a heat
+pump, is that right?"): the person adding the zone decides. Set Up from Home
+Assistant asks nobody zone by zone, so there a sign sets the new zone up as a
+heat pump, and the result page says so. Either way a heat pump is not left on
+the conventional settings because nobody was asked.
 
 Two signs are read, both from the ecobee integration:
 

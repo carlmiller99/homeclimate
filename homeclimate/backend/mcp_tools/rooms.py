@@ -128,9 +128,6 @@ def register(server: MCPServer, conn: aiosqlite.Connection) -> None:
             problem = structure.zone_id_problem(thermostat_entity_id)
             if problem is not None:
                 return [TextContent(type="text", text=problem)]
-            # A zone keeps at least one room.
-            if await structure.is_last_room(conn, room):
-                return [TextContent(type="text", text=structure.ZONE_NEEDS_A_ROOM)]
             room.thermostat_entity_id = thermostat_entity_id
         if system_wide_temp is not None:
             room.system_wide_temp = to_f(system_wide_temp, await active_unit(conn))
@@ -148,12 +145,8 @@ def register(server: MCPServer, conn: aiosqlite.Connection) -> None:
     async def delete_room(room_id: str) -> list[TextContent]:
         """Delete a room and all its associated data.
 
-        A zone's last room cannot be deleted: add another room first, or delete
-        the zone.
+        A zone may be left with no rooms; it is not controlled until it has one.
         """
-        room = await db.get_room(conn, room_id)
-        if room is not None and await structure.is_last_room(conn, room):
-            return [TextContent(type="text", text=structure.ZONE_NEEDS_A_ROOM)]
         await db.delete_room(conn, room_id)
         return [TextContent(type="text", text=f"Deleted room {room_id}")]
 

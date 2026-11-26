@@ -182,25 +182,77 @@ describe("Zones page", () => {
     expect(await screen.findByText("Could not rename this building")).toBeInTheDocument();
   });
 
-  it("deletes a building and reports a refusal", async () => {
+  it("deletes a building after a confirmation that says what happens to its zones", async () => {
     vi.mocked(zonesApi.deleteBuilding).mockResolvedValueOnce({ deleted: "b2" });
     renderPage();
     await screen.findByText("South Wing");
-    fireEvent.click(screen.getAllByRole("button", { name: "Delete" })[1]);
+    fireEvent.click(screen.getByRole("button", { name: "Delete The Den" }));
+    const dialog = screen.getByTestId("confirm-dialog");
+    expect(dialog).toHaveTextContent(
+      'Delete "The Den"? Its zones and rooms are kept and moved to Unassigned'
+    );
+    // Cancelling deletes nothing.
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByTestId("confirm-dialog")).toBeNull();
+    expect(zonesApi.deleteBuilding).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete The Den" }));
+    fireEvent.click(
+      within(screen.getByTestId("confirm-dialog")).getByRole("button", { name: "Delete Building" })
+    );
     await waitFor(() => expect(zonesApi.deleteBuilding).toHaveBeenCalledWith("b2"));
     await waitFor(() => expect(zonesApi.getZones).toHaveBeenCalledTimes(2));
 
-    vi.mocked(zonesApi.deleteBuilding).mockRejectedValueOnce(
-      new Error("Move this building's zones to another building first")
-    );
-    fireEvent.click(screen.getAllByRole("button", { name: "Delete" })[0]);
-    expect(
-      await screen.findByText("Move this building's zones to another building first")
-    ).toBeInTheDocument();
+    for (const [failure, shown] of [
+      [new Error("Building not found"), "Building not found"],
+      [null, "Could not delete this building"],
+    ] as const) {
+      vi.mocked(zonesApi.deleteBuilding).mockRejectedValueOnce(failure);
+      fireEvent.click(screen.getByRole("button", { name: "Delete Main House" }));
+      fireEvent.click(
+        within(screen.getByTestId("confirm-dialog")).getByRole("button", {
+          name: "Delete Building",
+        })
+      );
+      expect(await screen.findByText(shown)).toBeInTheDocument();
+    }
+  });
 
-    vi.mocked(zonesApi.deleteBuilding).mockRejectedValueOnce(null);
-    fireEvent.click(screen.getAllByRole("button", { name: "Delete" })[0]);
-    expect(await screen.findByText("Could not delete this building")).toBeInTheDocument();
+  it("deletes a zone from its own header after a confirmation", async () => {
+    vi.mocked(api.deleteThermostat).mockResolvedValueOnce({ deleted: "climate.wing" });
+    const onChanged = vi.fn();
+    render(
+      <MemoryRouter>
+        <Zones onChanged={onChanged} />
+      </MemoryRouter>
+    );
+    await screen.findByText("South Wing");
+    fireEvent.click(screen.getByRole("button", { name: "Delete Zone South Wing" }));
+    const dialog = screen.getByTestId("confirm-dialog");
+    expect(dialog).toHaveTextContent('Delete the zone "South Wing" and all of its rooms?');
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(api.deleteThermostat).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete Zone South Wing" }));
+    fireEvent.click(
+      within(screen.getByTestId("confirm-dialog")).getByRole("button", { name: "Delete Zone" })
+    );
+    // Its rooms go with it.
+    await waitFor(() => expect(api.deleteThermostat).toHaveBeenCalledWith("climate.wing", true));
+    await waitFor(() => expect(onChanged).toHaveBeenCalled());
+
+    // A zone with no name is named by its thermostat; a failure is shown.
+    for (const [failure, shown] of [
+      [new Error("Zone not found"), "Zone not found"],
+      ["nope", "Could not delete this zone"],
+    ] as const) {
+      vi.mocked(api.deleteThermostat).mockRejectedValueOnce(failure);
+      fireEvent.click(screen.getByRole("button", { name: "Delete Zone climate.loose" }));
+      const again = screen.getByTestId("confirm-dialog");
+      expect(again).toHaveTextContent('Delete the zone "climate.loose"');
+      fireEvent.click(within(again).getByRole("button", { name: "Delete Zone" }));
+      expect(await screen.findByText(shown)).toBeInTheDocument();
+    }
   });
 
   it("edits a zone's equipment and saves it", async () => {
@@ -390,7 +442,6 @@ describe("Zones page", () => {
     fireEvent.click(within(form).getByRole("button", { name: "pick Search thermostats…" }));
     fireEvent.change(within(form).getByLabelText("Zone Name"), { target: { value: " Shop " } });
     expect(submit).toBeDisabled();
-    fireEvent.change(within(form).getByLabelText("First Room"), { target: { value: "Bay" } });
     // The vent count is required, and must be a whole number of at least one.
     expect(submit).toBeDisabled();
     for (const bad of ["0", "2.5", "-3", "abc"]) {
@@ -424,12 +475,9 @@ describe("Zones page", () => {
         total_vents_count: 8,
       })
     );
-    await waitFor(() =>
-      expect(api.createRoom).toHaveBeenCalledWith({
-        name: "Bay",
-        thermostat_entity_id: "climate.wing_cloud",
-      })
-    );
+    // No room is made with it: rooms are added inside the zone afterwards.
+    expect(within(form).queryByLabelText("First Room")).toBeNull();
+    expect(api.createRoom).not.toHaveBeenCalled();
     await waitFor(() =>
       expect(zonesApi.updateZone).toHaveBeenCalledWith("climate.wing_cloud", {
         system_type: "conventional",
@@ -470,7 +518,6 @@ describe("Zones page", () => {
     expect(within(form).queryByRole("status")).toBeNull();
 
     fireEvent.change(within(form).getByLabelText("Zone Name"), { target: { value: "Wing" } });
-    fireEvent.change(within(form).getByLabelText("First Room"), { target: { value: "Suite" } });
     fireEvent.change(within(form).getByLabelText("Total Vent Count"), { target: { value: "9" } });
     fireEvent.change(within(form).getByLabelText("Compressor Stages"), { target: { value: "2" } });
     expect(within(form).getByRole("option", { name: "Gas (Dual Fuel)" })).toBeInTheDocument();
@@ -528,10 +575,7 @@ describe("Zones page", () => {
     expect(screen.getByRole("region", { name: "Edit South Wing" })).toBeInTheDocument();
   });
 
-  it("undoes a new zone whose first room is rejected, and reports failures", async () => {
-    vi.mocked(api.createThermostat).mockResolvedValue({} as api.ThermostatConfig);
-    vi.mocked(api.createRoom).mockRejectedValueOnce(new Error("A room with that name exists"));
-    vi.mocked(api.deleteThermostat).mockRejectedValueOnce(new Error("gone"));
+  it("reports a zone that could not be added, and adds one with no building", async () => {
     vi.mocked(zonesApi.updateZone).mockResolvedValue(LOOSE);
     renderPage();
     await screen.findByText("South Wing");
@@ -539,15 +583,13 @@ describe("Zones page", () => {
     expect(within(form).getByText(/^A zone is one thermostat/)).toBeInTheDocument();
     fireEvent.click(within(form).getByRole("button", { name: "pick Search thermostats…" }));
     fireEvent.change(within(form).getByLabelText("Zone Name"), { target: { value: "Shop" } });
-    fireEvent.change(within(form).getByLabelText("First Room"), { target: { value: "Bay" } });
     fireEvent.change(within(form).getByLabelText("Total Vent Count"), { target: { value: "6" } });
     fireEvent.click(within(form).getByRole("radio", { name: "Conventional" }));
     fireEvent.change(within(form).getByLabelText("Heat"), { target: { value: "electric" } });
+
+    vi.mocked(api.createThermostat).mockRejectedValueOnce(new Error("That thermostat is gone"));
     fireEvent.click(within(form).getByRole("button", { name: "Add Zone" }));
-    expect(await within(form).findByText("A room with that name exists")).toBeInTheDocument();
-    // The zone is removed again; a failure of that cleanup is not shown.
-    expect(api.deleteThermostat).toHaveBeenCalledWith("climate.wing_cloud");
-    // Nothing more is written for a zone that was undone.
+    expect(await within(form).findByText("That thermostat is gone")).toBeInTheDocument();
     expect(zonesApi.updateZone).not.toHaveBeenCalled();
 
     vi.mocked(api.createThermostat).mockRejectedValueOnce("nope");
@@ -555,6 +597,7 @@ describe("Zones page", () => {
     expect(await within(form).findByText("Could not add the zone")).toBeInTheDocument();
 
     // In the Unassigned group the zone is added with no building.
+    vi.mocked(api.createThermostat).mockResolvedValue({} as api.ThermostatConfig);
     fireEvent.click(within(form).getByRole("button", { name: "Add Zone" }));
     await waitFor(() => expect(screen.queryByRole("group", { name: "Add Zone" })).toBeNull());
     expect(zonesApi.updateZone).toHaveBeenCalledWith("climate.wing_cloud", {
@@ -562,6 +605,9 @@ describe("Zones page", () => {
       compressor_stages: 1,
       backup_heat: "electric",
     });
+    // Nothing is undone or created on the side.
+    expect(api.deleteThermostat).not.toHaveBeenCalled();
+    expect(api.createRoom).not.toHaveBeenCalled();
   });
 
   it("cancels adding a zone", async () => {
@@ -660,7 +706,6 @@ describe("Zones page", () => {
     const form = openAddZone("Main House");
     fireEvent.click(within(form).getByRole("button", { name: "pick Search thermostats…" }));
     fireEvent.change(within(form).getByLabelText("Zone Name"), { target: { value: "Again" } });
-    fireEvent.change(within(form).getByLabelText("First Room"), { target: { value: "Bay" } });
     fireEvent.change(within(form).getByLabelText("Total Vent Count"), { target: { value: "4" } });
     fireEvent.click(within(form).getByRole("radio", { name: "Conventional" }));
     expect(
@@ -684,7 +729,6 @@ describe("Zones page", () => {
     const form = openAddZone("The Den");
     fireEvent.click(within(form).getByRole("button", { name: "pick Search thermostats…" }));
     fireEvent.change(within(form).getByLabelText("Zone Name"), { target: { value: "Shop" } });
-    fireEvent.change(within(form).getByLabelText("First Room"), { target: { value: "Bay" } });
     fireEvent.change(within(form).getByLabelText("Total Vent Count"), { target: { value: "4" } });
     fireEvent.click(within(form).getByRole("radio", { name: "Heat Pump" }));
     fireEvent.change(within(form).getByLabelText("Auxiliary Heat"), { target: { value: "none" } });

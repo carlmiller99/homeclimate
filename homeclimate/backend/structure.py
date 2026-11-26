@@ -1,8 +1,10 @@
 """My Home structure rules, shared by the REST API and the stdio MCP tools.
 
-Every room belongs to a zone (a registered thermostat), and every zone keeps at
-least one room. Both transports write rooms, so the rules live here rather than
-in either of them.
+Every room belongs to a zone (a registered thermostat). A zone may be empty: it
+is simply not controlled until it has a room (the scheduler only runs an engine
+for a thermostat that has rooms, and ends a running cycle cleanly when the last
+one goes). Both transports write rooms, so the rules live here rather than in
+either of them.
 """
 
 from __future__ import annotations
@@ -12,13 +14,10 @@ from typing import Any
 import aiosqlite
 
 from . import db
-from .models import Room, ThermostatConfig
+from .models import ThermostatConfig
 
 ROOM_NEEDS_ZONE = "Choose a zone for the room."
 BAD_ZONE_ID = "A zone's thermostat must be a climate entity, such as climate.upstairs."
-ZONE_NEEDS_A_ROOM = (
-    "A zone needs at least one room. Add another room first, or delete the zone instead."
-)
 ZONE_HAS_ROOMS = (
     "This zone still has rooms. Delete it with its rooms (with_rooms=true), "
     "or move the rooms to another zone first."
@@ -54,10 +53,3 @@ async def ensure_zone(conn: aiosqlite.Connection, entity_id: str) -> bool:
         return False
     await db.upsert_thermostat_config(conn, ThermostatConfig(thermostat_entity_id=entity_id))
     return True
-
-
-async def is_last_room(conn: aiosqlite.Connection, room: Room) -> bool:
-    """True when ``room`` is the only room of a registered zone."""
-    if not await zone_registered(conn, room.thermostat_entity_id):
-        return False
-    return len(await db.get_rooms_for_thermostat(conn, room.thermostat_entity_id)) == 1

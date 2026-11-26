@@ -164,7 +164,7 @@ describe("Rooms grouped by building and zone", () => {
     const empty = screen.getByRole("region", { name: "climate.empty" });
     expect(
       within(empty).getByText(
-        "This zone has no rooms. Add one — every zone needs at least one room."
+        "This zone has no rooms. It cannot be controlled until at least one room is added."
       )
     ).toBeInTheDocument();
     // A room whose thermostat is not a zone is set apart, not hidden.
@@ -180,8 +180,11 @@ describe("Rooms grouped by building and zone", () => {
     // Only Add Building is at the top; zones are added inside a building and
     // rooms inside a zone.
     expect(screen.getByRole("button", { name: "Add Building" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Add Zone" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Add Room" })).toBeNull();
+    const top = document.querySelector(".page-actions") as HTMLElement;
+    expect(within(top).queryByRole("button", { name: /Add Zone/ })).toBeNull();
+    expect(within(top).queryByRole("button", { name: /Add Room/ })).toBeNull();
+    // An empty zone offers Add Room right where its rooms would be.
+    expect(within(empty).getByRole("button", { name: "Add Room" })).toBeInTheDocument();
     expect(within(panel).getByRole("button", { name: "Add Room to Upstairs" })).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /^Add Zone to / }).length).toBeGreaterThan(1);
     expect(screen.getByRole("link", { name: "Set Up from Home Assistant" })).toHaveAttribute(
