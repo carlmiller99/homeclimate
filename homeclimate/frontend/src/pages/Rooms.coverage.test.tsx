@@ -18,6 +18,7 @@ import { zoneFor, smartControl } from "../zoneFixtures";
 import { SystemContext, UnitContext, buildUnitContext } from "../contexts";
 import { ecoThermostatDefaults, ecoRoomDefaults } from "../testFixtures";
 
+vi.mock("../components/OutsideTempPicker", () => ({ default: () => <p>outside sensors</p> }));
 vi.mock("../api");
 vi.mock("../zonesApi", async (orig) => ({
   ...(await orig<typeof import("../zonesApi")>()),

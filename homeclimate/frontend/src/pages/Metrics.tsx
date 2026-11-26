@@ -297,7 +297,7 @@ function EmptyStateBanners({
         <div className="card" style={{ borderLeft: "3px solid #3b82f6" }}>
           <strong>Outside-temperature sensor not configured.</strong>{" "}
           <span className="text-muted">
-            Choose one in <strong>Settings</strong>, Sensors to see how the weather affects your
+            Choose one in <strong>My Home</strong>, Outside to see how the weather affects your
             heating and cooling.
           </span>
         </div>

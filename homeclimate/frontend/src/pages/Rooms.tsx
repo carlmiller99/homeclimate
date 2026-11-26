@@ -267,7 +267,7 @@ function RoomSettings({
     // forced on without a configured outside-temperature sensor.
     if (ecoEnabled === "on" && !hasOutsideSensor) {
       setError(
-        "Eco Mode needs an outside-temperature sensor. Configure one in Settings, Sensors " +
+        "Eco Mode needs an outside-temperature sensor. Choose one in My Home, Outside " +
           "(e.g. via a PirateWeather sensor) before forcing Eco on for this room."
       );
       return;
@@ -510,8 +510,8 @@ function RoomSettings({
             </label>
             {!hasOutsideSensor && (
               <div className="form-hint" style={{ color: "var(--orange)" }}>
-                Add an outside temperature sensor in <strong>Settings</strong>, Sensors to use this
-                — it cannot be turned on without one.
+                Add an outside temperature sensor in <strong>My Home</strong>, Outside to use this —
+                it cannot be turned on without one.
               </div>
             )}
             <div className="form-hint">
@@ -631,7 +631,7 @@ function RoomSettings({
             {!hasOutsideSensor && (
               <div className="form-hint" style={{ color: "var(--orange)" }}>
                 Eco Mode needs to know the outside temperature. Choose a sensor or a weather service
-                in <strong>Settings</strong>, Sensors.
+                in <strong>My Home</strong>, Outside.
               </div>
             )}
             <div className="form-hint">

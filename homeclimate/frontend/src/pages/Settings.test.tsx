@@ -16,7 +16,6 @@ vi.mock("../api");
 vi.mock("./Logs", () => ({ default: () => <p>logs page</p> }));
 vi.mock("./DevMode", () => ({ default: () => <p>dev mode page</p> }));
 vi.mock("./NotificationsSection", () => ({ default: () => <p>notifications section</p> }));
-vi.mock("../components/OutsideTempPicker", () => ({ default: () => <p>outside sensor</p> }));
 vi.mock("./Thermostats", () => ({ SensorStalenessCard: () => <p>staleness card</p> }));
 
 const mqttStatus = (over: Partial<api.MqttStatus> = {}): api.MqttStatus => ({
@@ -102,7 +101,8 @@ describe("Settings page", () => {
 
   it("shows the sensors used everywhere under Sensors", () => {
     renderSettings({ section: "sensors" });
-    expect(screen.getByText("outside sensor")).toBeInTheDocument();
+    // The outside sensors are hardware: they are in My Home, not here.
+    expect(screen.queryByText(/Outside temperature sensors/)).toBeNull();
     expect(screen.getByText("staleness card")).toBeInTheDocument();
     expect(screen.queryByText(/Backup & Restore/i)).toBeNull();
   });

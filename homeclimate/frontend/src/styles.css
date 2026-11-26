@@ -1805,7 +1805,7 @@ tr:hover td {
   outline: 2px solid var(--ink);
   outline-offset: 2px;
 }
-/* "Add Room", "Add Zone": a dashed square at the end of the list it adds to. */
+/* "Add Room", "Add Zone": a square tile at the end of the list it adds to. */
 .add-tile {
   display: flex;
   flex-direction: column;
@@ -1815,9 +1815,9 @@ tr:hover td {
   width: 9.5rem;
   height: 9.5rem;
   align-self: start;
-  border: 2px dashed var(--gray-400);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: none;
+  background: var(--surface);
   font: inherit;
   font-weight: 600;
   color: var(--gray-600);
@@ -1835,6 +1835,9 @@ tr:hover td {
   font-size: 2rem;
   line-height: 1;
   font-weight: 400;
+}
+.outside-group .card {
+  margin-bottom: 0;
 }
 .building-group > .add-tile {
   margin-top: 0.75rem;

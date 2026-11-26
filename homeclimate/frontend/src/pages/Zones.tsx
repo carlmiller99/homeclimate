@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import AirIntakeField from "../components/AirIntakeField";
 import ConfirmDialog from "../components/ConfirmDialog";
+import OutsideTempPicker from "../components/OutsideTempPicker";
 import EntityPicker from "../components/EntityPicker";
 import {
   createThermostat,
@@ -465,7 +466,8 @@ function EditZoneDialog({
 
 /** "climate.north_wing" as "North Wing", when Home Assistant gives no name. */
 function prettyEntity(id: string): string {
-  return (id.split(".").pop() ?? id)
+  return id
+    .slice(id.lastIndexOf(".") + 1)
     .split("_")
     .filter(Boolean)
     .map((w) => w[0].toUpperCase() + w.slice(1))
@@ -548,12 +550,13 @@ function BuildingHeader({
             title="Rename or delete this building"
             onClick={() => setEditing(true)}
           >
-            <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+            <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
               <path
-                d="M11.3 1.8a1.5 1.5 0 0 1 2.1 0l.8.8a1.5 1.5 0 0 1 0 2.1l-8 8L2.5 13.5l.8-3.7 8-8Z"
+                d="M8 3H4.5A1.5 1.5 0 0 0 3 4.5v9A1.5 1.5 0 0 0 4.5 15h9a1.5 1.5 0 0 0 1.5-1.5V10M13.2 2.6a1.4 1.4 0 0 1 2 2L9.5 10.3 7 11l.7-2.5 5.5-5.9Z"
                 fill="none"
                 stroke="currentColor"
                 strokeWidth="1.4"
+                strokeLinecap="round"
                 strokeLinejoin="round"
               />
             </svg>
@@ -955,6 +958,15 @@ export default function Zones({
         </div>
       )}
 
+      {/* The weather outside belongs to the whole property, above its buildings. */}
+      <section className="building-group outside-group" aria-label="Outside">
+        <div className="group-header">
+          <h2 className="group-header-title">Outside</h2>
+          <span className="group-header-rule" />
+        </div>
+        <OutsideTempPicker />
+      </section>
+
       {err && <p className="form-error">{err}</p>}
       {deleting && (
         <ConfirmDialog
@@ -1022,12 +1034,13 @@ export default function Zones({
                         title="Edit or delete this zone"
                         onClick={() => setEditing(z.thermostat_entity_id)}
                       >
-                        <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+                        <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
                           <path
-                            d="M11.3 1.8a1.5 1.5 0 0 1 2.1 0l.8.8a1.5 1.5 0 0 1 0 2.1l-8 8L2.5 13.5l.8-3.7 8-8Z"
+                            d="M8 3H4.5A1.5 1.5 0 0 0 3 4.5v9A1.5 1.5 0 0 0 4.5 15h9a1.5 1.5 0 0 0 1.5-1.5V10M13.2 2.6a1.4 1.4 0 0 1 2 2L9.5 10.3 7 11l.7-2.5 5.5-5.9Z"
                             fill="none"
                             stroke="currentColor"
                             strokeWidth="1.4"
+                            strokeLinecap="round"
                             strokeLinejoin="round"
                           />
                         </svg>

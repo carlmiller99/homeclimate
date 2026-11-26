@@ -9,7 +9,6 @@ vi.mock("../api");
 // Each of these has its own suite; here they only show which section they are in.
 vi.mock("./Logs", () => ({ default: () => <p>logs page</p> }));
 vi.mock("./DevMode", () => ({ default: () => <p>dev mode page</p> }));
-vi.mock("../components/OutsideTempPicker", () => ({ default: () => <p>outside sensor</p> }));
 vi.mock("./Thermostats", () => ({ SensorStalenessCard: () => <p>staleness card</p> }));
 
 const authValue = (over: Partial<AuthContextValue> = {}): AuthContextValue => ({

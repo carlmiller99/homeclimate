@@ -137,7 +137,7 @@ function EcoZoneCard({
       />
       {blocked && (
         <p className="form-error">
-          Eco Mode needs an outside temperature sensor. Choose one in Settings, Sensors, then turn
+          Eco Mode needs an outside temperature sensor. Choose one in My Home, Outside, then turn
           this on.
         </p>
       )}
@@ -203,7 +203,7 @@ export default function EcoSection() {
       {zones && !hasOutsideSensor && (
         <p className="fireplace-note">
           Eco Mode follows the outside temperature, and no outside temperature sensor is chosen yet.
-          Choose one in Settings, Sensors. A weather integration&rsquo;s temperature sensor works.
+          Choose one in My Home, Outside. A weather integration&rsquo;s temperature sensor works.
         </p>
       )}
       {zones && zones.length === 0 && (

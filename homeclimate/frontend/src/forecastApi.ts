@@ -127,7 +127,7 @@ export function accuracyText(
   unitLabel: string
 ): string {
   if (a.comparisons === 0) {
-    return "Nothing to compare yet. This needs an outside temperature sensor (Settings, Sensors) and Smart Learning recording.";
+    return "Nothing to compare yet. This needs an outside temperature sensor (My Home, Outside) and Smart Learning recording.";
   }
   const hours = `${a.comparisons} ${a.comparisons === 1 ? "hour" : "hours"}`;
   if (!a.ready || a.mean_error === null || a.mean_abs === null) {

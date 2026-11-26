@@ -6,7 +6,6 @@ import { useAuth, useTimeZone } from "../contexts";
 import McpServerCard from "../components/McpServerCard";
 import McpTokensCard from "../components/McpTokensCard";
 import MqttBridgeCard from "../components/MqttBridgeCard";
-import OutsideTempPicker from "../components/OutsideTempPicker";
 import SectionLayout from "../components/SectionLayout";
 import { SETTINGS_SECTIONS } from "../sections";
 import DevModePage from "./DevMode";
@@ -140,7 +139,6 @@ export default function Settings() {
   if (section === "sensors") {
     body = (
       <>
-        <OutsideTempPicker />
         <SensorStalenessCard />
       </>
     );

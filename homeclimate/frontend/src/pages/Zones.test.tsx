@@ -21,6 +21,7 @@ vi.mock("../zonesApi", async (orig) => {
   };
 });
 
+vi.mock("../components/OutsideTempPicker", () => ({ default: () => <p>outside sensors</p> }));
 vi.mock("../api");
 
 // The thermostat card has its own suite; here it only needs to hand the zone
@@ -701,6 +702,15 @@ describe("Zones page", () => {
     expect(screen.queryByRole("heading", { name: "Thermostat Settings" })).toBeNull();
   });
 
+  it("puts the outside sensors in a group of their own above the buildings", async () => {
+    renderPage();
+    await screen.findByText("South Wing");
+    const outside = screen.getByRole("region", { name: "Outside" });
+    expect(within(outside).getByText("outside sensors")).toBeInTheDocument();
+    const groups = [...document.querySelectorAll(".building-group")];
+    expect(groups[0]).toBe(outside);
+  });
+
   it("names each zone's thermostat as Home Assistant does, or tidies its id", async () => {
     vi.mocked(api.getEntityStates).mockResolvedValue({
       "climate.wing": {
@@ -718,6 +728,14 @@ describe("Zones page", () => {
     );
     expect(screen.getByText("Thermostat: Loose")).toBeInTheDocument();
     first.unmount();
+    // An answer that arrives after the page has gone is dropped.
+    let late!: (v: never) => void;
+    vi.mocked(api.getEntityStates).mockReturnValue(new Promise((r) => (late = r)) as never);
+    const gone = renderPage();
+    await screen.findByText("Thermostat: Wing");
+    gone.unmount();
+    late({} as never);
+    await Promise.resolve();
     // Home Assistant not answering leaves the tidied ids.
     vi.mocked(api.getEntityStates).mockRejectedValue(new Error("down"));
     renderPage();

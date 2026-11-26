@@ -14,10 +14,11 @@
 - Dashboard: a building's name, mode, targets and Hold a Room sit on one line. A zone shows one line about its thermostat, and each room is a card with what it follows under its name.
 - Smart Control → **Forecasts**: an outlook card per day with its kind of day (Swing, Warm, Cool, Mild), its range, its sky and its plan as a bar and a sentence. The hour-by-hour table is folded under it.
 - Smart Control → **Zone Balance** is drawn as designed: one rule row per building, and each building's zones on a line from coolest to warmest with the gap against the limit.
-- My Home: a pencil beside a building's or a zone's name opens it for editing; Rename, Delete and Edit Zone are behind it. **Add Room** and **Add Zone** are dashed tiles at the end of the list they add to.
+- My Home: a pencil beside a building's or a zone's name opens it for editing; Rename, Delete and Edit Zone are behind it. **Add Room** and **Add Zone** are tiles at the end of the list they add to.
 - My Home: a zone shows "Thermostat: " and the thermostat's name in place of its entity id. A device's name leaves off the room's name, and occupancy is a green or grey dot.
 - My Home: **Room Settings** opens as a dialog over the page.
-- Explanations across the app are shorter and plainer: two sentences and thirty words at most for the ones rewritten so far.
+- My Home: the outside temperature sensors moved here from Settings, into an **Outside** group above the buildings.
+- Explanations across the app are shorter and plainer: two sentences and thirty words at most.
 - Smart Control → **Auto Mode** (was "One Side Per Building", under Forecasts): its own section, in plain words. For each building: whether in Auto it lets each zone decide or heats and cools as one, how often it may switch between heating and cooling, and how far past its target a room must be first.
 
 ## 0.5.17
