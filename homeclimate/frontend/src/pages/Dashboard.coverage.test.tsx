@@ -87,8 +87,7 @@ const renderDashboard = (unit: "F" | "C" = "F") =>
   );
 
 /** The zone card for a thermostat, located by its entity-id subtitle. */
-const cardFor = (entityId: string): HTMLElement =>
-  screen.getByText(entityId, { selector: ".card-subtitle" }).closest(".card") as HTMLElement;
+const cardFor = (entityId: string): HTMLElement => screen.getByTestId(`dash-zone-${entityId}`);
 
 describe("Dashboard — uncovered branches", () => {
   beforeEach(() => {
@@ -285,20 +284,15 @@ describe("Dashboard — uncovered branches", () => {
     await screen.findAllByText("Upstairs");
     const card = cardFor("climate.a");
 
-    // Ambient and Setpoint both fall back to the em-dash.
-    const ambient = screen.getByText("Ambient").parentElement as HTMLElement;
-    expect(within(ambient).getByText("—")).toBeInTheDocument();
-    const setpoint = screen.getByText("Setpoint").parentElement as HTMLElement;
-    expect(within(setpoint).getByText("—")).toBeInTheDocument();
+    // The thermostat's reading and its setpoint both fall back to the em-dash.
+    expect(card).toHaveTextContent("Thermostat —, set to —");
 
-    // An idle cycle gets the gray badge (not the running/blue one) and no bar.
-    expect(within(card).getByText("idle").className).toBe("badge badge-gray");
+    // An idle cycle shows no progress bar.
     expect(container.querySelector(".progress-fill")).toBeNull();
 
     // 0 of the zone's 2 rooms are active, but both are still listed, each
     // with a dash until a sensor reports.
-    const activeCount = screen.getByText("Active rooms").parentElement as HTMLElement;
-    expect(activeCount).toHaveTextContent("0 / 2");
+    expect(card).toHaveTextContent("0 of 2 rooms asking");
     for (const id of ["r1", "r2"]) {
       const row = within(card).getByTestId(`dash-room-${id}`);
       expect(within(row).getByText("—")).toBeInTheDocument();
@@ -358,8 +352,9 @@ describe("Dashboard — uncovered branches", () => {
     await screen.findAllByText("Upstairs");
 
     // Zone ambient / setpoint.
-    expect(screen.getByText("24.0°C")).toBeInTheDocument();
-    expect(screen.getByText("22.2°C")).toBeInTheDocument();
+    expect(screen.getByTestId("dash-zone-climate.a")).toHaveTextContent(
+      "Thermostat 24.0°C, set to 22.2°C"
+    );
     // Room average.
     expect(screen.getByText("24.5°C")).toBeInTheDocument();
     // Eco requested→effective line: both values converted.

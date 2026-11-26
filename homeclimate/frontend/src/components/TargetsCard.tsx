@@ -24,6 +24,32 @@ function effective(house: House, level: TargetLevel | undefined) {
   return null;
 }
 
+function followsText(
+  from: { heat: number; cool: number; from: TargetLevel },
+  toDisplay: (f: number) => number,
+  unitLabel: string
+): string {
+  return `Follows ${from.from.name}: ${toDisplay(from.heat)} to ${toDisplay(from.cool)}${unitLabel}`;
+}
+
+/**
+ * What a level is kept between, in a line: its own targets, the ones it
+ * follows, or that it has none. For a room's row on the Dashboard.
+ */
+export function describeTargets(
+  house: House,
+  level: TargetLevel,
+  toDisplay: (f: number) => number,
+  unitLabel: string
+): string {
+  const found = effective(house, level);
+  if (!found) return "No targets set";
+  if (found.from === level) {
+    return `Its own targets: ${toDisplay(found.heat)} to ${toDisplay(found.cool)}${unitLabel}`;
+  }
+  return followsText(found, toDisplay, unitLabel);
+}
+
 /** What clearing a level's targets does when nothing above it has any. */
 const CLEAR_WITH_NOTHING_ABOVE: Record<TargetScope, string> = {
   building:
@@ -90,7 +116,7 @@ export function TargetsRow({
   };
 
   const follows = inherited
-    ? `Follows ${inherited.from.name}: ${toDisplay(inherited.heat)} to ${toDisplay(inherited.cool)}${unitLabel}`
+    ? followsText(inherited, toDisplay, unitLabel)
     : level.parent
       ? `No targets set, here or for ${level.parent.name}`
       : "No targets set";

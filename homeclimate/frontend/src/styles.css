@@ -2608,26 +2608,98 @@ button.sc-nav-item {
   border-radius: var(--radius-lg);
 }
 .dash-building-title {
-  font-size: 1.5rem;
+  grid-area: title;
+  font-size: 1.6rem;
   font-weight: 700;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.015em;
   color: var(--gray-900);
-  margin: 0 0 0.6rem;
+  margin: 0;
 }
 .dash-building-targets {
-  margin: 0.5rem 0 1rem;
-  padding-top: 0.5rem;
-  border-top: 1px solid var(--border);
+  margin: 0.25rem 0 1rem;
+}
+.dash-building-targets:empty {
+  display: none;
 }
 .dash-building .card-grid > .card {
   background: var(--zone-bg);
 }
+.dash-building .card-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(20rem, 100%), 1fr));
+}
+/* The building's header, as one line: its name and what it is doing on the
+   left; its mode, its two targets and a hold on the right. The mode control
+   and the targets row are laid straight into this grid. */
 .dash-building-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  grid-template-areas:
+    "title mode targets hold"
+    "status mode targets hold"
+    "notes notes notes notes";
+  align-items: end;
+  gap: 0.35rem 0.9rem;
+  margin-bottom: 1rem;
+}
+.dash-building-head .building-mode {
+  display: contents;
+}
+.dash-building-head .building-mode-pick {
+  grid-area: mode;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.875rem;
+  color: var(--gray-600);
+}
+.dash-building-head .building-mode-status {
+  grid-area: status;
+  align-self: start;
+  font-size: 0.95rem;
+  max-width: 60ch;
+}
+.dash-building-head .building-mode > .form-error {
+  grid-area: notes;
+}
+.dash-building-head .targets-row {
+  grid-area: targets;
+  padding: 0;
+  gap: 0.35rem 0.75rem;
+}
+.dash-building-head .targets-row-name {
+  display: none;
+}
+.dash-building-head .targets-row .targets-note,
+.dash-building-head .targets-row .form-error {
+  font-size: 0.8rem;
+  max-width: 24rem;
+}
+.dash-building-head .house-band-input {
+  width: 5.25rem;
+  font-weight: 600;
+}
+.dash-building-hold {
+  grid-area: hold;
+}
+@media (max-width: 900px) {
+  .dash-building-head {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "title" "status" "mode" "targets" "hold" "notes";
+    align-items: start;
+  }
+  .dash-building-hold {
+    justify-self: start;
+  }
+}
+/* A zone inside a building: its name, one line about its thermostat, and its
+   rooms. */
+.dash-zone-sub {
+  margin-top: 0.15rem;
+  font-size: 0.82rem;
+  color: var(--gray-600);
+}
+.dash-zone-asking::before {
+  content: " · ";
 }
 /* Dashboard → a room's details */
 .room-details {
@@ -2684,51 +2756,63 @@ button.sc-nav-item {
   font-size: 0.9rem;
 }
 .dash-rooms {
-  margin-top: 1rem;
+  margin-top: 0.9rem;
   display: flex;
   flex-direction: column;
-  border-top: 1px solid var(--gray-200);
+  gap: 0.6rem;
 }
+/* One room: a card of its own inside the zone, and the way into its details. */
 .dash-room {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 0.5rem;
-  min-height: 3rem;
-  padding: 0.5rem 0.6rem;
-  margin: 0 -0.6rem;
-  width: calc(100% + 1.2rem);
-  border: 0;
-  border-bottom: 1px solid var(--gray-100);
-  border-radius: 8px;
-  background: none;
+  gap: 0.5rem 0.9rem;
+  width: 100%;
+  min-height: 3.5rem;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
   font: inherit;
   color: inherit;
   text-align: left;
-}
-.dash-room:last-child {
-  border-bottom: none;
 }
 .dash-room-open {
   cursor: pointer;
 }
 .dash-room-open:hover {
-  background: var(--gray-50);
+  border-color: var(--gray-400);
 }
 .dash-room-open:focus-visible {
-  outline: 2px solid var(--primary, currentColor);
+  outline: 2px solid var(--ink);
   outline-offset: 2px;
+}
+.dash-room-id {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
 }
 .dash-room-name {
   font-weight: 600;
+  font-size: 1rem;
   color: var(--gray-900);
   display: flex;
   flex-wrap: wrap;
   gap: 0.35rem;
   align-items: center;
 }
+.dash-room-note {
+  font-size: 0.82rem;
+  color: var(--gray-600);
+}
 .dash-room-temp {
   text-align: right;
+  white-space: nowrap;
+}
+.dash-room-temp .stat-value {
+  font-size: 1.35rem;
+  font-weight: 700;
 }
 .dash-paused {
   margin-top: 0.75rem;
@@ -3116,66 +3200,101 @@ button.sc-nav-item {
 }
 
 /* Dashboard → Today's Plan */
-/* The three kinds of hour differ in shape as well as colour: a coasting hour
-   is a low outlined cell, heating is full height, cooling is full height with
-   a notch of the card showing at the top. */
-.today-strip {
-  display: flex;
-  align-items: flex-end;
-  gap: 2px;
-  height: 1.5rem;
-  margin: 0.5rem 0 1.4rem;
+.today-lead {
+  margin: 0.25rem 0 0;
+  font-size: 0.97rem;
+  max-width: 64ch;
 }
-.today-hour {
-  position: relative;
+.today-chart {
+  margin: 1.1rem 0 0.9rem;
+}
+/* One block per run of hours that ask for the same thing. The word is in the
+   block, so the three never rest on colour alone. */
+.today-band {
+  display: flex;
+  height: 2.75rem;
+  border-radius: 10px;
+  overflow: hidden;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+.today-run {
   flex: 1 1 0;
-  box-sizing: border-box;
-  height: 40%;
-  border: 1px solid var(--gray-500);
-  border-radius: 4px;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 0.6rem;
+  overflow: hidden;
+  white-space: nowrap;
   background: var(--state-idle-bg);
+  color: var(--state-idle-text);
+}
+.today-run + .today-run {
+  border-left: 2px solid var(--surface);
 }
 .today-heat {
-  height: 100%;
-  border-color: var(--state-heating);
-  background: var(--state-heating);
+  background: var(--state-heating-bg);
+  color: var(--state-heating-text);
 }
 .today-cool {
-  height: 100%;
-  border-color: var(--state-cooling);
-  border-top: 5px solid var(--surface);
-  outline: 1px solid var(--state-cooling);
-  outline-offset: -1px;
-  background: var(--state-cooling);
+  background: var(--state-cooling-bg);
+  color: var(--state-cooling-text);
 }
-.today-runs {
-  margin: 0;
-  font-size: 0.875rem;
+.today-line {
+  display: block;
+  width: 100%;
+  height: 4.4rem;
+  margin-top: 0.4rem;
 }
-.today-hour-label {
-  position: absolute;
-  top: calc(100% + 0.2rem);
-  left: 0;
-  font-size: 0.75rem;
+.today-line polyline {
+  fill: none;
+  stroke: var(--gray-600);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+  stroke-linejoin: round;
+}
+.today-line .today-now {
+  stroke: var(--ink);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+.today-axis {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.78rem;
   color: var(--gray-600);
   white-space: nowrap;
+  overflow: hidden;
 }
 .today-events {
   list-style: none;
-  margin: 0.75rem 0;
+  margin: 0.9rem 0;
   padding: 0;
   display: grid;
-  gap: 0.35rem;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 0.45rem 1.5rem;
   font-size: 0.9rem;
 }
 .today-events li {
-  display: grid;
-  grid-template-columns: 5.5rem minmax(0, 1fr);
-  gap: 0.75rem;
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
 }
 .today-when {
-  color: var(--gray-600);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.today-source {
+  margin: 0.6rem 0 0;
+  font-size: 0.84rem;
+  color: var(--gray-600);
+}
+.today-source a {
+  color: var(--blue-text);
+}
+.today-card > .card-title {
+  font-size: 1.2rem;
 }
 
 /* Room device notes: what a room cannot do yet. Information, not an alarm. */

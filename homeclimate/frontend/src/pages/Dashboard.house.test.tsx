@@ -169,7 +169,9 @@ describe("Dashboard targets", () => {
     show();
     const heat = await screen.findByLabelText(HEAT);
     const save = screen.getByRole("button", { name: SAVE });
-    expect(screen.getByText("No targets set")).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("group", { name: "Main" })).getByText("No targets set")
+    ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Clear targets for Main" })).toBeNull();
     fireEvent.change(heat, { target: { value: "71" } });
     expect(save).toBeDisabled(); // needs both

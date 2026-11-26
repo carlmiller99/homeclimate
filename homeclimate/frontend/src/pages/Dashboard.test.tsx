@@ -133,8 +133,7 @@ describe("Dashboard Page", () => {
     // getThermostats resolves, in its warning too (the fixture has no vent
     // count): one or two matches, depending on which lands first.
     expect((await screen.findAllByText(/Main HVAC/i)).length).toBeGreaterThan(0);
-    expect(screen.getByText("75.2°F")).toBeInTheDocument();
-    expect(screen.getByText("72.0°F")).toBeInTheDocument();
+    expect(screen.getByText(/Thermostat 75\.2°F, set to 72\.0°F/)).toBeInTheDocument();
     expect(screen.getByText("Living Room")).toBeInTheDocument();
   });
 

@@ -29,7 +29,7 @@ import BuildingModeControl from "../components/BuildingModeControl";
 import { getBuildingModes, type BuildingMode } from "../buildingModeApi";
 import TodayCard from "../components/TodayCard";
 import ConfirmDialog from "../components/ConfirmDialog";
-import { TargetsRow, type TargetLevel } from "../components/TargetsCard";
+import { describeTargets, TargetsRow, type TargetLevel } from "../components/TargetsCard";
 import RoomDetailsModal, { type SensorReading } from "../components/RoomDetailsModal";
 import RoomFollowDialog from "../components/RoomFollowDialog";
 import { calendarFor, getHouse, switchesFor, type House } from "../houseApi";
@@ -110,6 +110,8 @@ function modeLabel(action: string, state: string): string {
 const HouseContext = createContext<{
   house: House;
   openOptions: (room: { id: string; name: string }) => void;
+  /** What the room is kept between, for the line under its name. */
+  noteFor: (room: { id: string; name: string }) => string;
 } | null>(null);
 /** Opens a room's details. Always there, so a room can be held or have its
  *  occupancy cleared even when the home's layout could not be read. */
@@ -163,85 +165,88 @@ function RoomRow({
       title="Targets, hold, occupancy, vents and each sensor's reading"
       onClick={() => openRoom(room)}
     >
-      <span className="dash-room-name">
-        {room.name}
-        {held && (
-          <span
-            className="badge badge-purple"
-            title="A temporary hold is driving this room — it overrides schedules and presence until it ends."
-          >
-            Hold
-          </span>
-        )}
-        {active?.presence_active && <span className="badge badge-green">Presence</span>}
-        {paused && (
-          <span className="badge badge-orange" role="status" title={pausedText(paused)}>
-            Paused
-          </span>
-        )}
-        {notInUse && (
-          <span
-            className="badge badge-gray"
-            role="status"
-            title="This room is not in use: only a hold or its safety limits will heat or cool it"
-          >
-            Not In Use
-          </span>
-        )}
-        {balancing && (
-          <span
-            className="badge badge-gray"
-            role="status"
-            title="Zone Balance is heating or cooling this room to keep its zone within the gap limit of another"
-          >
-            Zone Balance
-          </span>
-        )}
-        {banking && (
-          <span
-            className="badge badge-gray"
-            role="status"
-            title="This room is being heated or cooled a little into its band now, so less has to run during the peak hours"
-          >
-            Banking
-          </span>
-        )}
-        {arriving && (
-          <span
-            className="badge badge-gray"
-            role="status"
-            title="This room is usually used about now, so it is being brought to its occupied temperature ahead of time"
-          >
-            Getting Ready
-          </span>
-        )}
-        {coolingEarly && (
-          <span
-            className="badge badge-gray"
-            role="status"
-            title="This room is being cooled a little now, because it is expected to pass its Cool To later on a warming afternoon"
-          >
-            Cooling Early
-          </span>
-        )}
-        {coasting && (
-          <span
-            className="badge badge-gray"
-            role="status"
-            title="This room is a little short of its target and is expected to get there by itself, so nothing has been started for it yet"
-          >
-            Coasting
-          </span>
-        )}
-        {fireplace && (
-          <span
-            className="badge badge-orange"
-            role="status"
-            title={`${fireplace} is warming this room, so it isn't calling for heating or cooling`}
-          >
-            Fireplace
-          </span>
-        )}
+      <span className="dash-room-id">
+        <span className="dash-room-name">
+          {room.name}
+          {held && (
+            <span
+              className="badge badge-purple"
+              title="A temporary hold is driving this room — it overrides schedules and presence until it ends."
+            >
+              Hold
+            </span>
+          )}
+          {active?.presence_active && <span className="badge badge-green">Presence</span>}
+          {paused && (
+            <span className="badge badge-orange" role="status" title={pausedText(paused)}>
+              Paused
+            </span>
+          )}
+          {notInUse && (
+            <span
+              className="badge badge-gray"
+              role="status"
+              title="This room is not in use: only a hold or its safety limits will heat or cool it"
+            >
+              Not In Use
+            </span>
+          )}
+          {balancing && (
+            <span
+              className="badge badge-gray"
+              role="status"
+              title="Zone Balance is heating or cooling this room to keep its zone within the gap limit of another"
+            >
+              Zone Balance
+            </span>
+          )}
+          {banking && (
+            <span
+              className="badge badge-gray"
+              role="status"
+              title="This room is being heated or cooled a little into its band now, so less has to run during the peak hours"
+            >
+              Banking
+            </span>
+          )}
+          {arriving && (
+            <span
+              className="badge badge-gray"
+              role="status"
+              title="This room is usually used about now, so it is being brought to its occupied temperature ahead of time"
+            >
+              Getting Ready
+            </span>
+          )}
+          {coolingEarly && (
+            <span
+              className="badge badge-gray"
+              role="status"
+              title="This room is being cooled a little now, because it is expected to pass its Cool To later on a warming afternoon"
+            >
+              Cooling Early
+            </span>
+          )}
+          {coasting && (
+            <span
+              className="badge badge-gray"
+              role="status"
+              title="This room is a little short of its target and is expected to get there by itself, so nothing has been started for it yet"
+            >
+              Coasting
+            </span>
+          )}
+          {fireplace && (
+            <span
+              className="badge badge-orange"
+              role="status"
+              title={`${fireplace} is warming this room, so it isn't calling for heating or cooling`}
+            >
+              Fireplace
+            </span>
+          )}
+        </span>
+        {houseCtx && <span className="dash-room-note">{houseCtx.noteFor(room)}</span>}
       </span>
       <span className="dash-room-temp">
         <span className="stat-value">{shownTemp != null ? fmtTemp(shownTemp) : "—"}</span>
@@ -354,48 +359,27 @@ function ZoneCard({
   const progress = activeRooms > 0 ? doneRooms / activeRooms : 0;
 
   return (
-    <div className="card">
+    <div className="card" data-testid={`dash-zone-${zone.thermostat_entity_id}`}>
       <div className="flex-between" style={{ marginBottom: ".75rem" }}>
         <div>
           <div className="card-title" style={{ marginBottom: 0 }}>
             {thermostats.find((t) => t.thermostat_entity_id === zone.thermostat_entity_id)?.name ||
               zone.thermostat_entity_id.split(".").pop()?.replace(/_/g, " ")}
           </div>
-          <div className="card-subtitle font-mono" style={{ marginBottom: 0, fontSize: ".75rem" }}>
-            {zone.thermostat_entity_id}
+          {/* The thermostat's own reading and what it is set to, and how many
+              of the zone's rooms are asking right now. */}
+          <div className="dash-zone-sub" title={zone.thermostat_entity_id}>
+            {`Thermostat ${zone.current_temp != null ? fmtTemp(zone.current_temp) : "—"}, set to ${zone.setpoint != null ? fmtTemp(zone.setpoint) : "—"}`}
+            <span className="dash-zone-asking">
+              <Frozen>{activeRooms}</Frozen>
+              {` of ${totalRooms} ${totalRooms === 1 ? "room" : "rooms"} asking`}
+            </span>
           </div>
         </div>
         {/* hvac action badge flips Cooling/Heating/Idle as the engine cycles */}
         <Frozen frozen={<span className="badge badge-gray">{FROZEN}</span>}>
           <span className={badgeClass}>{label}</span>
         </Frozen>
-      </div>
-
-      <div className="stat-row">
-        <span className="stat-label">Ambient</span>
-        <span className="stat-value">
-          {zone.current_temp != null ? fmtTemp(zone.current_temp) : "—"}
-        </span>
-      </div>
-      <div className="stat-row">
-        <span className="stat-label">Setpoint</span>
-        <span className="stat-value">{zone.setpoint != null ? fmtTemp(zone.setpoint) : "—"}</span>
-      </div>
-      <div className="stat-row">
-        <span className="stat-label">Cycle</span>
-        {/* cycle_state (running/idle) and its colour change per engine cycle */}
-        <Frozen frozen={<span className="badge badge-gray">{FROZEN}</span>}>
-          <span className={`badge badge-${zone.cycle_state === "running" ? "blue" : "gray"}`}>
-            {zone.cycle_state}
-          </span>
-        </Frozen>
-      </div>
-      <div className="stat-row">
-        <span className="stat-label">Active rooms</span>
-        <span className="stat-value">
-          {/* active count tracks which rooms the engine is cycling right now */}
-          <Frozen>{activeRooms}</Frozen> / {totalRooms}
-        </span>
       </div>
 
       {/* Progress bar + active-rooms list reflect live cycle membership, which
@@ -489,7 +473,7 @@ function ZoneCard({
 }
 
 export default function Dashboard() {
-  const { fmtTemp } = useUnit();
+  const { fmtTemp, toDisplay, unitLabel } = useUnit();
   const tz = useTimeZone();
   const [zones, setZones] = useState<ZoneStatus[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
@@ -693,7 +677,14 @@ export default function Dashboard() {
       </div>
     );
 
-  const houseCtx = house ? { house, openOptions: setOptionsFor } : null;
+  const houseCtx = house
+    ? {
+        house,
+        openOptions: setOptionsFor,
+        noteFor: (room: { id: string; name: string }) =>
+          describeTargets(house, levelOfRoom(room.id, room.name), toDisplay, unitLabel),
+      }
+    : null;
   // Targets are set per building, with its zones and rooms underneath; a zone
   // in no building stands on its own, with its rooms under it.
   const zoneLevel = (z: ZoneProfile, parent?: TargetLevel): TargetLevel => ({
@@ -928,52 +919,50 @@ export default function Dashboard() {
                   className="dash-building"
                   data-testid={`dash-building-${group.building?.id ?? "unassigned"}`}
                 >
-                  {(buildings.length > 0 || roomsIn(group.items).length > 0) && (
-                    <div className="dash-building-head">
-                      {buildings.length > 0 && (
-                        <h2 className="dash-building-title">
-                          {group.building?.name ?? "Other Zones"}
-                        </h2>
-                      )}
-                      {roomsIn(group.items).length > 0 && (
-                        <button
-                          type="button"
-                          className="btn btn-secondary"
-                          data-testid={`dash-hold-${group.building?.id ?? "unassigned"}`}
-                          aria-label={
-                            buildings.length > 0
-                              ? `Hold a room in ${group.building?.name ?? "Other Zones"}`
-                              : "Hold a room"
-                          }
-                          title="Keep one room at an exact temperature for 1 to 8 hours, ahead of its schedules, occupancy and targets"
-                          onClick={() => setHoldModalFor({ rooms: roomsIn(group.items) })}
-                        >
-                          Hold a Room
-                        </button>
-                      )}
-                    </div>
-                  )}
-                  {buildingModes
-                    .filter((m) => m.building_id === group.building?.id)
-                    .map((m) => (
-                      <BuildingModeControl
-                        key={m.building_id}
-                        building={m}
-                        zoneNames={Object.fromEntries(
-                          profiles.map((p) => [p.thermostat_entity_id, p.name])
-                        )}
-                        onSaved={setBuildingModes}
+                  <div className="dash-building-head">
+                    {buildings.length > 0 && (
+                      <h2 className="dash-building-title">
+                        {group.building?.name ?? "Other Zones"}
+                      </h2>
+                    )}
+                    {buildingModes
+                      .filter((m) => m.building_id === group.building?.id)
+                      .map((m) => (
+                        <BuildingModeControl
+                          key={m.building_id}
+                          building={m}
+                          zoneNames={Object.fromEntries(
+                            profiles.map((p) => [p.thermostat_entity_id, p.name])
+                          )}
+                          onSaved={setBuildingModes}
+                        />
+                      ))}
+                    {house && structureLoaded && group.building && (
+                      <TargetsRow
+                        house={house}
+                        level={buildingLevel(group.building)}
+                        onSaved={setHouse}
                       />
-                    ))}
+                    )}
+                    {roomsIn(group.items).length > 0 && (
+                      <button
+                        type="button"
+                        className="btn btn-secondary dash-building-hold"
+                        data-testid={`dash-hold-${group.building?.id ?? "unassigned"}`}
+                        aria-label={
+                          buildings.length > 0
+                            ? `Hold a room in ${group.building?.name ?? "Other Zones"}`
+                            : "Hold a room"
+                        }
+                        title="Keep one room at an exact temperature for 1 to 8 hours, ahead of its schedules, occupancy and targets"
+                        onClick={() => setHoldModalFor({ rooms: roomsIn(group.items) })}
+                      >
+                        Hold a Room
+                      </button>
+                    )}
+                  </div>
                   {house && structureLoaded && (
                     <div className="dash-building-targets">
-                      {group.building && (
-                        <TargetsRow
-                          house={house}
-                          level={buildingLevel(group.building)}
-                          onSaved={setHouse}
-                        />
-                      )}
                       {(() => {
                         const zoneRows = profiles
                           .filter((p) =>

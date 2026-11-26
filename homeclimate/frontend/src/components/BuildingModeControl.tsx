@@ -36,7 +36,9 @@ export default function BuildingModeControl({
   return (
     <div className="building-mode">
       <label className="building-mode-pick">
-        <span className="sr-only">{`Mode for ${building.name}`}</span>
+        <span className="field-label">
+          Mode<span className="sr-only">{` for ${building.name}`}</span>
+        </span>
         <select
           className="form-control"
           value={building.mode}
