@@ -2,7 +2,7 @@
 
 Vacation mode parks the whole house for a trip. Every room's schedules, presence triggers and temporary holds are **paused**, and each thermostat is held loosely inside its configured `min_setpoint`–`max_setpoint` envelope until the return date, at which point normal scheduling resumes automatically.
 
-It is set up from the **Enable vacation mode** button on the Dashboard, or the banner's **Manage** button on any page. A trip either **starts immediately** or is **scheduled** to start by itself at a future date and time ([Scheduling a trip](#scheduling-a-trip)), and it always has a **return date and time** — there is no open-ended vacation. Both times are typed and shown in the house's time zone, not your device's, so setting them from a hotel in another zone does not shift them ([Time zones](./time-zones.md)). The mode applies to *all* thermostats at once; only the per-thermostat hold strategy and [welcome home](#welcome-home) below are configurable individually.
+It is set up from the **Vacation** button at the top of the Dashboard, beside the System switch (it reads Off, Scheduled or On), or the banner's **Manage** button on any page. A trip either **starts immediately** or is **scheduled** to start by itself at a future date and time ([Scheduling a trip](#scheduling-a-trip)), and it always has a **return date and time** — there is no open-ended vacation. Both times are typed and shown in the house's time zone, not your device's, so setting them from a hotel in another zone does not shift them ([Time zones](./time-zones.md)). The mode applies to *all* thermostats at once; only the per-thermostat hold strategy and [welcome home](#welcome-home) below are configurable individually.
 
 Vacation mode is always in one of three states:
 
@@ -111,7 +111,7 @@ There is **one** pending trip at a time; scheduling another replaces it. The onl
 
 While a trip is scheduled:
 
-- A blue **✈ Vacation scheduled** banner shows on every page with both dates, and the Dashboard button reads **Vacation scheduled**. Nothing is paused yet.
+- A blue **✈ Vacation scheduled** banner shows on every page with both dates, and the Dashboard's Vacation button reads **Scheduled**. Nothing is paused yet.
 - From **two hours before the start** the banner turns amber and counts down: *Vacation mode starts in 1 h 40 min (5:00 PM).*
 - **Manage** offers **Edit dates**, **Start now** (the trip begins immediately and keeps its return) and **Cancel scheduled vacation** (with a confirmation step). Cancelling a trip that never started changes nothing else.
 
