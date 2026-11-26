@@ -34,11 +34,13 @@ export default function EntityPicker({
       .catch(() => {});
   }, [domain, hasAttribute, excludeIcon, kind, room]);
 
+  const needle = query.toLowerCase();
   const filtered = entities
     .filter(
       (e) =>
-        e.entity_id.toLowerCase().includes(query.toLowerCase()) ||
-        e.friendly_name.toLowerCase().includes(query.toLowerCase())
+        e.entity_id.toLowerCase().includes(needle) ||
+        e.friendly_name.toLowerCase().includes(needle) ||
+        (e.area_name ?? "").toLowerCase().includes(needle)
     )
     .slice(0, 30);
 

@@ -111,17 +111,33 @@ def _classify(state: dict) -> str | None:
 PICKER_KINDS = ("temperature", "presence", "contacts", "vents")
 
 
+# Covers that open something a person or a car goes through. Never a vent:
+# choosing one would have the engine open and close it.
+NOT_A_VENT_CLASSES = (*SHADE_CLASSES, "garage", "gate", "door", "window")
+
+
 def is_kind(state: dict, kind: str) -> bool:
     """Whether an entity belongs in a room's picker for ``kind``.
 
-    Looser than the import's own classification for vents: there a cover must
-    look like a vent to be suggested, here any cover that is not a shade can be
-    chosen, since a smart vent need not have "vent" in its entity id.
+    Looser than the import's own classification where being strict would hide
+    a device with no other way to add it:
+
+    * a temperature sensor is any sensor measured in °F or °C, whether or not
+      it carries the temperature device class (template, MQTT and hand-written
+      ESPHome sensors often do not);
+    * a vent is any cover that is not a shade, a door, a gate or a window,
+      since a smart vent need not have "vent" in its entity id.
+
+    Presence and door/window sensors keep to their device classes: without one
+    there is no telling a door from a leak sensor, and Home Assistant lets the
+    class be set on the entity ("Show as").
     """
+    eid: str = state.get("entity_id", "")
+    attrs = state.get("attributes", {}) or {}
+    if kind == "temperature":
+        return eid.startswith("sensor.") and attrs.get("unit_of_measurement") in TEMPERATURE_UNITS
     if kind == "vents":
-        eid: str = state.get("entity_id", "")
-        cls = (state.get("attributes", {}) or {}).get("device_class")
-        return eid.startswith("cover.") and cls not in SHADE_CLASSES
+        return eid.startswith("cover.") and attrs.get("device_class") not in NOT_A_VENT_CLASSES
     return _classify(state) == kind
 
 
@@ -130,8 +146,9 @@ def room_areas(
 ) -> tuple[dict[str, str], set[str]]:
     """entity_id → its area's name, and the entities in an area named like the room.
 
-    Names are compared the way room names are (case and spacing
-    ignored), so the room "Master Bedroom" matches the area "master bedroom".
+    Names are compared the way room names are: lower-cased, with every run of
+    other characters treated as one separator. The room "Master Bedroom"
+    matches the area "master  bedroom"; "Kid's Room" does not match "Kids Room".
     """
     names = {a.get("area_id"): a.get("name") or "" for a in registries.get("areas", [])}
     areas, _excluded = _entity_areas(registries)

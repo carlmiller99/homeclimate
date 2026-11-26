@@ -165,5 +165,9 @@ describe("EntityPicker", () => {
     expect(screen.getByText("sensor.attic_temp · Attic")).toBeInTheDocument();
     // An entity in no area shows just its id.
     expect(screen.getByText("sensor.loose_temp")).toBeInTheDocument();
+    // The area can be searched for, too.
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "attic" } });
+    expect(screen.queryByText("Den Temperature")).toBeNull();
+    expect(screen.getByText("Attic Temperature")).toBeInTheDocument();
   });
 });

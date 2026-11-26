@@ -252,6 +252,13 @@ class TestRoomDevicePickers:
         fake_ha.seed_state("binary_sensor.den_leak", "off", {"device_class": "moisture"})
         fake_ha.seed_state("cover.den_register", "open", {})
         fake_ha.seed_state("cover.den_blind", "open", {"device_class": "blind"})
+        # Never offered as a vent: the engine would open and close it.
+        fake_ha.seed_state("cover.garage_door", "closed", {"device_class": "garage"})
+        fake_ha.seed_state("cover.side_gate", "closed", {"device_class": "gate"})
+        # Measured in degrees but with no device class (a template sensor, say).
+        fake_ha.seed_state("sensor.den_probe", "69", {"unit_of_measurement": "°C"})
+        # The class without a unit is not a usable reading.
+        fake_ha.seed_state("sensor.den_unitless", "69", {"device_class": "temperature"})
         fake_ha.registries["areas"] = [
             {"area_id": "den", "name": "The  DEN"},
             {"area_id": "attic", "name": "Attic"},
@@ -267,7 +274,7 @@ class TestRoomDevicePickers:
     async def test_each_kind_lists_only_its_own_entities(self, client, fake_ha):
         self._seed(fake_ha)
         wanted = {
-            "temperature": ["sensor.attic_temp", "sensor.den_temp"],
+            "temperature": ["sensor.attic_temp", "sensor.den_probe", "sensor.den_temp"],
             "presence": ["binary_sensor.den_motion"],
             "contacts": ["binary_sensor.den_door"],
             # Any cover that is not a shade can be a vent, whatever it is called.
@@ -293,6 +300,7 @@ class TestRoomDevicePickers:
         assert [(e["entity_id"], e["area_name"], e["in_room_area"]) for e in body] == [
             ("sensor.den_temp", "The  DEN", True),
             ("sensor.attic_temp", "Attic", False),
+            ("sensor.den_probe", None, False),
         ]
         # A room with no area of that name changes nothing but still names areas.
         other = await (
@@ -303,6 +311,7 @@ class TestRoomDevicePickers:
         ).json()
         assert [(e["entity_id"], e["in_room_area"]) for e in other] == [
             ("sensor.attic_temp", False),
+            ("sensor.den_probe", False),
             ("sensor.den_temp", False),
         ]
         # Without a room nothing is looked up.
@@ -324,5 +333,6 @@ class TestRoomDevicePickers:
         assert "secret internals" not in await resp.text()
         assert [e["entity_id"] for e in await resp.json()] == [
             "sensor.attic_temp",
+            "sensor.den_probe",
             "sensor.den_temp",
         ]

@@ -351,6 +351,25 @@ describe("Rooms configure view", () => {
     await screen.findByTestId("room-configure");
   };
 
+  it("asks each device search for its own kind of device, in this room's area first", async () => {
+    const room = makeRoom();
+    useRooms([room]);
+    await openConfigure();
+    await waitFor(() => {
+      for (const [domain, kind] of [
+        ["cover", "vents"],
+        ["sensor", "temperature"],
+        ["binary_sensor", "contacts"],
+        ["binary_sensor", "presence"],
+      ]) {
+        expect(api.getHAEntities).toHaveBeenCalledWith(
+          domain,
+          expect.objectContaining({ kind, room: room.name })
+        );
+      }
+    });
+  });
+
   it("says in plain lines what a started room cannot do yet", async () => {
     // A presence sensor only: the room has been started but cannot be controlled.
     const started = makeRoom();
