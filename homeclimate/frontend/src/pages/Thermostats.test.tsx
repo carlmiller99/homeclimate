@@ -557,8 +557,8 @@ describe("Thermostats Page", () => {
     // Initializes from the config value, no unit conversion (it's minutes).
     expect(input.value).toBe("5");
     // The helper text explains the consequence, including the 0 = never case.
-    expect(screen.getByText(/cannot supervise the cycle/i)).toBeInTheDocument();
-    expect(screen.getByText(/0 = never abort/i)).toBeInTheDocument();
+    expect(screen.getByText(/the run is ended and every vent is opened/i)).toBeInTheDocument();
+    expect(screen.getByText(/0 turns this off/i)).toBeInTheDocument();
 
     fireEvent.change(input, { target: { value: "12" } });
     const card = input.closest(".card") as HTMLElement;

@@ -53,9 +53,9 @@ export function describeTargets(
 /** What clearing a level's targets does when nothing above it has any. */
 const CLEAR_WITH_NOTHING_ABOVE: Record<TargetScope, string> = {
   building:
-    "Rooms in this building that have no targets of their own, or from their zone, stop asking for heating or cooling straight away, which ends any cycle running just for them.",
-  zone: "Rooms in this zone that have no targets of their own stop asking for heating or cooling straight away, which ends any cycle running just for them.",
-  room: "This room stops asking for heating or cooling straight away, unless a hold, a schedule or occupancy gives it a target. That ends any cycle running just for it.",
+    "Rooms in this building with no targets of their own stop asking for heating or cooling straight away.",
+  zone: "Rooms in this zone with no targets of their own stop asking for heating or cooling straight away.",
+  room: "This room stops asking for heating or cooling straight away, unless a hold, a schedule or occupancy gives it a target.",
 };
 
 /**
@@ -182,9 +182,8 @@ export function TargetsRow({
       )}
       {valid && cool - heat < toDisplayDelta(CLOSE_F) && (
         <p className="targets-follows targets-note">
-          With targets this close, only a room&apos;s deadband separates heating from cooling. A
-          building held to one side limits how often it changes between them: Heat Only or Cool Only
-          here on the Dashboard, or Auto set to On under Smart Control.
+          With targets this close, a room can swing between heating and cooling. Set the building to
+          Heat Only or Cool Only to stop that.
         </p>
       )}
       {error && <p className="form-error">{error}</p>}

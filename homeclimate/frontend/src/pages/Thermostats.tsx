@@ -84,7 +84,7 @@ const SAFETY_FIELDS: {
   {
     key: "min_cycle_runtime_min",
     label: "Min cycle runtime (min)",
-    help: "Keep the HVAC running at least this long before completing a cycle, to protect the compressor from short-cycling. Recommended: 10 min (long enough to return oil to the compressor and condition effectively). 0 = disabled.",
+    help: "Once heating or cooling starts, it runs at least this long, which protects the equipment. 10 minutes is usual; 0 turns this off.",
     step: "1",
     min: "0",
     kind: "other",
@@ -92,7 +92,7 @@ const SAFETY_FIELDS: {
   {
     key: "min_cycle_offtime_min",
     label: "Min compressor off-time (min)",
-    help: "Wait at least this long after a cycle ends before starting a new one, so the compressor is not restarted too soon. Recommended: 5 min — the industry-standard anti-short-cycle delay that lets refrigerant pressures equalize. 0 = disabled.",
+    help: "After heating or cooling stops, it waits at least this long before starting again. 5 minutes is usual; 0 turns this off.",
     step: "1",
     min: "0",
     kind: "other",
@@ -100,7 +100,7 @@ const SAFETY_FIELDS: {
   {
     key: "unavailable_abort_after_min",
     label: "Abort when thermostat unavailable (min)",
-    help: "If the thermostat entity is unavailable in Home Assistant for this long while a cycle is running, abort the cycle and re-open all vents — while it is unavailable the engine cannot supervise the cycle (no timeout, no closed-vent watchdog). Shorter outages are tolerated and the cycle resumes untouched. Recommended: 5 min. 0 = never abort (not recommended).",
+    help: "If the thermostat stops answering for this long during a run, the run is ended and every vent is opened. 0 turns this off.",
     step: "1",
     min: "0",
     kind: "other",

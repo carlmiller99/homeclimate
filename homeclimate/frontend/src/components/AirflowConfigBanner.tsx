@@ -50,9 +50,8 @@ export default function AirflowConfigBanner() {
             ))}
           </ul>
           <p>
-            Closing too many vents at once raises the pressure in the ducts, which can trip a
-            furnace, strain the blower or freeze the cooling coil. With a vent count, HomeClimate
-            keeps a share of the zone&apos;s vents open at all times.
+            Closing too many vents at once can damage the equipment. With a vent count, HomeClimate
+            always keeps enough of them open.
           </p>
         </>
       }

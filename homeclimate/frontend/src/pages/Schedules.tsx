@@ -285,9 +285,8 @@ function ScheduleModal({
             placeholder="e.g. Weekday night setback"
           />
           <div className="text-sm text-muted" style={{ marginTop: ".3rem" }}>
-            A label for this block, so the list says what it is for and not only when it runs. Leave
-            it blank and the block is identified by its ID instead — either way, the{" "}
-            <span className="badge badge-gray font-mono">ID</span> chip in the list shows it.
+            A name for this block, so the list says what it is for. Leave it blank to list it by its{" "}
+            <span className="badge badge-gray font-mono">ID</span>.
           </div>
         </div>
 
@@ -505,9 +504,8 @@ function CopyModal({
       <div className="modal">
         <div className="modal-title">Copy schedule to other rooms</div>
         <div className="text-sm text-muted" style={{ marginBottom: "1rem" }}>
-          Copies the name, days, times and target. The copy is created enabled and never-expiring.
-          If it conflicts with an existing block in a room, it is copied disabled so you can resolve
-          it.
+          Copies the name, days, times and temperature. A copy that overlaps a block already in a
+          room is added switched off.
         </div>
         {error && (
           <div className="badge badge-red" style={{ marginBottom: "1rem" }}>
@@ -699,9 +697,8 @@ function RoomSchedules({
                 {hold.respect_eco ? "Eco may relax" : "ignores Eco"}
               </div>
               <div className="text-sm text-muted">
-                Overrides the schedule blocks below (and presence) until it ends, then deletes
-                itself. Holds are not schedule blocks and are never conflict-checked. Change or
-                cancel it from the Dashboard.
+                A hold comes ahead of the time blocks below until it ends. Change or cancel it from
+                the Dashboard.
               </div>
             </div>
           )}

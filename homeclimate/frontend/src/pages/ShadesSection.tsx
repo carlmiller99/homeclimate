@@ -83,7 +83,7 @@ export default function ShadesSection({ rooms }: { rooms: Room[] }) {
         {toggle(
           "predictive_close",
           "Close Ahead of a Warm Room",
-          "A sunlit shade also closes before any cooling runs, when it is warmer outside and the room is close to the top of what it is asked to hold, or is expected to pass it on a warming afternoon."
+          "Closes a sunlit shade before cooling is needed, when the room is close to getting too warm."
         )}
         {toggle(
           "close_night_heat",

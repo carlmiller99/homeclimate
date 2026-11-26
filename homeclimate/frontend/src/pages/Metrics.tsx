@@ -289,8 +289,7 @@ function EmptyStateBanners({
         <div className="card" style={{ borderLeft: "3px solid #f59e0b" }}>
           <strong>No cycle data yet for this range.</strong>{" "}
           <span className="text-muted">
-            HomeClimate starts collecting metrics the moment a cycle runs. Trigger one by enabling a
-            schedule or motion-activating a room — the page will populate automatically.
+            Charts appear here once heating or cooling has run in this range.
           </span>
         </div>
       )}
@@ -298,9 +297,8 @@ function EmptyStateBanners({
         <div className="card" style={{ borderLeft: "3px solid #3b82f6" }}>
           <strong>Outside-temperature sensor not configured.</strong>{" "}
           <span className="text-muted">
-            Set one on the <strong>Thermostats</strong> page to unlock the
-            cycles-vs-outside-temperature scatter and the average outside-temp summary tile. Cycles
-            still log without it; only the temperature columns stay NULL.
+            Choose one in <strong>Settings</strong>, Sensors to see how the weather affects your
+            heating and cooling.
           </span>
         </div>
       )}

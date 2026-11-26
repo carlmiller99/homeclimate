@@ -118,9 +118,8 @@ export default function HoldModal({ rooms, initialRoom, holds, onClose, onChange
           {existing ? "Temporary hold active" : "Set temporary hold"}
         </div>
         <p style={{ marginBottom: "1rem" }}>
-          Hold <strong>one room</strong> at an exact temperature for a fixed time — e.g. to shake
-          off a temperature swing. The hold takes precedence over the room's schedules and presence,
-          then deletes itself when the time is up. Nothing else about the room is changed.
+          Keeps <strong>one room</strong> at an exact temperature for a set time, ahead of its
+          schedules and occupancy. It ends by itself.
         </p>
 
         <div className="form-group">
