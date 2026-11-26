@@ -2514,14 +2514,90 @@ button.sc-nav-item {
   background: var(--state-paused-bg);
   color: var(--state-paused-text);
 }
+/* One large card per building, as on My Home: its name, mode and targets,
+   then its zones. */
 .dash-building {
   margin-bottom: 1.5rem;
+  padding: 1.25rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
 }
 .dash-building-title {
-  font-size: 1.1rem;
+  font-size: 1.5rem;
   font-weight: 700;
+  letter-spacing: -0.01em;
   color: var(--gray-900);
-  margin-bottom: 0.6rem;
+  margin: 0 0 0.6rem;
+}
+.dash-building-targets {
+  margin: 0.5rem 0 1rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border);
+}
+.dash-building .card-grid > .card {
+  background: var(--zone-bg);
+}
+.dash-building-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+/* Dashboard → a room's details */
+.room-details {
+  max-width: 44rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.room-details-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 1rem;
+}
+.room-details-now {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem 1rem;
+}
+.room-details-temp {
+  font-size: 2.5rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.room-details-block {
+  background: var(--zone-bg);
+  border-radius: var(--radius);
+  padding: 1rem;
+}
+.room-details-title {
+  margin: 0 0 0.35rem;
+  font-size: 1rem;
+  font-weight: 700;
+}
+.room-details-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+}
+.room-details-sensors {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.room-details-sensors li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.25rem 1rem;
+  padding: 0.5rem 0;
+  border-top: 1px solid var(--border);
+  font-size: 0.9rem;
 }
 .dash-rooms {
   margin-top: 1rem;
@@ -2531,19 +2607,33 @@ button.sc-nav-item {
 }
 .dash-room {
   display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-  padding: 0.6rem 0;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 3rem;
+  padding: 0.5rem 0.6rem;
+  margin: 0 -0.6rem;
+  width: calc(100% + 1.2rem);
+  border: 0;
   border-bottom: 1px solid var(--gray-100);
+  border-radius: 8px;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
 }
 .dash-room:last-child {
   border-bottom: none;
 }
-.dash-room-main {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 0.5rem;
+.dash-room-open {
+  cursor: pointer;
+}
+.dash-room-open:hover {
+  background: var(--gray-50);
+}
+.dash-room-open:focus-visible {
+  outline: 2px solid var(--primary, currentColor);
+  outline-offset: 2px;
 }
 .dash-room-name {
   font-weight: 600;
@@ -2555,19 +2645,6 @@ button.sc-nav-item {
 }
 .dash-room-temp {
   text-align: right;
-}
-.dash-room-target {
-  display: block;
-  font-weight: 500;
-}
-.dash-room-actions {
-  display: flex;
-  gap: 0.4rem;
-  flex-wrap: wrap;
-}
-.dash-room-actions .btn {
-  padding: 0.1rem 0.6rem;
-  font-size: 0.78rem;
 }
 .dash-paused {
   margin-top: 0.75rem;

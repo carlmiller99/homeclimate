@@ -110,21 +110,15 @@ describe("Dashboard — CI build", () => {
 
     render(<Dashboard />);
 
-    // The frozen sample is laid over the zone's own room, with its
-    // requesting-temp line and Clear-presence button.
+    // The frozen sample is laid over the zone's own room.
     const row = await screen.findByTestId("dash-room-room-1");
     expect(row).toHaveTextContent("Living Room");
     expect(row).toHaveTextContent("71.4°F");
-    expect(row).toHaveTextContent(/requesting 68.0°F/);
-    expect(screen.getAllByRole("button", { name: /^Clear Presence for / })).toHaveLength(1);
+    expect(within(row).getByText("Presence")).toBeInTheDocument();
     // A hold is user-set state, not engine-driven, so it still shows.
-    expect(
-      within(row).getByRole("button", { name: "Cancel Hold for Living Room" })
-    ).toBeInTheDocument();
-    expect(within(row).queryByRole("button", { name: /^Hold for / })).toBeNull();
+    expect(within(row).getByText("Hold")).toBeInTheDocument();
     // The real, engine-driven reading for that room is frozen out under CI.
     expect(screen.queryByText("76.1°F")).not.toBeInTheDocument();
-    expect(screen.queryByText(/requesting 72.0°F/)).not.toBeInTheDocument();
   });
 
   it("shows the sample by id for a zone with no rooms, and nothing for later zones", async () => {
@@ -150,10 +144,10 @@ describe("Dashboard — CI build", () => {
 
     expect(await screen.findByText("Bedroom")).toBeInTheDocument();
     expect(screen.getByText("Office")).toBeInTheDocument();
-    expect(screen.getByText(/requesting 68.0°F/)).toBeInTheDocument();
-    expect(screen.getByText(/requesting 70.0°F/)).toBeInTheDocument();
+    expect(screen.getByText("71.4°F")).toBeInTheDocument();
+    expect(screen.getByText("73.0°F")).toBeInTheDocument();
     // Only the first zone carries the sample; the second renders no rooms.
-    expect(screen.getAllByRole("button", { name: /^Clear Presence for / })).toHaveLength(2);
+    expect(screen.getAllByText("Presence")).toHaveLength(2);
     expect(screen.queryByText("room-1")).not.toBeInTheDocument();
   });
 });

@@ -37,7 +37,7 @@ const CLEAR_WITH_NOTHING_ABOVE: Record<TargetScope, string> = {
  * the backend converts on write (#231). Re-derived during render, keyed on the
  * stored content, so a refetch never discards what is being typed (pitfall 9).
  */
-function TargetsRow({
+export function TargetsRow({
   house,
   level,
   onSaved,
@@ -179,65 +179,5 @@ function TargetsRow({
         />
       )}
     </div>
-  );
-}
-
-/** A building (or a zone in no building) with the zones and rooms under it. */
-export interface TargetGroup {
-  top: TargetLevel;
-  /** Zones under a building, each with its rooms; or just rooms under a zone. */
-  children: { level: TargetLevel; rooms: TargetLevel[] }[];
-}
-
-/**
- * Dashboard → Targets: a heating and a cooling target for each building, with
- * its zones and rooms folded underneath for the ones that should differ.
- */
-export default function TargetsCard({
-  house,
-  groups,
-  onSaved,
-}: {
-  house: House;
-  groups: TargetGroup[];
-  onSaved: (house: House) => void;
-}) {
-  if (groups.length === 0) return null;
-  return (
-    <section className="house-band targets-card" aria-labelledby="targets-title">
-      <div className="house-band-text">
-        <h2 className="house-band-title" id="targets-title">
-          Targets
-        </h2>
-        <p className="house-band-help">
-          A heating target and a cooling target; they can be the same number. A room is heated below
-          the first and cooled above the second, unless a hold, a schedule or occupancy gives it its
-          own. A room follows its zone, and a zone its building, unless you give it targets of its
-          own.
-        </p>
-      </div>
-      {groups.map((g) => (
-        <div key={`${g.top.scope}:${g.top.id}`} className="targets-group">
-          <TargetsRow house={house} level={g.top} onSaved={onSaved} />
-          {g.children.length > 0 && (
-            <details className="targets-more">
-              <summary>
-                {g.top.scope === "building"
-                  ? `Zones and rooms in ${g.top.name}`
-                  : `Rooms in ${g.top.name}`}
-              </summary>
-              {g.children.map((c) => (
-                <div key={`${c.level.scope}:${c.level.id}`}>
-                  <TargetsRow house={house} level={c.level} onSaved={onSaved} />
-                  {c.rooms.map((r) => (
-                    <TargetsRow key={r.id} house={house} level={r} onSaved={onSaved} />
-                  ))}
-                </div>
-              ))}
-            </details>
-          )}
-        </div>
-      ))}
-    </section>
   );
 }

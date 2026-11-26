@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import Dashboard from "./Dashboard";
 import * as api from "../api";
 import { SystemContext, DevModeContext, UnitContext, buildUnitContext } from "../contexts";
@@ -158,11 +158,13 @@ describe("Dashboard — uncovered branches", () => {
     renderDashboard();
     await screen.findAllByText("Upstairs");
 
-    const den = screen.getByText("Den").closest(".dash-room") as HTMLElement;
-    expect(within(den).getByText("1/4 open")).toBeInTheDocument();
+    // The vents are in each room's details.
+    fireEvent.click(screen.getByRole("button", { name: "Details for Den" }));
+    expect(screen.getByRole("region", { name: "Vents" })).toHaveTextContent("1 of 4 open");
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
 
-    const study = screen.getByText("Study").closest(".dash-room") as HTMLElement;
-    expect(within(study).getByText("2/2 open")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Details for Study" }));
+    expect(screen.getByRole("region", { name: "Vents" })).toHaveTextContent("2 of 2 open");
   });
 
   // ── modeColor / modeLabel (lines 27-39) ───────────────────────────────────
@@ -294,15 +296,12 @@ describe("Dashboard — uncovered branches", () => {
     expect(container.querySelector(".progress-fill")).toBeNull();
 
     // 0 of the zone's 2 rooms are active, but both are still listed, each
-    // with a Hold control and a dash until a sensor reports.
+    // with a dash until a sensor reports.
     const activeCount = screen.getByText("Active rooms").parentElement as HTMLElement;
     expect(activeCount).toHaveTextContent("0 / 2");
     for (const id of ["r1", "r2"]) {
       const row = within(card).getByTestId(`dash-room-${id}`);
       expect(within(row).getByText("—")).toBeInTheDocument();
-      expect(within(row).getByRole("button", { name: /^Hold for / })).toBeInTheDocument();
-      expect(within(row).queryByRole("button", { name: /^Clear Presence/ })).toBeNull();
-      expect(within(row).queryByText(/requesting/)).toBeNull();
     }
   });
 
@@ -364,8 +363,10 @@ describe("Dashboard — uncovered branches", () => {
     // Room average.
     expect(screen.getByText("24.5°C")).toBeInTheDocument();
     // Eco requested→effective line: both values converted.
-    const eco = screen.getByTitle(/Eco Mode relaxed this room's target/i);
-    expect(eco).toHaveTextContent("🌿 22.2°C · requested 21.1°C — Eco");
+    fireEvent.click(screen.getByRole("button", { name: "Details for Den" }));
+    expect(screen.getByRole("dialog", { name: "Den details" })).toHaveTextContent(
+      "Asking for 22.2°C. Eco Mode relaxed it from 21.1°C."
+    );
     // Hold strip target (75 °F).
     expect(screen.getByTestId("dashboard-hold-r1")).toHaveTextContent("23.9°C");
     // None of the raw °F numbers leak into the rendered page.

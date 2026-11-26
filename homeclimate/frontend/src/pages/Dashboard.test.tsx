@@ -146,9 +146,12 @@ describe("Dashboard Page", () => {
         </DevModeContext.Provider>
       </SystemContext.Provider>
     );
-    // Room's live temp and the target it is requesting are both shown.
+    // The row shows the room's temperature; its details say what it asks for.
     expect(await screen.findByText("76.1°F")).toBeInTheDocument();
-    expect(screen.getByText(/requesting 72.0°F/)).toBeInTheDocument();
+    const row = screen.getByTestId("dash-room-room-1");
+    expect(row).not.toHaveTextContent("72.0°F");
+    fireEvent.click(row);
+    expect(screen.getByRole("dialog")).toHaveTextContent("Asking for 72.0°F.");
   });
 
   it("shows the Eco requested→effective indicator when a room is relaxed (#404)", async () => {
@@ -178,10 +181,10 @@ describe("Dashboard Page", () => {
       </SystemContext.Provider>
     );
 
-    const eco = await screen.findByTitle(/Eco Mode relaxed this room's target/i);
-    expect(eco).toHaveTextContent("🌿 74.0°F · requested 72.0°F — Eco");
-    // The plain "requesting" indicator is not shown for an eco-relaxed room.
-    expect(screen.queryByText(/requesting 74\.0°F/)).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByTestId("dash-room-room-1"));
+    expect(screen.getByRole("dialog")).toHaveTextContent(
+      "Asking for 74.0°F. Eco Mode relaxed it from 72.0°F."
+    );
   });
 
   it("keeps the Eco badge when target equals requested (state from older versions)", async () => {
@@ -213,11 +216,11 @@ describe("Dashboard Page", () => {
       </SystemContext.Provider>
     );
 
-    const eco = await screen.findByTitle(/Eco Mode relaxed this room's target/i);
-    expect(eco).toHaveTextContent("🌿 72.0°F — Eco");
-    // The two-value "target · requested X" form is reserved for a visibly
-    // moved target.
-    expect(eco).not.toHaveTextContent("· requested");
+    fireEvent.click(await screen.findByTestId("dash-room-room-1"));
+    const details = screen.getByRole("dialog");
+    expect(details).toHaveTextContent("Asking for 72.0°F, with Eco Mode on.");
+    // "relaxed it from" is kept for a target that visibly moved.
+    expect(details).not.toHaveTextContent("relaxed it from");
   });
 
   it("clears presence for an active room from the dashboard", async () => {
@@ -229,7 +232,8 @@ describe("Dashboard Page", () => {
         </DevModeContext.Provider>
       </SystemContext.Provider>
     );
-    const clearBtn = await screen.findByRole("button", { name: /Clear presence/i });
+    fireEvent.click(await screen.findByTestId("dash-room-room-1"));
+    const clearBtn = screen.getByRole("button", { name: /Clear presence/i });
     await act(async () => {
       fireEvent.click(clearBtn);
     });
@@ -306,25 +310,15 @@ describe("Dashboard Page", () => {
       </SystemContext.Provider>
     );
 
-    // Three rooms → three Clear-presence buttons (one per room).
-    const buttons = await screen.findAllByRole("button", { name: /Clear presence/i });
-    expect(buttons).toHaveLength(3);
-
-    // Each room shows its own requesting temperature.
-    expect(screen.getByText(/requesting 72.0°F/)).toBeInTheDocument();
-    expect(screen.getByText(/requesting 68.0°F/)).toBeInTheDocument();
-    expect(screen.getByText(/requesting 71.0°F/)).toBeInTheDocument();
-
-    // Each button is bound to its own room: clicking the 2nd clears only room-2,
-    // the 3rd clears only room-3.
-    await act(async () => {
-      fireEvent.click(buttons[1]);
-    });
-    expect(api.clearPresenceHoldover).toHaveBeenCalledWith("room-2");
-    await act(async () => {
-      fireEvent.click(buttons[2]);
-    });
-    expect(api.clearPresenceHoldover).toHaveBeenCalledWith("room-3");
+    // Each room's details clear that room only.
+    for (const id of ["room-2", "room-3"]) {
+      fireEvent.click(await screen.findByTestId(`dash-room-${id}`));
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /Clear presence/i }));
+      });
+      expect(api.clearPresenceHoldover).toHaveBeenLastCalledWith(id);
+      fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    }
     expect(api.clearPresenceHoldover).not.toHaveBeenCalledWith("room-1");
   });
 
@@ -758,8 +752,6 @@ describe("Dashboard Page", () => {
       expect(strip).toHaveTextContent("75.0°F");
       expect(strip).toHaveTextContent("ends in 1h 30m");
       expect(strip).toHaveTextContent("ignores Eco");
-      // The page-level button flips into manage mode while a hold is live.
-      expect(screen.getByTestId("dashboard-hold-btn")).toHaveTextContent("1 hold active — manage");
     });
 
     it("labels an Eco-opted-in hold and falls back to the id for an unknown room", async () => {
@@ -782,8 +774,6 @@ describe("Dashboard Page", () => {
       const orphan = screen.getByTestId("dashboard-hold-room-gone");
       expect(orphan).toHaveTextContent("room-gone");
       expect(orphan).toHaveTextContent("ends in 45s");
-      // Two live holds → pluralised manage label.
-      expect(screen.getByTestId("dashboard-hold-btn")).toHaveTextContent("2 holds active — manage");
     });
 
     it("still renders when the holds read fails", async () => {
@@ -798,8 +788,7 @@ describe("Dashboard Page", () => {
         </SystemContext.Provider>
       );
       expect(await screen.findByText(/Main HVAC/i)).toBeInTheDocument();
-      // No hold info → the button falls back to the set-a-hold label.
-      expect(screen.getByTestId("dashboard-hold-btn")).toHaveTextContent("Temporary hold");
+      expect(screen.getByRole("button", { name: "Hold a room" })).toBeInTheDocument();
     });
 
     it("cancels a hold from the strip and reloads", async () => {
@@ -821,7 +810,7 @@ describe("Dashboard Page", () => {
       expect(api.getStatus).toHaveBeenCalledTimes(2);
     });
 
-    it("opens the hold modal from the page-level button", async () => {
+    it("opens the hold modal from the button above the zones", async () => {
       render(
         <SystemContext.Provider value={mockSystem}>
           <DevModeContext.Provider value={mockDevMode}>
@@ -829,9 +818,8 @@ describe("Dashboard Page", () => {
           </DevModeContext.Provider>
         </SystemContext.Provider>
       );
-      const btn = await screen.findByTestId("dashboard-hold-btn");
-      // No live holds → the button offers to set one.
-      expect(btn).toHaveTextContent("Temporary hold");
+      const btn = await screen.findByTestId("dash-hold-unassigned");
+      expect(btn).toHaveTextContent("Hold a Room");
       fireEvent.click(btn);
       expect(screen.getByTestId("hold-modal")).toBeInTheDocument();
       // Close puts the page back without any API call.
@@ -849,7 +837,7 @@ describe("Dashboard Page", () => {
           </DevModeContext.Provider>
         </SystemContext.Provider>
       );
-      fireEvent.click(await screen.findByTestId("dashboard-hold-btn"));
+      fireEvent.click(await screen.findByTestId("dash-hold-unassigned"));
       // The modal sees the live hold for the pre-selected room, so it offers
       // replace + cancel instead of a fresh set.
       expect(screen.getByTestId("hold-modal")).toBeInTheDocument();

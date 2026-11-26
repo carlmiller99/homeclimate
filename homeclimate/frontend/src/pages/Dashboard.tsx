@@ -6,7 +6,6 @@ import {
   getVacationMode,
   getOverrides,
   clearOverride,
-  clearPresenceHoldover,
   connectWS,
   getEntityStates,
   getRoom,
@@ -30,7 +29,8 @@ import BuildingModeControl from "../components/BuildingModeControl";
 import { getBuildingModes, type BuildingMode } from "../buildingModeApi";
 import TodayCard from "../components/TodayCard";
 import ConfirmDialog from "../components/ConfirmDialog";
-import TargetsCard, { type TargetGroup, type TargetLevel } from "../components/TargetsCard";
+import { TargetsRow, type TargetLevel } from "../components/TargetsCard";
+import RoomDetailsModal, { type SensorReading } from "../components/RoomDetailsModal";
 import RoomFollowDialog from "../components/RoomFollowDialog";
 import { calendarFor, getHouse, switchesFor, type House } from "../houseApi";
 import { getSmartControl, type SmartControl } from "../smartControlApi";
@@ -111,6 +111,9 @@ const HouseContext = createContext<{
   house: House;
   openOptions: (room: { id: string; name: string }) => void;
 } | null>(null);
+/** Opens a room's details. Always there, so a room can be held or have its
+ *  occupancy cleared even when the home's layout could not be read. */
+const OpenRoomContext = createContext<(room: { id: string; name: string }) => void>(() => {});
 
 function RoomRow({
   room,
@@ -124,9 +127,6 @@ function RoomRow({
   banking = false,
   arriving = false,
   coolingEarly = false,
-  onHold,
-  onCancelHold,
-  onClearPresence,
 }: {
   room: { id: string; name: string };
   active?: ZoneStatus["rooms"][number];
@@ -146,198 +146,107 @@ function RoomRow({
   arriving?: boolean;
   /** Cooled a little into its band ahead of a warm afternoon (Early Cooling). */
   coolingEarly?: boolean;
-  onHold: () => void;
-  onCancelHold: () => void;
-  onClearPresence: () => void;
 }) {
   const houseCtx = useContext(HouseContext);
+  const openRoom = useContext(OpenRoomContext);
   const notInUse = houseCtx !== null && !switchesFor(houseCtx.house, room.id).in_use;
   const { fmtTemp } = useUnit();
-  const ventEntries = Object.entries(active?.vent_states ?? {});
-  const openCount = ventEntries.filter(([, s]) => s === "open").length;
-  const [clearing, setClearing] = useState(false);
-  const [error, setError] = useState("");
   const shownTemp = active?.avg_temp ?? temp;
-
-  const clearPresence = async () => {
-    setClearing(true);
-    setError("");
-    try {
-      await clearPresenceHoldover(room.id);
-      onClearPresence();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not clear presence");
-    } finally {
-      setClearing(false);
-    }
-  };
-
+  // The whole row opens the room's details, where its targets, hold,
+  // occupancy, vents and sensors are. The row itself shows one number.
   return (
-    <div className="dash-room" data-testid={`dash-room-${room.id}`}>
-      <div className="dash-room-main">
-        <span className="dash-room-name">
-          {room.name}
-          {held && (
-            <span
-              className="badge badge-purple"
-              title="A temporary hold is driving this room — it overrides schedules and presence until it ends."
-            >
-              Hold
-            </span>
-          )}
-          {active?.presence_active && <span className="badge badge-green">Presence</span>}
-          {paused && (
-            <span className="badge badge-orange" role="status" title={pausedText(paused)}>
-              Paused
-            </span>
-          )}
-          {notInUse && (
-            <span
-              className="badge badge-gray"
-              role="status"
-              title="This room is not in use: only a hold or its safety limits will heat or cool it"
-            >
-              Not In Use
-            </span>
-          )}
-          {balancing && (
-            <span
-              className="badge badge-gray"
-              role="status"
-              title="Zone Balance is heating or cooling this room to keep its zone within the gap limit of another"
-            >
-              Zone Balance
-            </span>
-          )}
-          {banking && (
-            <span
-              className="badge badge-gray"
-              role="status"
-              title="This room is being heated or cooled a little into its band now, so less has to run during the peak hours"
-            >
-              Banking
-            </span>
-          )}
-          {arriving && (
-            <span
-              className="badge badge-gray"
-              role="status"
-              title="This room is usually used about now, so it is being brought to its occupied temperature ahead of time"
-            >
-              Getting Ready
-            </span>
-          )}
-          {coolingEarly && (
-            <span
-              className="badge badge-gray"
-              role="status"
-              title="This room is being cooled a little now, because it is expected to pass its Cool To later on a warming afternoon"
-            >
-              Cooling Early
-            </span>
-          )}
-          {coasting && (
-            <span
-              className="badge badge-gray"
-              role="status"
-              title="This room is a little short of its target and is expected to get there by itself, so nothing has been started for it yet"
-            >
-              Coasting
-            </span>
-          )}
-          {fireplace && (
-            <span
-              className="badge badge-orange"
-              role="status"
-              title={`${fireplace} is warming this room, so it isn't calling for heating or cooling`}
-            >
-              Fireplace
-            </span>
-          )}
-        </span>
-        <span className="dash-room-temp">
-          <span className="stat-value">{shownTemp != null ? fmtTemp(shownTemp) : "—"}</span>
-          {active?.target_temp != null &&
-            (active.eco_active && active.requested_target != null ? (
-              <span
-                className="text-sm text-muted dash-room-target"
-                title="Eco Mode relaxed this room's target based on the outdoor temperature; only the setpoint sent to the thermostat is rounded to a whole degree"
-              >
-                {active.target_temp === active.requested_target ? (
-                  <>🌿 {fmtTemp(active.target_temp)} — Eco</>
-                ) : (
-                  <>
-                    🌿 {fmtTemp(active.target_temp)} · requested {fmtTemp(active.requested_target)}{" "}
-                    — Eco
-                  </>
-                )}
-              </span>
-            ) : (
-              <span
-                className="text-sm text-muted dash-room-target"
-                title="Temperature this room is requesting from the cycle"
-              >
-                🎯 requesting {fmtTemp(active.target_temp)}
-              </span>
-            ))}
-        </span>
-      </div>
-      {ventEntries.length > 0 && (
-        <div className="flex gap-sm" style={{ flexWrap: "wrap" }}>
-          {ventEntries.map(([eid, state]) => (
-            <span key={eid} className="tag">
-              <span className={`vent-dot ${state}`} />
-              {eid.split(".").pop()} · {state}
-            </span>
-          ))}
-          <span className="text-sm text-muted">
-            {openCount}/{ventEntries.length} open
-          </span>
-        </div>
-      )}
-      <div className="dash-room-actions">
-        {held ? (
-          <button
-            className="btn btn-sm btn-outline-danger"
-            title="End the hold now — the room returns to its schedules and presence."
-            aria-label={`Cancel Hold for ${room.name}`}
-            onClick={onCancelHold}
-          >
-            Cancel Hold
-          </button>
-        ) : (
-          <button
-            className="btn btn-sm btn-secondary"
-            title="Hold this room at an exact temperature for 1–8 hours, overriding schedules and presence."
-            aria-label={`Hold for ${room.name}`}
-            onClick={onHold}
+    <button
+      type="button"
+      className="dash-room dash-room-open"
+      data-testid={`dash-room-${room.id}`}
+      aria-label={`Details for ${room.name}`}
+      title="Targets, hold, occupancy, vents and each sensor's reading"
+      onClick={() => openRoom(room)}
+    >
+      <span className="dash-room-name">
+        {room.name}
+        {held && (
+          <span
+            className="badge badge-purple"
+            title="A temporary hold is driving this room — it overrides schedules and presence until it ends."
           >
             Hold
-          </button>
+          </span>
         )}
-        {houseCtx && (
-          <button
-            className="btn btn-sm btn-secondary"
-            title="Choose whether this room is in use, and whether it follows its schedules and occupancy or its targets."
-            aria-label={`Options for ${room.name}`}
-            onClick={() => houseCtx.openOptions(room)}
+        {active?.presence_active && <span className="badge badge-green">Presence</span>}
+        {paused && (
+          <span className="badge badge-orange" role="status" title={pausedText(paused)}>
+            Paused
+          </span>
+        )}
+        {notInUse && (
+          <span
+            className="badge badge-gray"
+            role="status"
+            title="This room is not in use: only a hold or its safety limits will heat or cool it"
           >
-            Options
-          </button>
+            Not In Use
+          </span>
         )}
-        {active?.presence_active && (
-          <button
-            className="btn btn-sm btn-outline-danger"
-            aria-label={clearing ? undefined : `Clear Presence for ${room.name}`}
-            onClick={clearPresence}
-            disabled={clearing}
+        {balancing && (
+          <span
+            className="badge badge-gray"
+            role="status"
+            title="Zone Balance is heating or cooling this room to keep its zone within the gap limit of another"
           >
-            {clearing ? "Clearing…" : "Clear Presence"}
-          </button>
+            Zone Balance
+          </span>
         )}
-      </div>
-      {error && <p className="form-error">{error}</p>}
-    </div>
+        {banking && (
+          <span
+            className="badge badge-gray"
+            role="status"
+            title="This room is being heated or cooled a little into its band now, so less has to run during the peak hours"
+          >
+            Banking
+          </span>
+        )}
+        {arriving && (
+          <span
+            className="badge badge-gray"
+            role="status"
+            title="This room is usually used about now, so it is being brought to its occupied temperature ahead of time"
+          >
+            Getting Ready
+          </span>
+        )}
+        {coolingEarly && (
+          <span
+            className="badge badge-gray"
+            role="status"
+            title="This room is being cooled a little now, because it is expected to pass its Cool To later on a warming afternoon"
+          >
+            Cooling Early
+          </span>
+        )}
+        {coasting && (
+          <span
+            className="badge badge-gray"
+            role="status"
+            title="This room is a little short of its target and is expected to get there by itself, so nothing has been started for it yet"
+          >
+            Coasting
+          </span>
+        )}
+        {fireplace && (
+          <span
+            className="badge badge-orange"
+            role="status"
+            title={`${fireplace} is warming this room, so it isn't calling for heating or cooling`}
+          >
+            Fireplace
+          </span>
+        )}
+      </span>
+      <span className="dash-room-temp">
+        <span className="stat-value">{shownTemp != null ? fmtTemp(shownTemp) : "—"}</span>
+      </span>
+    </button>
   );
 }
 
@@ -348,11 +257,6 @@ function roomsBlock(
   heldRoomIds: Set<string>,
   pausedRooms: Record<string, string[] | null>,
   fireplaceRooms: Record<string, string>,
-  controls: {
-    onHold: (roomId: string) => void;
-    onCancelHold: (roomId: string) => void;
-    onClearPresence: () => void;
-  },
   coasting: string[] = [],
   balancing: string[] = [],
   banking: string[] = [],
@@ -384,9 +288,6 @@ function roomsBlock(
           banking={banking.includes(room.id)}
           arriving={arriving.includes(room.id)}
           coolingEarly={coolingEarly.includes(room.id)}
-          onHold={() => controls.onHold(room.id)}
-          onCancelHold={() => controls.onCancelHold(room.id)}
-          onClearPresence={controls.onClearPresence}
         />
       ))}
     </div>
@@ -417,9 +318,6 @@ function ZoneCard({
   heldRoomIds,
   temps,
   smart,
-  onHold,
-  onCancelHold,
-  onClearPresence,
   onSuspendEco,
   showActiveRoomsSample,
 }: {
@@ -431,9 +329,6 @@ function ZoneCard({
   temps: Record<string, number | null>;
   /** Door and window pauses; null when they could not be read. */
   smart: SmartControl | null;
-  onHold: (roomId: string) => void;
-  onCancelHold: (roomId: string) => void;
-  onClearPresence: () => void;
   onSuspendEco: (thermostatEntityId: string) => void;
   showActiveRoomsSample: boolean;
 }) {
@@ -549,8 +444,7 @@ function ZoneCard({
           // engine, so they stay live under CI.
           heldRoomIds,
           pausedRooms,
-          fireplaceRooms,
-          { onHold, onCancelHold, onClearPresence }
+          fireplaceRooms
         )}
       >
         {roomsBlock(
@@ -560,7 +454,6 @@ function ZoneCard({
           heldRoomIds,
           pausedRooms,
           fireplaceRooms,
-          { onHold, onCancelHold, onClearPresence },
           zone.coasting_rooms,
           zone.balance_rooms,
           zone.bank_rooms,
@@ -614,10 +507,13 @@ export default function Dashboard() {
   // Temporary holds (#576): live holds for the page-level strip and the
   // per-room badges; the modal state mirrors ecoSuspendFor's shape.
   const [holds, setHolds] = useState<RoomOverrideHold[]>([]);
-  const [holdModalFor, setHoldModalFor] = useState<{ room?: string } | null>(null);
+  const [holdModalFor, setHoldModalFor] = useState<{ room?: string; rooms?: Room[] } | null>(null);
   const [buildings, setBuildings] = useState<Building[]>([]);
   const [profiles, setProfiles] = useState<ZoneProfile[]>([]);
   const [temps, setTemps] = useState<Record<string, number | null>>({});
+  // Each room's sensors as last read, for its details.
+  const [readings, setReadings] = useState<Record<string, SensorReading[]>>({});
+  const [detailsFor, setDetailsFor] = useState<{ id: string; name: string } | null>(null);
   // Each room's temperature sensors, fetched once per set of rooms: the list
   // only changes when the house's structure does, unlike the readings.
   const sensorsByRoom = useRef<{ key: string; at: number; map: Record<string, string[]> }>({
@@ -707,6 +603,18 @@ export default function Dashboard() {
     const stale = new Set(
       (health?.rooms ?? []).flatMap((h) => h.stale_sensors.map((x) => x.entity_id))
     );
+    setReadings(
+      Object.fromEntries(
+        r.map((room) => [
+          room.id,
+          (map[room.id] ?? []).map((id) => ({
+            entity_id: id,
+            value: states[id]?.numeric ?? null,
+            stale: stale.has(id),
+          })),
+        ])
+      )
+    );
     setTemps(
       Object.fromEntries(
         r.map((room) => [
@@ -794,314 +702,395 @@ export default function Dashboard() {
     name: z.name || z.thermostat_entity_id,
     parent,
   });
-  const roomLevels = (zone: TargetLevel): TargetLevel[] =>
-    rooms
-      .filter((r) => r.thermostat_entity_id === zone.id)
-      .map((r) => ({ scope: "room", id: r.id, name: r.name, parent: zone }));
-  const targetGroups: TargetGroup[] = [
-    ...buildings.map((b) => {
-      const top: TargetLevel = { scope: "building", id: b.id, name: b.name };
-      return {
-        top,
-        children: profiles
-          .filter((z) => z.building_id === b.id)
-          .map((z) => {
-            const level = zoneLevel(z, top);
-            return { level, rooms: roomLevels(level) };
-          }),
-      };
-    }),
-    ...profiles
-      .filter((z) => !buildings.some((b) => b.id === z.building_id))
-      .map((z) => {
-        const top = zoneLevel(z);
-        return { top, children: roomLevels(top).map((r) => ({ level: r, rooms: [] })) };
-      }),
-  ];
+  /** The rooms of a building's zones, for a hold started from its header. */
+  const roomsIn = (items: ZoneStatus[]): Room[] =>
+    rooms.filter((r) => items.some((z) => z.thermostat_entity_id === r.thermostat_entity_id));
+  /** What a room is following right now, for its details. */
+  const roomStatus = (roomId: string): string => {
+    if (holds.some((h) => h.room_id === roomId)) return "On hold.";
+    if (house && !switchesFor(house, roomId).in_use) {
+      return "Not in use: only a hold or its safety limits heat or cool it.";
+    }
+    const active = zones.flatMap((z) => z.rooms).find((a) => a.room_id === roomId);
+    if (active?.presence_active) return "Occupied: kept at its occupied temperature.";
+    if (active) return "Asking for heating or cooling now.";
+    return "Not asking for heating or cooling right now.";
+  };
+  const buildingLevel = (b: Building): TargetLevel => ({
+    scope: "building",
+    id: b.id,
+    name: b.name,
+  });
+  /** A zone as a targets level, under its building when it is in one. */
+  const levelOfZone = (z: ZoneProfile): TargetLevel => {
+    const b = buildings.find((x) => x.id === z.building_id);
+    return zoneLevel(z, b ? buildingLevel(b) : undefined);
+  };
+  /** A room as a targets level, with its zone and building above it. */
+  const levelOfRoom = (roomId: string, name: string): TargetLevel => {
+    const full = rooms.find((x) => x.id === roomId);
+    const z = profiles.find((p) => p.thermostat_entity_id === full?.thermostat_entity_id);
+    return { scope: "room", id: roomId, name, parent: z ? levelOfZone(z) : undefined };
+  };
   const vacationScheduled = vacationState(vacationMode) === "scheduled";
   return (
     <HouseContext.Provider value={houseCtx}>
-      <div>
-        <div className="page-header">
-          <div>
-            <div className="page-title">Dashboard</div>
-            <div className="page-subtitle">
-              {zones.length} zone{zones.length !== 1 ? "s" : ""} · {rooms.length} room
-              {rooms.length !== 1 ? "s" : ""}
-              {lastUpdate && (
-                <>
-                  {" · Updated "}
-                  <Frozen>
-                    <Time value={lastUpdate} kind="time" />
-                  </Frozen>
-                </>
-              )}
+      <OpenRoomContext.Provider value={setDetailsFor}>
+        <div>
+          <div className="page-header">
+            <div>
+              <div className="page-title">Dashboard</div>
+              <div className="page-subtitle">
+                {zones.length} zone{zones.length !== 1 ? "s" : ""} · {rooms.length} room
+                {rooms.length !== 1 ? "s" : ""}
+                {lastUpdate && (
+                  <>
+                    {" · Updated "}
+                    <Frozen>
+                      <Time value={lastUpdate} kind="time" />
+                    </Frozen>
+                  </>
+                )}
+              </div>
+            </div>
+            <div className="dash-header-actions">
+              <button
+                type="button"
+                role="switch"
+                aria-checked={system.enabled}
+                className={`btn ${system.enabled ? "btn-secondary" : "btn-danger"}`}
+                title="Turn all of HomeClimate's heating and cooling control on or off"
+                onClick={() => setConfirmSystem(true)}
+              >
+                <span
+                  className="system-toggle-dot"
+                  style={{ background: system.enabled ? "var(--green)" : "var(--gray-400)" }}
+                />
+                <span>System</span>
+                <strong className="system-toggle-state">{system.enabled ? "On" : "Off"}</strong>
+              </button>
+              {/* Vacation Mode sits beside the System switch and is drawn the same
+                way: a dot, the name, the state. It opens the vacation dialog. */}
+              <button
+                type="button"
+                className={`btn ${vacationMode.enabled ? "btn-warning" : "btn-secondary"}`}
+                aria-label={
+                  vacationMode.enabled
+                    ? "Vacation mode active"
+                    : vacationScheduled
+                      ? "Vacation scheduled"
+                      : "Enable vacation mode"
+                }
+                title="Set the whole house back while you are away, or plan a trip"
+                onClick={() => setShowVacationModal(true)}
+              >
+                <span
+                  className="system-toggle-dot"
+                  style={{
+                    background: vacationMode.enabled
+                      ? "var(--orange)"
+                      : vacationScheduled
+                        ? "var(--orange)"
+                        : "var(--gray-400)",
+                  }}
+                />
+                <span>Vacation</span>
+                <strong className="system-toggle-state">
+                  {vacationMode.enabled ? "On" : vacationScheduled ? "Scheduled" : "Off"}
+                </strong>
+              </button>
+              <button className="btn btn-secondary" onClick={load}>
+                ↻ Refresh
+              </button>
             </div>
           </div>
-          <div className="dash-header-actions">
-            <button
-              type="button"
-              role="switch"
-              aria-checked={system.enabled}
-              className={`btn ${system.enabled ? "btn-secondary" : "btn-danger"}`}
-              title="Turn all of HomeClimate's heating and cooling control on or off"
-              onClick={() => setConfirmSystem(true)}
-            >
-              <span
-                className="system-toggle-dot"
-                style={{ background: system.enabled ? "var(--green)" : "var(--gray-400)" }}
-              />
-              <span>System</span>
-              <strong className="system-toggle-state">{system.enabled ? "On" : "Off"}</strong>
-            </button>
-            {/* Vacation Mode sits beside the System switch and is drawn the same
-                way: a dot, the name, the state. It opens the vacation dialog. */}
-            <button
-              type="button"
-              className={`btn ${vacationMode.enabled ? "btn-warning" : "btn-secondary"}`}
-              aria-label={
-                vacationMode.enabled
-                  ? "Vacation mode active"
-                  : vacationScheduled
-                    ? "Vacation scheduled"
-                    : "Enable vacation mode"
+          {confirmSystem && (
+            <ConfirmDialog
+              title={system.enabled ? "Turn the system off?" : "Turn the system on?"}
+              message={
+                system.enabled
+                  ? "HomeClimate stops controlling every thermostat and vent until you turn it back on. Running cycles end."
+                  : "HomeClimate takes control of every thermostat and vent again."
               }
-              title="Set the whole house back while you are away, or plan a trip"
-              onClick={() => setShowVacationModal(true)}
-            >
-              <span
-                className="system-toggle-dot"
-                style={{
-                  background: vacationMode.enabled
-                    ? "var(--orange)"
-                    : vacationScheduled
-                      ? "var(--orange)"
-                      : "var(--gray-400)",
-                }}
-              />
-              <span>Vacation</span>
-              <strong className="system-toggle-state">
-                {vacationMode.enabled ? "On" : vacationScheduled ? "Scheduled" : "Off"}
-              </strong>
-            </button>
-            <button className="btn btn-secondary" onClick={load}>
-              ↻ Refresh
-            </button>
-          </div>
-        </div>
-        {confirmSystem && (
-          <ConfirmDialog
-            title={system.enabled ? "Turn the system off?" : "Turn the system on?"}
-            message={
-              system.enabled
-                ? "HomeClimate stops controlling every thermostat and vent until you turn it back on. Running cycles end."
-                : "HomeClimate takes control of every thermostat and vent again."
-            }
-            confirmLabel={system.enabled ? "Turn System Off" : "Turn System On"}
-            onCancel={() => setConfirmSystem(false)}
-            onConfirm={() => {
-              setConfirmSystem(false);
-              void system.toggle();
-            }}
-          />
-        )}
+              confirmLabel={system.enabled ? "Turn System Off" : "Turn System On"}
+              onCancel={() => setConfirmSystem(false)}
+              onConfirm={() => {
+                setConfirmSystem(false);
+                void system.toggle();
+              }}
+            />
+          )}
 
-        <AirflowConfigBanner />
-        <UnavailableThermostatsBanner />
-        <StaleSensorsBanner />
+          <AirflowConfigBanner />
+          <UnavailableThermostatsBanner />
+          <StaleSensorsBanner />
 
-        {house && structureLoaded && (
-          <TargetsCard house={house} groups={targetGroups} onSaved={setHouse} />
-        )}
-        <TodayCard />
+          <TodayCard />
 
-        {/* Eco Suspend + Temporary hold buttons — sit above climate cards.
+          {/* Eco Suspend — sits above the buildings. Holds start from a building
+            or from a room's details.
             Vacation Mode is in the page header, beside the System switch. */}
-        <div style={{ marginBottom: "1rem" }}>
-          <div style={{ display: "flex", gap: ".5rem", flexWrap: "wrap" }}>
-            {/* Only shown when Eco is in play somewhere: a thermostat has Eco
+          <div style={{ marginBottom: "1rem" }}>
+            <div style={{ display: "flex", gap: ".5rem", flexWrap: "wrap" }}>
+              {/* Only shown when Eco is in play somewhere: a thermostat has Eco
               enabled, a room has an explicit Eco opt-in, or a suspension is
               already active (#500). */}
-            {(thermostats.some((t) => t.eco_mode_enabled || t.eco_suspend_until) ||
-              rooms.some((r) => r.eco_mode_enabled === true)) && (
-              <button
-                className="btn btn-secondary"
-                data-testid="dashboard-eco-suspend-btn"
-                onClick={() => setEcoSuspendFor({})}
-                style={{ display: "flex", alignItems: "center", gap: ".5rem" }}
-              >
-                🍃{" "}
-                {thermostats.some((t) => t.eco_suspend_until)
-                  ? "Eco suspended — manage"
-                  : "Suspend Eco"}
-              </button>
-            )}
-            {/* Temporary hold (#576): hold one room at an exact temperature for
-              1–8 hours, overriding its schedules and presence. */}
-            {rooms.length > 0 && (
-              <button
-                className="btn btn-secondary"
-                data-testid="dashboard-hold-btn"
-                onClick={() => setHoldModalFor({})}
-                style={{ display: "flex", alignItems: "center", gap: ".5rem" }}
-              >
-                🕒{" "}
-                {holds.length > 0
-                  ? `${holds.length} hold${holds.length !== 1 ? "s" : ""} active — manage`
-                  : "Temporary hold"}
-              </button>
-            )}
-          </div>
-          {vacationMode.enabled && vacationMode.return_at && (
-            <div
-              className="form-hint"
-              style={{ marginTop: ".4rem" }}
-              title={tz.tooltip(vacationMode.return_at)}
-            >
-              {`Schedules paused until ${tz.format(vacationMode.return_at)}`}
+              {(thermostats.some((t) => t.eco_mode_enabled || t.eco_suspend_until) ||
+                rooms.some((r) => r.eco_mode_enabled === true)) && (
+                <button
+                  className="btn btn-secondary"
+                  data-testid="dashboard-eco-suspend-btn"
+                  onClick={() => setEcoSuspendFor({})}
+                  style={{ display: "flex", alignItems: "center", gap: ".5rem" }}
+                >
+                  🍃{" "}
+                  {thermostats.some((t) => t.eco_suspend_until)
+                    ? "Eco suspended — manage"
+                    : "Suspend Eco"}
+                </button>
+              )}
             </div>
-          )}
-          {actionError && <p className="form-error">{actionError}</p>}
-          {/* Active holds strip (#576): every live hold — including rooms that
+            {vacationMode.enabled && vacationMode.return_at && (
+              <div
+                className="form-hint"
+                style={{ marginTop: ".4rem" }}
+                title={tz.tooltip(vacationMode.return_at)}
+              >
+                {`Schedules paused until ${tz.format(vacationMode.return_at)}`}
+              </div>
+            )}
+            {actionError && <p className="form-error">{actionError}</p>}
+            {/* Active holds strip (#576): every live hold — including rooms that
             are not part of a running cycle — with a cancel next to each. The
             countdown is backend-derived and time-varying, so it is frozen for
             the visual goldens; name/target/eco tag are stable and stay live. */}
-          {holds.map((h) => {
-            const room = rooms.find((r) => r.id === h.room_id);
-            return (
-              <div
-                key={h.room_id}
-                className="form-hint"
-                data-testid={`dashboard-hold-${h.room_id}`}
-                style={{ marginTop: ".4rem", display: "flex", alignItems: "center", gap: ".5rem" }}
-              >
-                <span>
-                  🕒 <strong>{room?.name ?? h.room_id}</strong> held at{" "}
-                  <strong>{bandText(fmtTemp, h.target_temp, h.cool_to)}</strong> · ends in{" "}
-                  <Frozen>{formatCountdown(h.ends_in_seconds)}</Frozen> ·{" "}
-                  {h.respect_eco ? "Eco may relax" : "ignores Eco"}
-                </span>
-                <button
-                  className="btn btn-sm btn-outline-danger"
-                  style={{ padding: "0 .5rem", fontSize: ".75rem" }}
-                  title="End the hold now — the room returns to its schedules and presence."
-                  onClick={() => cancelHold(h.room_id)}
+            {holds.map((h) => {
+              const room = rooms.find((r) => r.id === h.room_id);
+              return (
+                <div
+                  key={h.room_id}
+                  className="form-hint"
+                  data-testid={`dashboard-hold-${h.room_id}`}
+                  style={{
+                    marginTop: ".4rem",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: ".5rem",
+                  }}
                 >
-                  Cancel
-                </button>
-              </div>
-            );
-          })}
-        </div>
-
-        {zones.length === 0 ? (
-          <div className="card">
-            <div className="empty-state">
-              <p>No zones set up yet.</p>
-              <p style={{ marginTop: ".5rem" }}>
-                Go to <strong>My Home</strong> to add your first zone.
-              </p>
-            </div>
-          </div>
-        ) : (
-          groupByBuilding(
-            buildings,
-            [...zones].sort(
-              (a, b) =>
-                (profiles.find((p) => p.thermostat_entity_id === a.thermostat_entity_id)
-                  ?.sort_order ?? 0) -
-                (profiles.find((p) => p.thermostat_entity_id === b.thermostat_entity_id)
-                  ?.sort_order ?? 0)
-            ),
-            (z) =>
-              profiles.find((p) => p.thermostat_entity_id === z.thermostat_entity_id)
-                ?.building_id ?? null
-          )
-            // A building with no zones has nothing to show here; My Home lists it.
-            .filter((group) => group.items.length > 0)
-            .map((group) => (
-              <section
-                key={group.building?.id ?? "unassigned"}
-                className="dash-building"
-                data-testid={`dash-building-${group.building?.id ?? "unassigned"}`}
-              >
-                {buildings.length > 0 && (
-                  <div className="dash-building-title">{group.building?.name ?? "Other Zones"}</div>
-                )}
-                {buildingModes
-                  .filter((m) => m.building_id === group.building?.id)
-                  .map((m) => (
-                    <BuildingModeControl
-                      key={m.building_id}
-                      building={m}
-                      zoneNames={Object.fromEntries(
-                        profiles.map((p) => [p.thermostat_entity_id, p.name])
-                      )}
-                      onSaved={setBuildingModes}
-                    />
-                  ))}
-                <div className="card-grid">
-                  {group.items.map((z) => (
-                    <ZoneCard
-                      key={z.thermostat_entity_id}
-                      zone={z}
-                      rooms={rooms}
-                      thermostats={thermostats}
-                      heldRoomIds={new Set(holds.map((h) => h.room_id))}
-                      temps={temps}
-                      smart={smart}
-                      onHold={(roomId) => setHoldModalFor({ room: roomId })}
-                      onCancelHold={cancelHold}
-                      onClearPresence={load}
-                      onSuspendEco={(tid) => setEcoSuspendFor({ thermostat: tid })}
-                      showActiveRoomsSample={z === zones[0]}
-                    />
-                  ))}
+                  <span>
+                    🕒 <strong>{room?.name ?? h.room_id}</strong> held at{" "}
+                    <strong>{bandText(fmtTemp, h.target_temp, h.cool_to)}</strong> · ends in{" "}
+                    <Frozen>{formatCountdown(h.ends_in_seconds)}</Frozen> ·{" "}
+                    {h.respect_eco ? "Eco may relax" : "ignores Eco"}
+                  </span>
+                  <button
+                    className="btn btn-sm btn-outline-danger"
+                    style={{ padding: "0 .5rem", fontSize: ".75rem" }}
+                    title="End the hold now — the room returns to its schedules and presence."
+                    onClick={() => cancelHold(h.room_id)}
+                  >
+                    Cancel
+                  </button>
                 </div>
-              </section>
-            ))
-        )}
+              );
+            })}
+          </div>
 
-        {showVacationModal && (
-          <VacationModeModal
-            current={vacationMode}
-            onClose={() => setShowVacationModal(false)}
-            onChanged={(updated) => {
-              setVacationMode(updated);
-              setShowVacationModal(false);
-            }}
-          />
-        )}
+          {zones.length === 0 ? (
+            <div className="card">
+              <div className="empty-state">
+                <p>No zones set up yet.</p>
+                <p style={{ marginTop: ".5rem" }}>
+                  Go to <strong>My Home</strong> to add your first zone.
+                </p>
+              </div>
+            </div>
+          ) : (
+            groupByBuilding(
+              buildings,
+              [...zones].sort(
+                (a, b) =>
+                  (profiles.find((p) => p.thermostat_entity_id === a.thermostat_entity_id)
+                    ?.sort_order ?? 0) -
+                  (profiles.find((p) => p.thermostat_entity_id === b.thermostat_entity_id)
+                    ?.sort_order ?? 0)
+              ),
+              (z) =>
+                profiles.find((p) => p.thermostat_entity_id === z.thermostat_entity_id)
+                  ?.building_id ?? null
+            )
+              // A building with no zones has nothing to show here; My Home lists it.
+              .filter((group) => group.items.length > 0)
+              .map((group) => (
+                <section
+                  key={group.building?.id ?? "unassigned"}
+                  className="dash-building"
+                  data-testid={`dash-building-${group.building?.id ?? "unassigned"}`}
+                >
+                  {(buildings.length > 0 || roomsIn(group.items).length > 0) && (
+                    <div className="dash-building-head">
+                      {buildings.length > 0 && (
+                        <h2 className="dash-building-title">
+                          {group.building?.name ?? "Other Zones"}
+                        </h2>
+                      )}
+                      {roomsIn(group.items).length > 0 && (
+                        <button
+                          type="button"
+                          className="btn btn-secondary"
+                          data-testid={`dash-hold-${group.building?.id ?? "unassigned"}`}
+                          aria-label={
+                            buildings.length > 0
+                              ? `Hold a room in ${group.building?.name ?? "Other Zones"}`
+                              : "Hold a room"
+                          }
+                          title="Keep one room at an exact temperature for 1 to 8 hours, ahead of its schedules, occupancy and targets"
+                          onClick={() => setHoldModalFor({ rooms: roomsIn(group.items) })}
+                        >
+                          Hold a Room
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  {buildingModes
+                    .filter((m) => m.building_id === group.building?.id)
+                    .map((m) => (
+                      <BuildingModeControl
+                        key={m.building_id}
+                        building={m}
+                        zoneNames={Object.fromEntries(
+                          profiles.map((p) => [p.thermostat_entity_id, p.name])
+                        )}
+                        onSaved={setBuildingModes}
+                      />
+                    ))}
+                  {house && structureLoaded && (
+                    <div className="dash-building-targets">
+                      {group.building && (
+                        <TargetsRow
+                          house={house}
+                          level={buildingLevel(group.building)}
+                          onSaved={setHouse}
+                        />
+                      )}
+                      {(() => {
+                        const zoneRows = profiles
+                          .filter((p) =>
+                            group.items.some(
+                              (z) => z.thermostat_entity_id === p.thermostat_entity_id
+                            )
+                          )
+                          .map((p) => (
+                            <TargetsRow
+                              key={p.thermostat_entity_id}
+                              house={house}
+                              level={levelOfZone(p)}
+                              onSaved={setHouse}
+                            />
+                          ));
+                        // A zone in a building follows it unless told otherwise, so
+                        // its own targets are folded away; one in no building has
+                        // nothing above it and is shown outright.
+                        return group.building ? (
+                          <details className="targets-more">
+                            <summary>{`Targets for zones in ${group.building.name}`}</summary>
+                            {zoneRows}
+                          </details>
+                        ) : (
+                          zoneRows
+                        );
+                      })()}
+                    </div>
+                  )}
+                  <div className="card-grid">
+                    {group.items.map((z) => (
+                      <ZoneCard
+                        key={z.thermostat_entity_id}
+                        zone={z}
+                        rooms={rooms}
+                        thermostats={thermostats}
+                        heldRoomIds={new Set(holds.map((h) => h.room_id))}
+                        temps={temps}
+                        smart={smart}
+                        onSuspendEco={(tid) => setEcoSuspendFor({ thermostat: tid })}
+                        showActiveRoomsSample={z === zones[0]}
+                      />
+                    ))}
+                  </div>
+                </section>
+              ))
+          )}
 
-        {ecoSuspendFor && (
-          <EcoSuspendModal
-            thermostats={thermostats}
-            initialThermostat={ecoSuspendFor.thermostat}
-            onClose={() => setEcoSuspendFor(null)}
-            onChanged={load}
-          />
-        )}
+          {detailsFor && (
+            <RoomDetailsModal
+              level={levelOfRoom(detailsFor.id, detailsFor.name)}
+              house={house}
+              temp={temps[detailsFor.id] ?? null}
+              readings={readings[detailsFor.id] ?? []}
+              held={holds.some((h) => h.room_id === detailsFor.id)}
+              status={roomStatus(detailsFor.id)}
+              active={zones.flatMap((z) => z.rooms).find((a) => a.room_id === detailsFor.id)}
+              onClearedPresence={load}
+              onSaved={setHouse}
+              onHold={() => {
+                setHoldModalFor({ room: detailsFor.id });
+                setDetailsFor(null);
+              }}
+              onCancelHold={() => {
+                // Back to the page, which is where a failure is reported.
+                setDetailsFor(null);
+                void cancelHold(detailsFor.id);
+              }}
+              onOptions={() => {
+                setOptionsFor(detailsFor);
+                setDetailsFor(null);
+              }}
+              onClose={() => setDetailsFor(null)}
+            />
+          )}
 
-        {holdModalFor && (
-          <HoldModal
-            rooms={rooms}
-            initialRoom={holdModalFor.room}
-            holds={Object.fromEntries(holds.map((h) => [h.room_id, h]))}
-            onClose={() => setHoldModalFor(null)}
-            onChanged={load}
-          />
-        )}
-        {optionsFor && house && (
-          <RoomFollowDialog
-            roomId={optionsFor.id}
-            roomName={optionsFor.name}
-            switches={switchesFor(house, optionsFor.id)}
-            calendar={calendarFor(house, optionsFor.id)?.entity_id ?? null}
-            onSaved={setHouse}
-            onClose={() => setOptionsFor(null)}
-          />
-        )}
-      </div>
+          {showVacationModal && (
+            <VacationModeModal
+              current={vacationMode}
+              onClose={() => setShowVacationModal(false)}
+              onChanged={(updated) => {
+                setVacationMode(updated);
+                setShowVacationModal(false);
+              }}
+            />
+          )}
+
+          {ecoSuspendFor && (
+            <EcoSuspendModal
+              thermostats={thermostats}
+              initialThermostat={ecoSuspendFor.thermostat}
+              onClose={() => setEcoSuspendFor(null)}
+              onChanged={load}
+            />
+          )}
+
+          {holdModalFor && (
+            <HoldModal
+              rooms={holdModalFor.rooms ?? rooms}
+              initialRoom={holdModalFor.room}
+              holds={Object.fromEntries(holds.map((h) => [h.room_id, h]))}
+              onClose={() => setHoldModalFor(null)}
+              onChanged={load}
+            />
+          )}
+          {optionsFor && house && (
+            <RoomFollowDialog
+              roomId={optionsFor.id}
+              roomName={optionsFor.name}
+              switches={switchesFor(house, optionsFor.id)}
+              calendar={calendarFor(house, optionsFor.id)?.entity_id ?? null}
+              onSaved={setHouse}
+              onClose={() => setOptionsFor(null)}
+            />
+          )}
+        </div>
+      </OpenRoomContext.Provider>
     </HouseContext.Provider>
   );
 }
