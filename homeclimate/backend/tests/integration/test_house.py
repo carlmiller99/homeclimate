@@ -649,6 +649,17 @@ async def test_a_zone_leaving_its_building_keeps_the_targets_it_followed(client,
     assert (await client.put(f"/api/zones/{T1}", json={"building_id": main})).status == 200
     assert (await client.put(f"/api/zones/{T1}", json={"building_id": None})).status == 200
     assert (await house.load(conn)).levels[("zone", T1)] == house.Band(60.0, 85.0)
+    # A change that is refused hands nothing down either.
+    await house.set_level(conn, "zone", T1, None, None)
+    assert (await client.put(f"/api/zones/{T1}", json={"building_id": pool})).status == 200
+    resp = await client.put(f"/api/zones/{T1}", json={"building_id": None, "sort_order": "x"})
+    assert resp.status == 400
+    await conn.commit()
+    assert ("zone", T1) not in (await house.load(conn)).levels
+    # Moving to a building with no targets of its own keeps the old ones too.
+    barn = (await (await client.post("/api/buildings", json={"name": "Barn"})).json())["id"]
+    assert (await client.put(f"/api/zones/{T1}", json={"building_id": barn})).status == 200
+    assert (await house.load(conn)).levels[("zone", T1)] == house.Band(60.0, 85.0)
     # A building with no targets hands nothing down.
     await house.set_level(conn, "zone", T1, None, None)
     await house.set_level(conn, "building", main, None, None)
@@ -702,16 +713,18 @@ async def test_the_forecast_is_judged_against_every_target_in_use(client, rooms)
     assert (await client.put(f"/api/zones/{T1}", json={"building_id": main})).status == 200
     # Nothing set: nothing to judge by.
     loaded = await house.load(conn)
-    assert (loaded.outer_band(), loaded.building_outer_band(main)) == (None, None)
-    # Only the zone has targets; its building still has a band to judge by.
+    assert (loaded.outer_band(), loaded.building_forecast_band(main)) == (None, None)
+    # Only the zone has targets; its building still has something to judge by.
     await house.set_level(conn, "zone", T1, 69, 73)
     await house.set_level(conn, "zone", "climate.elsewhere", 50, 90)
-    await house.set_level(conn, "room", rooms["bunk"], 64, 71)
     loaded = await house.load(conn)
-    assert loaded.building_outer_band(main) == house.Band(69.0, 73.0)
+    assert loaded.building_forecast_band(main) == house.Band(69.0, 73.0)
     assert loaded.outer_band() == house.Band(50.0, 90.0)
-    await house.set_level(conn, "building", main, 71, 72)
-    assert (await house.load(conn)).building_outer_band(main) == house.Band(69.0, 73.0)
+    # A level with wide targets does not hide a room with narrow ones: the
+    # building needs heating as soon as its most demanding room does.
+    await house.set_level(conn, "building", main, 55, 85)
+    await house.set_level(conn, "room", rooms["bunk"], 71, 72)
+    assert (await house.load(conn)).building_forecast_band(main) == house.Band(71.0, 72.0)
 
 
 async def test_a_house_band_from_an_earlier_version_is_handed_to_the_levels(client, rooms):
@@ -753,6 +766,12 @@ async def test_a_house_band_from_an_earlier_version_is_handed_to_the_levels(clie
     await conn.commit()
 
     assert await house.adopt_house_band(conn) == 3
+    # ...and those targets can be changed like any other zone's.
+    resp = await client.put(
+        "/api/house/targets/zone/climate.unregistered",
+        json={"house_heat_to": 68, "house_cool_to": 74},
+    )
+    assert resp.status == 200, await resp.text()
     loaded = await house.load(conn)
     assert loaded.band is None
     assert loaded.levels == {
@@ -767,6 +786,18 @@ async def test_a_house_band_from_an_earlier_version_is_handed_to_the_levels(clie
     assert await house.adopt_house_band(conn) == 0
     # The scheduler's own call never raises, whatever the database says.
     await client.app["scheduler"].adopt_house_band()
+
+
+async def test_a_building_is_still_made_when_the_old_band_cannot_be_carried_over(
+    client, rooms, monkeypatch, caplog
+):
+    async def _boom(_conn):
+        raise RuntimeError("database is locked")
+
+    monkeypatch.setattr(house, "adopt_house_band", _boom)
+    resp = await client.post("/api/buildings", json={"name": "Main House"})
+    assert resp.status == 201, await resp.text()
+    assert "Could not carry the house band over to the new building" in caplog.text
 
 
 async def test_the_scheduler_carries_the_old_band_over_and_survives_a_failure(

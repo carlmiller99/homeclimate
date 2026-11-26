@@ -98,7 +98,7 @@ describe("One Side Per Building", () => {
     const field = await screen.findByLabelText("Switching threshold for Main House (°C)");
     expect(field).toHaveValue(1.67);
     fireEvent.change(field, { target: { value: "9" } });
-    expect(screen.getByText("Between 0 and 5.56°C.")).toBeInTheDocument();
+    expect(screen.getByText("Between 0 and 5.55°C.")).toBeInTheDocument();
     fireEvent.change(field, { target: { value: "2" } });
     fireEvent.click(
       screen.getByRole("button", { name: "Save switching threshold for Main House" })

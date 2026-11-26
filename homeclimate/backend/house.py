@@ -144,6 +144,8 @@ class House:
     levels: dict[tuple[str, str], Band] = field(default_factory=dict)
     # thermostat entity id → its building's id, for zones that are in one.
     zone_building: dict[str, str] = field(default_factory=dict)
+    # room id → its zone's thermostat entity id.
+    room_zone: dict[str, str] = field(default_factory=dict)
 
     def band_for(self, room_id: str, zone_id: str) -> Band | None:
         """The targets a room follows: its own, else its zone's, else its building's."""
@@ -159,29 +161,35 @@ class House:
             return self.band
         return self.levels.get(("building", building_id)) or self.band
 
-    def building_outer_band(self, building_id: str) -> Band | None:
-        """The lowest heating and highest cooling target in use in a building.
+    def building_forecast_band(self, building_id: str) -> Band | None:
+        """The outdoor temperatures at which a building starts to need a side.
 
-        Its own and those of its zones, for judging a forecast against: a
-        building whose zones each have their own targets has none itself.
+        The highest heating target and the lowest cooling target in use in it
+        (its own, its zones' and its rooms'): colder outside than the first
+        and some room wants heating, warmer than the second and some room
+        wants cooling. A level with wide targets must not hide a room with
+        narrow ones. The two may cross; only a forecast is judged against it.
         """
-        return (
-            _outer(
-                [
-                    band
-                    for (scope, scope_id), band in self.levels.items()
-                    if (scope == "building" and scope_id == building_id)
-                    or (scope == "zone" and self.zone_building.get(scope_id) == building_id)
-                ]
+        bands = [
+            band
+            for (scope, scope_id), band in self.levels.items()
+            if (scope == "building" and scope_id == building_id)
+            or (scope == "zone" and self.zone_building.get(scope_id) == building_id)
+            or (
+                scope == "room"
+                and self.zone_building.get(self.room_zone.get(scope_id, "")) == building_id
             )
-            or self.band
-        )
+        ]
+        if not bands:
+            return self.band
+        return Band(max(b.heat_to for b in bands), min(b.cool_to for b in bands))
 
     def outer_band(self) -> Band | None:
         """The lowest heating and highest cooling target set anywhere.
 
-        For a view of the whole home (Today's Plan): outdoors colder than this
-        heats somewhere, warmer cools somewhere.
+        For a view of the whole home (Today's Plan): outdoors colder than the
+        first, every room with targets wants heating; warmer than the second,
+        every one wants cooling.
         """
         return _outer([*self.levels.values(), *([self.band] if self.band else [])])
 
@@ -283,7 +291,9 @@ async def level_exists(conn: aiosqlite.Connection, scope: str, scope_id: str) ->
     """Whether ``scope_id`` names a building, a zone or a room that exists."""
     query = {
         "building": "SELECT 1 FROM buildings WHERE id=?",
-        "zone": "SELECT 1 FROM thermostat_configs WHERE thermostat_entity_id=?",
+        # A room's thermostat is a zone even when it was never set up as one.
+        "zone": "SELECT 1 FROM thermostat_configs WHERE thermostat_entity_id=?1"
+        " UNION SELECT 1 FROM rooms WHERE thermostat_entity_id=?1",
         "room": "SELECT 1 FROM rooms WHERE id=?",
     }[scope]
     async with conn.execute(query, (scope_id,)) as cur:
@@ -321,7 +331,9 @@ async def load(conn: aiosqlite.Connection) -> House:
             (r["kind"], r["ref_id"]): TargetBand(r["heat_to"], r["cool_to"], r["stamp"])
             for r in await cur.fetchall()
         }
-    return House(band, rooms, calendars, targets, levels, zone_building)
+    async with conn.execute("SELECT id, thermostat_entity_id FROM rooms") as cur:
+        room_zone = {r["id"]: r["thermostat_entity_id"] for r in await cur.fetchall()}
+    return House(band, rooms, calendars, targets, levels, zone_building, room_zone)
 
 
 async def set_target_band(
@@ -414,6 +426,13 @@ async def hand_down(conn: aiosqlite.Connection, building_id: str, zone_ids: set[
             " VALUES ('zone',?,?,?)",
             (zone_id, row[0], row[1]),
         )
+
+
+async def has_targets(conn: aiosqlite.Connection, building_id: str) -> bool:
+    async with conn.execute(
+        "SELECT 1 FROM level_targets WHERE scope='building' AND scope_id=?", (building_id,)
+    ) as cur:
+        return await cur.fetchone() is not None
 
 
 async def safety_window(

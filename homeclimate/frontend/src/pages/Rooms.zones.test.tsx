@@ -1,4 +1,4 @@
-import { HP_DEFAULTS } from "../zoneFixtures";
+import { FAN_DEFAULTS, HP_DEFAULTS } from "../zoneFixtures";
 /** Rooms page grouping by building and zone (HomeClimate). */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -10,6 +10,7 @@ import { SystemContext, UnitContext, buildUnitContext } from "../contexts";
 import { ecoThermostatDefaults, ecoRoomDefaults } from "../testFixtures";
 
 vi.mock("../api");
+vi.mock("../components/AirIntakeField", () => ({ default: () => null }));
 vi.mock("../zonesApi", async (orig) => ({
   ...(await orig<typeof import("../zonesApi")>()),
   getZones: vi.fn(),
@@ -130,6 +131,7 @@ const zone = (over: Partial<zonesApi.ZoneProfile>): zonesApi.ZoneProfile => ({
   equipment_running_entity: null,
   heat_kit_confirmed: false,
   ...HP_DEFAULTS,
+  ...FAN_DEFAULTS,
   ...over,
 });
 

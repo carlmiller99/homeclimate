@@ -383,10 +383,66 @@ async def test_a_seasonal_switch_needs_the_coming_days_to_favour_it(client, site
     mild = days([66.0])
     assert bm.forecast_favours(mild, "heating", band, NOW) is True
     assert bm.forecast_favours(mild, "cooling", band, NOW) is False
-    assert bm.forecast_favours(mild, "heating", None, NOW) is False  # default: below 60
+    # Days that need neither side say nothing against a switch.
+    assert bm.forecast_favours(mild, "heating", None, NOW) is None  # default: below 60
+    assert bm.forecast_favours(mild, "cooling", None, NOW) is None
     mostly_warm = days([80.0, 80.0, 40.0, 80.0])
     _p, switched = await _plan(client, [_zone(T2, wants="cooling")], hours=mostly_warm)
     assert switched == [(site, "cooling")]
+
+
+async def test_a_reading_that_was_not_held_past_the_threshold_does_not_count(client, site):
+    await _on_heating(client, site)
+    spike = {"past": 4.5, "held": 1.0}
+    planner, switched = await _plan(client, [_zone(T2, wants="cooling", **spike)])
+    assert switched == []
+    assert planner.decisions()[site].note == (
+        "A zone wants cooling; no room is far enough past its target"
+    )
+    _p, switched = await _plan(client, [_zone(T2, wants="cooling", past=4.5, held=3.0)])
+    assert switched == [(site, "cooling")]
+
+
+async def test_only_a_switch_that_is_about_to_happen_is_passed_on_to_other_zones(client, site):
+    scheduler = client.app["scheduler"]
+    await _on_heating(client, site)
+    just = {"since": NOW - timedelta(minutes=3)}
+    planner, _s = await _plan(client, [_zone(T2, wants="cooling", **just)])
+    assert planner.decisions()[site].leaning == "cooling"
+    scheduler._waiting_at_plan = {T2: "cooling"}
+    assert scheduler._building_waiting(T1) == "cooling"
+    assert scheduler._building_waiting(T2) is None  # its own wait
+    # Held back by the limit, a wait can last a month: it is not passed on.
+    await _mode(client, site, switching="monthly")
+    _p, switched = await _plan(client, [_zone(T2, wants="cooling")], now=NOW)
+    assert switched == [(site, "cooling")]  # the new limit counts from here
+    later = NOW + timedelta(days=3)
+    waiting = [_zone(T2, wants="heating", since=later - timedelta(minutes=3))]
+    planner, _s = await _plan(client, waiting, now=later)
+    assert "until a switch is allowed" in planner.decisions()[site].note
+    assert planner.decisions()[site].leaning is None
+    scheduler._waiting_at_plan = {T2: "heating"}
+    assert scheduler._building_waiting(T1) is None
+
+
+async def test_changing_the_limit_or_leaving_auto_starts_the_count_again(client, site):
+    await _on_heating(client, site, at=NOW - timedelta(minutes=30))
+    planner, switched = await _plan(client, [_zone(T2, wants="cooling")])
+    assert "until a switch is allowed" in planner.decisions()[site].note
+    # Setting the same limit again changes nothing...
+    await _mode(client, site, switching="often")
+    _p, switched = await _plan(client, [_zone(T2, wants="cooling")])
+    assert switched == []
+    # ...a different one counts from the next change, so a first side taken
+    # under the old limit does not hold the building for a month.
+    await _mode(client, site, switching="monthly")
+    _p, switched = await _plan(client, [_zone(T2, wants="cooling")])
+    assert switched == [(site, "cooling")]
+    # Leaving Auto forgets today's count as well as the side.
+    conn = await client.app["scheduler"].get_db()
+    assert (await bm.load(conn))[site].switches == 1
+    await _mode(client, site, mode="heat_only")
+    assert (await bm.load(conn))[site].switches == 0
 
 
 async def test_switching_settings_are_checked_and_kept(client, site):
@@ -404,6 +460,15 @@ async def test_switching_settings_are_checked_and_kept(client, site):
         resp = await client.put(f"/api/building-modes/{site}", json=body)
         assert resp.status == 400, body
         assert (await resp.json())["error"] == text
+    # The largest value the display unit shows converts back a hair over the
+    # limit, and is taken as the limit.
+    client.app["scheduler"]._active_unit = "C"
+    try:
+        got = await _mode(client, site, switch_threshold=5.56)
+    finally:
+        client.app["scheduler"]._active_unit = "F"
+    assert got["switch_threshold"] == 10.0
+    await _mode(client, site, switch_threshold=4)
     # A mode change leaves them alone.
     got = await _mode(client, site, mode="heat_only")
     assert (got["switching"], got["switch_threshold"]) == ("weekly", 4.0)

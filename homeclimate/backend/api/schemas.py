@@ -735,6 +735,12 @@ class ZoneProfileSchema(Schema):
         metadata={"description": "Heat pump: max warm-up rate (delta per hour, °F stored)"}
     )
     hp_aux_policy = fields.Str(metadata={"description": "avoid | allow (auxiliary heat)"})
+    fan_level = fields.Str(
+        metadata={"description": "Fan between rooms with nothing else running: off | watch | on"}
+    )
+    air_intake = fields.Str(
+        metadata={"description": "Whether the air handler draws in outside air: yes | no | unsure"}
+    )
     hp_min_runtime_min = fields.Int()
     hp_min_open_heat_pct = fields.Int()
     hp_switchover_gap_min = fields.Int()
@@ -774,6 +780,12 @@ class ZoneProfileWriteSchema(Schema):
         }
     )
     hp_aux_policy = fields.Str(metadata={"description": "avoid | allow (auxiliary heat)"})
+    fan_level = fields.Str(
+        metadata={"description": "Fan between rooms with nothing else running: off | watch | on"}
+    )
+    air_intake = fields.Str(
+        metadata={"description": "Whether the air handler draws in outside air: yes | no | unsure"}
+    )
     hp_min_runtime_min = fields.Int()
     hp_min_open_heat_pct = fields.Int()
     hp_switchover_gap_min = fields.Int()
@@ -923,6 +935,36 @@ class ShadesSchema(Schema):
     settings = fields.Nested(ShadeSettingsSchema)
     sun = fields.Nested(SunSchema)
     shades = fields.List(fields.Nested(ShadeSchema))
+
+
+class FanTestSchema(Schema):
+    at = fields.Str()
+    interrupted = fields.Bool(metadata={"description": "A cycle or a pause cut the test short"})
+    difference = fields.Float(
+        metadata={"description": "°F between inside and outside at the start"}
+    )
+    moved = fields.Float(
+        metadata={"description": "°F the zone moved toward the outside temperature"}
+    )
+    hint = fields.Str(metadata={"description": "possible | none. A hint, not a finding"})
+
+
+class FanZoneSchema(Schema):
+    thermostat_entity_id = fields.Str()
+    name = fields.Str()
+    level = fields.Str(metadata={"description": "off | watch | on"})
+    air_intake = fields.Str(metadata={"description": "yes | no | unsure"})
+    supported = fields.Bool(metadata={"description": "The thermostat has an on/auto fan setting"})
+    running = fields.Bool(metadata={"description": "HomeClimate has the fan on now"})
+    testing = fields.Bool()
+    note = fields.Str(metadata={"description": "What the fan is doing, or why it is not running"})
+    minutes_last_hour = fields.Int()
+    test = fields.Nested(FanTestSchema, allow_none=True)
+
+
+class FanSchema(Schema):
+    zones = fields.List(fields.Nested(FanZoneSchema))
+    test_minutes = fields.Int()
 
 
 class BuildingModeWriteSchema(Schema):

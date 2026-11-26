@@ -244,6 +244,7 @@ class CycleEngine:
         self._protect_said_at: datetime | None = None
         # Set while this zone has demand its building's side does not allow.
         self.building_wait: dict | None = None
+        self._wait_past: list[tuple[datetime, float]] = []
         # Heat pump protection: guards for this zone, or None (conventional).
         self._get_heat_pump = get_heat_pump
         # (started_at, thermostat ambient °F) of the current heat pump warm-up.
@@ -5984,8 +5985,14 @@ class CycleEngine:
         if can_start:
             excess = 0.0
             past_target = 0.0
+            ambient = (thermo_state or {}).get("attributes", {}).get("current_temperature")
             for ar in active_rooms.values():
                 avg = self._get_avg_temp(ar.room)
+                if avg is None and isinstance(ambient, int | float):
+                    # No reading of its own: go by the thermostat's, as the
+                    # choice between heating and cooling did. Without this a
+                    # zone with no room sensors could never switch its building.
+                    avg = float(ambient)
                 if avg is not None:
                     gap = avg + ar.room.temp_offset - ar.target_temp
                     beyond = gap if inferred == "cooling" else -gap
@@ -6007,11 +6014,19 @@ class CycleEngine:
             )
             since = now if fresh or started is None else started[2]
             self._wait_started = (inferred, obey, since, now)
+            # How far past its target the zone has stayed over the last ten
+            # minutes: the least of the readings, so one spike counts for nothing.
+            if fresh:
+                self._wait_past = []
+            self._wait_past = [
+                (at, p) for at, p in self._wait_past if now - at < timedelta(minutes=10)
+            ] + [(now, past_target)]
             self.building_wait = {
                 "direction": inferred,
                 "since": since,
                 "excess": round(excess, 2),
                 "past": round(past_target, 2),
+                "held": round(min(p for _at, p in self._wait_past), 2),
                 "obeyed": obey,
             }
             if fresh and self._logger:

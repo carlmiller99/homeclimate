@@ -5,7 +5,7 @@ import Dashboard from "./Dashboard";
 import * as api from "../api";
 import * as bm from "../buildingModeApi";
 import * as zonesApi from "../zonesApi";
-import { HP_DEFAULTS } from "../zoneFixtures";
+import { FAN_DEFAULTS, HP_DEFAULTS } from "../zoneFixtures";
 
 vi.mock("../api");
 // The plan card loads by itself and has its own tests.
@@ -101,6 +101,7 @@ beforeEach(() => {
       equipment_running_entity: null,
       heat_kit_confirmed: false,
       ...HP_DEFAULTS,
+      ...FAN_DEFAULTS,
     },
   ]);
   vi.mocked(bm.getBuildingModes).mockResolvedValue([MAIN]);

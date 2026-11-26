@@ -200,7 +200,11 @@ CREATE TABLE IF NOT EXISTS zone_profiles (
     hp_compressor_lockout_f REAL,
     -- 'avoid': keep setpoint gaps small so the thermostat rarely calls aux;
     -- 'allow': set heat like a conventional system and let aux help recover.
-    hp_aux_policy TEXT NOT NULL DEFAULT 'avoid'
+    hp_aux_policy TEXT NOT NULL DEFAULT 'avoid',
+    -- Fan (backend/fan.py): 'off' | 'watch' | 'on', and whether the air
+    -- handler draws in outside air: 'yes' | 'no' | 'unsure'.
+    fan_level TEXT NOT NULL DEFAULT 'off',
+    air_intake TEXT NOT NULL DEFAULT 'unsure'
 );
 
 -- HomeClimate Smart Control: door and window sensors. Each sensor pauses
@@ -1418,6 +1422,14 @@ MIGRATIONS: tuple[Migration, ...] = (
         (
             "ALTER TABLE building_modes ADD COLUMN switching TEXT NOT NULL DEFAULT 'often'",
             "ALTER TABLE building_modes ADD COLUMN switch_threshold_f REAL NOT NULL DEFAULT 3.0",
+        ),
+    ),
+    Migration(
+        26,
+        "Add the fan level and the outside air intake to zone_profiles",
+        (
+            "ALTER TABLE zone_profiles ADD COLUMN fan_level TEXT NOT NULL DEFAULT 'off'",
+            "ALTER TABLE zone_profiles ADD COLUMN air_intake TEXT NOT NULL DEFAULT 'unsure'",
         ),
     ),
 )

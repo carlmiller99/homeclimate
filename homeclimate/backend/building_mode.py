@@ -175,7 +175,9 @@ async def update(conn: aiosqlite.Connection, building_id: str, body: dict[str, A
                 isinstance(value, bool)
                 or not isinstance(value, int | float)
                 or not math.isfinite(value)
-                or not MIN_THRESHOLD_F - 1e-6 <= value <= MAX_THRESHOLD_F + 1e-6
+                # A hundredth of slack: the largest value the display unit can
+                # show converts back to a hair over the limit. Clamped below.
+                or not MIN_THRESHOLD_F - 0.01 <= value <= MAX_THRESHOLD_F + 0.01
             ):
                 raise BuildingModeError(BAD_THRESHOLD)
         else:
@@ -186,6 +188,11 @@ async def update(conn: aiosqlite.Connection, building_id: str, body: dict[str, A
     current = modes[building_id]
     current.mode = body.get("mode", current.mode)
     current.auto_level = body.get("auto_level", current.auto_level)
+    if body.get("switching", current.switching) != current.switching:
+        # A new limit counts from the next change, not from one made (or a
+        # first side taken) under the old limit.
+        current.switched_at = None
+        current.switch_day, current.switches = "", 0
     current.switching = body.get("switching", current.switching)
     if "switch_threshold" in body:
         current.switch_threshold_f = min(
@@ -197,6 +204,7 @@ async def update(conn: aiosqlite.Connection, building_id: str, body: dict[str, A
         # rather than from a side chosen weeks ago.
         current.side = None
         current.switched_at = None
+        current.switch_day, current.switches = "", 0
     await _save(conn, current)
 
 
@@ -229,6 +237,9 @@ def forecast_favours(hours: list[Any], side: str, band: Any, now: datetime) -> b
     cool_above = band.cool_to if band else DEFAULT_COOL_ABOVE_F
     heating = sum(1 for h in window if h.temp < heat_below)
     cooling = sum(1 for h in window if h.temp > cool_above)
+    if not heating and not cooling:
+        # Mild days that need neither side say nothing against a switch.
+        return None
     return cooling > heating if side == "cooling" else heating > cooling
 
 
@@ -264,6 +275,11 @@ class Decision:
     # The side is the building's setting (Heat Only, Cool Only), not a choice
     # that a waiting zone could change.
     fixed: bool = False
+    # The side the building is about to switch to: a zone's wait counts and
+    # only its ten minutes are still running. A wait that the limit, the
+    # threshold or the forecast is holding back can last for weeks, and says
+    # nothing about what the building will do next.
+    leaning: str | None = None
 
 
 class Planner:
@@ -446,7 +462,13 @@ class Planner:
         if m.side in running:
             return Decision(m.side, obey, f"Waiting for {m.side} to finish")
         # Only a room far enough past its target on the far side counts.
-        waits = [w for w in waits if w.get("past", w["excess"]) >= m.switch_threshold_f - 1e-6]
+        # ``held`` is the least it has been past over the last ten minutes, so
+        # one reading at the threshold cannot spend the building's switch.
+        waits = [
+            w
+            for w in waits
+            if w.get("held", w.get("past", w["excess"])) >= m.switch_threshold_f - 1e-6
+        ]
         if not waits:
             return Decision(
                 m.side, obey, f"A zone wants {other}; no room is far enough past its target"
@@ -457,9 +479,6 @@ class Planner:
         since_switch = (
             now - m.switched_at if m.switched_at is not None and m.switched_at <= now else None
         )
-        longest = max(now - w["since"] for w in waits)
-        if longest < WAIT_BEFORE_SWITCH:
-            return Decision(m.side, obey, f"A zone wants {other}; waiting 10 minutes")
         between = BETWEEN_SWITCHES[m.switching]
         if since_switch is not None and since_switch < between:
             return Decision(
@@ -480,6 +499,11 @@ class Planner:
         elif forecast_wants(hours, other, band, now) is False:
             return Decision(
                 m.side, obey, f"A zone wants {other}; the forecast does not call for it"
+            )
+        if max(now - w["since"] for w in waits) < WAIT_BEFORE_SWITCH:
+            # Nothing else stands in the way: this is where it is heading.
+            return Decision(
+                m.side, obey, f"A zone wants {other}; waiting 10 minutes", leaning=other
             )
         self._watched_since.pop(m.building_id, None)
         m.side = other

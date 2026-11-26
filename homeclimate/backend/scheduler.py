@@ -24,6 +24,7 @@ from . import (
     building_mode,
     db,
     early_cooling,
+    fan,
     fireplace,
     forecast,
     forecast_bias,
@@ -32,6 +33,7 @@ from . import (
     learning,
     notify,
     openings,
+    outside,
     room_model,
     shades,
     solar,
@@ -184,6 +186,7 @@ class Scheduler:
         self._fireplaces = fireplace.FireplaceMonitor()
         self._calendars = house.CalendarWatch()
         self._building_plan = building_mode.Planner()
+        self._fan = fan.Manager()
 
     def _spawn_bg(self, coro: Coroutine) -> asyncio.Task:
         """Create a background task and keep a strong reference until it
@@ -1409,6 +1412,7 @@ class Scheduler:
         tasks = [self._tick_engine(tid, eng) for tid, eng in self._engines.items()]
         await asyncio.gather(*tasks, return_exceptions=True)
         await self._run_shades()
+        await self._run_fans()
 
     @property
     def openings(self) -> openings.OpeningMonitor:
@@ -1729,6 +1733,119 @@ class Scheduler:
                 out.add(room.id)
         return frozenset(out)
 
+    @property
+    def fans(self) -> fan.Manager:
+        return self._fan
+
+    async def fan_zones(self) -> list[fan.ZoneInput]:
+        """What the fan needs to know about every zone that has rooms."""
+        conn = self._db_conn
+        the_house = await house.load(conn)
+        profiles = {p.thermostat_entity_id: p for p in await zones.list_zone_profiles(conn)}
+        set_aside = self._fireplaces.set_aside_rooms()
+        out = []
+        for tid, engine in self._engines.items():
+            profile = profiles.get(tid) or zones.ZoneProfile(tid)
+            zone_paused, paused_rooms = self._openings.pause_for(tid)
+            asked = {ar.room.id: ar for ar in await get_active_rooms(conn, tid)}
+            rooms = []
+            fire = False
+            for room in await db.get_rooms_for_thermostat(conn, tid):
+                fire = fire or room.id in set_aside
+                if not the_house.switches(room.id).in_use:
+                    continue
+                temp = engine._get_avg_temp(room, refresh=False)
+                ar = asked.get(room.id)
+                rooms.append(
+                    fan.RoomNow(
+                        room.id,
+                        room.name,
+                        None if temp is None else temp + room.temp_offset,
+                        None
+                        if ar is None
+                        else ar.target_temp
+                        if ar.heat_to is None
+                        else ar.heat_to,
+                        None
+                        if ar is None
+                        else ar.target_temp
+                        if ar.cool_to is None
+                        else ar.cool_to,
+                        room.id in paused_rooms,
+                    )
+                )
+            attrs = (self._ha.get_state(tid) or {}).get("attributes") or {}
+            modes = attrs.get("fan_modes")
+            side, obey = self._building_side(tid)
+            blocked = (
+                "The system is off"
+                if not self._system_enabled
+                else "Vacation Mode is on"
+                if self._vacation_mode
+                else "A door or window is open"
+                if zone_paused
+                else "A fireplace is lit"
+                if fire
+                else ""
+            )
+            out.append(
+                fan.ZoneInput(
+                    thermostat_entity_id=tid,
+                    name=profile.name or self._friendly(tid),
+                    level=profile.fan_level,
+                    air_intake=profile.air_intake,
+                    idle=engine.cycle_mode is None
+                    and attrs.get("hvac_action") not in ("heating", "cooling"),
+                    cycle_mode=engine.cycle_mode
+                    or (
+                        attrs.get("hvac_action") if attrs.get("hvac_action") == "cooling" else None
+                    ),
+                    side=side,
+                    obey=obey,
+                    rooms=rooms,
+                    fan_mode=attrs.get("fan_mode"),
+                    supported=isinstance(modes, list) and "on" in modes and "auto" in modes,
+                    blocked=blocked,
+                )
+            )
+        return out
+
+    async def _open_room_vents(self, room_ids: list[str]) -> None:
+        assert self._vent_ctrl is not None
+        for room_id in room_ids:
+            vents = await db.get_room_vents(self._db_conn, room_id)
+            if vents:
+                await self._vent_ctrl.open_room_vents(vents)
+
+    async def _say_fan(self, message: str, details: dict) -> None:
+        if self._event_logger is not None:
+            await self._event_logger.log("info", "engine", message, details)
+
+    async def _run_fans(self) -> None:
+        """Start or stop each zone's fan, after its engine has ticked; never raises."""
+        try:
+            await self._fan.tick(
+                self._db_conn,
+                self._ha,
+                await self.fan_zones(),
+                await outside.read(self._db_conn, self._ha),
+                datetime.now(UTC),
+                say=self._say_fan,
+                open_vents=self._open_room_vents,
+            )
+        except Exception:
+            log.exception("Could not run the fans")
+
+    async def start_fan_test(self, thermostat_entity_id: str) -> None:
+        """Run a zone's fan for a while to look for an outside air intake."""
+        zone = next(
+            (z for z in await self.fan_zones() if z.thermostat_entity_id == thermostat_entity_id),
+            None,
+        )
+        await self._fan.start_test(
+            self._ha, zone, await outside.read(self._db_conn, self._ha), datetime.now(UTC)
+        )
+
     async def _run_shades(self) -> None:
         """Move shades for the sun, after the engines have settled their modes."""
         try:
@@ -1794,13 +1911,23 @@ class Scheduler:
         """The direction another zone of this zone's building was waiting to go, if any.
 
         As of the last plan. Convenience rooms (Zone Balance and the like)
-        read it while their building is on no side yet: a zone waiting to go
-        one way is what the building wants, and no convenience run is started
-        or kept going against it.
+        read it: a zone whose wait is about to switch the building is what
+        the building wants next, and no convenience run is started or kept
+        going against it.
         """
         building = self._building_plan.building_of(thermostat_entity_id)
+        # Only a wait the building is about to act on. One held back by the
+        # building's limit can last a month, and must not turn every other
+        # zone's conveniences against the side the building is really on.
+        decision = self._building_plan.decisions().get(building or "")
+        leaning = decision.leaning if decision is not None else None
         for tid, direction in self._waiting_at_plan.items():
-            if tid != thermostat_entity_id and self._building_plan.building_of(tid) == building:
+            if (
+                tid != thermostat_entity_id
+                # On no side yet, any zone's wait says where it is heading.
+                and (decision is None or decision.side is None or direction == leaning)
+                and self._building_plan.building_of(tid) == building
+            ):
                 return direction
         return None
 
@@ -1832,7 +1959,7 @@ class Scheduler:
                 hours = (await forecast_bias.load(self._db_conn)).correct(hours)
             the_house = await house.load(self._db_conn)
             band = {
-                b.id: the_house.building_outer_band(b.id)
+                b.id: the_house.building_forecast_band(b.id)
                 for b in await zones.list_buildings(self._db_conn)
             }
             zones_now = self.zones_now()

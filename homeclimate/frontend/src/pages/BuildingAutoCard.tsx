@@ -47,7 +47,7 @@ function ThresholdField({
   busy: boolean;
   onSave: (patch: Patch) => void;
 }) {
-  const { toDisplayDelta, unitLabel } = useUnit();
+  const { toDisplayDelta, displayBound, unitLabel } = useUnit();
   const stored = String(toDisplayDelta(building.switch_threshold));
   const [text, setText] = useState(stored);
   const [derived, setDerived] = useState(stored);
@@ -55,8 +55,9 @@ function ThresholdField({
     setDerived(stored);
     setText(stored);
   }
-  const low = toDisplayDelta(THRESHOLD_MIN_F);
-  const high = toDisplayDelta(THRESHOLD_MAX_F);
+  // Bounds the backend will accept once converted back (5.55 °C, not 5.56).
+  const low = displayBound(THRESHOLD_MIN_F, "min", "delta");
+  const high = displayBound(THRESHOLD_MAX_F, "max", "delta");
   const value = text.trim() === "" ? NaN : Number(text);
   const valid = Number.isFinite(value) && value >= low && value <= high;
   return (

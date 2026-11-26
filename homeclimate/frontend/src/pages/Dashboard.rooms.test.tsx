@@ -6,7 +6,7 @@ import * as api from "../api";
 import * as zonesApi from "../zonesApi";
 import * as sc from "../smartControlApi";
 import { UnitContext, buildUnitContext } from "../contexts";
-import { HP_DEFAULTS, smartControl } from "../zoneFixtures";
+import { FAN_DEFAULTS, HP_DEFAULTS, smartControl } from "../zoneFixtures";
 import { makeHold } from "../testFixtures";
 
 vi.mock("../api");
@@ -63,6 +63,7 @@ const profile = (
   equipment_running_entity: null,
   heat_kit_confirmed: false,
   ...HP_DEFAULTS,
+  ...FAN_DEFAULTS,
 });
 
 const thermostat = (id: string, name: string) =>

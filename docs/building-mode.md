@@ -46,11 +46,11 @@ What Auto means is set for each building, in three parts.
 
 The time is counted from the last change, not by the calendar: a building that changed on Tuesday at 3 pm on a weekly limit can next change the following Tuesday at 3 pm.
 
-**The limit always holds.** No room, however far from its target, changes the building's side early. To change sides sooner, set the building to Heat Only or Cool Only on the Dashboard; going back to Auto afterwards starts it fresh. Safety limits are separate and are never held back (above).
+**The limit always holds.** No room, however far from its target, changes the building's side early. To change sides sooner, set the building to Heat Only or Cool Only on the Dashboard; going back to Auto afterwards starts the count again, and so does choosing a different limit. Safety limits are separate and are never held back (above).
 
 ### Switching Threshold
 
-How far past its target on the other side a room must be before the building considers changing sides: 3 °F (1.7 °C) unless changed, from 0 to 10 °F (0 to 5.6 °C). On a building that is heating with a cooling target of 72 °F, a room has to reach 75 °F before its zone's wait counts. A room that is past its target by less than this simply waits, and outside air does the rest.
+How far past its target on the other side a room must be before the building considers changing sides: 3 °F (1.7 °C) unless changed, from 0 to 10 °F (0 to 5.5 °C). On a building that is heating with a cooling target of 72 °F, a room has to reach 75 °F before its zone's wait counts. The room has to have stayed that far out for the last ten minutes of the wait, so one odd reading does not count. A room that is past its target by less than this simply waits, and outside air (and the [fan](./fan.md), if it is on) does the rest. A room with no temperature sensor of its own is judged by its thermostat's reading.
 
 ### How the side is chosen
 
@@ -60,8 +60,8 @@ The building takes the side of the first cycle that starts in it. After that it 
 2. That zone has been waiting at least 10 minutes.
 3. The limit above allows it.
 4. The forecast does not rule it out:
-   - **Several Times a Day** and **Once a Day**: a change to cooling needs at least 2 of the next 6 forecast hours above the highest cooling target in use in the building; a change to heating needs 2 below its lowest heating target.
-   - **Once a Week** and **Once a Month**: over the next three days, more forecast hours must call for the new side than for the one the building is on, so one warm afternoon does not use up the change.
+   - **Several Times a Day** and **Once a Day**: a change to cooling needs at least 2 of the next 6 forecast hours above the lowest cooling target in use in the building (its own, a zone's or a room's); a change to heating needs 2 below the highest heating target. That is the outdoor temperature at which the first room starts to need that side.
+   - **Once a Week** and **Once a Month**: over the next three days, more forecast hours must call for the new side than for the one the building is on, so one warm afternoon does not use up the change. Mild days that call for neither say nothing against it.
    - With no targets in the building the limits are 70 °F and 60 °F. With no forecast (or, for the weekly and monthly check, less than a day of it), this check is skipped.
 
 On a weekly or monthly limit, taking the first side does not count as a change, so a building that happened to start on the wrong side is not kept there for a month.
@@ -69,6 +69,8 @@ On a weekly or monthly limit, taking the first side does not count as a change, 
 A zone only asks for a switch it could use. A zone whose thermostat has no cooling mode, whose cooling is locked out because it is too cold outside, or whose rooms Eco Mode would leave alone, does not make the building switch.
 
 On **Watch Only** nothing is held, so a zone that wants the other side simply runs. The time it spends running counts as its wait and it counts as past the threshold, and the side shown follows the same rules.
+
+A wait that is about to change the building's side (only its ten minutes are still running) is passed on to the building's other zones, so Zone Balance and the other conveniences do not start a run against the side the building is about to take. A wait that the limit, the threshold or the forecast is holding back is not.
 
 While a zone waits, its rooms that need the building's current side are still served. The side is remembered across a restart. Setting a fixed mode, or setting Auto to Off, forgets it; Auto starts again from the next cycle.
 

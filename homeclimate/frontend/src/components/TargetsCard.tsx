@@ -156,8 +156,9 @@ function TargetsRow({
       )}
       {valid && cool - heat < toDisplayDelta(CLOSE_F) && (
         <p className="targets-follows targets-note">
-          With targets this close, only a room&apos;s deadband separates heating from cooling. To
-          limit how often the building changes between them, turn its Auto on under Smart Control.
+          With targets this close, only a room&apos;s deadband separates heating from cooling. A
+          building held to one side limits how often it changes between them: Heat Only or Cool Only
+          here on the Dashboard, or Auto set to On under Smart Control.
         </p>
       )}
       {error && <p className="form-error">{error}</p>}

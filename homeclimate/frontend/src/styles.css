@@ -2847,6 +2847,17 @@ button.sc-nav-item {
   }
 }
 
+/* My Home → Edit Zone → outside air intake */
+.air-intake {
+  margin-top: 1rem;
+  max-width: 44rem;
+}
+.air-intake-test {
+  display: grid;
+  gap: 0.35rem;
+  justify-items: start;
+}
+
 /* Smart Control → One Side Per Building */
 .auto-fields {
   display: grid;

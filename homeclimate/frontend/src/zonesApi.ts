@@ -28,6 +28,10 @@ export interface ZoneProfile {
   hp_compressor_lockout_f: number | null;
   /** Auxiliary heat: "avoid" keeps setpoint gaps small; "allow" sets heat normally. */
   hp_aux_policy: "avoid" | "allow";
+  /** Fan between rooms with nothing else running (Smart Control → Fan). */
+  fan_level: "off" | "watch" | "on";
+  /** Whether the air handler draws in outside air. "unsure" is treated as no. */
+  air_intake: "yes" | "no" | "unsure";
   /** True while the equipment-running source reports backup (aux) heat. */
   aux_heat_running?: boolean;
   /** True while outdoors is below the heat pump's compressor lockout. */

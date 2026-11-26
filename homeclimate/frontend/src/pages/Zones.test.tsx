@@ -1,4 +1,4 @@
-import { HP_DEFAULTS } from "../zoneFixtures";
+import { FAN_DEFAULTS, HP_DEFAULTS } from "../zoneFixtures";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -47,6 +47,12 @@ vi.mock("./Thermostats", () => ({
   ),
 }));
 
+// The intake field loads the zone's fan state by itself and has its own tests.
+vi.mock("../components/AirIntakeField", () => ({
+  default: ({ zoneName, onChange }: { zoneName: string; onChange: (v: string) => void }) => (
+    <button type="button" onClick={() => onChange("yes")}>{`intake yes for ${zoneName}`}</button>
+  ),
+}));
 vi.mock("../components/EntityPicker", () => ({
   default: ({ onSelect, placeholder }: { onSelect: (id: string) => void; placeholder: string }) => (
     <button type="button" onClick={() => onSelect("climate.wing_cloud")}>
@@ -70,6 +76,7 @@ function zone(over: Partial<zonesApi.ZoneProfile>): zonesApi.ZoneProfile {
     equipment_running_entity: null,
     heat_kit_confirmed: false,
     ...HP_DEFAULTS,
+    ...FAN_DEFAULTS,
     ...over,
   };
 }
@@ -292,6 +299,7 @@ describe("Zones page", () => {
     fireEvent.click(within(editor).getByRole("button", { name: "Clear" }));
     fireEvent.click(within(editor).getByRole("button", { name: "pick Not set" }));
 
+    fireEvent.click(within(editor).getByRole("button", { name: "intake yes for South Wing" }));
     fireEvent.click(within(editor).getByRole("button", { name: "Save Zone" }));
     await waitFor(() =>
       expect(zonesApi.updateZone).toHaveBeenCalledWith("climate.wing", {
@@ -302,6 +310,7 @@ describe("Zones page", () => {
         equipment_running_entity: "climate.wing_cloud",
         heat_kit_confirmed: true,
         ...HP_DEFAULTS,
+        air_intake: "yes",
       })
     );
     // Saving keeps the zone open (its thermostat settings save separately),

@@ -666,11 +666,13 @@ export default function Dashboard() {
     // unsaved band edit and close an open Options dialog.
     if (hs) setHouse(hs);
     if (bm) setBuildingModes(bm);
-    setBuildings(b ?? []);
-    setProfiles(zp ?? []);
-    // Targets are laid out by building and zone: with either list missing
-    // the card would show levels in the wrong place.
-    setStructureLoaded(b !== null && zp !== null);
+    // A failed refresh keeps the last good layout, as it keeps the house:
+    // Targets are laid out by building and zone, and the card is only shown
+    // once both lists have loaded, so levels are never drawn in the wrong
+    // place and an unsaved edit is not dropped by one failed poll.
+    if (b) setBuildings(b);
+    if (zp) setProfiles(zp);
+    if (b && zp) setStructureLoaded(true);
     setSmart(sc ?? null);
     const key = r.map((room) => room.id).join(",");
     const cache = sensorsByRoom.current;
