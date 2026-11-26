@@ -31,7 +31,7 @@ export default function McpServerCard() {
       <div className="mcp-server-status">
         <span
           className="system-toggle-dot"
-          style={{ background: mcpEnabled ? "var(--green)" : "var(--red)" }}
+          style={{ background: mcpEnabled ? "var(--green)" : "var(--gray-400)" }}
         />
         <span className="mcp-server-state">{mcpEnabled ? "Running" : "Off"}</span>
         <button

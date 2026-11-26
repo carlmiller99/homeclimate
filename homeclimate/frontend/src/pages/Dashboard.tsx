@@ -808,7 +808,7 @@ export default function Dashboard() {
             >
               <span
                 className="system-toggle-dot"
-                style={{ background: system.enabled ? "var(--green)" : "var(--red)" }}
+                style={{ background: system.enabled ? "var(--green)" : "var(--gray-400)" }}
               />
               <span>System</span>
               <strong className="system-toggle-state">{system.enabled ? "On" : "Off"}</strong>

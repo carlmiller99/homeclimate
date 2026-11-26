@@ -324,7 +324,7 @@ function SettingsDropdown() {
           <button className="settings-menu-item" onClick={handleSystemClick}>
             <span
               className="system-toggle-dot"
-              style={{ background: enabled ? "var(--green)" : "var(--red)" }}
+              style={{ background: enabled ? "var(--green)" : "var(--gray-400)" }}
             />
             {enabled ? "System On" : "System Off"}
           </button>

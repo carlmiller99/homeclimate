@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.16
+
+- The dot beside anything that is off (System, the MCP server, the MQTT bridge) is now gray instead of red.
+
 ## 0.5.15
 
 - Dashboard: Vacation Mode is now at the top of the page beside the System switch, drawn the same way, and reads Off, Scheduled or On. It opens the same dialog as before.

@@ -49,7 +49,7 @@ export default function MqttBridgeCard() {
   if (!status) return null;
 
   const running = status.enabled && status.connected;
-  const dotColor = running ? "var(--green)" : status.enabled ? "var(--orange)" : "var(--red)";
+  const dotColor = running ? "var(--green)" : status.enabled ? "var(--orange)" : "var(--gray-400)";
   const stateLabel = !status.enabled ? "Off" : status.connected ? "Connected" : "Connecting…";
 
   return (
