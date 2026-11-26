@@ -107,6 +107,57 @@ def _classify(state: dict) -> str | None:
     return None
 
 
+# The kinds a room's device pickers ask for (My Home → Edit Devices).
+PICKER_KINDS = ("temperature", "presence", "contacts", "vents")
+
+
+# Covers that open something a person or a car goes through. Never a vent:
+# choosing one would have the engine open and close it.
+NOT_A_VENT_CLASSES = (*SHADE_CLASSES, "garage", "gate", "door", "window")
+
+
+def is_kind(state: dict, kind: str) -> bool:
+    """Whether an entity belongs in a room's picker for ``kind``.
+
+    Looser than the import's own classification where being strict would hide
+    a device with no other way to add it:
+
+    * a temperature sensor is any sensor measured in °F or °C, whether or not
+      it carries the temperature device class (template, MQTT and hand-written
+      ESPHome sensors often do not);
+    * a vent is any cover that is not a shade, a door, a gate or a window,
+      since a smart vent need not have "vent" in its entity id.
+
+    Presence and door/window sensors keep to their device classes: without one
+    there is no telling a door from a leak sensor, and Home Assistant lets the
+    class be set on the entity ("Show as").
+    """
+    eid: str = state.get("entity_id", "")
+    attrs = state.get("attributes", {}) or {}
+    if kind == "temperature":
+        return eid.startswith("sensor.") and attrs.get("unit_of_measurement") in TEMPERATURE_UNITS
+    if kind == "vents":
+        return eid.startswith("cover.") and attrs.get("device_class") not in NOT_A_VENT_CLASSES
+    return _classify(state) == kind
+
+
+def room_areas(
+    registries: dict[str, list[dict]], room_name: str
+) -> tuple[dict[str, str], set[str]]:
+    """entity_id → its area's name, and the entities in an area named like the room.
+
+    Names are compared the way room names are: lower-cased, with every run of
+    other characters treated as one separator. The room "Master Bedroom"
+    matches the area "master  bedroom"; "Kid's Room" does not match "Kids Room".
+    """
+    names = {a.get("area_id"): a.get("name") or "" for a in registries.get("areas", [])}
+    areas, _excluded = _entity_areas(registries)
+    wanted = sanitize(room_name)
+    named = {eid: names.get(area, "") for eid, area in areas.items() if names.get(area)}
+    in_room = {eid for eid, name in named.items() if wanted and sanitize(name) == wanted}
+    return named, in_room
+
+
 def build_preview(
     registries: dict[str, list[dict]],
     states: list[dict],

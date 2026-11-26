@@ -26,7 +26,19 @@ import aiohttp
 import aiosqlite
 from aiohttp import web
 
-from .. import auth, db, demo_seed, house, oidc, schedule_rules, scopes, session, structure, tz
+from .. import (
+    auth,
+    db,
+    demo_seed,
+    ha_import,
+    house,
+    oidc,
+    schedule_rules,
+    scopes,
+    session,
+    structure,
+    tz,
+)
 from .. import outside as outside_sensors
 from ..engine import room_manager
 from ..models import (
@@ -2508,12 +2520,32 @@ async def ha_states(request: web.Request) -> web.Response:
             "schema": {"type": "string"},
             "description": "Exclude entities whose icon matches (e.g. 'mdi:door-open').",
         },
+        {
+            "name": "kind",
+            "schema": {"type": "string", "enum": list(ha_import.PICKER_KINDS)},
+            "description": (
+                "Only entities of this kind of room device: temperature sensors, "
+                "presence (occupancy/motion) sensors, contacts (doors and windows) or vents."
+            ),
+        },
+        {
+            "name": "room",
+            "schema": {"type": "string"},
+            "description": (
+                "A room name. Entities in a Home Assistant area with that name are "
+                "listed first and marked in_room_area; every entity carries its area_name."
+            ),
+        },
     ]
 )
 @response_schema(schemas.HAEntitySchema(many=True))
 @routes.get("/api/ha/entities")
 async def ha_entities(request: web.Request) -> web.Response:
     domain = request.rel_url.query.get("domain")
+    kind = request.rel_url.query.get("kind")
+    room = request.rel_url.query.get("room")
+    if kind is not None and kind not in ha_import.PICKER_KINDS:
+        return error("kind must be temperature, presence, contacts or vents")
     has_attribute = request.rel_url.query.get("has_attribute")  # e.g. "hvac_action"
     exclude_icon = request.rel_url.query.get("exclude_icon")  # e.g. "mdi:door-open"
     ha = request.app["ha"]
@@ -2537,15 +2569,29 @@ async def ha_entities(request: web.Request) -> web.Response:
     # Optional icon exclusion filter
     if exclude_icon:
         entities = [e for e in entities if e.get("attributes", {}).get("icon") != exclude_icon]
+    if kind:
+        entities = [e for e in entities if ha_import.is_kind(e, kind)]
+    # Where each entity is in Home Assistant, so a room's picker can lead with
+    # the ones in the area named like the room. The list is still served when
+    # the registries cannot be read; it just has no areas.
+    area_names: dict[str, str] = {}
+    in_room: set[str] = set()
+    if room:
+        try:
+            area_names, in_room = ha_import.room_areas(await ha.get_registries(), room)
+        except Exception:
+            log.warning("HA registries unavailable; listing entities without areas", exc_info=True)
     result = [
         {
             "entity_id": e["entity_id"],
             "state": e.get("state"),
             "friendly_name": e.get("attributes", {}).get("friendly_name", e["entity_id"]),
+            "area_name": area_names.get(e["entity_id"]),
+            "in_room_area": e["entity_id"] in in_room,
         }
         for e in entities
     ]
-    result.sort(key=lambda x: x["entity_id"])
+    result.sort(key=lambda x: (not x["in_room_area"], x["entity_id"]))
     return json_response(result)
 
 

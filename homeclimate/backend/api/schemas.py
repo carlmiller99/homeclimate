@@ -172,6 +172,10 @@ class HAEntitySchema(Schema):
     entity_id = fields.Str()
     state = fields.Str(allow_none=True)
     friendly_name = fields.Str()
+    # The entity's Home Assistant area, when a room was named in the request.
+    area_name = fields.Str(allow_none=True)
+    # True when that area is named like the room; these are listed first.
+    in_room_area = fields.Bool()
 
 
 class CycleLogResponseSchema(Schema):

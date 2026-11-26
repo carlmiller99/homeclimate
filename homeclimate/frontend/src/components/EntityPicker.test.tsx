@@ -129,4 +129,45 @@ describe("EntityPicker", () => {
     fireEvent.focus(screen.getByRole("textbox"));
     expect(container.querySelector(".entity-dropdown")).toBeNull();
   });
+
+  it("asks for one kind of device in a room and shows where each entity is", async () => {
+    vi.mocked(api.getHAEntities).mockResolvedValue([
+      {
+        entity_id: "sensor.den_temp",
+        state: "70",
+        friendly_name: "Den Temperature",
+        area_name: "Den",
+        in_room_area: true,
+      },
+      {
+        entity_id: "sensor.attic_temp",
+        state: "80",
+        friendly_name: "Attic Temperature",
+        area_name: "Attic",
+        in_room_area: false,
+      },
+      { entity_id: "sensor.loose_temp", state: "60", friendly_name: "Loose Temperature" },
+    ]);
+    render(<EntityPicker domain="sensor" kind="temperature" room="Den" onSelect={vi.fn()} />);
+    await waitFor(() =>
+      expect(api.getHAEntities).toHaveBeenCalledWith("sensor", {
+        hasAttribute: undefined,
+        excludeIcon: undefined,
+        kind: "temperature",
+        room: "Den",
+      })
+    );
+    fireEvent.focus(screen.getByRole("textbox"));
+    // The backend's order is kept: the room's own area leads, though "attic" sorts first.
+    const names = (await screen.findAllByText(/Temperature$/)).map((n) => n.textContent);
+    expect(names).toEqual(["Den Temperature", "Attic Temperature", "Loose Temperature"]);
+    expect(screen.getByText("sensor.den_temp · in this room's area")).toBeInTheDocument();
+    expect(screen.getByText("sensor.attic_temp · Attic")).toBeInTheDocument();
+    // An entity in no area shows just its id.
+    expect(screen.getByText("sensor.loose_temp")).toBeInTheDocument();
+    // The area can be searched for, too.
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "attic" } });
+    expect(screen.queryByText("Den Temperature")).toBeNull();
+    expect(screen.getByText("Attic Temperature")).toBeInTheDocument();
+  });
 });

@@ -316,7 +316,14 @@ export interface HAEntity {
   entity_id: string;
   state: string;
   friendly_name: string;
+  /** The entity's Home Assistant area, when the list was asked for a room. */
+  area_name?: string | null;
+  /** True when that area is named like the room; these come first. */
+  in_room_area?: boolean;
 }
+
+/** The kinds of device a room's pickers ask for. */
+export type RoomDeviceKind = "temperature" | "presence" | "contacts" | "vents";
 
 export interface SystemStatus {
   enabled: boolean;
@@ -755,12 +762,14 @@ export const clearPresenceHoldover = (roomId: string): Promise<void> =>
 
 export const getHAEntities = (
   domain: string | string[],
-  opts?: { hasAttribute?: string; excludeIcon?: string }
+  opts?: { hasAttribute?: string; excludeIcon?: string; kind?: RoomDeviceKind; room?: string }
 ) => {
   const domainParam = Array.isArray(domain) ? domain.join(",") : domain;
   const params = new URLSearchParams({ domain: domainParam });
   if (opts?.hasAttribute) params.set("has_attribute", opts.hasAttribute);
   if (opts?.excludeIcon) params.set("exclude_icon", opts.excludeIcon);
+  if (opts?.kind) params.set("kind", opts.kind);
+  if (opts?.room) params.set("room", opts.room);
   return api<HAEntity[]>(`/api/ha/entities?${params}`);
 };
 
