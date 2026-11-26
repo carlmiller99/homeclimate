@@ -191,7 +191,14 @@ async def collect(
                 room_temp=_mean(readings, 2),
                 zone_temp=zone_temp,
                 outside_temp=_mean([outside], 2),
-                hvac_action=str(attrs.get("hvac_action") or "unknown"),
+                # A fan set to run by itself is mixing the rooms even when the
+                # thermostat calls that idle; the model leaves "fan" out.
+                hvac_action=(
+                    "fan"
+                    if attrs.get("fan_mode") == "on"
+                    and attrs.get("hvac_action") in (None, "idle", "off")
+                    else str(attrs.get("hvac_action") or "unknown")
+                ),
                 aux_heat=aux_running(room.thermostat_entity_id),
                 vent_open=_mean(room_vents[room.id], 3),
                 zone_vent_open=_mean(zone_vents[room.thermostat_entity_id], 3),

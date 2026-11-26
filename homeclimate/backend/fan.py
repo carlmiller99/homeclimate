@@ -27,8 +27,9 @@ The rules, all here:
   help the room, since the fan draws it in. "Not sure" is treated as none.
 
 The fan is switched with the thermostat's own fan setting (``on`` / ``auto``).
-One that somebody else turned on is left alone, and so is one HomeClimate
-turned on that has since been changed at the thermostat.
+One that somebody else turned on is left alone. One that HomeClimate turned
+on is always set back to ``auto``, whatever Home Assistant last reported, and
+is remembered until the thermostat has taken that.
 
 ``Manager.start_test`` runs the fan for ``TEST_LENGTH`` to see whether the
 zone's rooms move toward the outside temperature. It is a hint and no more:
@@ -120,6 +121,7 @@ def decide(
     running: bool,
     intake: bool = False,
     outside: float | None = None,
+    for_room: str | None = None,
 ) -> Want | None:
     """The room the fan should run for, if any.
 
@@ -134,7 +136,10 @@ def decide(
             continue
         past = room.temp - target if warm else target - room.temp
         narrow = room.heat_to is not None and room.heat_to == room.cool_to
-        if past <= 0 or (not running and past < (NARROW_PAST_F if narrow else PAST_F)):
+        # Only the room the fan is running for is held to the looser "keep
+        # going" limits; any other has to earn a start of its own.
+        keeping = running and for_room in (None, room.room_id)
+        if past <= 0 or (not keeping and past < (NARROW_PAST_F if narrow else PAST_F)):
             continue
         if intake and (outside is None or (outside >= room.temp if warm else outside <= room.temp)):
             # The fan would draw in air that works against the room.
@@ -148,7 +153,7 @@ def decide(
             # Not one that mixing would push further past its own target.
             and not _past_own(other, warm)
         }
-        need = KEEP_SPREAD_F if running else SPREAD_F
+        need = KEEP_SPREAD_F if keeping else SPREAD_F
         helpers = tuple(room_id for room_id, gap in gaps.items() if gap >= need)
         if helpers and (best is None or past > best.past):
             best = Want(
@@ -187,6 +192,9 @@ class ZoneInput:
     supported: bool
     # Why nothing may run at all (system off, Vacation Mode, an open door), or "".
     blocked: str = ""
+    # The thermostat is answering. One that is not cannot be told anything,
+    # so a fan HomeClimate turned on stays remembered until it is back.
+    available: bool = True
 
 
 @dataclass
@@ -206,6 +214,9 @@ class Manager:
     _since: dict[str, datetime] = field(default_factory=dict)
     _runs: dict[str, list[tuple[datetime, datetime]]] = field(default_factory=dict)
     _ran_at: dict[str, datetime] = field(default_factory=dict)
+    # The room each running fan was started for.
+    _for: dict[str, str] = field(default_factory=dict)
+    _met: set[str] = field(default_factory=set)
     _notes: dict[str, str] = field(default_factory=dict)
     _watched: set[str] = field(default_factory=set)
     _tests: dict[str, _Test] = field(default_factory=dict)
@@ -264,13 +275,14 @@ class Manager:
     ) -> bool:
         """Hand a fan HomeClimate turned on back to the thermostat. True if it was ours."""
         tid = zone.thermostat_entity_id
-        if tid not in self._ours:
+        if tid not in self._ours or not zone.available:
             return False
         # Always sent, whatever Home Assistant last reported: a report that
         # lags behind must never leave a fan running that HomeClimate started.
         if not await self._set(ha, tid, "auto"):
             return False
         self._ours.discard(tid)
+        self._for.pop(tid, None)
         began = self._since.pop(tid, None)
         if began is not None:
             runs = self._runs.setdefault(tid, [])
@@ -310,8 +322,25 @@ class Manager:
         for tid in sorted(self._ours):
             if await self._set(ha, tid, "auto"):
                 self._ours.discard(tid)
-                self._since.pop(tid, None)
+                self._for.pop(tid, None)
+                began = self._since.pop(tid, None)
+                if began is not None:
+                    self._runs.setdefault(tid, []).append((began, now))
         self._tests.clear()
+        await self._remember(conn)
+
+    async def forget(self, conn: aiosqlite.Connection) -> None:
+        """Drop every fan from the books without sending anything.
+
+        For leaving Developer Mode: what was "turned on" there was only
+        logged, so there is nothing to hand back, and a fan somebody has on
+        for real must not be turned off on the strength of it.
+        """
+        self._ours.clear()
+        self._since.clear()
+        self._for.clear()
+        self._tests.clear()
+        self._loaded = True
         await self._remember(conn)
 
     async def tick(
@@ -356,7 +385,10 @@ class Manager:
         unit: str,
     ) -> None:
         tid = zone.thermostat_entity_id
-        if zone.cycle_mode is not None:
+        if zone.cycle_mode is not None or tid not in self._met:
+            # Also the first time a zone is seen after a start: a cooling run
+            # may have ended just before it, and nothing here remembers.
+            self._met.add(tid)
             self._ran_at[tid] = now
         if tid in self._tests:
             await self._tick_test(conn, ha, zone, now, say)
@@ -371,6 +403,7 @@ class Manager:
                 running=tid in self._ours,
                 intake=zone.air_intake == "yes",
                 outside=outside,
+                for_room=self._for.get(tid),
             )
         self._notes[tid] = why_not or ""
         if (want is None or zone.level != "on") and await self._stop(conn, ha, zone, now):
@@ -391,6 +424,7 @@ class Manager:
             return
         self._notes[tid] = f"Running: {what}"
         if tid in self._ours:
+            self._for[tid] = want.room_id
             return
         if zone.fan_mode == "on":
             self._notes[tid] = "The fan is already on at the thermostat"
@@ -400,6 +434,7 @@ class Manager:
             return
         self._ours.add(tid)
         self._since[tid] = now
+        self._for[tid] = want.room_id
         await self._remember(conn)
         await open_vents([want.room_id, *want.helpers])
         await say(f"Fan running for {zone.name}: {what}", details)
@@ -437,6 +472,9 @@ class Manager:
             # Remembered like any fan HomeClimate turned on, so a restart in
             # the middle of the test hands it back.
             self._ours.add(tid)
+            # Timed like any run, so a fan that cannot be handed back at the
+            # end is still under the hourly limit.
+            self._since[tid] = now
             await self._remember(conn)
         self._tests[tid] = _Test(now, start, outside, turned_on)
 
@@ -459,10 +497,10 @@ class Manager:
             self._notes[tid] = "Testing for an outside air intake"
             return
         del self._tests[tid]
-        if test.turned_on:
-            # Not timed against the hourly limit: a test is asked for.
-            self._since.pop(tid, None)
-            await self._stop(conn, ha, zone, now)
+        if test.turned_on and await self._stop(conn, ha, zone, now):
+            # Handed back: a test is asked for, so it is not counted against
+            # the hourly limit.
+            self._runs[tid].pop()
         result: dict[str, Any] = {"at": now.isoformat(), "interrupted": interrupted}
         if not interrupted:
             began = sum(test.start[r] for r in both) / len(both)

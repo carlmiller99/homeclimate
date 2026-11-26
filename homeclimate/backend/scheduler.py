@@ -491,6 +491,16 @@ class Scheduler:
         return self._dev_mode
 
     async def set_dev_mode(self, enabled: bool) -> None:
+        try:
+            if enabled:
+                # While commands still reach the thermostats: hand back any
+                # fan that is really on. In Developer Mode it could not be.
+                await self._fan.release(self._db_conn, self._ha, datetime.now(UTC))
+            else:
+                # What was "turned on" in Developer Mode was only logged.
+                await self._fan.forget(self._db_conn)
+        except Exception:
+            log.exception("Could not settle the fans before changing Developer Mode")
         self._dev_mode = enabled
         self._ha.dev_mode = enabled
         await db.set_system_setting(self._db_conn, "developer_mode", "1" if enabled else "0")
@@ -1776,6 +1786,7 @@ class Scheduler:
                 )
             attrs = (self._ha.get_state(tid) or {}).get("attributes") or {}
             modes = attrs.get("fan_modes")
+            state = self._ha.get_state(tid)
             action = attrs.get("hvac_action")
             resting = action in (None, "idle", "off", "fan")
             side, obey = self._building_side(tid)
@@ -1806,6 +1817,8 @@ class Scheduler:
                     fan_mode=attrs.get("fan_mode"),
                     supported=isinstance(modes, list) and "on" in modes and "auto" in modes,
                     blocked=blocked,
+                    available=state is not None
+                    and state.get("state") not in ("unavailable", "unknown"),
                 )
             )
         return out

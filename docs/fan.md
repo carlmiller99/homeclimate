@@ -17,16 +17,19 @@ All of these have to be true:
 3. A room is at least 0.5 °F (0.3 °C) past its target on that side: above its cooling target in a building that is heating, or below its heating target in one that is cooling. A room kept to one number (a single target, or two targets that are the same) has to be 2.5 °F (1.4 °C) past it, because a cycle overshoots by about that much and that alone is no reason to run the fan.
 4. Another room of the zone is at least 1.5 °F (0.8 °C) closer to it: cooler than the warm room, or warmer than the cold one. A room that is itself at or past its own target on that side is no help, since mixing would push it further out.
 
-It stops when the room is back at its target, when the two rooms are within 0.75 °F (0.4 °C) of each other, or when a cycle starts.
+It stops when the room is back at its target, when the two rooms are within 0.75 °F (0.4 °C) of each other, or when a cycle starts. Only the room the fan is running for keeps it going on those looser terms; another room has to be far enough out to start it.
 
 ## Limits
 
 - **No more than 30 minutes in any hour.**
+- **Not for 15 minutes after HomeClimate starts**, since it cannot know whether a cooling run had just ended.
 - **Not for 15 minutes after any run.** After cooling the coil is wet, and running the fan then puts the moisture back into the house; after either, the rooms are still settling. Defrosting and drying count as runs.
 - **A room paused by an open door or window counts for nothing**, either as the reason or as the room to mix with. A paused zone does not run the fan at all.
 - **Not while the system is off, in Vacation Mode, or while a fireplace is lit** in one of the zone's rooms.
 - **A fan somebody else turned on is left alone.** HomeClimate only turns off a fan it turned on. That one it always sets back to auto when it is done: after a restart, when its zone is deleted, and when the thermostat did not answer the first time (it keeps trying). If HomeClimate cannot read the zones at all, it hands every fan back.
-- In Developer Mode the fan is not switched; what would have been sent is logged, as for every other command.
+- In Developer Mode the fan is not switched; what would have been sent is logged, as for every other command. Turning Developer Mode on hands back any fan HomeClimate has running first.
+- While a thermostat is unavailable in Home Assistant, a fan HomeClimate turned on stays remembered, and is set back to auto when the thermostat returns.
+- After a restart, a fan HomeClimate had on is set back to auto if it is no longer wanted, even if somebody turned it on by hand in the meantime.
 - Rooms that are not in use are left out.
 
 When the fan starts, the vents of the room and of the rooms it is being mixed with are opened. Each start, stop and "would run" is written to the Logs under Engine.
