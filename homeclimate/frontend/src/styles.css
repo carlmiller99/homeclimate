@@ -1090,11 +1090,17 @@ a.btn {
 }
 
 /* ── Recharts theming ──
-   Recharts hardcodes light-mode grays as SVG presentation attributes
-   (grid #ccc, ticks #666); CSS wins over presentation attributes, so these
+   Recharts hardcodes light-mode grays (grid #ccc, tick text gray); these
    rules re-point them at theme tokens without touching each chart. Series
    colors stay inline (COLORS in colors.ts) — identity colors work on both
-   themes. */
+   themes.
+
+   Grid and axis lines get their gray as SVG presentation attributes, which
+   any CSS rule beats. Tick text is different since Recharts 3.11: its fill
+   is an inline style (`style="fill: #808080"`, from the library's new
+   typography theme), and an inline style beats an ordinary rule — in dark
+   mode the labels went back to a dim mid-gray. Only `!important` in a
+   stylesheet outranks an inline style, hence the one below. */
 .recharts-cartesian-grid line {
   stroke: var(--gray-200);
 }
@@ -1102,7 +1108,7 @@ a.btn {
   stroke: var(--gray-400);
 }
 .recharts-cartesian-axis-tick-value {
-  fill: var(--gray-600);
+  fill: var(--gray-600) !important;
 }
 
 /* ── Hour-of-day heatmap (Metrics) ── */
