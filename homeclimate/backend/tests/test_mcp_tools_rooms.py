@@ -603,21 +603,11 @@ class TestStructureRules:
         assert await _zones(conn) == []
         await conn.close()
 
-    async def test_a_zones_last_room_cannot_be_moved_or_deleted(self):
+    async def test_a_zones_last_room_can_be_moved_or_deleted_leaving_it_empty(self):
         conn = await _conn()
         server = build_server(conn)
         await server.call_tool("create_room", {"name": "Den", "thermostat_entity_id": "climate.a"})
         [den] = await db.get_all_rooms(conn)
-
-        moved = await server.call_tool(
-            "update_room", {"room_id": den.id, "thermostat_entity_id": "climate.b"}
-        )
-        assert _text(moved).startswith("A zone needs at least one room.")
-        deleted = await server.call_tool("delete_room", {"room_id": den.id})
-        assert _text(deleted).startswith("A zone needs at least one room.")
-        [still] = await db.get_all_rooms(conn)
-        assert still.thermostat_entity_id == "climate.a"
-        assert await _zones(conn) == ["climate.a"]
 
         # Naming its own zone again is not a move, and other fields still save.
         same = await server.call_tool(
@@ -626,6 +616,19 @@ class TestStructureRules:
         )
         assert _text(same) == f"Updated room {den.id}"
         assert (await db.get_room(conn, den.id)).notes == "cosy"
+
+        moved = await server.call_tool(
+            "update_room", {"room_id": den.id, "thermostat_entity_id": "climate.b"}
+        )
+        assert _text(moved) == f"Updated room {den.id}"
+        assert (await db.get_room(conn, den.id)).thermostat_entity_id == "climate.b"
+        # The zone it left is empty but still registered.
+        assert sorted(await _zones(conn)) == ["climate.a", "climate.b"]
+
+        deleted = await server.call_tool("delete_room", {"room_id": den.id})
+        assert _text(deleted) == f"Deleted room {den.id}"
+        assert await db.get_all_rooms(conn) == []
+        assert sorted(await _zones(conn)) == ["climate.a", "climate.b"]
         await conn.close()
 
     async def test_a_second_room_can_move_and_registers_the_new_zone(self):
@@ -646,7 +649,4 @@ class TestStructureRules:
         )
         assert (await db.get_room(conn, loft.id)).thermostat_entity_id == "climate.b"
         assert sorted(await _zones(conn)) == ["climate.a", "climate.b"]
-        # With two rooms gone to one each, neither can be deleted now.
-        deleted = await server.call_tool("delete_room", {"room_id": loft.id})
-        assert _text(deleted).startswith("A zone needs at least one room.")
         await conn.close()

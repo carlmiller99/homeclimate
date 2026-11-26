@@ -41,12 +41,16 @@ async def test_create_list_get_delete_room(client, fake_ha) -> None:
     # Pure CRUD should never write to HA
     assert fake_ha.calls == []
 
-    # Delete: a zone keeps its last room, so the room goes with its zone.
-    resp = await client.delete(f"/api/rooms/{room_id}")
-    assert resp.status == 409
+    # A zone with rooms is only deleted together with them when asked.
     resp = await client.delete("/api/thermostats/climate.test_thermostat")
-    assert resp.status == 409  # the zone still has rooms
-    resp = await client.delete("/api/thermostats/climate.test_thermostat?with_rooms=true")
+    assert resp.status == 409
+    # Delete: a zone's only room can go, leaving the zone empty...
+    resp = await client.delete(f"/api/rooms/{room_id}")
+    assert resp.status == 200
+    zones = await (await client.get("/api/thermostats")).json()
+    assert [z["thermostat_entity_id"] for z in zones] == ["climate.test_thermostat"]
+    # ...and an empty zone deletes without the flag.
+    resp = await client.delete("/api/thermostats/climate.test_thermostat")
     assert resp.status == 200
 
     resp = await client.get("/api/rooms")

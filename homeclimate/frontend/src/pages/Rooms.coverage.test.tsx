@@ -530,7 +530,7 @@ describe("Room card — devices", () => {
     expect(screen.getByRole("button", { name: "Room Settings" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Hold/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /Clear presence/i })).toBeNull();
-    expect(screen.queryByRole("button", { name: /Delete/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Delete Room/ })).toBeNull();
   });
 
   it("renders a room with no sensors, vents or presence sensors", async () => {
@@ -946,14 +946,18 @@ describe("My Home — page edge cases", () => {
     expect(screen.queryByText("Rooms Without a Zone")).toBeNull();
   });
 
-  it("says a zone with no rooms needs one", async () => {
+  it("says an empty zone cannot be controlled yet, and offers Add Room there", async () => {
     useRooms([]);
     renderPage();
-    expect(
-      await screen.findByText(
-        "This zone has no rooms. Add one — every zone needs at least one room."
-      )
-    ).toBeInTheDocument();
+    const note = await screen.findByText(
+      "This zone has no rooms. It cannot be controlled until at least one room is added."
+    );
+    // The button beside the note opens the new-room form on that zone.
+    fireEvent.click(
+      within(note.closest(".empty-panel") as HTMLElement).getByRole("button", { name: "Add Room" })
+    );
+    await screen.findByText("New Room", { selector: ".page-title" });
+    expect(screen.getByRole("combobox", { name: /Thermostat/i })).toHaveValue("climate.test");
   });
 
   it("lists rooms whose thermostat is not a zone, so they can be given one", async () => {

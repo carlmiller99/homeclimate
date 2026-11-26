@@ -364,8 +364,7 @@ function RoomSettings({
           </label>
           {thermostats.length === 0 ? (
             <div className="form-hint" style={{ color: "var(--orange)" }}>
-              No zones yet. Go back to My Home and use <strong>Add Zone</strong>, which adds a zone
-              together with its first room.
+              No zones yet. Go back to My Home and use <strong>Add Zone</strong> first.
             </div>
           ) : (
             <select
@@ -956,8 +955,7 @@ function VentTable({
 
       {vents.length === 0 ? (
         <p className="text-sm text-muted" style={{ marginTop: ".5rem", fontStyle: "italic" }}>
-          No vents added yet — search above to add one. Rooms without vents are sensor-only and
-          still participate in schedules and presence control.
+          No vents added yet — search above to add one.
         </p>
       ) : (
         <div style={{ marginTop: ".75rem", overflowX: "auto" }}>
@@ -1605,7 +1603,17 @@ export default function MyHome() {
           const zoneRooms = rooms.filter((r) => r.thermostat_entity_id === zoneId);
           return zoneRooms.length === 0 ? (
             <div className="empty-panel">
-              This zone has no rooms. Add one — every zone needs at least one room.
+              <p>
+                This zone has no rooms. It cannot be controlled until at least one room is added.
+              </p>
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ marginTop: ".6rem" }}
+                onClick={() => setSettings({ room: null, returnTo: "list", zoneId })}
+              >
+                Add Room
+              </button>
             </div>
           ) : (
             <div className="card-grid">{zoneRooms.map(card)}</div>

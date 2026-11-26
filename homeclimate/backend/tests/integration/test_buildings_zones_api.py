@@ -134,10 +134,21 @@ async def test_zones_default_and_update(client):
     zones = await (await client.get("/api/zones")).json()
     assert [z["name"] for z in zones] == ["Upstairs", "South Wing"]
 
-    # A building with zones can't be deleted; unassigning frees it.
-    assert (await client.delete(f"/api/buildings/{main['id']}")).status == 409
-    await client.put(f"/api/zones/{T2}", json={"building_id": None})
+    # Deleting a building keeps its zones and leaves them in no building; the
+    # building's own mode and zone-balance settings go with it.
+    await client.put(f"/api/building-modes/{main['id']}", json={"mode": "heat_only"})
+    await client.put(f"/api/zone-balance/{main['id']}", json={"level": "watch"})
+    in_main = [z for z in zones if z["building_id"] == main["id"]]
+    assert in_main, "the test needs a zone in the building it deletes"
     assert (await client.delete(f"/api/buildings/{main['id']}")).status == 200
+    after = {z["thermostat_entity_id"]: z for z in await (await client.get("/api/zones")).json()}
+    assert all(after[z["thermostat_entity_id"]]["building_id"] is None for z in in_main)
+    assert main["id"] not in {b["id"] for b in await (await client.get("/api/buildings")).json()}
+    modes = await (await client.get("/api/building-modes")).json()
+    assert main["id"] not in str(modes)
+    balance = await (await client.get("/api/zone-balance")).json()
+    assert main["id"] not in str(balance)
+    assert (await client.delete(f"/api/buildings/{main['id']}")).status == 404
 
     # Deleting the thermostat removes its profile.
     await client.put(f"/api/zones/{T1}", json={"system_type": "heat_pump"})

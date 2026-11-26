@@ -75,13 +75,21 @@ async def test_moving_rooms_between_zones(client):
     events = await (await client.get("/api/logs/events?category=api")).json()
     messages = [e["message"] for e in (events["events"] if isinstance(events, dict) else events)]
     assert f"Zone registered for a new room: {T2}" in messages
-    # Craft Room is now Upstairs' last room: it can't leave or be deleted.
-    last = await client.put(f"/api/rooms/{craft}", json={"thermostat_entity_id": T2})
-    assert last.status == 409
-    assert (await last.json())["error"].startswith("A zone needs at least one room.")
-    assert (await client.delete(f"/api/rooms/{craft}")).status == 409
-    # Renaming the last room is not a move.
+    # Craft Room is now Upstairs' last room. A zone may be left empty: the room
+    # can be renamed, moved away or deleted, and the zone stays registered.
     assert (await client.put(f"/api/rooms/{craft}", json={"name": "Studio"})).status == 200
+    last = await client.put(f"/api/rooms/{craft}", json={"thermostat_entity_id": T2})
+    assert last.status == 200, await last.text()
+    rooms = await (await client.get("/api/rooms")).json()
+    assert {r["thermostat_entity_id"] for r in rooms} == {T2}
+    zones = {z["thermostat_entity_id"] for z in await (await client.get("/api/thermostats")).json()}
+    assert zones == {T1, T2}
+    # Deleting both leaves two empty zones, not an error.
+    for room_id in (bunk, craft):
+        assert (await client.delete(f"/api/rooms/{room_id}")).status == 200
+    assert await (await client.get("/api/rooms")).json() == []
+    zones = {z["thermostat_entity_id"] for z in await (await client.get("/api/thermostats")).json()}
+    assert zones == {T1, T2}
 
 
 async def test_deleting_a_zone_takes_its_rooms_only_when_asked(client):

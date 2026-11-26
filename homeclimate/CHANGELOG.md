@@ -2,6 +2,9 @@
 
 ## 0.5.16
 
+- My Home: a zone can be empty. Add Zone no longer asks for a first room, a zone's last room can be deleted or moved, and an empty zone says it cannot be controlled until a room is added, with an Add Room button there.
+- My Home: Delete Zone is in each zone's header. Deleting a building now keeps its zones and rooms and moves them to Unassigned, after a confirmation, where it used to be refused.
+- My Home: a zone's title is a plain heading over its room cards, not a card itself.
 - My Home: only Add Building is at the top of the page. Add Zone is inside each building and Add Room inside each zone, so a new zone or room goes where its button is.
 - Add Zone now asks what kind of system the zone is (conventional or heat pump) and what its heat is, and no longer assumes conventional with electric strips. When Home Assistant shows the signs of a heat pump the form suggests it, and a zone left as conventional whose thermostat looks like a heat pump is marked in My Home; the mark opens Edit Zone.
 - Set Up from Home Assistant sets a new zone up as a heat pump when Home Assistant shows the signs of one, and says what it did when it finishes. When two thermostats share a name it tells them apart by their entity ids.

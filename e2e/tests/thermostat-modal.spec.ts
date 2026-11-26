@@ -41,8 +41,8 @@ test("add zone — thermostat picker open", async ({ page, request }) => {
     );
   }
 
-  // Open the Add Zone form: a thermostat, a name, the first room, the vent
-  // count and the kind of system, all in one step. Each building has its own
+  // Open the Add Zone form: a thermostat, a name, the vent count and
+  // the kind of system, all in one step. Each building has its own
   // Add Zone button; the fixture's zones are in no building, so the one in the
   // Unassigned group is used.
   await page.getByRole("button", { name: "Add Zone to Unassigned" }).click();

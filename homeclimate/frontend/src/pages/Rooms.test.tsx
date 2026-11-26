@@ -365,7 +365,7 @@ describe("Rooms Page", () => {
 
     // The card itself no longer carries a Delete button.
     await screen.findByText("Living Room");
-    expect(screen.queryByRole("button", { name: /Delete/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Delete Room/i })).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Room Settings" }));
     fireEvent.click(await screen.findByRole("button", { name: "Delete Room" }));

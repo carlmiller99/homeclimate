@@ -234,7 +234,7 @@ A zone is one thermostat and the rooms it serves. Go to **My Home**, add a build
 
 - Pick the HA climate entity for the zone's thermostat
 - Give the zone a name (e.g. "Upstairs", "Downstairs")
-- Name its first room, and enter the total vent count on that thermostat
+- Enter the total vent count on that thermostat
 - Say what kind of system it is: conventional or heat pump (HomeClimate suggests heat pump when Home Assistant shows the signs of one, and never assumes)
 
 Then open **Edit Zone** to tune its Thermostat Settings:

@@ -107,7 +107,10 @@ async def update_building(request: web.Request) -> web.Response:
     return json_response(zones.as_dict(building))
 
 
-@docs(tags=["buildings"], summary="Delete a building that has no zones")
+@docs(
+    tags=["buildings"],
+    summary="Delete a building; its zones are kept and left in no building",
+)
 @response_schema(schemas.DeletedSchema)
 @routes.delete("/api/buildings/{building_id}")
 async def delete_building(request: web.Request) -> web.Response:
@@ -116,8 +119,9 @@ async def delete_building(request: web.Request) -> web.Response:
     outcome = await zones.delete_building(conn, building_id)
     if outcome == "missing":
         return error("Building not found", status=404)
-    if outcome == "in_use":
-        return error("Move this building's zones to another building first", status=409)
+    # Its zones are in no building now. The zone profiles are reloaded here;
+    # the building planner drops the deleted building on its next tick.
+    await refresh(request)
     return json_response({"deleted": building_id})
 
 

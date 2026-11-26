@@ -1831,12 +1831,17 @@ tr:hover td {
   flex-direction: column;
   gap: 0.75rem;
 }
-.zone-panel-head {
+/* A zone's title is a heading over its rooms, not a card of its own: the
+   rooms inside are the cards. */
+.zone-row.zone-panel-head {
   display: flex;
   align-items: center;
   gap: 0.9rem;
   flex-wrap: wrap;
   padding: 0.25rem 0.4rem 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
 }
 .sr-only {
   position: absolute;

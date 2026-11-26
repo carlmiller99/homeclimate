@@ -183,7 +183,7 @@ describe("Set Up from Home Assistant", () => {
     // Nobody was asked what kind of system each zone is, so the page says what it did.
     expect(
       screen.getByText(
-        "The new zones were set as conventional with electric strips. Check each one's system type under Edit Zone."
+        "The new zones were set as conventional with electric strips. Check each new zone's system type under Edit Zone."
       )
     ).toBeInTheDocument();
   });
@@ -199,10 +199,25 @@ describe("Set Up from Home Assistant", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Import/ }));
     expect(
       await screen.findByText(
-        /1 of the new zones looked like heat pumps and were set up as heat pumps/
+        "1 new zone looked like a heat pump and was set up as one. The rest were set as conventional with electric strips. Check each new zone's system type under Edit Zone."
       )
     ).toBeInTheDocument();
     first.unmount();
+
+    vi.mocked(zonesApi.runImport).mockResolvedValueOnce({
+      ...RESULT,
+      zones_added: 2,
+      heat_pumps_found: 2,
+    });
+    const second = renderPage();
+    await screen.findByLabelText("Zone name for Landing Thermostat");
+    fireEvent.click(screen.getByRole("button", { name: /^Import/ }));
+    expect(
+      await screen.findByText(
+        "2 new zones looked like heat pumps and were set up as heat pumps. Check each new zone's system type under Edit Zone."
+      )
+    ).toBeInTheDocument();
+    second.unmount();
 
     vi.mocked(zonesApi.runImport).mockResolvedValueOnce({ ...RESULT, zones_added: 0 });
     renderPage();
