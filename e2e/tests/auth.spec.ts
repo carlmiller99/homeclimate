@@ -78,8 +78,8 @@ test("@auth settings menu shows auth status + logout", async ({ page }) => {
 });
 
 test("@auth MCP token management card", async ({ page }) => {
-  // The MCP token card moved to the dedicated Settings page (#471).
-  await page.goto("/settings");
+  // The MCP token card is on the Settings page (#471), in its Integrations section.
+  await page.goto("/settings?section=integrations");
   await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
   // Screenshot just the card locator, so we wait for the card itself.
   const card = page.locator(".card").filter({ hasText: "MCP access tokens" });
@@ -91,7 +91,7 @@ test("@auth MCP token management card", async ({ page }) => {
 });
 
 test("@auth MCP token revoke confirmation dialog", async ({ page }) => {
-  await page.goto("/settings");
+  await page.goto("/settings?section=integrations");
   await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
   const card = page.locator(".card").filter({ hasText: "MCP access tokens" });
   await expect(card).toBeVisible({ timeout: 15_000 });
@@ -119,14 +119,14 @@ test("@auth MCP token revoke confirmation dialog", async ({ page }) => {
 });
 
 test("@auth settings page (auth on — full page with token card)", async ({ page }) => {
-  // The non-auth F/C legs capture /settings with require_auth=false, so their
-  // `settings.png` shows the MCP server card + Backup only (the token card is
-  // gated on require_auth). This is the complementary capture WITH auth on:
-  // the full page must show the MCP server toggle, the MCP access-tokens
-  // minting card directly beneath it, and Backup & Restore — the layout a real
-  // authenticated install sees. Distinct filename so it never collides with the
-  // auth-off `settings.png`.
-  await page.goto("/settings");
+  // The non-auth F/C legs capture the Integrations section with
+  // require_auth=false, so theirs shows the MCP server card and the MQTT
+  // bridge only (the token card is gated on require_auth). This is the
+  // complementary capture WITH auth on: the MCP server toggle, the MCP
+  // access-tokens minting card directly beneath it, and the MQTT bridge card,
+  // the layout a real authenticated install sees. Distinct filename so it
+  // never collides with the auth-off capture.
+  await page.goto("/settings?section=integrations");
   await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
   await page.waitForLoadState("networkidle");
   // Both MCP controls present, proving the toggle and the minting UI sit together.

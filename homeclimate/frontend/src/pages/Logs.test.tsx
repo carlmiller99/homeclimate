@@ -402,6 +402,63 @@ describe("Logs Page", () => {
     expect(await screen.findByText(/safety protection/i)).toBeInTheDocument();
   });
 
+  it("labels a room that was cooled early in the cycle detail", async () => {
+    vi.mocked(api.getCycleDetail).mockResolvedValue({
+      ...mockCycleDetail,
+      rooms: [
+        {
+          ...mockCycleDetail.rooms[0],
+          source: "precool",
+          trigger_detail: { source: "precool", target: 74.5 },
+        },
+      ],
+    });
+    render(<Logs />);
+
+    fireEvent.click(screen.getByText("Cycle History"));
+    fireEvent.click(await screen.findByText(/climate\.test/i));
+
+    expect(await screen.findByText(/early cooling/i)).toBeInTheDocument();
+  });
+
+  it("labels a room that was got ready for a usual arrival in the cycle detail", async () => {
+    vi.mocked(api.getCycleDetail).mockResolvedValue({
+      ...mockCycleDetail,
+      rooms: [
+        {
+          ...mockCycleDetail.rooms[0],
+          source: "arrival",
+          trigger_detail: { source: "arrival", target: 70 },
+        },
+      ],
+    });
+    render(<Logs />);
+
+    fireEvent.click(screen.getByText("Cycle History"));
+    fireEvent.click(await screen.findByText(/climate\.test/i));
+
+    expect(await screen.findByText(/getting ready for a usual arrival/i)).toBeInTheDocument();
+  });
+
+  it("labels a room that was banked for the peak hours in the cycle detail", async () => {
+    vi.mocked(api.getCycleDetail).mockResolvedValue({
+      ...mockCycleDetail,
+      rooms: [
+        {
+          ...mockCycleDetail.rooms[0],
+          source: "bank",
+          trigger_detail: { source: "bank", target: 74 },
+        },
+      ],
+    });
+    render(<Logs />);
+
+    fireEvent.click(screen.getByText("Cycle History"));
+    fireEvent.click(await screen.findByText(/climate\.test/i));
+
+    expect(await screen.findByText(/banking for peak hours/i)).toBeInTheDocument();
+  });
+
   it("labels a room that ran for Zone Balance in the cycle detail", async () => {
     vi.mocked(api.getCycleDetail).mockResolvedValue({
       ...mockCycleDetail,

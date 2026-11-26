@@ -5,6 +5,8 @@ import App from "./App";
 import * as api from "./api";
 
 vi.mock("./api");
+// The plan card loads by itself and has its own tests.
+vi.mock("./components/TodayCard", () => ({ default: () => null }));
 vi.mock("./smartControlApi", async (orig) => ({
   ...(await orig<typeof import("./smartControlApi")>()),
   getSmartControl: vi

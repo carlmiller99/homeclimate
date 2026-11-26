@@ -25,9 +25,11 @@ from .. import (
     learning,
     notify,
     openings,
+    peak,
     room_model,
     shades,
     suggestions,
+    today,
     tz,
     zone_balance,
     zones,
@@ -587,6 +589,55 @@ async def update_building_mode(request: web.Request) -> web.Response:
     return json_response(await _building_modes_snapshot(request))
 
 
+async def _peak_snapshot(request: web.Request) -> dict:
+    conn = await get_conn(request)
+    settings = await peak.load(conn)
+    now = datetime.now(tz.UTC)
+    win = peak.window(settings, now)
+    return {
+        **settings.as_dict(),
+        "window": None
+        if win is None
+        else {
+            "bank_from": win.bank_from.isoformat(),
+            "start": win.start.isoformat(),
+            "end": win.end.isoformat(),
+            "banking": settings.enabled and win.banking(now),
+            "under_way": win.under_way(now),
+        },
+        "min_depth": peak.MIN_DEPTH_F,
+        "max_depth": peak.MAX_DEPTH_F,
+        "min_lead_min": peak.MIN_LEAD_MIN,
+        "max_lead_min": peak.MAX_LEAD_MIN,
+    }
+
+
+@docs(tags=["peak"], summary="Peak Hours: when electricity costs most, and how to bank for it")
+@response_schema(schemas.PeakHoursSchema)
+@routes.get("/api/peak-hours")
+async def get_peak_hours(request: web.Request) -> web.Response:
+    return json_response(await _peak_snapshot(request))
+
+
+@docs(tags=["peak"], summary="Change the Peak Hours settings")
+@request_schema(schemas.PeakHoursWriteSchema)
+@response_schema(schemas.PeakHoursSchema)
+@routes.put("/api/peak-hours")
+async def update_peak_hours(request: web.Request) -> web.Response:
+    body = await _json_object(request)
+    # The write boundary converts the display-unit difference to °F (#231).
+    depth = body.get("peak_depth")
+    if isinstance(depth, int | float) and not isinstance(depth, bool):
+        body["peak_depth"] = delta_to_f(depth, request.app["scheduler"].get_temperature_unit())
+    conn = await get_conn(request)
+    try:
+        await peak.update(conn, body)
+    except UserError as exc:
+        return error(safe_text(exc))
+    await emit(request, "info", "api", "Peak Hours settings updated", body)
+    return json_response(await _peak_snapshot(request))
+
+
 async def _zone_balance_snapshot(request: web.Request) -> dict:
     conn = await get_conn(request)
     scheduler = request.app["scheduler"]
@@ -923,6 +974,13 @@ async def _forecast_snapshot(request: web.Request) -> dict:
     )
     snap["accuracy"] = forecast_bias.snapshot(bias, in_use=snap["settings"]["correct"])
     return snap
+
+
+@docs(tags=["system"], summary="Today's plan: what the weather asks for and what is coming up")
+@response_schema(schemas.TodaySchema)
+@routes.get("/api/today")
+async def get_today(request: web.Request) -> web.Response:
+    return json_response(await today.build(await get_conn(request), now=datetime.now(tz.UTC)))
 
 
 @docs(tags=["forecast"], summary="Forecast settings and the forecast in use")

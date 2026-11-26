@@ -67,13 +67,94 @@ def test_it_recovers_what_a_simulated_room_is_really_like():
     assert model.pull == pytest.approx(TRUE["pull"], rel=0.25)
     assert model.heat == pytest.approx(TRUE["heat"], rel=0.15)
     assert model.rmse is not None and model.rmse < 0.5
-    assert model.learned == {"loss": True, "heat": True, "cool": False}
+    assert model.learned == {"loss": True, "heat": True, "cool": False, "sun": False}
+    assert model.sun == 0.0 and model.sun_hours == 0.0  # no windows known: no sun term
     assert model.pinned == ()
     assert model.cool == rm.PRIOR["cool"]  # never cooled: the starting value stands
 
     summer = rm.fit("r1", rm.windows_from(_house(20, heat=False, cool=True)), now=NOW)
     assert summer.cool == pytest.approx(TRUE["cool"], rel=0.2)
     assert summer.learned["cool"] and not summer.learned["heat"]
+
+
+def _noon_sun(ts: datetime) -> float:
+    """A window that is sunlit from 09:00 to 15:00 UTC, brightest at noon."""
+    hour = ts.hour + ts.minute / 60
+    return max(0.0, math.cos((hour - 12) / 6 * math.pi)) if 9 <= hour <= 15 else 0.0
+
+
+def test_the_sun_on_a_rooms_windows_is_learned():
+    """A room that gains 2 °F an hour in full sun, on top of everything else."""
+    samples = _house(20)
+    shift = 0.0
+    lit = []
+    for i, sample in enumerate(samples):
+        lit.append(
+            learning.RoomSample(
+                **{**sample.__dict__, "room_temp": round((sample.room_temp or 0) + shift, 2)}
+            )
+        )
+        shift += 2.0 * _noon_sun(samples[i].ts) / 12
+        # The room loses the extra warmth as it would any other.
+        shift -= shift * (TRUE["loss"] + TRUE["pull"]) / 12
+    model = rm.fit("r1", rm.windows_from(lit, _noon_sun), now=NOW)
+    assert model.learned["sun"] and model.sun_hours > 50
+    assert model.sun == pytest.approx(2.0, rel=0.3)
+    # It moves a prediction only where the sun is, and only once learned.
+    assert model.rate(70, 60, sun=1.0) - model.rate(70, 60) == pytest.approx(model.sun)
+    assert model.rate(70, 60, sun=0.0) == model.rate(70, 60)
+    # A room in sun warms sooner than the equipment's rate alone says (and
+    # cools later), and the sun is read as the minutes go by.
+    shade = model.minutes_to(62, 68, 30, "heating")
+    full = model.minutes_to(62, 68, 30, "heating", sun_at=lambda minutes: 1.0)
+    later = model.minutes_to(62, 68, 30, "heating", sun_at=lambda minutes: float(minutes >= 30))
+    assert shade is not None and full is not None and later is not None
+    assert full < later < shade
+    # A term fitted from too few sunlit hours is not used.
+    import dataclasses
+
+    unsure = dataclasses.replace(model, sun_hours=rm.SUN_HOURS - 1)
+    assert not unsure.learned["sun"] and unsure.rate(70, 60, sun=1.0) == unsure.rate(70, 60)
+    # A half-hour is sunlit by its average: a brief flash does not count.
+    flash = rm.windows_from(lit[:7], lambda ts: 0.5 if ts == lit[0].ts else 0.0)
+    assert [round(w.sun, 4) for w in flash] == [round(0.5 / 6, 4)]
+    assert rm.fit("r1", flash * 60, now=NOW).sun_hours == 0.0
+    steady = rm.windows_from(lit[:7], lambda ts: rm.SUNLIT)
+    assert rm.fit("r1", steady * 60, now=NOW).sun_hours == 30.0
+    dark = rm.fit("r1", rm.windows_from(lit), now=NOW)
+    assert not dark.learned["sun"] and dark.rate(70, 60, sun=1.0) == dark.rate(70, 60)
+    assert rm.describe(model)["learned"]["sun"] is True
+    # A sun term that comes out backwards is held at nothing.
+    shaded = [
+        learning.RoomSample(
+            **{**s.__dict__, "room_temp": (s.room_temp or 0) - 1.5 * _noon_sun(s.ts)}
+        )
+        for s in samples
+    ]
+    backwards = rm.fit("r1", rm.windows_from(shaded, _noon_sun), now=NOW)
+    assert "sun" in backwards.pinned and backwards.sun == 0.0 and not backwards.learned["sun"]
+    # Too little to fit still reports the sunlit hours seen.
+    few = rm.fit("r1", rm.windows_from(lit[:288], _noon_sun), now=NOW)
+    assert few.fitted_at is None and 0 < few.sun_hours < 12
+
+
+def test_a_climb_no_room_could_make_is_left_out_as_a_sensor_fault():
+    samples = _house(1)
+    steady = rm.windows_from(samples)
+
+    # The sensor creeps up 1.4 °F every five minutes for an hour: no single
+    # step is a spike, but no room moves at 16 °F an hour, so no half-hour
+    # of it is counted.
+    def creep(i: int) -> float:
+        return 1.4 * min(max(i - 40, 0), 12)
+
+    crept = [
+        learning.RoomSample(**{**x.__dict__, "room_temp": (x.room_temp or 0) + creep(i)})
+        for i, x in enumerate(samples)
+    ]
+    faulty = rm.windows_from(crept)
+    assert len(faulty) < len(steady)
+    assert all(abs(w.rate) <= rm.MAX_RATE_F_PER_H for w in faulty)
 
 
 def test_a_half_open_vent_delivers_half_and_the_full_rate_is_still_found():
@@ -134,7 +215,7 @@ def test_a_term_that_comes_out_backwards_is_held_and_the_rest_refitted_around_it
     assert model.loss > 0 and model.cool < 0 and model.pull >= 0
     # The other terms were fitted again with the heat held, so the model is at least
     # as good as leaving them where the first fit put them.
-    rows = [(w.out_diff, w.zone_diff, w.heat, w.cool, 1.0) for w in windows]
+    rows = [(w.out_diff, w.zone_diff, w.heat, w.cool, 1.0, w.sun) for w in windows]
     first = rm._least_squares(rows, [w.rate for w in windows], {})
 
     def error(beta):

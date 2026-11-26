@@ -11,6 +11,10 @@ shade is never moved:
 * for a while after someone moves it by hand (if that setting is on);
 * more often than the minimum time between moves.
 
+With Close Ahead of a Warm Room on, a sunlit shade also closes while its zone
+is idle when the room is close to the top of what it is asked to hold, or is
+expected to pass it on a warming afternoon (``early_cooling.warm_ahead``).
+
 A window counts as sunlit when the sun is more than a few degrees up, within
 80° of the direction the window faces, and the sky is not overcast.
 """
@@ -50,6 +54,7 @@ SETTINGS: dict[str, tuple[str, Any, int, int]] = {
     "skip_occupied": ("bool", True, 0, 1),
     "daylight_only": ("bool", True, 0, 1),
     "close_night_heat": ("bool", False, 0, 1),
+    "predictive_close": ("bool", False, 0, 1),
     "respect_manual": ("bool", True, 0, 1),
     "manual_hold_min": ("int", 120, 15, 720),
     "min_move_min": ("int", 30, 5, 240),
@@ -291,6 +296,7 @@ def decide(
     occupied: bool,
     held: bool,
     local_time: time,
+    warm_ahead: bool = False,
 ) -> tuple[str | None, str]:
     """What a shade should do now, and why, in words for the Logs and UI."""
     if shade.never_control:
@@ -313,7 +319,8 @@ def decide(
         if settings["close_night_heat"] and not settings["daylight_only"] and mode == "heating":
             return CLOSE, "Night and heating, so closed to hold in heat."
         return None, "Overnight, left alone."
-    if mode not in ("heating", "cooling"):
+    ahead = mode not in ("heating", "cooling")
+    if ahead and not (settings["predictive_close"] and warm_ahead):
         return None, "Zone is idle, left alone."
     if sun.cloud_pct is not None and sun.cloud_pct >= OVERCAST_PCT:
         return None, "Overcast, left alone."
@@ -325,6 +332,8 @@ def decide(
         return None, "Not sunlit, left alone."
     if mode == "heating":
         return OPEN, "Sunlit and heating, so opened."
+    if ahead:
+        return CLOSE, "Sunlit and the room is expected to get too warm, so closed ahead of it."
     return CLOSE, "Sunlit and cooling, so closed."
 
 
@@ -376,6 +385,7 @@ class ShadeController:
         mode_for: Callable[[str], str | None],
         now: datetime,
         local_time: time,
+        warm_ahead: frozenset[str] = frozenset(),
     ) -> list[ShadeMove]:
         settings = await get_settings(conn)
         sun = Sun.read(
@@ -410,7 +420,14 @@ class ShadeController:
             )
             mode = mode_for(room.thermostat_entity_id)
             action, reason = decide(
-                shade, settings, sun, mode, occupied=occupied, held=held, local_time=local_time
+                shade,
+                settings,
+                sun,
+                mode,
+                occupied=occupied,
+                held=held,
+                local_time=local_time,
+                warm_ahead=shade.room_id in warm_ahead,
             )
             status.reason = reason
             if action is None or now_open is None or now_open == (action == OPEN):

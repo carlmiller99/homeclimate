@@ -8,6 +8,8 @@ import * as zonesApi from "../zonesApi";
 import { HP_DEFAULTS } from "../zoneFixtures";
 
 vi.mock("../api");
+// The plan card loads by itself and has its own tests.
+vi.mock("../components/TodayCard", () => ({ default: () => null }));
 vi.mock("../buildingModeApi", async (orig) => ({
   ...(await orig<typeof import("../buildingModeApi")>()),
   getBuildingModes: vi.fn(),

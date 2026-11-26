@@ -17,6 +17,24 @@ def _model(*, loss=0.1, drift=0.0, pull=0.0, fitted=NOW, spread=8.0, windows=600
     return rm.RoomModel("r", fitted, windows, loss, pull, 3.0, -3.0, drift, 10.0, 10.0, spread, 0.2)
 
 
+def test_sun_on_the_windows_shortens_a_drift_upward():
+    sunny = rm.RoomModel(
+        "r", NOW, 600, 0.05, 0.0, 3.0, -3.0, 0.0, 10.0, 10.0, 8.0, 0.2, (), sun=2.0, sun_hours=40.0
+    )
+    lit = coasting.Outlook(NOW, 80.0, (), lambda when: 1.0 if when >= NOW else 0.0)
+    dark = coasting.Outlook(NOW, 80.0)
+    assert lit.sun_at(30) == 1.0 and dark.sun_at(30) == 0.0
+    slow = coasting.minutes_alone(sunny, temp=74.0, goal=75.0, outlook=dark, within_min=600)
+    fast = coasting.minutes_alone(sunny, temp=74.0, goal=75.0, outlook=lit, within_min=600)
+    assert slow is not None and fast is not None and fast < slow / 2
+    # The sun is read as the clock moves on, not once at the start.
+    rising = coasting.Outlook(
+        NOW, 80.0, (), lambda when: float(when >= NOW + timedelta(minutes=10))
+    )
+    between = coasting.minutes_alone(sunny, temp=74.0, goal=75.0, outlook=rising, within_min=600)
+    assert between is not None and fast < between < slow
+
+
 def test_how_long_a_call_may_wait():
     assert coasting.wait_limit_min("heating", False) == 45
     assert coasting.wait_limit_min("heating", True) == 135  # strip heat: three times as long

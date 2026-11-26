@@ -340,6 +340,11 @@ export default function ShadesSection({ rooms }: { rooms: Room[] }) {
           "Shades are left alone overnight."
         )}
         {toggle(
+          "predictive_close",
+          "Close Ahead of a Warm Room",
+          "A sunlit shade also closes before any cooling runs, when it is warmer outside and the room is close to the top of what it is asked to hold, or is expected to pass it on a warming afternoon."
+        )}
+        {toggle(
           "close_night_heat",
           "Close at Night in Heat Mode",
           "A closed shade holds in a little more heat. Turn off Only Between Sunrise and Sunset for this to work."

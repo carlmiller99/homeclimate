@@ -509,9 +509,12 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
     expect(parseFloat(band![1])).toBeCloseTo(parseFloat(HEAT), 1);
     expect(parseFloat(band![2])).toBeCloseTo(parseFloat(COOL), 1);
     // Remove the block so nothing else sees a band on Living Room.
-    await row.getByRole("button", { name: "Delete" }).click();
-    const confirm = page.getByRole("button", { name: /^Delete$/ }).last();
-    if (await confirm.isVisible().catch(() => false)) await confirm.click();
+    // The row's button is "Del"; the dialog it opens has the "Delete" that does it.
+    await row.getByRole("button", { name: "Del", exact: true }).click();
+    const dialog = page.getByTestId("confirm-dialog");
+    await dialog.getByRole("button", { name: "Delete", exact: true }).click();
+    await dialog.waitFor({ state: "detached", timeout: 5_000 });
+    await expect(row).toHaveCount(0);
 
     // The occupancy target's Cool To, in the room's settings under My Home.
     await page.goto("/my-home");
@@ -736,6 +739,30 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
       ).toHaveValue(GAP);
     } finally {
       await page.request.delete(`/api/buildings/${building}`);
+    }
+  });
+
+  test("peak hours banking depth persists exactly as chosen", async ({ page }) => {
+    // @covers: peak_depth
+    // A difference, not a temperature: 1.5°C ≡ 2.7°F, with no 32° offset.
+    const DEPTH = isCelsius ? "1.5" : "3";
+    try {
+      await page.goto("/smart-control?section=peak-hours");
+      const depth = page.getByLabel("How far to bank");
+      await depth.waitFor({ state: "visible", timeout: 15_000 });
+      const saved = page.waitForResponse(
+        (r) =>
+          r.url().includes("/api/peak-hours") && r.request().method() === "PUT",
+      );
+      await depth.selectOption(DEPTH);
+      await saved;
+
+      await page.reload();
+      await expect(page.getByLabel("How far to bank")).toHaveValue(DEPTH);
+    } finally {
+      await page.request.put("/api/peak-hours", {
+        data: { peak_depth: isCelsius ? 1.1 : 2 },
+      });
     }
   });
 });

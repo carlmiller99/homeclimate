@@ -7,6 +7,8 @@ import { SystemContext, DevModeContext } from "../contexts";
 import { notifyStateChanged } from "../stateEvents";
 
 vi.mock("../api");
+// The plan card loads by itself and has its own tests.
+vi.mock("../components/TodayCard", () => ({ default: () => null }));
 // The house band has its own tests (Dashboard.house.test.tsx); here it never loads.
 vi.mock("../houseApi", async (orig) => ({
   ...(await orig<typeof import("../houseApi")>()),
@@ -127,7 +129,10 @@ describe("Dashboard Page", () => {
     );
 
     expect(await screen.findByText("Dashboard")).toBeInTheDocument();
-    expect(await screen.findByText(/Main HVAC/i)).toBeInTheDocument();
+    // The zone's name is on its card and, once AirflowConfigBanner's own
+    // getThermostats resolves, in its warning too (the fixture has no vent
+    // count): one or two matches, depending on which lands first.
+    expect((await screen.findAllByText(/Main HVAC/i)).length).toBeGreaterThan(0);
     expect(screen.getByText("75.2°F")).toBeInTheDocument();
     expect(screen.getByText("72.0°F")).toBeInTheDocument();
     expect(screen.getByText("Living Room")).toBeInTheDocument();
@@ -408,7 +413,7 @@ describe("Dashboard Page", () => {
         </DevModeContext.Provider>
       </SystemContext.Provider>
     );
-    await screen.findByText(/Main HVAC/i);
+    await screen.findAllByText(/Main HVAC/i);
     expect(api.getStatus).toHaveBeenCalledTimes(1);
 
     await act(async () => {
@@ -432,7 +437,7 @@ describe("Dashboard Page", () => {
         </DevModeContext.Provider>
       </SystemContext.Provider>
     );
-    await screen.findByText(/Main HVAC/i);
+    await screen.findAllByText(/Main HVAC/i);
     expect(api.getVacationMode).toHaveBeenCalledTimes(1);
 
     vi.mocked(api.getVacationMode).mockResolvedValue({
@@ -640,7 +645,7 @@ describe("Dashboard Page", () => {
         </DevModeContext.Provider>
       </SystemContext.Provider>
     );
-    await screen.findByText("Main HVAC");
+    await screen.findAllByText("Main HVAC");
     expect(screen.queryByTestId("dashboard-eco-suspend-btn")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Suspend Eco/ })).not.toBeInTheDocument();
   });

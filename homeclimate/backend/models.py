@@ -487,3 +487,9 @@ class ZoneStatus:
     coasting_rooms: list[str] = field(default_factory=list)
     # Rooms being heated or cooled to keep this zone near another (Zone Balance).
     balance_rooms: list[str] = field(default_factory=list)
+    # Rooms being banked ahead of the peak hours (Peak Hours).
+    bank_rooms: list[str] = field(default_factory=list)
+    # Rooms being got ready for a usual arrival (Get Rooms Ready for Usual Arrivals).
+    arrival_rooms: list[str] = field(default_factory=list)
+    # Rooms being cooled ahead of a warm afternoon (Early Cooling).
+    early_cool_rooms: list[str] = field(default_factory=list)

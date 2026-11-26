@@ -364,7 +364,9 @@ CREATE TABLE IF NOT EXISTS room_models (
     cool_hours REAL NOT NULL,
     out_spread REAL NOT NULL,
     rmse REAL,
-    pinned TEXT NOT NULL DEFAULT ''
+    pinned TEXT NOT NULL DEFAULT '',
+    sun REAL NOT NULL DEFAULT 0,
+    sun_hours REAL NOT NULL DEFAULT 0
 );
 
 -- How far the forecast is usually off, as a running average for each hour of
@@ -1387,6 +1389,14 @@ MIGRATIONS: tuple[Migration, ...] = (
         (
             "ALTER TABLE contact_sensors ADD COLUMN pauses TEXT NOT NULL DEFAULT 'room'",
             "ALTER TABLE zone_profiles ADD COLUMN hp_aux_policy TEXT NOT NULL DEFAULT 'avoid'",
+        ),
+    ),
+    Migration(
+        24,
+        "Add the sun term to room_models (HomeClimate)",
+        (
+            "ALTER TABLE room_models ADD COLUMN sun REAL NOT NULL DEFAULT 0",
+            "ALTER TABLE room_models ADD COLUMN sun_hours REAL NOT NULL DEFAULT 0",
         ),
     ),
 )

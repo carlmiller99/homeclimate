@@ -10,6 +10,8 @@ import { HP_DEFAULTS, smartControl } from "../zoneFixtures";
 import { makeHold } from "../testFixtures";
 
 vi.mock("../api");
+// The plan card loads by itself and has its own tests.
+vi.mock("../components/TodayCard", () => ({ default: () => null }));
 // The house band has its own tests (Dashboard.house.test.tsx); here it never loads.
 vi.mock("../houseApi", async (orig) => ({
   ...(await orig<typeof import("../houseApi")>()),
@@ -423,7 +425,13 @@ describe("Dashboard rooms and zones", () => {
   it("marks a room whose call is waiting for it to coast to its target", async () => {
     vi.mocked(api.getStatus).mockResolvedValue([
       { ...status("climate.up"), coasting_rooms: ["bunk"] },
-      { ...status("climate.den"), balance_rooms: ["loft"] },
+      {
+        ...status("climate.den"),
+        balance_rooms: ["loft"],
+        bank_rooms: ["loft"],
+        arrival_rooms: ["loft"],
+        early_cool_rooms: ["loft"],
+      },
       status("climate.north"),
     ]);
     render(<Dashboard />);
@@ -441,6 +449,24 @@ describe("Dashboard rooms and zones", () => {
       expect.stringMatching(/within the gap limit of another/)
     );
     expect(within(screen.getByTestId("dash-room-bunk")).queryByText("Zone Balance")).toBeNull();
+    // And one being banked ahead of the peak hours.
+    expect(within(screen.getByTestId("dash-room-loft")).getByText("Banking")).toHaveAttribute(
+      "title",
+      expect.stringMatching(/less has to run during the peak hours/)
+    );
+    expect(within(screen.getByTestId("dash-room-bunk")).queryByText("Banking")).toBeNull();
+    // And one being got ready for a usual arrival.
+    expect(within(screen.getByTestId("dash-room-loft")).getByText("Getting Ready")).toHaveAttribute(
+      "title",
+      expect.stringMatching(/usually used about now/)
+    );
+    expect(within(screen.getByTestId("dash-room-bunk")).queryByText("Getting Ready")).toBeNull();
+    // And one being cooled ahead of a warm afternoon.
+    expect(within(screen.getByTestId("dash-room-loft")).getByText("Cooling Early")).toHaveAttribute(
+      "title",
+      expect.stringMatching(/expected to pass its Cool To later/)
+    );
+    expect(within(screen.getByTestId("dash-room-bunk")).queryByText("Cooling Early")).toBeNull();
   });
 
   it("marks a room a lit fireplace is keeping out of demand", async () => {

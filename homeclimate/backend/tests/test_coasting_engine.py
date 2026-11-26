@@ -138,7 +138,7 @@ async def test_the_third_miss_in_a_week_goes_back_to_watch_only(monkeypatch):
     await db.upsert_room(conn, other)
     await conn.execute(
         "INSERT INTO room_models SELECT ?, fitted_at, windows, loss, pull, heat, cool, drift,"
-        " heat_hours, cool_hours, out_spread, rmse, pinned FROM room_models",
+        " heat_hours, cool_hours, out_spread, rmse, pinned, sun, sun_hours FROM room_models",
         (other.id,),
     )
     await conn.commit()
@@ -423,4 +423,32 @@ async def test_watching_only_does_not_flood_the_log_at_the_edge_either(monkeypat
         temps["now"] = 69.45 if minute % 2 == 0 else 69.55
         assert await _at(engine, conn, active, NOW + timedelta(minutes=minute)) == active
     assert len(_said(engine)) == 2
+    await conn.close()
+
+
+def _watch_the_sun(monkeypatch, room_id):
+    """Give the room a sun reader, and record what reaches the model's drift prediction."""
+    from backend import solar
+
+    def sun(when):
+        return 0.5
+
+    seen = []
+    real = coasting.minutes_alone
+
+    def spy(model, **kw):
+        seen.append(kw["outlook"].sun)
+        return real(model, **kw)
+
+    monkeypatch.setattr(solar, "for_rooms", AsyncMock(return_value={room_id: sun}))
+    monkeypatch.setattr(coasting, "minutes_alone", spy)
+    return sun, seen
+
+
+@pytest.mark.asyncio
+async def test_the_sun_on_the_rooms_windows_reaches_the_prediction(monkeypatch):
+    conn, engine, room, active, _temps = await _setup(monkeypatch)
+    sun, seen = _watch_the_sun(monkeypatch, room.id)
+    await _at(engine, conn, active, NOW)
+    assert seen == [sun]
     await conn.close()

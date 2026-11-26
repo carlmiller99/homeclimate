@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as la from "../learningApi";
-import { buildUnitContext } from "../contexts";
+import { buildUnitContext, UnitContext } from "../contexts";
 import LearningSection from "./LearningSection";
 
 vi.mock("../learningApi", async (orig) => ({
@@ -49,6 +49,8 @@ function data(over: Partial<la.Learning> = {}): la.Learning {
       sample_retention_days: 60,
       early_start_level: 0,
       coast_level: 0,
+      arrival_level: 0,
+      early_cool_level: 0,
     },
     coasting: { level: 0, misses_this_week: 0, misses_to_watch_only: 3, switched_back_at: null },
     samples: 3600,
@@ -224,6 +226,8 @@ describe("Smart Learning section", () => {
           sample_retention_days: 60,
           early_start_level: 0,
           coast_level: 0,
+          arrival_level: 0,
+          early_cool_level: 0,
         },
       })
     );
@@ -313,6 +317,16 @@ describe("Smart Learning section", () => {
     ).toBeInTheDocument();
     fireEvent.change(level, { target: { value: "2" } });
     await waitFor(() => expect(la.updateLearningSettings).toHaveBeenCalledWith({ coast_level: 2 }));
+    fireEvent.change(screen.getByLabelText("Get Rooms Ready for Usual Arrivals"), {
+      target: { value: "1" },
+    });
+    await waitFor(() =>
+      expect(la.updateLearningSettings).toHaveBeenCalledWith({ arrival_level: 1 })
+    );
+    fireEvent.change(screen.getByLabelText("Early Cooling"), { target: { value: "2" } });
+    await waitFor(() =>
+      expect(la.updateLearningSettings).toHaveBeenCalledWith({ early_cool_level: 2 })
+    );
     cleanup();
     vi.mocked(la.getLearning).mockResolvedValue(
       data({
@@ -339,6 +353,20 @@ describe("Smart Learning section", () => {
     expect(la.describeCoasting(back, () => "Jan 13")).toMatch(/Watch Only on Jan 13,/);
   });
 
+  it("gives the fixed margins in the house's unit", async () => {
+    const { unmount } = render(<LearningSection />);
+    expect(await screen.findByText(/is kept 1\.5° below its Cool To/)).toBeInTheDocument();
+    expect(screen.getByText(/never once a room is 2° off/)).toBeInTheDocument();
+    unmount();
+    render(
+      <UnitContext.Provider value={buildUnitContext("C")}>
+        <LearningSection />
+      </UnitContext.Provider>
+    );
+    expect(await screen.findByText(/is kept 0\.8° below its Cool To/)).toBeInTheDocument();
+    expect(screen.getByText(/never once a room is 1\.1° off/)).toBeInTheDocument();
+  });
+
   it("describes a model in the house's unit, as differences", () => {
     const c = buildUnitContext("C");
     // 3.6 °F an hour is 2.0 °C an hour: a rate is a difference, with no 32° offset.
@@ -355,6 +383,21 @@ describe("Smart Learning section", () => {
       "Cools about 2.7°F an hour",
       "Heat loss not learned yet (needs more varied weather)",
     ]);
+    // A room with a window of known direction says what the sun does to it.
+    const sunny = { ...MODEL, sun: 1.8, sun_hours: 40, learned: { ...MODEL.learned, sun: true } };
+    expect(la.describeModel(sunny, f.toDisplayDelta, f.unitLabel)[3]).toBe(
+      "Gains about 0.7°F an hour with the sun full on its windows"
+    );
+    expect(la.describeModel(sunny, c.toDisplayDelta, c.unitLabel)[3]).toBe(
+      "Gains about 0.4°C an hour with the sun full on its windows"
+    );
+    expect(la.describeModel({ ...sunny, sun: undefined }, f.toDisplayDelta, f.unitLabel)[3]).toBe(
+      "Gains about 0.0°F an hour with the sun full on its windows"
+    );
+    const dawning = { ...MODEL, sun_hours: 4, learned: { ...MODEL.learned, sun: false } };
+    expect(la.describeModel(dawning, f.toDisplayDelta, f.unitLabel)[3]).toBe(
+      "Sun on its windows not learned yet (needs about 10 sunlit hours)"
+    );
     expect(la.describeModel({ ...MODEL, grade: "none" }, f.toDisplayDelta, f.unitLabel)).toEqual([
       "Needs about a day of readings with nothing open and no fire lit.",
     ]);
