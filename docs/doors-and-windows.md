@@ -1,6 +1,6 @@
 # Doors & windows
 
-Smart Control can stop conditioning air that is going straight outside. Add a door or window sensor (any `binary_sensor.*` that reads `on` when open) to its room in **My Home → Edit Devices → Doors & Windows**, and choose whether it pauses **This Room** or the **Whole Zone**. **Set Up from Home Assistant** can bring them in too. The timing below is set in **Smart Control → Doors & Windows**.
+Smart Control can stop conditioning air that is going straight outside. Add a door or window sensor (any `binary_sensor.*` that reads `on` when open) to its room in **My Home → the room's Doors & Windows box**, and choose whether it pauses **This Room** or the **Whole Zone**. **Set Up from Home Assistant** can bring them in too. The timing below is set in **Smart Control → Doors & Windows**.
 
 ## What pauses
 

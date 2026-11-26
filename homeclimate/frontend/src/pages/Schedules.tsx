@@ -1,3 +1,5 @@
+import RoomInUse from "../components/RoomInUse";
+import { getHouse, type House } from "../houseApi";
 import { useEffect, useState } from "react";
 import {
   getRooms,
@@ -553,9 +555,14 @@ function RoomSchedules({
   room,
   allRooms,
   hold,
+  house,
+  onHouse,
 }: {
   room: Room;
   allRooms: Room[];
+  /** Null when the home's layout could not be read: no In Use control. */
+  house: House | null;
+  onHouse: (h: House) => void;
   // Temporary hold (#576): this room's live hold, if any. Holds are not
   // schedule blocks — they take precedence over every block below and are
   // never conflict-checked against them.
@@ -636,6 +643,8 @@ function RoomSchedules({
           <span>{expanded ? "▲" : "▼"}</span>
         </div>
       </div>
+
+      {house && <RoomInUse room={room} house={house} onHouse={onHouse} />}
 
       {expanded && (
         <div style={{ marginTop: "1rem" }}>
@@ -892,6 +901,7 @@ export default function Schedules() {
   // Temporary holds (#576), keyed by room_id — one page-level fetch feeds
   // every room card and the shared hold modal.
   const [holds, setHolds] = useState<Record<string, RoomOverrideHold>>({});
+  const [house, setHouse] = useState<House | null>(null);
 
   const refreshHolds = async () => {
     try {
@@ -908,6 +918,15 @@ export default function Schedules() {
       setLoading(false);
     });
     refreshHolds();
+    // Whether each room is in use. Supplementary: the time blocks still show
+    // without it.
+    void (async () => {
+      try {
+        setHouse((await getHouse()) ?? null);
+      } catch {
+        setHouse(null);
+      }
+    })();
   }, []);
 
   if (loading)
@@ -922,7 +941,10 @@ export default function Schedules() {
       <div className="page-header">
         <div>
           <div className="page-title">Schedules</div>
-          <div className="page-subtitle">Time-based temperature targets per room</div>
+          <div className="page-subtitle">
+            Two questions per room: is it in use, and while it is, what temperature at what time? A
+            room that is not in use asks for no heating or cooling.
+          </div>
         </div>
       </div>
 
@@ -935,7 +957,16 @@ export default function Schedules() {
           </div>
         </div>
       ) : (
-        rooms.map((r) => <RoomSchedules key={r.id} room={r} allRooms={rooms} hold={holds[r.id]} />)
+        rooms.map((r) => (
+          <RoomSchedules
+            key={r.id}
+            room={r}
+            allRooms={rooms}
+            hold={holds[r.id]}
+            house={house}
+            onHouse={setHouse}
+          />
+        ))
       )}
     </div>
   );

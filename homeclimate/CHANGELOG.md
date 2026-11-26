@@ -5,6 +5,11 @@
 - Warnings look the same on every page: a quiet row saying what and why, the particulars folded under Details, and a link to where it is fixed. The orange and yellow Dashboard banners are gone.
 - Dashboard: each building is one card, with its own targets in its header and a **Hold a Room** button. The targets card above the buildings is gone: targets belong to a building, and a zone's own targets are folded under it.
 - Dashboard: a room's row shows its name and one temperature, and the whole row opens the room's details: its targets, a hold, what it follows, occupancy, vents and each sensor's reading. The Hold, Options and Clear Presence buttons that sat on every row are in there.
+- My Home: **Edit Zone** opens one dialog with two tabs, Equipment and Thermostat, in place of two cards.
+- My Home: each device box on a room's card opens a dialog for that kind of device in that room. The separate room device page and its Edit Devices button are gone.
+- My Home: **Shades** are a fifth kind of room device, added and changed from the room. Smart Control → Shades keeps how shades react to the sun, with a status list.
+- Smart Control → **Schedules**: each room's card now also asks whether the room is in use: Always, When a Calendar Says So, or Never. The separate Rooms In Use by Calendar card is gone.
+- Colours: text and backgrounds are a little closer together in both the light and the dark theme.
 - Smart Control → **Auto Mode** (was "One Side Per Building", under Forecasts): its own section, in plain words. For each building: whether in Auto it lets each zone decide or heats and cools as one, how often it may switch between heating and cooling, and how far past its target a room must be first.
 
 ## 0.5.17

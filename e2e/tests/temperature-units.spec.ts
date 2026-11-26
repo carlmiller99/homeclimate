@@ -95,9 +95,8 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
     // (climate.downstairs_thermostat), which `#` treats as a class
     // separator.
     const idSel = (suffix: string) => `[id="thermo-${TC_ID}-${suffix}"]`;
-    const card = page
-      .locator(idSel("name"))
-      .locator("xpath=ancestor::*[contains(@class,'card')][1]");
+    // The thermostat's settings are the second tab of the Edit Zone dialog.
+    const card = page.getByRole("tabpanel", { name: "Thermostat" });
 
     await page.locator(idSel("default_temp")).fill(DEFAULT_TEMP);
     await page.locator(idSel("min_setpoint")).fill(MIN_SETPOINT);
@@ -588,15 +587,13 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
       await page.waitForLoadState("networkidle");
 
       // Open the hold modal pre-scoped to Living Room (the room this spec
-      // owns) from its row. `exact: true` — the row offers "Cancel Hold for …"
-      // instead when a hold is already live, which would mean leaked state
-      // from an earlier run.
+      // owns) from its details. The details offer "Cancel Hold" instead of
+      // "Start a Hold" when a hold is already live, which would mean leaked
+      // state from an earlier run.
       await page
-        .locator(".dash-room")
-        .filter({ hasText: "Living Room" })
-        .first()
-        .getByRole("button", { name: "Hold for Living Room", exact: true })
+        .getByRole("button", { name: "Details for Living Room", exact: true })
         .click();
+      await page.getByRole("button", { name: "Start a Hold", exact: true }).click();
       const modal = page.getByTestId("hold-modal");
       await modal.waitFor({ state: "visible", timeout: 10_000 });
 

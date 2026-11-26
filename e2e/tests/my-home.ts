@@ -2,7 +2,7 @@ import type { Locator, Page } from "@playwright/test";
 
 /**
  * Helpers for My Home, the one page that holds buildings, zones and rooms.
- * A zone's thermostat settings live inside its editor, and a room's settings
+ * A zone's thermostat settings are a tab of its Edit Zone dialog, and a room's settings
  * behind its card's "Room Settings" button.
  */
 
@@ -30,6 +30,9 @@ export async function openZoneEditor(
 ): Promise<Locator> {
   const panel = zonePanel(page, entityId);
   await panel.getByRole("button", { name: "Edit Zone" }).click();
+  // Edit Zone is one dialog with two tabs; the thermostat's settings are the
+  // second.
+  await page.getByRole("tab", { name: "Thermostat" }).click();
   await page.locator(`[id="thermo-${entityId}-name"]`).waitFor({
     state: "visible",
     timeout: 10_000,

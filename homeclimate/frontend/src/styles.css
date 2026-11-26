@@ -1689,6 +1689,21 @@ tr:hover td {
 .zone-editor {
   background: var(--surface);
 }
+/* Smart Control → Schedules: whether a room is in use */
+.room-in-use {
+  margin-top: 0.9rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.room-in-use-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
 /* My Home → Edit Zone: one sheet, two tabs */
 .modal.edit-zone {
   width: min(56rem, 96vw);

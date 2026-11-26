@@ -20,7 +20,7 @@ The Dashboard shows each zone at a glance, grouped by building: ambient temperat
 
 ![Dashboard](screenshots/01_Dashboard.png)
 
-My Home holds the structure: buildings, zones (one thermostat each) and rooms. Each room card lists its smart vents, temperature sensors, doors and windows, and occupancy sensors. Click **Edit Devices** to attach HA entities to a room.
+My Home holds the structure: buildings, zones (one thermostat each) and rooms. Each room card lists its smart vents, temperature sensors, doors and windows, occupancy sensors and shades. Click one of those boxes to attach HA entities of that kind to the room.
 
 ![Rooms](screenshots/02_Rooms.png)
 
@@ -252,7 +252,7 @@ Go to **My Home** and use the **Add Room** button inside the zone the room belon
 
 ### 3. Configure sensors and vents
 
-Click **Edit Devices** on any room card.
+Click a device box on any room card: each opens that kind of device for the room.
 
 **Temperature Sensors** — add all `sensor.*` entities in the room. The engine averages them. Add as many as you want.
 

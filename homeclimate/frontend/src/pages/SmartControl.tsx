@@ -27,7 +27,6 @@ import ZoneBalanceSection from "./ZoneBalanceSection";
 import PeakSection from "./PeakSection";
 import ForecastSection from "./ForecastSection";
 import LearningSection from "./LearningSection";
-import RoomCalendarsCard from "./RoomCalendarsCard";
 import ShadesSection from "./ShadesSection";
 
 type Minutes = "zone_pause_min" | "room_pause_min" | "resume_min";
@@ -312,7 +311,6 @@ export default function SmartControl() {
       ) : (
         <div className="embedded-page">
           <Schedules />
-          <RoomCalendarsCard />
         </div>
       )}
     </SectionLayout>
