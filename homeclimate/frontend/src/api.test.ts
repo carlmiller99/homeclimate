@@ -449,18 +449,6 @@ describe("API Client", () => {
     );
   });
 
-  it("setOutsideTempEntity sends a PUT", async () => {
-    mockJsonResponse({});
-    await api.setOutsideTempEntity("sensor.outside");
-    expect(fetch).toHaveBeenCalledWith(
-      "/api/settings/outside-temp-entity",
-      expect.objectContaining({
-        method: "PUT",
-        body: JSON.stringify({ entity_id: "sensor.outside" }),
-      })
-    );
-  });
-
   it("triggerDailyRollup sends a POST", async () => {
     mockJsonResponse({});
     await api.triggerDailyRollup(2);

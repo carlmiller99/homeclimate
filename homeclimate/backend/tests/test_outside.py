@@ -41,3 +41,7 @@ class TestReadings:
     def test_a_sensor_that_raises_reads_as_none(self):
         ha = _HA({"a": 61.0, "b": RuntimeError("gone")})
         assert outside.readings(ha, ["a", "b"]) == {"a": 61.0, "b": None}
+
+    def test_a_sensor_reporting_nan_or_infinity_reads_as_none(self):
+        ha = _HA({"a": float("nan"), "b": float("inf"), "c": 61.0})
+        assert outside.readings(ha, ["a", "b", "c"]) == {"a": None, "b": None, "c": 61.0}

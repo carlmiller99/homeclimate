@@ -68,8 +68,12 @@ export default function OutsideTempPicker({
     }
   };
 
+  // Adding builds on the list last read from the server, so it waits for a
+  // load to have succeeded and for any save in flight: otherwise a pick made
+  // after a failed load, or on the heels of another, would replace the list.
+  const ready = current !== null && !saving;
   const add = (entityId: string | null) => {
-    if (!entityId || sensors.includes(entityId)) return;
+    if (!ready || !entityId || sensors.includes(entityId)) return;
     void save([...sensors, entityId]);
   };
 
@@ -77,23 +81,35 @@ export default function OutsideTempPicker({
   const readingOf = (entityId: string): number | null => {
     const own = current?.values?.[entityId];
     if (own !== undefined) return own;
-    return sensors.length === 1 ? (current?.current_value ?? null) : null;
+    return sensors.length === 1 && current ? current.current_value : null;
   };
 
   return (
     <div className="card" style={{ marginBottom: "1rem" }}>
       <div className="card-title">Outside temperature sensors</div>
       <div className="text-sm text-muted" style={{ marginBottom: "1rem" }}>
-        One Home Assistant sensor for the whole home, or several: with more than one, HomeClimate
-        uses their average, and leaves out any that stops answering. It is not tied to a specific
-        thermostat. The reading is recorded at the start and end of every cycle for the analytics,
-        and it is <strong>required</strong> for the cooling lockout, Eco Mode and pre-cool/pre-heat.
+        One Home Assistant temperature sensor for the whole home, or several: with more than one,
+        HomeClimate uses their average, and leaves out any that stops answering. It is not tied to a
+        specific thermostat. The reading is recorded at the start and end of every cycle for the
+        analytics, and it is <strong>required</strong> for the cooling lockout, Eco Mode and
+        pre-cool/pre-heat.
       </div>
 
       {error && (
         <div className="badge badge-red" style={{ marginBottom: ".75rem" }}>
           {error}
         </div>
+      )}
+
+      {current === null && error && (
+        <button
+          className="btn btn-secondary"
+          style={{ marginBottom: ".75rem" }}
+          onClick={() => void refresh()}
+          type="button"
+        >
+          Try Again
+        </button>
       )}
 
       <div style={{ maxWidth: 420, marginBottom: ".75rem" }}>

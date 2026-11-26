@@ -1049,12 +1049,6 @@ export function downloadMetricsCsv(
 export const getOutsideTempEntity = () =>
   api<OutsideTempEntitySetting>("/api/settings/outside-temp-entity");
 
-export const setOutsideTempEntity = (entity_id: string | null) =>
-  api<OutsideTempEntitySetting>("/api/settings/outside-temp-entity", {
-    method: "PUT",
-    body: JSON.stringify({ entity_id }),
-  });
-
 /** Set every outside sensor at once; an empty list clears the setting. */
 export const setOutsideTempEntities = (entity_ids: string[]) =>
   api<OutsideTempEntitySetting>("/api/settings/outside-temp-entity", {

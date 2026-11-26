@@ -338,7 +338,7 @@ export default function Metrics() {
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load thermostats"));
   }, []);
 
-  // The outside-temperature sensor is configured on the Thermostats page; here
+  // The outside-temperature sensors are configured in Settings → Sensors; here
   // we only need to know whether one is set, to surface the right empty-state.
   useEffect(() => {
     getOutsideTempEntity()

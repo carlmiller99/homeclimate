@@ -10,11 +10,12 @@ metrics and the settings page can never disagree about what "outside" is.
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import aiosqlite
 
-from backend import db
+from . import db
 
 SETTING = "outside_temperature_entity_id"
 
@@ -45,9 +46,13 @@ def readings(ha: Any, ids: list[str]) -> dict[str, float | None]:
     found: dict[str, float | None] = {}
     for entity_id in ids:
         try:
-            found[entity_id] = ha.get_numeric_state(entity_id)
+            value = ha.get_numeric_state(entity_id)
         except Exception:
-            found[entity_id] = None
+            value = None
+        # A sensor reporting "nan" or "inf" parses as a number but would
+        # poison the average and make every comparison with it false.
+        usable = isinstance(value, (int, float)) and math.isfinite(value)
+        found[entity_id] = float(value) if usable else None
     return found
 
 
