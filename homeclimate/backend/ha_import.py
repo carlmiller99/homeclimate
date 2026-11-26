@@ -107,6 +107,40 @@ def _classify(state: dict) -> str | None:
     return None
 
 
+# The kinds a room's device pickers ask for (My Home → Edit Devices).
+PICKER_KINDS = ("temperature", "presence", "contacts", "vents")
+
+
+def is_kind(state: dict, kind: str) -> bool:
+    """Whether an entity belongs in a room's picker for ``kind``.
+
+    Looser than the import's own classification for vents: there a cover must
+    look like a vent to be suggested, here any cover that is not a shade can be
+    chosen, since a smart vent need not have "vent" in its entity id.
+    """
+    if kind == "vents":
+        eid: str = state.get("entity_id", "")
+        cls = (state.get("attributes", {}) or {}).get("device_class")
+        return eid.startswith("cover.") and cls not in SHADE_CLASSES
+    return _classify(state) == kind
+
+
+def room_areas(
+    registries: dict[str, list[dict]], room_name: str
+) -> tuple[dict[str, str], set[str]]:
+    """entity_id → its area's name, and the entities in an area named like the room.
+
+    Names are compared the way room names are (case and spacing
+    ignored), so the room "Master Bedroom" matches the area "master bedroom".
+    """
+    names = {a.get("area_id"): a.get("name") or "" for a in registries.get("areas", [])}
+    areas, _excluded = _entity_areas(registries)
+    wanted = sanitize(room_name)
+    named = {eid: names.get(area, "") for eid, area in areas.items() if names.get(area)}
+    in_room = {eid for eid, name in named.items() if wanted and sanitize(name) == wanted}
+    return named, in_room
+
+
 def build_preview(
     registries: dict[str, list[dict]],
     states: list[dict],

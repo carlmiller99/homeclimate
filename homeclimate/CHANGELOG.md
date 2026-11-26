@@ -2,6 +2,7 @@
 
 ## 0.5.16
 
+- Room devices: each search now lists only the right kind of device (temperature sensors, vents, door and window sensors, occupancy sensors), and leads with the ones in the Home Assistant area named like the room.
 - My Home: a zone can be empty. Add Zone no longer asks for a first room, a zone's last room can be deleted or moved, and an empty zone says it cannot be controlled until a room is added, with an Add Room button there.
 - My Home: Delete Zone is in each zone's header. Deleting a building now keeps its zones and rooms and moves them to Unassigned, after a confirmation, where it used to be refused.
 - My Home: a zone's title is a plain heading over its room cards, not a card itself.

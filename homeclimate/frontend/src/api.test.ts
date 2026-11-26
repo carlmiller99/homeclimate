@@ -406,6 +406,15 @@ describe("API Client", () => {
     );
   });
 
+  it("getHAEntities asks for a kind of room device and the room's area", async () => {
+    mockJsonResponse([]);
+    await api.getHAEntities("sensor", { kind: "temperature", room: "Master Bedroom" });
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/ha/entities?domain=sensor&kind=temperature&room=Master+Bedroom",
+      expect.anything()
+    );
+  });
+
   it("getHAEntities handles array of domains", async () => {
     mockJsonResponse([]);
     await api.getHAEntities(["sensor", "binary_sensor"], { hasAttribute: "unit" });

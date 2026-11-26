@@ -28,6 +28,7 @@ import {
   CONTROL_METHOD_LABELS,
   type ControlMethod,
   type Room,
+  type RoomDeviceKind,
   type RoomVent,
   type ThermostatConfig,
   type EntityState,
@@ -768,10 +769,12 @@ function RoomSettings({
 /** Doors and windows in a room, each pausing the room or its whole zone. */
 function DoorsWindowsEditor({
   roomId,
+  roomName,
   contacts,
   onChanged,
 }: {
   roomId: string;
+  roomName: string;
   contacts: ContactSensor[];
   onChanged: (all: ContactSensor[]) => void;
 }) {
@@ -797,7 +800,9 @@ function DoorsWindowsEditor({
       </p>
       <EntityPicker
         domain="binary_sensor"
-        placeholder="Search door and window sensors (binary_sensor.*)…"
+        kind="contacts"
+        room={roomName}
+        placeholder="Search door and window sensors…"
         onSelect={(id) =>
           void run(
             () => saveContactSensor(id, { room_id: roomId, pauses: "room" }),
@@ -863,6 +868,8 @@ function EntitySection({
   icon,
   items,
   domain,
+  kind,
+  roomName,
   pickerPlaceholder,
   emptyHint,
   pickerProps,
@@ -874,6 +881,8 @@ function EntitySection({
   icon: string;
   items: string[];
   domain: string;
+  kind: RoomDeviceKind;
+  roomName: string;
   pickerPlaceholder: string;
   emptyHint: string;
   pickerProps?: { hasAttribute?: string; excludeIcon?: string };
@@ -893,6 +902,8 @@ function EntitySection({
 
       <EntityPicker
         domain={domain}
+        kind={kind}
+        room={roomName}
         placeholder={pickerPlaceholder}
         hasAttribute={pickerProps?.hasAttribute}
         excludeIcon={pickerProps?.excludeIcon}
@@ -924,10 +935,12 @@ function EntitySection({
 // ---------------------------------------------------------------------------
 function VentTable({
   roomId,
+  roomName,
   vents,
   onChanged,
 }: {
   roomId: string;
+  roomName: string;
   vents: RoomVent[];
   onChanged: () => Promise<void>;
 }) {
@@ -946,7 +959,9 @@ function VentTable({
 
       <EntityPicker
         domain="cover"
-        placeholder="Search vents (cover.*)…"
+        kind="vents"
+        room={roomName}
+        placeholder="Search vents…"
         onSelect={async (id) => {
           await addVent(roomId, id);
           await onChanged();
@@ -1255,7 +1270,12 @@ function RoomConfigure({
 
       {/* Entity sections */}
       <div className="card">
-        <VentTable roomId={room.id} vents={room.vents ?? []} onChanged={refresh} />
+        <VentTable
+          roomId={room.id}
+          roomName={room.name}
+          vents={room.vents ?? []}
+          onChanged={refresh}
+        />
 
         <hr className="divider" />
 
@@ -1265,7 +1285,9 @@ function RoomConfigure({
           icon="🌡"
           items={sensors}
           domain="sensor"
-          pickerPlaceholder="Search temperature sensors (sensor.*)…"
+          kind="temperature"
+          roomName={room.name}
+          pickerPlaceholder="Search temperature sensors…"
           emptyHint="No sensors added yet — search above to add one."
           onAdd={wrap("Adding sensor…", (id) => addSensor(room.id, id))}
           onRemove={askToRemove("sensor")}
@@ -1275,6 +1297,7 @@ function RoomConfigure({
 
         <DoorsWindowsEditor
           roomId={room.id}
+          roomName={room.name}
           contacts={contacts}
           onChanged={(all) => onContactsChanged?.(all)}
         />
@@ -1287,7 +1310,9 @@ function RoomConfigure({
           icon="🚶"
           items={presence}
           domain="binary_sensor"
-          pickerPlaceholder="Search occupancy and motion sensors (binary_sensor.*)…"
+          kind="presence"
+          roomName={room.name}
+          pickerPlaceholder="Search occupancy and motion sensors…"
           emptyHint="No occupancy sensors added — the room will only activate via schedules."
           onAdd={wrap("Adding sensor…", (id: string) => addPresence(room.id, id))}
           onRemove={askToRemove("presence")}

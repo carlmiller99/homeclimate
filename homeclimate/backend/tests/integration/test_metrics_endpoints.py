@@ -236,3 +236,93 @@ class TestRollupTriggerEndpoints:
         body = await resp.json()
         assert body["rows_written"] == 0
         assert body["months_back"] == 0
+
+
+class TestRoomDevicePickers:
+    """`/api/ha/entities?kind=…&room=…` behind My Home → Edit Devices."""
+
+    def _seed(self, fake_ha):
+        temp = {"device_class": "temperature", "unit_of_measurement": "°F"}
+        fake_ha.seed_state("sensor.den_temp", "70", {**temp, "friendly_name": "Den Temp"})
+        fake_ha.seed_state("sensor.attic_temp", "90", temp)
+        fake_ha.seed_state("sensor.den_humidity", "40", {"device_class": "humidity"})
+        fake_ha.seed_state("sensor.den_battery", "88", {"device_class": "battery"})
+        fake_ha.seed_state("binary_sensor.den_motion", "off", {"device_class": "motion"})
+        fake_ha.seed_state("binary_sensor.den_door", "off", {"device_class": "door"})
+        fake_ha.seed_state("binary_sensor.den_leak", "off", {"device_class": "moisture"})
+        fake_ha.seed_state("cover.den_register", "open", {})
+        fake_ha.seed_state("cover.den_blind", "open", {"device_class": "blind"})
+        fake_ha.registries["areas"] = [
+            {"area_id": "den", "name": "The  DEN"},
+            {"area_id": "attic", "name": "Attic"},
+        ]
+        fake_ha.registries["devices"] = [{"id": "dev1", "area_id": "den"}]
+        fake_ha.registries["entities"] = [
+            {"entity_id": "sensor.den_temp", "device_id": "dev1"},
+            {"entity_id": "sensor.attic_temp", "area_id": "attic"},
+            {"entity_id": "binary_sensor.den_motion", "area_id": "den"},
+        ]
+
+    @pytest.mark.asyncio
+    async def test_each_kind_lists_only_its_own_entities(self, client, fake_ha):
+        self._seed(fake_ha)
+        wanted = {
+            "temperature": ["sensor.attic_temp", "sensor.den_temp"],
+            "presence": ["binary_sensor.den_motion"],
+            "contacts": ["binary_sensor.den_door"],
+            # Any cover that is not a shade can be a vent, whatever it is called.
+            "vents": ["cover.den_register"],
+        }
+        for kind, expected in wanted.items():
+            domain = {"temperature": "sensor", "vents": "cover"}.get(kind, "binary_sensor")
+            resp = await client.get("/api/ha/entities", params={"domain": domain, "kind": kind})
+            assert resp.status == 200
+            assert [e["entity_id"] for e in await resp.json()] == expected, kind
+        bad = await client.get("/api/ha/entities", params={"domain": "sensor", "kind": "lights"})
+        assert bad.status == 400
+
+    @pytest.mark.asyncio
+    async def test_entities_in_the_rooms_area_come_first(self, client, fake_ha):
+        self._seed(fake_ha)
+        resp = await client.get(
+            "/api/ha/entities",
+            params={"domain": "sensor", "kind": "temperature", "room": "the den"},
+        )
+        body = await resp.json()
+        # The den's sensor leads although "attic" sorts before it.
+        assert [(e["entity_id"], e["area_name"], e["in_room_area"]) for e in body] == [
+            ("sensor.den_temp", "The  DEN", True),
+            ("sensor.attic_temp", "Attic", False),
+        ]
+        # A room with no area of that name changes nothing but still names areas.
+        other = await (
+            await client.get(
+                "/api/ha/entities",
+                params={"domain": "sensor", "kind": "temperature", "room": "Loft"},
+            )
+        ).json()
+        assert [(e["entity_id"], e["in_room_area"]) for e in other] == [
+            ("sensor.attic_temp", False),
+            ("sensor.den_temp", False),
+        ]
+        # Without a room nothing is looked up.
+        plain = await (await client.get("/api/ha/entities?domain=sensor&kind=temperature")).json()
+        assert all(e["area_name"] is None and e["in_room_area"] is False for e in plain)
+
+    @pytest.mark.asyncio
+    async def test_the_list_survives_registries_that_cannot_be_read(self, client, fake_ha):
+        self._seed(fake_ha)
+
+        async def _boom():
+            raise RuntimeError("registry secret internals")
+
+        fake_ha.get_registries = _boom
+        resp = await client.get(
+            "/api/ha/entities", params={"domain": "sensor", "kind": "temperature", "room": "Den"}
+        )
+        assert resp.status == 200
+        assert "secret internals" not in await resp.text()
+        assert [e["entity_id"] for e in await resp.json()] == [
+            "sensor.attic_temp",
+            "sensor.den_temp",
+        ]
