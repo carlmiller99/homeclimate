@@ -185,7 +185,9 @@ async function setupViaUI(): Promise<void> {
       await page.goto(`${BASE_URL}/my-home`);
       await page.waitForSelector(".loading", { state: "detached", timeout: 20_000 });
       await page.waitForLoadState("networkidle");
-      const addRoomBtn = page.getByRole("button", { name: /Add room/i });
+      // Each zone has its own Add Room button, named for the zone.
+      const zoneName = THERMOSTATS.find((t) => t.entityId === def.thermostat)!.name;
+      const addRoomBtn = page.getByRole("button", { name: `Add Room to ${zoneName}` });
       await addRoomBtn.waitFor({ state: "visible" });
       await addRoomBtn.click();
       // "Add Room" now swaps to a full-page settings view (not a modal), so

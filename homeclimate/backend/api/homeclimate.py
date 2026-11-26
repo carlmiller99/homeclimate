@@ -16,6 +16,7 @@ from .. import (
     building_mode,
     coasting,
     db,
+    equipment_hint,
     fireplace,
     forecast,
     forecast_bias,
@@ -132,10 +133,40 @@ async def list_zones(request: web.Request) -> web.Response:
                 **zones.as_dict(z),
                 "aux_heat_running": scheduler.aux_heat_running(z.thermostat_entity_id),
                 "strips_expected": scheduler.strips_expected(z.thermostat_entity_id),
+                # A zone left on conventional settings whose thermostat shows
+                # the signs of a heat pump: My Home says so and offers to fix it.
+                "looks_like_heat_pump": not z.is_heat_pump
+                and equipment_hint.looks_like(request.app["ha"], z.thermostat_entity_id)
+                is not None,
             }
             for z in await zones.list_zone_profiles(conn)
         ]
     )
+
+
+@docs(
+    tags=["zones"],
+    summary="What kind of system a thermostat looks like, from Home Assistant's entities",
+)
+@query_params(
+    [
+        {
+            "name": "thermostat_entity_id",
+            "schema": {"type": "string"},
+            "required": True,
+            "description": "The thermostat's climate entity id, e.g. climate.upstairs",
+        }
+    ]
+)
+@response_schema(schemas.EquipmentHintSchema)
+@routes.get("/api/ha/equipment-hint")
+async def get_equipment_hint(request: web.Request) -> web.Response:
+    """A suggestion for the Add Zone form; ``system_type`` is null when nothing shows."""
+    entity_id = request.query.get("thermostat_entity_id", "").strip()
+    if not entity_id.startswith("climate."):
+        return error("thermostat_entity_id must be a climate entity")
+    found = equipment_hint.looks_like(request.app["ha"], entity_id)
+    return json_response(found or {"system_type": None, "auxiliary_heat": False, "reason": None})
 
 
 @docs(tags=["zones"], summary="Update a zone's building, order or equipment profile")

@@ -32,11 +32,28 @@ export interface ZoneProfile {
   aux_heat_running?: boolean;
   /** True while outdoors is below the heat pump's compressor lockout. */
   strips_expected?: boolean;
+  /** Set as conventional, but its thermostat shows the signs of a heat pump. */
+  looks_like_heat_pump?: boolean;
+}
+
+/** What a thermostat looks like from Home Assistant's entities; a suggestion only. */
+export interface EquipmentHint {
+  /** "heat_pump", or null when nothing shows either way. */
+  system_type: SystemType | null;
+  auxiliary_heat: boolean;
+  reason: "aux_switch" | "equipment_running" | null;
 }
 
 /** Writes carry temperatures in the DISPLAY unit; the backend converts (#231). */
 export type ZoneProfileUpdate = Partial<
-  Omit<ZoneProfile, "thermostat_entity_id" | "name" | "aux_heat_running" | "strips_expected">
+  Omit<
+    ZoneProfile,
+    | "thermostat_entity_id"
+    | "name"
+    | "aux_heat_running"
+    | "strips_expected"
+    | "looks_like_heat_pump"
+  >
 >;
 
 export const getBuildings = () => api<Building[]>("/api/buildings");
@@ -50,6 +67,9 @@ export const deleteBuilding = (id: string) =>
 export const getZones = () => api<ZoneProfile[]>("/api/zones");
 export const updateZone = (entityId: string, data: ZoneProfileUpdate) =>
   api<ZoneProfile>(`/api/zones/${entityId}`, { method: "PUT", body: JSON.stringify(data) });
+
+export const getEquipmentHint = (entityId: string) =>
+  api<EquipmentHint>(`/api/ha/equipment-hint?thermostat_entity_id=${encodeURIComponent(entityId)}`);
 
 export const SYSTEM_TYPE_LABELS: Record<SystemType, string> = {
   conventional: "Conventional",

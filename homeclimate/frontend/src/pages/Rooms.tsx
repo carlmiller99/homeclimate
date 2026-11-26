@@ -49,6 +49,7 @@ import { sanitizeRoomName } from "../roomNames";
 // ---------------------------------------------------------------------------
 function RoomSettings({
   room,
+  zoneId,
   rooms,
   thermostats,
   onCancel,
@@ -56,6 +57,8 @@ function RoomSettings({
   onDeleted,
 }: {
   room: Room | null;
+  /** For a new room: the zone whose Add Room button opened the form. */
+  zoneId?: string;
   // Every other room, so the sanitized-name uniqueness rule (#519) can be
   // reported as the user types rather than only as an API rejection.
   rooms: Room[];
@@ -78,7 +81,7 @@ function RoomSettings({
   };
   const { toDisplay, toDisplayDelta, displayBound, unitLabel } = useUnit();
   const [name, setName] = useState(room?.name ?? "");
-  const [thermostat, setThermostat] = useState(room?.thermostat_entity_id ?? "");
+  const [thermostat, setThermostat] = useState(room?.thermostat_entity_id ?? zoneId ?? "");
   const [sysTemp, setSysTemp] = useState(
     room?.system_wide_temp != null ? String(toDisplay(room.system_wide_temp)) : ""
   );
@@ -1113,6 +1116,7 @@ function RoomConfigure({
   const sensors = room.sensors?.map((s) => s.entity_id) ?? [];
   const vents = room.vents?.map((v) => v.entity_id) ?? [];
   const presence = room.presence_sensors?.map((p) => p.entity_id) ?? [];
+  const blank = sensors.length === 0 && vents.length === 0 && presence.length === 0;
 
   const refresh = async () => {
     const updated = await getRoom(room.id);
@@ -1213,8 +1217,17 @@ function RoomConfigure({
         </div>
       </div>
 
-      {/* Warnings */}
-      {sensors.length === 0 && (
+      {/* A room with nothing in it yet is being set up, not misconfigured: say
+          what to add, and keep the warnings for a room that has been started. */}
+      {blank && (
+        <div className="card" style={{ marginBottom: "1rem" }}>
+          <p className="text-sm text-muted">
+            Add this room's devices below. Start with a temperature sensor, which the room needs
+            before it can be heated or cooled. Vents and presence sensors are optional.
+          </p>
+        </div>
+      )}
+      {!blank && sensors.length === 0 && (
         <div
           className="card"
           style={{
@@ -1228,7 +1241,7 @@ function RoomConfigure({
           </p>
         </div>
       )}
-      {vents.length === 0 && (
+      {!blank && vents.length === 0 && (
         <div
           className="card"
           style={{
@@ -1481,6 +1494,7 @@ export default function MyHome() {
   const [settings, setSettings] = useState<{
     room: Room | null;
     returnTo: "list" | "configure";
+    zoneId?: string;
   } | null>(null);
   const [staleByRoom, setStaleByRoom] = useState<Record<string, StaleSensor[]>>({});
 
@@ -1534,10 +1548,11 @@ export default function MyHome() {
     );
 
   if (settings) {
-    const { room: editing, returnTo } = settings;
+    const { room: editing, returnTo, zoneId } = settings;
     return (
       <RoomSettings
         room={editing}
+        zoneId={zoneId}
         rooms={rooms}
         thermostats={thermostats}
         onCancel={() => setSettings(null)}
@@ -1594,14 +1609,7 @@ export default function MyHome() {
       <Zones
         reloadKey={reloadKey}
         onChanged={() => void load()}
-        extraActions={
-          <button
-            className="btn btn-primary"
-            onClick={() => setSettings({ room: null, returnTo: "list" })}
-          >
-            Add Room
-          </button>
-        }
+        onAddRoom={(zoneId) => setSettings({ room: null, returnTo: "list", zoneId })}
         renderRooms={(zoneId) => {
           const zoneRooms = rooms.filter((r) => r.thermostat_entity_id === zoneId);
           return zoneRooms.length === 0 ? (

@@ -31,7 +31,8 @@ Manual controls live here and nowhere else:
 One page for the whole structure: buildings, the zones in each building, and the rooms in each zone.
 
 - A **zone** is one thermostat and the rooms it serves. A zone has exactly one thermostat and at least one room; every room belongs to a zone.
-- **Add Zone** registers a thermostat together with its first room and the zone's total vent count.
+- **Add Building** is at the top of the page. **Add Zone** is inside each building and **Add Room** inside each zone, so a new zone or room goes where its button is.
+- **Add Zone** registers a thermostat together with its first room, the zone's total vent count and the kind of system it is (conventional or heat pump). The kind of system is asked for, never assumed; when Home Assistant shows the signs of a heat pump the form suggests it. A zone left as conventional whose thermostat looks like a heat pump is marked **Looks Like a Heat Pump**.
 - **Edit Zone** opens the zone's equipment (system type, heat pump protection) and its **Thermostat Settings** (setpoint limits, deadband, safety and vacation settings). **Delete Zone** is there too, and removes the zone's rooms with it.
 - A zone's last room can't be deleted or moved to another zone. Add another room first, or delete the zone.
 - Each **room card** lists its hardware in four sections: Smart Vents, Temperature Sensors, Doors & Windows, and Occupancy Sensors. **Edit Devices** adds and removes them. **Room Settings** holds the room's name, zone, temperatures and the **Delete Room** button.

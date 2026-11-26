@@ -421,7 +421,7 @@ describe("Rooms Page", () => {
 
   it("offers no Delete Room button while creating a room", async () => {
     renderPage();
-    fireEvent.click(await screen.findByRole("button", { name: "Add Room" }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Add Room to / }));
     expect(await screen.findByRole("button", { name: "Create room" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Delete Room" })).toBeNull();
   });
