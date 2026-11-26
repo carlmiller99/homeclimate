@@ -2,7 +2,7 @@
 
 ## 0.5.19
 
-- Vacation Mode: the **Range** hold is gone. HomeClimate always decides when to heat and cool while you are away, and never hands that to the thermostat's own heat-and-cool mode. A thermostat that was set to Range now holds like every other, and the **Test auto mode** button is gone with it. To let a thermostat run the house by itself, turn HomeClimate off.
+- Vacation Mode: the **Range** hold is gone. HomeClimate always decides when to heat and cool while you are away, and never hands that to the thermostat's own heat-and-cool mode. A thermostat that was set to Range now holds like every other, and the **Test auto mode** button is gone with it. To let a thermostat run the house by itself, turn HomeClimate off. A zone that was on Range now also gets per-room safety cycles while you are away, unless that is switched off in its Thermostat Settings.
 - Smart Control → Eco Mode: **Let an Empty Zone Drift Further**. After nobody has used a zone for the hours you set, its rooms may drift 2 °F (1.1 °C) further, and return to their targets when someone does.
 - A room's settings now live where that kind of setting lives. **My Home → Room Settings** keeps its name, zone, sensor choice and notes. **Smart Control → Rooms** (new) has how it is heated and cooled: occupancy holdover, temperature offset, deadband, waiting on the weather and its Eco Mode. **Dashboard → the room → When Occupied** has its occupied temperature and Cool To.
 - The repository is now public under the AGPL-3.0 licence.

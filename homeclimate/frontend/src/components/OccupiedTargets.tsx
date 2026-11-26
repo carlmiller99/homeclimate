@@ -24,10 +24,14 @@ export default function OccupiedTargets({
   const [base, setBase] = useState(stored);
   const [seen, setSeen] = useState(stored);
   if (seen.temp !== stored.temp || seen.coolTo !== stored.coolTo) {
-    // What is stored changed (a refetch, or the display unit): show it.
+    // The room handed in changed (a refetch, or the display unit). Show it,
+    // unless it is only the page catching up with what was just saved here:
+    // then anything typed since is kept.
     setSeen(stored);
-    setBase(stored);
-    setForm(stored);
+    if (base.temp !== stored.temp || base.coolTo !== stored.coolTo) {
+      setBase(stored);
+      setForm(stored);
+    }
   }
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);

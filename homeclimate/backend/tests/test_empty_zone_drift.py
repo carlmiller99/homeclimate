@@ -146,3 +146,40 @@ async def test_no_logger_is_fine():
     await _band_after(engine, conn, room, 0)
     assert await _band_after(engine, conn, room, 120) == (66.0, 78.0)
     await conn.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("why", ["vacation", "disabled"])
+async def test_a_tick_that_returns_early_still_counts_as_use(why):
+    """A trip with safety cycles off, and the system switched off, never reach
+    the room list: the zone must not look empty for all that time."""
+    conn, engine, room = await _setup(hours=1.0)
+    tc = await db.get_thermostat_config(conn, THERMO_ID)
+    tc.vacation_safety_cycles = False
+    await db.upsert_thermostat_config(conn, tc)
+    await _band_after(engine, conn, room, 0)
+    assert await _band_after(engine, conn, room, 60) == (66.0, 78.0)
+    assert engine.empty_drift
+    if why == "vacation":
+        engine._get_vacation_mode = lambda: True
+    else:
+        engine._get_enabled = lambda: False
+    await engine.tick(conn)
+    assert not engine.empty_drift
+    assert "Eco Mode: North Wing is back to its targets" in _said(engine)
+    # The hours start over from that tick, not from before it.
+    last = engine._zone_asked_at
+    assert last is not None and last > NOW + timedelta(minutes=60)
+    ar = _house(room)
+    await engine._empty_zone_drift(conn, [ar], last + timedelta(minutes=59), False)
+    assert (ar.heat_to, ar.cool_to) == (68.0, 76.0)
+    await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_one_hour_is_said_in_the_singular():
+    conn, engine, room = await _setup(hours=1.0)
+    await _band_after(engine, conn, room, 0)
+    await _band_after(engine, conn, room, 60)
+    assert "for 1 hour, so" in _said(engine)[0]
+    await conn.close()

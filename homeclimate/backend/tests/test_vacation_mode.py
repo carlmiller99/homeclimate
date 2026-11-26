@@ -767,3 +767,34 @@ async def test_engine_heats_below_safety_min_after_range_mode_vacation():
         assert first_call == ((THERMO_A, 70.0), {"hvac_mode": "heat"})
     finally:
         await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_reverting_heat_cool_starts_the_compressor_off_time():
+    """A trip that began under a version with a range hold: the equipment may be
+    cooling in heat_cool, so the "off" that takes it back is a compressor stop
+    and must hold off the next start like any other."""
+    ha = _make_ha(hvac_mode="heat_cool", current_temp=90.0)
+    ha.get_state.return_value = {
+        "state": "heat_cool",
+        "attributes": {"current_temperature": 90.0, "temperature": 72.0, "hvac_action": "cooling"},
+    }
+    engine = _make_engine(ha, vacation_mode=True)
+    conn = await _setup_db()
+    try:
+        await _insert_room(conn, "room1", THERMO_A)
+        await db.upsert_thermostat_config(
+            conn,
+            ThermostatConfig(
+                thermostat_entity_id=THERMO_A,
+                min_setpoint=62.0,
+                max_setpoint=80.0,
+                min_cycle_offtime_min=5,
+            ),
+        )
+        assert engine._hold_compressor_off_at is None
+        await engine.tick(conn)
+        ha.set_thermostat_hvac_mode.assert_called_once_with(THERMO_A, "off")
+        assert engine._hold_compressor_off_at is not None
+    finally:
+        await conn.close()

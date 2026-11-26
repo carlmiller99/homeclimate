@@ -44,6 +44,7 @@ One page for the whole structure: buildings, the zones in each building, and the
 A side menu of sections:
 
 - **Schedules** — one card per room, answering two questions: whether the room is in use (always, never, or while a Home Assistant calendar event is on), and its temperature by time of day while it is. See [Schedules](./schedules.md) and [House band](./house-band.md).
+- **Rooms** — how one room is heated and cooled where it differs from its zone: occupancy holdover, temperature offset, deadband, waiting on the weather, its own Eco Mode. See [Rooms & zones](./rooms-and-zones.md).
 - **Doors & Windows** — how long a door or window can stay open before its room or zone pauses, per-zone and per-room overrides, and **Shades**. The sensors themselves are added to rooms in My Home. See [Doors & windows](./doors-and-windows.md) and [Shades](./shades.md).
 - **Smart Learning** — records how each room heats and cools, and shows how much each room has collected. See [Smart Learning](./smart-learning.md).
 - **Auto Mode** — what a building does when its Dashboard mode is Auto: let each zone decide or heat and cool as one, how often it may switch, and how far past its target a room must be first. See [Building mode](./building-mode.md).
@@ -52,7 +53,7 @@ A side menu of sections:
 - **Fan** — run the fan alone to mix a zone's rooms while its building holds it to heating or to cooling. See [Fan](./fan.md).
 - **Peak Hours** — bank heat or cool in banded rooms ahead of the hours when electricity costs most. See [Peak Hours](./peak-hours.md).
 - **Zone Balance** — per building: whether zones are kept within a gap of each other, and the gap. See [Zone Balance](./zone-balance.md).
-- **Eco Mode** — per zone: whether targets relax when it is very hot or cold outside, and by how much. A single room's own Eco settings stay with the room in My Home. See [Eco Mode](./eco-mode.md).
+- **Eco Mode** — per zone: whether targets relax when it is very hot or cold outside, and by how much. A single room's own Eco settings are in Smart Control → Rooms. See [Eco Mode](./eco-mode.md).
 
 ## Settings
 

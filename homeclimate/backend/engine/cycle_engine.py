@@ -762,6 +762,8 @@ class CycleEngine:
                 await self._abort_cycle(conn, reason="system disabled")
             else:
                 log.debug("System disabled — skipping tick for %s", self.thermostat_entity_id)
+            # Switched off is not "empty": the hours start over when it is back on.
+            await self._empty_zone_drift(conn, [], datetime.now(UTC), True)
             # Release the safety hysteresis (#633). Disabling is an operator
             # action of unbounded duration, and `_add_safety_rooms` — the only
             # thing that rebuilds this latch — does not run below. A latch left
@@ -804,6 +806,9 @@ class CycleEngine:
                 # cycles are off, the hold owns the zone, and nothing rebuilds
                 # the latch while that is true.
                 self._safety_sustain = {}
+                # The trip counts as the zone being in use (Eco Mode, Let an
+                # Empty Zone Drift Further): nothing below runs on these ticks.
+                await self._empty_zone_drift(conn, [], datetime.now(UTC), True)
                 await self._apply_vacation_hold(conn, thermo_state)
                 return
         self._vacation_cycle = in_vacation
@@ -831,6 +836,10 @@ class CycleEngine:
                     {"thermostat": self.thermostat_entity_id},
                 )
             await self._ha.set_thermostat_hvac_mode(self.thermostat_entity_id, "off")
+            # In heat_cool the equipment may have been cooling: this "off" can
+            # be a compressor stop, so it starts the off-time lockout exactly
+            # as the hold's own stops do (#628).
+            self._note_hold_stopped_compressor("heat_cool")
             # Arm the one-tick grace window (Issue #637 follow-up) so the
             # idle-arm mode-hygiene check does not mistake this very "off" —
             # HomeClimate's own remedial action, not external interference — for
@@ -1403,6 +1412,7 @@ class CycleEngine:
         nothing widens then, and the trip counts as the zone being in use: the
         hours start over when it ends.
         """
+        # ``in_vacation`` also stands for the system being switched off.
         asked = in_vacation or any(
             ar.source in ("override", "schedule", "presence") for ar in active
         )
@@ -1441,7 +1451,7 @@ class CycleEngine:
                     "engine",
                     (
                         f"Eco Mode: nothing has asked for {tc.name or self.thermostat_entity_id}"
-                        f" for {hours:g} hours, so its rooms may drift"
+                        f" for {hours:g} {'hour' if hours == 1 else 'hours'}, so its rooms may drift"
                         f" {eco.EMPTY_ZONE_EXTRA_F:g}°F further"
                         if on
                         else f"Eco Mode: {tc.name or self.thermostat_entity_id} is back to"

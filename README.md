@@ -279,6 +279,8 @@ The **System On/Off** toggle in the top-right of every page controls whether the
 
 ## Room settings reference
 
+Where each one is set: name, zone and the thermostat-sensor choice in **My Home → Room Settings**; the presence (occupied) temperature on the **Dashboard**, in the room's details; the rest in **Smart Control → Rooms**.
+
 | Setting | Description |
 |---|---|
 | **Thermostat** | Which registered thermostat (zone) this room belongs to |

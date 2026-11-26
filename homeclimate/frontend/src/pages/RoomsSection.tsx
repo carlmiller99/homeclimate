@@ -33,6 +33,7 @@ export default function RoomsSection() {
       setZones(z);
       setFailed(false);
     } catch {
+      // A list already on screen stays; only a first load has nothing to show.
       setFailed(true);
     }
   }, []);
@@ -40,7 +41,7 @@ export default function RoomsSection() {
     void load();
   }, [load]);
 
-  if (failed) return <p className="form-error">Could not load the rooms.</p>;
+  if (rooms === null && failed) return <p className="form-error">Could not load the rooms.</p>;
   if (rooms === null) return <p className="sc-note">Loading the rooms…</p>;
 
   const zoneName = (id: string) => zones.find((z) => z.thermostat_entity_id === id)?.name || id;
@@ -85,8 +86,10 @@ export default function RoomsSection() {
           rooms={rooms}
           thermostats={zones}
           onCancel={() => setOpen(null)}
-          onSaved={() => {
+          onSaved={(saved) => {
             setOpen(null);
+            // Shown at once, so opening the room again starts from what was saved.
+            setRooms((all) => (all ?? []).map((r) => (r.id === saved.id ? { ...r, ...saved } : r)));
             void load();
           }}
         />

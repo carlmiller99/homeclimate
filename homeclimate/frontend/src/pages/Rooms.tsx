@@ -1195,7 +1195,7 @@ function RoomDeviceModal({
         {kind === "occupancy" && (
           <EntitySection
             title="Occupancy Sensors"
-            description="When any sensor here detects motion, the room activates at the presence-triggered temperature and stays active for the configured holdover period (reset on each detection)."
+            description="When any sensor here detects motion, the room is kept at its occupied temperature, set on the Dashboard, until its holdover runs out."
             icon="🚶"
             items={presence}
             domain="binary_sensor"

@@ -258,9 +258,8 @@ export default function VacationModeModal({ current, onClose, onChanged }: Props
         is kept inside its safe temperatures. Normal running resumes on the return date.
       </p>
       <p style={{ marginBottom: "1.25rem", color: "var(--gray-600)", fontSize: ".9rem" }}>
-        This applies to <strong>all thermostats</strong>. Each thermostat's hold strategy (range or
-        single setpoint) and its <em>Welcome home</em> warm-up are configured in its zone's
-        Thermostat Settings, in My Home.
+        This applies to <strong>all thermostats</strong>. Each zone's <em>Welcome home</em>
+        warm-up is set in its Thermostat Settings, in My Home.
       </p>
 
       {!editingScheduled && (

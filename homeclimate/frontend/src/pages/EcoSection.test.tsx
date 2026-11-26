@@ -265,10 +265,17 @@ describe("Smart Control → Eco Mode", () => {
     expect(toggle).not.toBeChecked();
     expect(hours).toBeDisabled();
     expect(hours).toHaveValue(null);
-    expect(within(c).getByText(/its rooms may drift 2°F further/)).toBeInTheDocument();
+    expect(
+      within(c).getByText(/^With Eco Mode on, after nobody has used this zone .* drift 2°F further/)
+    ).toBeInTheDocument();
 
     fireEvent.click(toggle);
     expect(hours).toHaveValue(2);
+    // Typing "0.5" passes through "0": the row stays on while it is typed.
+    fireEvent.change(hours, { target: { value: "0" } });
+    expect(toggle).toBeChecked();
+    expect(hours).toBeEnabled();
+    expect(within(c).getByText("Hours must be between 0.5 and 72.")).toBeInTheDocument();
     fireEvent.change(hours, { target: { value: "4.5" } });
     fireEvent.click(within(c).getByRole("button", { name: "Save" }));
     await waitFor(() =>
@@ -292,7 +299,7 @@ describe("Smart Control → Eco Mode", () => {
     expect(within(c).getByText(/its rooms may drift 1\.11°C further/)).toBeInTheDocument();
     const hours = within(c).getByLabelText("Hours before Upstairs drifts further");
     expect(hours).toHaveValue(3);
-    for (const bad of ["80", "", "-1"]) {
+    for (const bad of ["80", "", "-1", "0.2"]) {
       fireEvent.change(hours, { target: { value: bad } });
       expect(within(c).getByText("Hours must be between 0.5 and 72.")).toBeInTheDocument();
       expect(within(c).getByRole("button", { name: "Save" })).toBeDisabled();

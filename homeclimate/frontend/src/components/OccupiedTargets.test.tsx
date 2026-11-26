@@ -35,7 +35,7 @@ beforeEach(() => {
 
 describe("Dashboard → a room → When Occupied", () => {
   it("shows what is stored and saves a temperature with a Cool To", async () => {
-    show(room());
+    const view = show(room());
     expect(temp()).toHaveValue(72);
     expect(coolTo()).toHaveValue(null);
     expect(save()).toBeDisabled();
@@ -50,6 +50,17 @@ describe("Dashboard → a room → When Occupied", () => {
     );
     expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ system_wide_temp: 68 }));
     expect(await screen.findByText("Saved")).toBeInTheDocument();
+    // Typed while the page is still reading the saved room back: it is kept.
+    fireEvent.change(coolTo(), { target: { value: "76" } });
+    view.rerender(
+      <UnitContext.Provider value={buildUnitContext("F")}>
+        <OccupiedTargets
+          room={room({ system_wide_temp: 68, presence_cool_to: 75 })}
+          onSaved={onSaved}
+        />
+      </UnitContext.Provider>
+    );
+    expect(coolTo()).toHaveValue(76);
   });
 
   it("takes a Cool To away, and clears both when the temperature is emptied", async () => {

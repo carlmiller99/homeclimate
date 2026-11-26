@@ -31,7 +31,7 @@ floor still protects comfort if the room somehow gets too cold.
 
 ## Per-room settings
 
-All of these live in the Room settings modal (**Rooms → Settings**), under
+All of these live in **Smart Control → Rooms → Change**, under
 *"Skip presence heating/cooling when the weather will do it for me"*. The two
 temperature fields are **deltas** shown in your active unit (°F or °C).
 
