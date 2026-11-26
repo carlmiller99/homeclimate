@@ -5,8 +5,8 @@ const AFFECTED_SETTINGS = [
   "Min / max setpoints (a zone's Thermostat Settings in My Home)",
   "Deadband and overshoot delta (a zone's Thermostat Settings in My Home)",
   "Schedule target temperatures (Smart Control, Schedules)",
-  "Presence-triggered temperatures (Room Settings in My Home)",
-  "Temperature offsets (Room Settings in My Home)",
+  "Occupied temperatures (a room's details on the Dashboard)",
+  "Temperature offsets (Smart Control, Rooms)",
 ];
 
 export default function UnitChangeBanner() {

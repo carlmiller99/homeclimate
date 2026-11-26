@@ -2,6 +2,16 @@
 
 A **zone** is everything a single thermostat controls. A **room** belongs to exactly one zone and is the unit of scheduling and presence control.
 
+## Where a room's settings are
+
+| What | Where |
+|---|---|
+| Name, zone, whether the thermostat's own sensor counts, notes, Delete Room | **My Home** → the room → Room Settings |
+| Vents, sensors, doors and windows, occupancy sensors, shades | **My Home** → the room's device boxes |
+| Targets, the occupied temperature and its Cool To, holds | **Dashboard** → the room |
+| Occupancy holdover, temperature offset, deadband override, waiting on the weather, the room's Eco Mode | **Smart Control → Rooms** → Change |
+| Schedules and whether the room is in use | **Smart Control → Schedules** |
+
 ## What a room carries
 
 Every room has:

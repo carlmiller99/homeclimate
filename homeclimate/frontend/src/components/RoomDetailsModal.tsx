@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { clearPresenceHoldover, type ZoneStatus } from "../api";
+import { clearPresenceHoldover, type Room, type ZoneStatus } from "../api";
 import { useUnit } from "../contexts";
 import { type House } from "../houseApi";
+import OccupiedTargets from "./OccupiedTargets";
 import { TargetsRow, type TargetLevel } from "./TargetsCard";
 
 /** One temperature sensor of a room, as the Dashboard last read it. */
@@ -26,6 +27,8 @@ export default function RoomDetailsModal({
   held,
   status,
   active,
+  room,
+  onRoomSaved,
   onClearedPresence,
   onSaved,
   onHold,
@@ -44,6 +47,9 @@ export default function RoomDetailsModal({
   status: string;
   /** The room as its zone's cycle reports it, when it is part of one. */
   active?: ZoneStatus["rooms"][number];
+  /** The room itself, for its occupied temperature. */
+  room?: Room;
+  onRoomSaved: (saved: Room) => void;
   /** Occupancy was cleared: read the Dashboard again. */
   onClearedPresence: () => void;
   onSaved: (house: House) => void;
@@ -116,6 +122,8 @@ export default function RoomDetailsModal({
             </p>
           </section>
         )}
+
+        {room && <OccupiedTargets room={room} onSaved={onRoomSaved} />}
 
         <section className="room-details-block" aria-label="Hold">
           <h4 className="room-details-title">Hold</h4>

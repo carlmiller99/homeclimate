@@ -61,3 +61,48 @@ export async function openRoomSettings(
   await settings.waitFor({ state: "visible", timeout: 10_000 });
   return settings;
 }
+
+/**
+ * Open how a room is heated and cooled: Smart Control → Rooms → Change.
+ * Returns the dialog, which closes when it saves.
+ */
+export async function openRoomTuning(
+  page: Page,
+  roomName: string,
+): Promise<Locator> {
+  await page.goto("/smart-control?section=rooms");
+  await page
+    .getByRole("button", { name: `Change ${roomName}`, exact: true })
+    .click();
+  const settings = page.getByTestId("room-settings");
+  await settings.waitFor({ state: "visible", timeout: 10_000 });
+  return settings;
+}
+
+/**
+ * Open a room's occupied temperature: Dashboard → the room → When Occupied.
+ * Returns that block. It stays open after a save and says "Saved".
+ */
+export async function openOccupied(
+  page: Page,
+  roomName: string,
+): Promise<Locator> {
+  await page.goto("/");
+  await page.waitForSelector(".loading", {
+    state: "detached",
+    timeout: 15_000,
+  });
+  await page.waitForLoadState("networkidle");
+  await page
+    .getByRole("button", { name: `Details for ${roomName}`, exact: true })
+    .click();
+  const block = page.getByRole("region", { name: "When occupied" });
+  await block.waitFor({ state: "visible", timeout: 10_000 });
+  return block;
+}
+
+/** Save the When Occupied block and wait until it says so. */
+export async function saveOccupied(block: Locator): Promise<void> {
+  await block.getByRole("button", { name: "Save", exact: true }).click();
+  await block.getByText("Saved", { exact: true }).waitFor({ timeout: 5_000 });
+}

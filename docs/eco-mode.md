@@ -15,7 +15,7 @@ off, the engine behaves exactly as it did before this feature existed.
 
 ## Where it is set
 
-Eco Mode is tuned for each zone in **Smart Control → Eco Mode**: the switch, the outdoor thresholds and the drift limits, with a worked example that follows what you type. A single room can be given its own Eco settings in its room settings under **My Home**. Suspending Eco for a while is done from the **Dashboard**, or from a zone's header in My Home.
+Eco Mode is tuned for each zone in **Smart Control → Eco Mode**: the switch, the outdoor thresholds and the drift limits, with a worked example that follows what you type. A single room can be given its own Eco settings in **Smart Control → Rooms**. Suspending Eco for a while is done from the **Dashboard**, or from a zone's header in My Home.
 
 ## Requires an outside-temperature sensor
 

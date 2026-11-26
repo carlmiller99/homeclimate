@@ -1,5 +1,11 @@
 import { test, expect } from "./fixtures";
-import { gotoMyHome, openZoneEditor } from "./my-home";
+import {
+  gotoMyHome,
+  openOccupied,
+  openRoomTuning,
+  openZoneEditor,
+  saveOccupied,
+} from "./my-home";
 
 /**
  * Round-trip regression for the temperature-unit conversion contract (#231).
@@ -168,53 +174,31 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
     page,
   }) => {
     // @covers: system_wide_temp, temp_offset, deadband_override
-    await page.goto("/my-home");
-    await page.waitForSelector(".loading", {
-      state: "detached",
-      timeout: 15_000,
-    });
-    await page.waitForLoadState("networkidle");
+    // The occupied temperature is a temperature setting: Dashboard → the room.
+    let occupied = await openOccupied(page, "Living Room");
+    await occupied.getByLabel(/^Temperature/).fill(ROOM_SYS_TEMP);
+    await saveOccupied(occupied);
+    occupied = await openOccupied(page, "Living Room");
+    const sysTempAfter = await occupied.getByLabel(/^Temperature/).inputValue();
+    expect(parseFloat(sysTempAfter)).toBeCloseTo(parseFloat(ROOM_SYS_TEMP), 1);
 
-    // Open the Living Room's settings page. Scope to the room card — the
-    // bare `getByRole("button", { name: /Settings/i })` also matches the
-    // gear in the top nav (aria-label="Settings"), which is the wrong target.
-    // Settings is now a full-page view (not a modal); target its container.
-    const openSettings = async () => {
-      await page
-        .locator(".card")
-        .filter({ hasText: "Living Room" })
-        .first()
-        .getByRole("button", { name: "Room Settings" })
-        .click();
-      const s = page.getByTestId("room-settings");
-      await s.waitFor({ state: "visible", timeout: 10_000 });
-      return s;
-    };
-
-    let settings = await openSettings();
-    await settings
-      .getByLabel(/Presence-triggered temperature/i)
-      .fill(ROOM_SYS_TEMP);
+    // How the room is heated and cooled: Smart Control → Rooms.
+    let settings = await openRoomTuning(page, "Living Room");
     await settings.getByLabel(/Temperature offset/i).fill(ROOM_TEMP_OFFSET);
     await settings
       .getByLabel(/Deadband override/i)
       .fill(ROOM_DEADBAND_OVERRIDE);
-
     await settings.getByRole("button", { name: /Save changes/i }).click();
     await settings.waitFor({ state: "detached", timeout: 5_000 });
 
-    // Reopen and verify all persisted values.
-    settings = await openSettings();
-    const sysTempAfter = await settings
-      .getByLabel(/Presence-triggered temperature/i)
-      .inputValue();
+    // Reopen and verify the persisted values.
+    settings = await openRoomTuning(page, "Living Room");
     const offsetAfter = await settings
       .getByLabel(/Temperature offset/i)
       .inputValue();
     const deadbandOverrideAfter = await settings
       .getByLabel(/Deadband override/i)
       .inputValue();
-    expect(parseFloat(sysTempAfter)).toBeCloseTo(parseFloat(ROOM_SYS_TEMP), 1);
     expect(parseFloat(offsetAfter)).toBeCloseTo(
       parseFloat(ROOM_TEMP_OFFSET),
       1,
@@ -250,24 +234,7 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
     );
 
     try {
-      await page.goto("/my-home");
-      await page.waitForSelector(".loading", {
-        state: "detached",
-        timeout: 15_000,
-      });
-      await page.waitForLoadState("networkidle");
-
-      const openSettings = async () => {
-        await page
-          .locator(".card")
-          .filter({ hasText: "Living Room" })
-          .first()
-          .getByRole("button", { name: "Room Settings" })
-          .click();
-        const s = page.getByTestId("room-settings");
-        await s.waitFor({ state: "visible", timeout: 10_000 });
-        return s;
-      };
+      const openSettings = () => openRoomTuning(page, "Living Room");
 
       let settings = await openSettings();
       // Enable the feature (the checkbox is enabled once the outside sensor loads),
@@ -353,24 +320,7 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
     page,
   }) => {
     // @covers: eco_cooling_outdoor_threshold, eco_cooling_full_drift_temp, eco_cooling_max_drift, eco_heating_outdoor_threshold, eco_heating_full_drift_temp, eco_heating_max_drift, eco_hysteresis_band
-    await page.goto("/my-home");
-    await page.waitForSelector(".loading", {
-      state: "detached",
-      timeout: 15_000,
-    });
-    await page.waitForLoadState("networkidle");
-
-    const openSettings = async () => {
-      await page
-        .locator(".card")
-        .filter({ hasText: "Living Room" })
-        .first()
-        .getByRole("button", { name: "Room Settings" })
-        .click();
-      const s = page.getByTestId("room-settings");
-      await s.waitFor({ state: "visible", timeout: 10_000 });
-      return s;
-    };
+    const openSettings = () => openRoomTuning(page, "Living Room");
 
     // The per-room Eco fields are nullable overrides (blank = inherit). Filling
     // a value overrides just that field; they need no outside sensor to edit.
@@ -535,36 +485,17 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
     await dialog.waitFor({ state: "detached", timeout: 5_000 });
     await expect(row).toHaveCount(0);
 
-    // The occupancy target's Cool To, in the room's settings under My Home.
-    await page.goto("/my-home");
-    await page.waitForSelector(".loading", {
-      state: "detached",
-      timeout: 15_000,
-    });
-    await page.waitForLoadState("networkidle");
-    const openSettings = async () => {
-      await page
-        .locator(".card")
-        .filter({ hasText: "Living Room" })
-        .first()
-        .getByRole("button", { name: "Room Settings" })
-        .click();
-      const s = page.getByTestId("room-settings");
-      await s.waitFor({ state: "visible", timeout: 10_000 });
-      return s;
-    };
-    let settings = await openSettings();
-    await settings.getByLabel(/Presence-triggered temperature/i).fill(HEAT);
-    await settings.getByLabel(/Cool To/i).fill(COOL);
-    await settings.getByRole("button", { name: /Save changes/i }).click();
-    await settings.waitFor({ state: "detached", timeout: 5_000 });
-    settings = await openSettings();
-    const coolAfter = await settings.getByLabel(/Cool To/i).inputValue();
+    // The occupancy target's Cool To, in the room's details on the Dashboard.
+    let occupied = await openOccupied(page, "Living Room");
+    await occupied.getByLabel(/^Temperature/).fill(HEAT);
+    await occupied.getByLabel(/^Cool To/).fill(COOL);
+    await saveOccupied(occupied);
+    occupied = await openOccupied(page, "Living Room");
+    const coolAfter = await occupied.getByLabel(/^Cool To/).inputValue();
     expect(parseFloat(coolAfter)).toBeCloseTo(parseFloat(COOL), 1);
     // Back to a single target, as the other specs expect.
-    await settings.getByLabel(/Cool To/i).fill("");
-    await settings.getByRole("button", { name: /Save changes/i }).click();
-    await settings.waitFor({ state: "detached", timeout: 5_000 });
+    await occupied.getByLabel(/^Cool To/).fill("");
+    await saveOccupied(occupied);
   });
 
   test("temporary hold target persists exactly as entered (#576)", async ({

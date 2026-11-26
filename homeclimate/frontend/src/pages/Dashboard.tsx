@@ -1038,6 +1038,8 @@ export default function Dashboard() {
               held={holds.some((h) => h.room_id === detailsFor.id)}
               status={roomStatus(detailsFor.id)}
               active={zones.flatMap((z) => z.rooms).find((a) => a.room_id === detailsFor.id)}
+              room={rooms.find((r) => r.id === detailsFor.id)}
+              onRoomSaved={load}
               onClearedPresence={load}
               onSaved={setHouse}
               onHold={() => {

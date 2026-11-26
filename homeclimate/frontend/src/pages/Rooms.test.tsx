@@ -3,6 +3,7 @@ import { ecoThermostatDefaults, ecoRoomDefaults } from "../testFixtures";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import Rooms from "./Rooms";
+import RoomsSection from "./RoomsSection";
 import * as api from "../api";
 import * as zonesApi from "../zonesApi";
 import * as sc from "../smartControlApi";
@@ -112,6 +113,17 @@ beforeEach(() => {
   vi.mocked(api.getSensorHealth).mockResolvedValue({ stale_after_min: 30, rooms: [] });
 });
 
+function renderTuning() {
+  return render(<RoomsSection />);
+}
+function renderTuningInCelsius() {
+  return render(
+    <UnitContext.Provider value={buildUnitContext("C")}>
+      <RoomsSection />
+    </UnitContext.Provider>
+  );
+}
+
 function renderPage() {
   return render(
     <SystemContext.Provider value={mockSystem}>
@@ -205,32 +217,12 @@ describe("Rooms Page", () => {
   });
 
   it("shows validation error for negative holdover", async () => {
-    render(
-      <SystemContext.Provider value={mockSystem}>
-        <MemoryRouter>
-          <Rooms />
-        </MemoryRouter>
-      </SystemContext.Provider>
-    );
-
-    const addBtn = await screen.findByText("Add Room");
-    fireEvent.click(addBtn);
-
-    await screen.findByText("New Room", { selector: ".page-title" });
-
-    const nameInput = screen.getByLabelText(/Room name/i);
-    fireEvent.change(nameInput, { target: { value: "New Room" } });
-
-    const thermoSelect = screen.getByRole("combobox", { name: /Thermostat/i });
-    fireEvent.change(thermoSelect, { target: { value: "climate.test" } });
-
-    const holdoverInput = screen.getByLabelText(/Presence holdover/i);
-    fireEvent.change(holdoverInput, { target: { value: "-1" } });
-
-    const createBtn = screen.getByRole("button", { name: /Create room/i });
-    fireEvent.click(createBtn);
-
+    renderTuning();
+    fireEvent.click(await screen.findByRole("button", { name: "Change Living Room" }));
+    fireEvent.change(screen.getByLabelText(/Presence holdover/i), { target: { value: "-1" } });
+    fireEvent.click(screen.getByRole("button", { name: /Save changes/i }));
     expect(await screen.findByText("Presence holdover must be >= 0")).toBeInTheDocument();
+    expect(api.updateRoom).not.toHaveBeenCalled();
   });
 
   // Sanitized room-name uniqueness (#519). The backend enforces this too, but
@@ -611,86 +603,55 @@ describe("Rooms Page", () => {
     });
   });
 
-  it("edits room settings, exercising every field", async () => {
+  it("edits a room's name, sensor choice and notes in My Home", async () => {
     vi.mocked(api.updateRoom).mockResolvedValue(mockRooms[0]);
-    render(
-      <SystemContext.Provider value={mockSystem}>
-        <MemoryRouter>
-          <Rooms />
-        </MemoryRouter>
-      </SystemContext.Provider>
-    );
-
+    renderPage();
     fireEvent.click(await screen.findByRole("button", { name: "Room Settings" }));
+    // How the room is heated and cooled is in Smart Control, not here.
+    expect(screen.queryByLabelText(/Presence holdover/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Temperature offset/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Presence-triggered temperature/i)).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText(/Room name/i), { target: { value: "Renamed" } });
-    fireEvent.change(screen.getByLabelText(/Presence holdover/i), { target: { value: "3" } });
     fireEvent.click(screen.getByLabelText(/Include thermostat's built-in sensor/i));
-    fireEvent.change(screen.getByLabelText(/Temperature offset/i), { target: { value: "2" } });
-    fireEvent.change(screen.getByLabelText(/Deadband override/i), { target: { value: "1.5" } });
     fireEvent.change(screen.getByLabelText(/Notes/i), { target: { value: "hello" } });
-
     fireEvent.click(screen.getByRole("button", { name: /Save changes/i }));
 
     await waitFor(() => {
-      expect(api.updateRoom).toHaveBeenCalledWith(
-        "room-1",
-        expect.objectContaining({
-          name: "Renamed",
-          presence_holdover_hours: 3,
-          include_thermostat_sensor: true,
-          deadband_override: 1.5,
-          notes: "hello",
-        })
-      );
+      expect(api.updateRoom).toHaveBeenCalledWith("room-1", {
+        name: "Renamed",
+        thermostat_entity_id: mockRooms[0].thermostat_entity_id,
+        include_thermostat_sensor: true,
+        notes: "hello",
+      });
     });
   });
 
-  it("sends a Cool To for the occupancy target, and null to take it away", async () => {
-    const banded = { ...mockRooms[0], system_wide_temp: 68, presence_cool_to: 74 };
-    vi.mocked(api.updateRoom).mockResolvedValue(banded);
-    vi.mocked(api.getRooms).mockResolvedValue([banded]);
-    vi.mocked(api.getRoom).mockResolvedValue(banded);
-    render(
-      <SystemContext.Provider value={mockSystem}>
-        <MemoryRouter>
-          <Rooms />
-        </MemoryRouter>
-      </SystemContext.Provider>
-    );
-    fireEvent.click(await screen.findByRole("button", { name: "Room Settings" }));
-    const coolTo = screen.getByLabelText(/Cool To/i);
-    expect(coolTo).toHaveValue(74);
-    fireEvent.change(coolTo, { target: { value: "75" } });
+  it("edits how a room is heated and cooled in Smart Control, sending only that", async () => {
+    vi.mocked(api.updateRoom).mockResolvedValue(mockRooms[0]);
+    renderTuning();
+    fireEvent.click(await screen.findByRole("button", { name: "Change Living Room" }));
+    const dialog = screen.getByRole("dialog", { name: "Living Room heating and cooling" });
+    expect(within(dialog).queryByLabelText(/Room name/i)).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: "Delete Room" })).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(/Presence holdover/i), { target: { value: "3" } });
+    fireEvent.change(screen.getByLabelText(/Temperature offset/i), { target: { value: "2" } });
+    fireEvent.change(screen.getByLabelText(/Deadband override/i), { target: { value: "1.5" } });
     fireEvent.click(screen.getByRole("button", { name: /Save changes/i }));
-    await waitFor(() => {
-      expect(api.updateRoom).toHaveBeenCalledWith(
-        "room-1",
-        expect.objectContaining({ system_wide_temp: 68, presence_cool_to: 75 })
-      );
+
+    await waitFor(() => expect(api.updateRoom).toHaveBeenCalled());
+    const [id, body] = vi.mocked(api.updateRoom).mock.calls[0];
+    expect(id).toBe("room-1");
+    expect(body).toMatchObject({
+      presence_holdover_hours: 3,
+      temp_offset: 2,
+      deadband_override: 1.5,
     });
-    vi.mocked(api.updateRoom).mockClear();
-    fireEvent.click(await screen.findByRole("button", { name: "Room Settings" }));
-    // A Cool To with no temperature to pair with is refused before anything is sent.
-    fireEvent.change(screen.getByLabelText(/Presence-triggered temperature/i), {
-      target: { value: "" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: /Save changes/i }));
-    expect(
-      await screen.findByText("Cool To needs a presence-triggered temperature to pair with")
-    ).toBeInTheDocument();
-    expect(api.updateRoom).not.toHaveBeenCalled();
-    fireEvent.change(screen.getByLabelText(/Presence-triggered temperature/i), {
-      target: { value: "68" },
-    });
-    fireEvent.change(screen.getByLabelText(/Cool To/i), { target: { value: "" } });
-    fireEvent.click(screen.getByRole("button", { name: /Save changes/i }));
-    await waitFor(() => {
-      expect(api.updateRoom).toHaveBeenCalledWith(
-        "room-1",
-        expect.objectContaining({ presence_cool_to: null })
-      );
-    });
+    expect(body).not.toHaveProperty("name");
+    expect(body).not.toHaveProperty("system_wide_temp");
+    // Saved: the dialog closes and the list is read again.
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 
   it("sends null deadband_override when the field is left blank (inherit)", async () => {
@@ -698,12 +659,12 @@ describe("Rooms Page", () => {
     render(
       <SystemContext.Provider value={mockSystem}>
         <MemoryRouter>
-          <Rooms />
+          <RoomsSection />
         </MemoryRouter>
       </SystemContext.Provider>
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Room Settings" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Change Living Room" }));
 
     // mockRooms[0] has no deadband_override → the field renders blank and the
     // payload carries null so the room keeps inheriting the thermostat deadband.
@@ -727,12 +688,12 @@ describe("Rooms Page", () => {
     render(
       <SystemContext.Provider value={mockSystem}>
         <MemoryRouter>
-          <Rooms />
+          <RoomsSection />
         </MemoryRouter>
       </SystemContext.Provider>
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Room Settings" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Change Living Room" }));
 
     // Field initialises with the stored override (1.5°F → "1.5" in °F mode).
     const overrideInput = screen.getByLabelText(/Deadband override/i) as HTMLInputElement;
@@ -824,26 +785,12 @@ describe("Rooms Page — Celsius mode", () => {
       ...mockRooms[0],
       deadband_override: 10,
     } as api.Room);
-    renderInCelsius();
-    fireEvent.click(await screen.findByRole("button", { name: /Settings/i }));
+    renderTuningInCelsius();
+    fireEvent.click(await screen.findByRole("button", { name: "Change Living Room" }));
 
     const input = screen.getByLabelText(/Deadband override/i);
     expect(input).toHaveValue(5.55);
     expect(input).toHaveAttribute("max", "5.55");
-  });
-
-  it("advertises °C bounds the backend accepts (#521)", async () => {
-    // toDisplay(40) is 4.4 °C → 39.92 °F, which the backend refuses, so the
-    // form must state 4.5 as its minimum rather than the number it cannot save.
-    renderInCelsius();
-    fireEvent.click(await screen.findByRole("button", { name: /Settings/i }));
-
-    const temp = screen.getByLabelText(/Presence-triggered temperature/i);
-    fireEvent.change(temp, { target: { value: "4.4" } });
-    fireEvent.click(screen.getByRole("button", { name: /^Save/i }));
-
-    expect(await screen.findByText(/4\.5°C and 32\.2°C/)).toBeInTheDocument();
-    expect(api.updateRoom).not.toHaveBeenCalled();
   });
 
   it("displays live sensor avgTemp converted to °C on room card", async () => {
@@ -852,53 +799,19 @@ describe("Rooms Page — Celsius mode", () => {
     expect(await screen.findByText("22.5°C")).toBeInTheDocument();
   });
 
-  it("shows presence temp and offset labels in °C on the settings page", async () => {
-    renderInCelsius();
-    const editBtn = await screen.findByRole("button", { name: /Settings/i });
+  it("shows the offset label in °C", async () => {
+    renderTuningInCelsius();
+    const editBtn = await screen.findByRole("button", { name: "Change Living Room" });
     fireEvent.click(editBtn);
 
-    expect(screen.getByText(/Presence-triggered temperature \(°C\)/i)).toBeInTheDocument();
     expect(screen.getByText(/Temperature offset \(°C\)/i)).toBeInTheDocument();
-  });
-
-  it("pre-populates system_wide_temp input in °C on the settings page", async () => {
-    // mockRooms[0].system_wide_temp = 72°F → toDisplay(72) = 22.2°C
-    renderInCelsius();
-    const editBtn = await screen.findByRole("button", { name: /Settings/i });
-    fireEvent.click(editBtn);
-
-    const sysTempInput = screen.getByLabelText(
-      /Presence-triggered temperature/i
-    ) as HTMLInputElement;
-    expect(parseFloat(sysTempInput.value)).toBeCloseTo(22.2, 1);
-  });
-
-  it("sends the user's raw °C system_wide_temp when updating room (#231)", async () => {
-    vi.mocked(api.updateRoom).mockResolvedValue({ ...mockRooms[0], system_wide_temp: 71.6 });
-
-    renderInCelsius();
-    const editBtn = await screen.findByRole("button", { name: /Settings/i });
-    fireEvent.click(editBtn);
-
-    const sysTempInput = screen.getByLabelText(/Presence-triggered temperature/i);
-    // Frontend sends display value as-is; backend's _to_f converts °C → °F.
-    fireEvent.change(sysTempInput, { target: { value: "22" } });
-
-    fireEvent.click(screen.getByRole("button", { name: /Save changes/i }));
-
-    await waitFor(() => {
-      expect(api.updateRoom).toHaveBeenCalledWith(
-        "room-1",
-        expect.objectContaining({ system_wide_temp: 22 })
-      );
-    });
   });
 
   it("sends the user's raw °C deadband_override when updating room (#231)", async () => {
     vi.mocked(api.updateRoom).mockResolvedValue(mockRooms[0]);
 
-    renderInCelsius();
-    const editBtn = await screen.findByRole("button", { name: /Settings/i });
+    renderTuningInCelsius();
+    const editBtn = await screen.findByRole("button", { name: "Change Living Room" });
     fireEvent.click(editBtn);
 
     // deadband_override is a delta: the frontend sends the display value as-is
@@ -923,8 +836,8 @@ describe("Rooms Page — Celsius mode", () => {
     // backend's _to_f / _delta_to_f do the conversion at the write boundary.
     vi.mocked(api.updateRoom).mockResolvedValue(mockRooms[0]);
 
-    renderInCelsius();
-    const editBtn = await screen.findByRole("button", { name: /Settings/i });
+    renderTuningInCelsius();
+    const editBtn = await screen.findByRole("button", { name: "Change Living Room" });
     fireEvent.click(editBtn);
 
     fireEvent.change(screen.getByLabelText(/Cooling.*outdoor threshold/i), {
@@ -956,8 +869,8 @@ describe("Rooms Page — Celsius mode", () => {
     });
     vi.mocked(api.updateRoom).mockResolvedValue(mockRooms[0]);
 
-    renderInCelsius();
-    const editBtn = await screen.findByRole("button", { name: /Settings/i });
+    renderTuningInCelsius();
+    const editBtn = await screen.findByRole("button", { name: "Change Living Room" });
     fireEvent.click(editBtn);
 
     const ambientCheckbox = (await screen.findByLabelText(
@@ -1036,12 +949,12 @@ describe("Rooms Page — Eco Mode override (#404)", () => {
     render(
       <SystemContext.Provider value={mockSystem}>
         <MemoryRouter>
-          <Rooms />
+          <RoomsSection />
         </MemoryRouter>
       </SystemContext.Provider>
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: /Settings/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "Change Living Room" }));
 
     // Tri-state enable initialised to "On for this room".
     const ecoSelect = screen.getByLabelText(/^Eco Mode$/) as HTMLSelectElement;
@@ -1096,12 +1009,12 @@ describe("Rooms Page — Eco Mode override (#404)", () => {
     render(
       <SystemContext.Provider value={mockSystem}>
         <MemoryRouter>
-          <Rooms />
+          <RoomsSection />
         </MemoryRouter>
       </SystemContext.Provider>
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: /Settings/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "Change Living Room" }));
     const ecoSelect = screen.getByLabelText(/^Eco Mode$/) as HTMLSelectElement;
     expect(ecoSelect.value).toBe("off");
 
@@ -1128,12 +1041,12 @@ describe("Rooms Page — Eco Mode override (#404)", () => {
     render(
       <SystemContext.Provider value={mockSystem}>
         <MemoryRouter>
-          <Rooms />
+          <RoomsSection />
         </MemoryRouter>
       </SystemContext.Provider>
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: /Settings/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "Change Living Room" }));
     const ecoSelect = screen.getByLabelText(/^Eco Mode$/) as HTMLSelectElement;
     expect(ecoSelect.value).toBe("inherit");
 
@@ -1156,12 +1069,12 @@ describe("Rooms Page — Eco Mode override (#404)", () => {
     render(
       <SystemContext.Provider value={mockSystem}>
         <MemoryRouter>
-          <Rooms />
+          <RoomsSection />
         </MemoryRouter>
       </SystemContext.Provider>
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: /Settings/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "Change Living Room" }));
     const ecoSelect = screen.getByLabelText(/^Eco Mode$/) as HTMLSelectElement;
     expect(ecoSelect.value).toBe("off");
     fireEvent.change(ecoSelect, { target: { value: "inherit" } });
@@ -1177,21 +1090,8 @@ describe("Rooms Page — Eco Mode override (#404)", () => {
       entity_id: null,
       current_value: null,
     });
-    render(
-      <SystemContext.Provider value={mockSystem}>
-        <MemoryRouter>
-          <Rooms />
-        </MemoryRouter>
-      </SystemContext.Provider>
-    );
-
-    fireEvent.click(await screen.findByText("Add Room"));
-    await screen.findByText("New Room", { selector: ".page-title" });
-
-    fireEvent.change(screen.getByLabelText(/Room name/i), { target: { value: "Den" } });
-    fireEvent.change(screen.getByRole("combobox", { name: /Thermostat/i }), {
-      target: { value: "climate.test" },
-    });
+    renderTuning();
+    fireEvent.click(await screen.findByRole("button", { name: "Change Living Room" }));
 
     // The gating hint is shown when no sensor is configured.
     expect(screen.getByText(/Eco Mode needs to know the outside temperature/)).toBeInTheDocument();
@@ -1200,10 +1100,10 @@ describe("Rooms Page — Eco Mode override (#404)", () => {
     const ecoSelect = screen.getByLabelText(/^Eco Mode$/) as HTMLSelectElement;
     fireEvent.change(ecoSelect, { target: { value: "on" } });
 
-    fireEvent.click(screen.getByRole("button", { name: /Create room/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Save changes/i }));
 
     expect(await screen.findByText(/before forcing Eco on for this room/i)).toBeInTheDocument();
-    expect(api.createRoom).not.toHaveBeenCalled();
+    expect(api.updateRoom).not.toHaveBeenCalled();
   });
 
   it("falls back to a neutral worked example when the thermostat carries no eco values", async () => {
@@ -1230,12 +1130,12 @@ describe("Rooms Page — Eco Mode override (#404)", () => {
     render(
       <SystemContext.Provider value={mockSystem}>
         <MemoryRouter>
-          <Rooms />
+          <RoomsSection />
         </MemoryRouter>
       </SystemContext.Provider>
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: /Settings/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "Change Living Room" }));
 
     // Placeholder is a plain "Inherit" — no inherited value to echo.
     const threshInput = screen.getByLabelText(/Cooling.*outdoor threshold/i) as HTMLInputElement;
