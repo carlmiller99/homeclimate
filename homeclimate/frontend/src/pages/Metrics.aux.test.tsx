@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as zonesApi from "../zonesApi";
-import { HP_DEFAULTS } from "../zoneFixtures";
+import { FAN_DEFAULTS, HP_DEFAULTS } from "../zoneFixtures";
 import { BackupHeatTile } from "./Metrics";
 
 vi.mock("../zonesApi", async (orig) => ({
@@ -21,6 +21,7 @@ const zone = (over: Partial<zonesApi.ZoneProfile>): zonesApi.ZoneProfile => ({
   equipment_running_entity: null,
   heat_kit_confirmed: false,
   ...HP_DEFAULTS,
+  ...FAN_DEFAULTS,
   ...over,
 });
 

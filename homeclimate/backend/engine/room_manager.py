@@ -158,8 +158,8 @@ async def _resolve_room(
                     room.name,
                 )
 
-    # 4. The house band
-    band = the_house.band
+    # 4. The room's targets: its own, else its zone's, else its building's
+    band = the_house.band_for(room.id, room.thermostat_entity_id)
     if band is not None:
         return ActiveRoom(
             room=room,

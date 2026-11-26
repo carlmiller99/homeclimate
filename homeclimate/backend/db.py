@@ -200,7 +200,11 @@ CREATE TABLE IF NOT EXISTS zone_profiles (
     hp_compressor_lockout_f REAL,
     -- 'avoid': keep setpoint gaps small so the thermostat rarely calls aux;
     -- 'allow': set heat like a conventional system and let aux help recover.
-    hp_aux_policy TEXT NOT NULL DEFAULT 'avoid'
+    hp_aux_policy TEXT NOT NULL DEFAULT 'avoid',
+    -- Fan (backend/fan.py): 'off' | 'watch' | 'on', and whether the air
+    -- handler draws in outside air: 'yes' | 'no' | 'unsure'.
+    fan_level TEXT NOT NULL DEFAULT 'off',
+    air_intake TEXT NOT NULL DEFAULT 'unsure'
 );
 
 -- HomeClimate Smart Control: door and window sensors. Each sensor pauses
@@ -291,6 +295,17 @@ CREATE TABLE IF NOT EXISTS target_bands (
     PRIMARY KEY (kind, ref_id)
 );
 
+-- Targets (backend/house.py): a heating target and a cooling target for a
+-- building, a zone or a room. The most specific one a room has wins; a room
+-- with none inherits its zone's, then its building's.
+CREATE TABLE IF NOT EXISTS level_targets (
+    scope TEXT NOT NULL,     -- 'building' | 'zone' | 'room'
+    scope_id TEXT NOT NULL,  -- building id, thermostat entity id, or room id
+    heat_to REAL NOT NULL,
+    cool_to REAL NOT NULL,
+    PRIMARY KEY (scope, scope_id)
+);
+
 -- Zone Balance (backend/zone_balance.py): per building, whether zones are kept
 -- within a gap of each other, and the gap (°F).
 CREATE TABLE IF NOT EXISTS zone_balance (
@@ -305,6 +320,8 @@ CREATE TABLE IF NOT EXISTS building_modes (
     building_id TEXT PRIMARY KEY,
     mode TEXT NOT NULL DEFAULT 'auto',
     auto_level TEXT NOT NULL DEFAULT 'off',
+    switching TEXT NOT NULL DEFAULT 'often',
+    switch_threshold_f REAL NOT NULL DEFAULT 3.0,
     side TEXT,
     switched_at INTEGER,
     switch_day TEXT NOT NULL DEFAULT '',
@@ -1399,6 +1416,22 @@ MIGRATIONS: tuple[Migration, ...] = (
             "ALTER TABLE room_models ADD COLUMN sun_hours REAL NOT NULL DEFAULT 0",
         ),
     ),
+    Migration(
+        25,
+        "Add how often Auto may switch, and its threshold, to building_modes",
+        (
+            "ALTER TABLE building_modes ADD COLUMN switching TEXT NOT NULL DEFAULT 'often'",
+            "ALTER TABLE building_modes ADD COLUMN switch_threshold_f REAL NOT NULL DEFAULT 3.0",
+        ),
+    ),
+    Migration(
+        26,
+        "Add the fan level and the outside air intake to zone_profiles",
+        (
+            "ALTER TABLE zone_profiles ADD COLUMN fan_level TEXT NOT NULL DEFAULT 'off'",
+            "ALTER TABLE zone_profiles ADD COLUMN air_intake TEXT NOT NULL DEFAULT 'unsure'",
+        ),
+    ),
 )
 
 
@@ -1559,6 +1592,7 @@ async def delete_room(conn: aiosqlite.Connection, room_id: str) -> None:
     await conn.execute("DELETE FROM fireplace_rooms WHERE room_id=?", (room_id,))
     await conn.execute("DELETE FROM room_switches WHERE room_id=?", (room_id,))
     await conn.execute("DELETE FROM room_calendars WHERE room_id=?", (room_id,))
+    await conn.execute("DELETE FROM level_targets WHERE scope='room' AND scope_id=?", (room_id,))
     await conn.execute(
         "DELETE FROM target_bands WHERE ref_id=? OR (kind='schedule' AND ref_id NOT IN"
         " (SELECT id FROM schedules))",
@@ -1932,6 +1966,8 @@ async def delete_thermostat_config(conn: aiosqlite.Connection, entity_id: str) -
     await conn.execute("DELETE FROM thermostat_configs WHERE thermostat_entity_id=?", (entity_id,))
     # A deleted thermostat takes its Eco suspension with it (Issue #500).
     await conn.execute("DELETE FROM eco_suspensions WHERE thermostat_entity_id=?", (entity_id,))
+    # A thermostat added again later starts with no targets of its own.
+    await conn.execute("DELETE FROM level_targets WHERE scope='zone' AND scope_id=?", (entity_id,))
     await conn.commit()
 
 

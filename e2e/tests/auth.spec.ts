@@ -28,7 +28,10 @@ test.beforeEach(async ({ page }) => {
   }
 });
 
-test("@auth login screen (unauthenticated direct-port access)", async ({ page, context }) => {
+test("@auth login screen (unauthenticated direct-port access)", async ({
+  page,
+  context,
+}) => {
   // Drop the injected session so /api/auth/status reports unauthenticated and
   // the SPA renders the login gate instead of the app.
   await context.clearCookies();
@@ -50,7 +53,10 @@ test("@auth login screen (unauthenticated direct-port access)", async ({ page, c
 // at full strength. The vitest suite already asserts the `disabled` attribute
 // clears, but jsdom applies no CSS, so only a real screenshot can catch an
 // appearance regression.
-test("@auth login button is enabled once credentials are entered", async ({ page, context }) => {
+test("@auth login button is enabled once credentials are entered", async ({
+  page,
+  context,
+}) => {
   await context.clearCookies();
   await page.goto("/");
 
@@ -68,19 +74,27 @@ test("@auth login button is enabled once credentials are entered", async ({ page
 
 test("@auth settings menu shows auth status + logout", async ({ page }) => {
   await page.goto("/");
-  await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
+  await page.waitForSelector(".loading", {
+    state: "detached",
+    timeout: 15_000,
+  });
   await page.waitForLoadState("networkidle");
   await page.getByRole("button", { name: "Settings" }).click();
   // The session-authenticated status line + Log out item are the new controls.
   await expect(page.getByText(/Signed in \(direct access\)/i)).toBeVisible();
   await expect(page.getByText(/Log out/i)).toBeVisible();
-  await expect(page.locator(".settings-menu")).toHaveScreenshot("settings-menu-auth.png");
+  await expect(page.locator(".settings-menu")).toHaveScreenshot(
+    "settings-menu-auth.png",
+  );
 });
 
 test("@auth MCP token management card", async ({ page }) => {
   // The MCP token card is on the Settings page (#471), in its Integrations section.
   await page.goto("/settings?section=integrations");
-  await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
+  await page.waitForSelector(".loading", {
+    state: "detached",
+    timeout: 15_000,
+  });
   // Screenshot just the card locator, so we wait for the card itself.
   const card = page.locator(".card").filter({ hasText: "MCP access tokens" });
   await expect(card).toBeVisible({ timeout: 15_000 });
@@ -92,7 +106,10 @@ test("@auth MCP token management card", async ({ page }) => {
 
 test("@auth MCP token revoke confirmation dialog", async ({ page }) => {
   await page.goto("/settings?section=integrations");
-  await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
+  await page.waitForSelector(".loading", {
+    state: "detached",
+    timeout: 15_000,
+  });
   const card = page.locator(".card").filter({ hasText: "MCP access tokens" });
   await expect(card).toBeVisible({ timeout: 15_000 });
 
@@ -109,7 +126,9 @@ test("@auth MCP token revoke confirmation dialog", async ({ page }) => {
   // used for the other confirm-dialog specs (see rooms.spec.ts).
   await expect(dialog.locator("p")).toContainText("E2E revoke test");
 
-  await expect(page).toHaveScreenshot("mcp-token-revoke-confirm.png", { maxDiffPixels: 800 });
+  await expect(page).toHaveScreenshot("mcp-token-revoke-confirm.png", {
+    maxDiffPixels: 800,
+  });
 
   // Confirm the revoke (rather than cancel): it is the action under test, and
   // the empty state afterward proves it worked. The beforeEach above is what
@@ -118,7 +137,9 @@ test("@auth MCP token revoke confirmation dialog", async ({ page }) => {
   await expect(card.getByText(/No tokens yet/i)).toBeVisible();
 });
 
-test("@auth settings page (auth on — full page with token card)", async ({ page }) => {
+test("@auth settings page (auth on — full page with token card)", async ({
+  page,
+}) => {
   // The non-auth F/C legs capture the Integrations section with
   // require_auth=false, so theirs shows the MCP server card and the MQTT
   // bridge only (the token card is gated on require_auth). This is the
@@ -127,7 +148,10 @@ test("@auth settings page (auth on — full page with token card)", async ({ pag
   // the layout a real authenticated install sees. Distinct filename so it
   // never collides with the auth-off capture.
   await page.goto("/settings?section=integrations");
-  await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
+  await page.waitForSelector(".loading", {
+    state: "detached",
+    timeout: 15_000,
+  });
   await page.waitForLoadState("networkidle");
   // Both MCP controls present, proving the toggle and the minting UI sit together.
   await expect(page.getByText("MCP server", { exact: true })).toBeVisible();

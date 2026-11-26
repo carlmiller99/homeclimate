@@ -30,7 +30,7 @@ import BuildingModeControl from "../components/BuildingModeControl";
 import { getBuildingModes, type BuildingMode } from "../buildingModeApi";
 import TodayCard from "../components/TodayCard";
 import ConfirmDialog from "../components/ConfirmDialog";
-import HouseBandCard from "../components/HouseBandCard";
+import TargetsCard, { type TargetGroup, type TargetLevel } from "../components/TargetsCard";
 import RoomFollowDialog from "../components/RoomFollowDialog";
 import { calendarFor, getHouse, switchesFor, type House } from "../houseApi";
 import { getSmartControl, type SmartControl } from "../smartControlApi";
@@ -106,7 +106,7 @@ function modeLabel(action: string, state: string): string {
   return state;
 }
 
-/** The house band's per-room switches, and how to open a room's options. Null until loaded. */
+/** The per-room switches, and how to open a room's options. Null until loaded. */
 const HouseContext = createContext<{
   house: House;
   openOptions: (room: { id: string; name: string }) => void;
@@ -318,7 +318,7 @@ function RoomRow({
         {houseCtx && (
           <button
             className="btn btn-sm btn-secondary"
-            title="Choose whether this room is in use, and whether it follows its schedules and occupancy or the house band."
+            title="Choose whether this room is in use, and whether it follows its schedules and occupancy or its targets."
             aria-label={`Options for ${room.name}`}
             onClick={() => houseCtx.openOptions(room)}
           >
@@ -627,6 +627,9 @@ export default function Dashboard() {
   });
   const [smart, setSmart] = useState<SmartControl | null>(null);
   const [house, setHouse] = useState<House | null>(null);
+  const [structureLoaded, setStructureLoaded] = useState(false);
+  // Each list having loaded once is enough: they need not arrive together.
+  const loadedLists = useRef({ b: false, zp: false });
   const [buildingModes, setBuildingModes] = useState<BuildingMode[]>([]);
   const system = useSystem();
   const [confirmSystem, setConfirmSystem] = useState(false);
@@ -654,8 +657,8 @@ export default function Dashboard() {
     // Building layout, pauses and idle-room temperatures are extras: a failure
     // here leaves the zone cards ungrouped and idle rooms showing "—".
     const [b, zp, sc, health, hs, bm] = await Promise.all([
-      getBuildings().catch(() => [] as Building[]),
-      getZones().catch(() => [] as ZoneProfile[]),
+      getBuildings().catch(() => null),
+      getZones().catch(() => null),
       getSmartControl().catch(() => null),
       getSensorHealth().catch(() => null),
       getHouse().catch(() => null),
@@ -665,8 +668,14 @@ export default function Dashboard() {
     // unsaved band edit and close an open Options dialog.
     if (hs) setHouse(hs);
     if (bm) setBuildingModes(bm);
-    setBuildings(b);
-    setProfiles(zp);
+    // A failed refresh keeps the last good layout, as it keeps the house:
+    // Targets are laid out by building and zone, and the card is only shown
+    // once both lists have loaded, so levels are never drawn in the wrong
+    // place and an unsaved edit is not dropped by one failed poll.
+    if (b) setBuildings(b);
+    if (zp) setProfiles(zp);
+    loadedLists.current = { b: loadedLists.current.b || !!b, zp: loadedLists.current.zp || !!zp };
+    if (loadedLists.current.b && loadedLists.current.zp) setStructureLoaded(true);
     setSmart(sc ?? null);
     const key = r.map((room) => room.id).join(",");
     const cache = sensorsByRoom.current;
@@ -777,6 +786,38 @@ export default function Dashboard() {
     );
 
   const houseCtx = house ? { house, openOptions: setOptionsFor } : null;
+  // Targets are set per building, with its zones and rooms underneath; a zone
+  // in no building stands on its own, with its rooms under it.
+  const zoneLevel = (z: ZoneProfile, parent?: TargetLevel): TargetLevel => ({
+    scope: "zone",
+    id: z.thermostat_entity_id,
+    name: z.name || z.thermostat_entity_id,
+    parent,
+  });
+  const roomLevels = (zone: TargetLevel): TargetLevel[] =>
+    rooms
+      .filter((r) => r.thermostat_entity_id === zone.id)
+      .map((r) => ({ scope: "room", id: r.id, name: r.name, parent: zone }));
+  const targetGroups: TargetGroup[] = [
+    ...buildings.map((b) => {
+      const top: TargetLevel = { scope: "building", id: b.id, name: b.name };
+      return {
+        top,
+        children: profiles
+          .filter((z) => z.building_id === b.id)
+          .map((z) => {
+            const level = zoneLevel(z, top);
+            return { level, rooms: roomLevels(level) };
+          }),
+      };
+    }),
+    ...profiles
+      .filter((z) => !buildings.some((b) => b.id === z.building_id))
+      .map((z) => {
+        const top = zoneLevel(z);
+        return { top, children: roomLevels(top).map((r) => ({ level: r, rooms: [] })) };
+      }),
+  ];
   const vacationScheduled = vacationState(vacationMode) === "scheduled";
   return (
     <HouseContext.Provider value={houseCtx}>
@@ -869,7 +910,9 @@ export default function Dashboard() {
         <UnavailableThermostatsBanner />
         <StaleSensorsBanner />
 
-        {house && <HouseBandCard house={house} onSaved={setHouse} />}
+        {house && structureLoaded && (
+          <TargetsCard house={house} groups={targetGroups} onSaved={setHouse} />
+        )}
         <TodayCard />
 
         {/* Eco Suspend + Temporary hold buttons — sit above climate cards.

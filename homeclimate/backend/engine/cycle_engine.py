@@ -244,6 +244,7 @@ class CycleEngine:
         self._protect_said_at: datetime | None = None
         # Set while this zone has demand its building's side does not allow.
         self.building_wait: dict | None = None
+        self._wait_past: list[tuple[datetime, float]] = []
         # Heat pump protection: guards for this zone, or None (conventional).
         self._get_heat_pump = get_heat_pump
         # (started_at, thermostat ambient °F) of the current heat pump warm-up.
@@ -4435,7 +4436,7 @@ class CycleEngine:
                     ar.deadband_override = match.deadband_override
             elif source == "house":
                 # The band is not in the snapshot: re-read it as it stands now.
-                band = (await house.load(conn)).band
+                band = (await house.load(conn)).band_for(room_id, self.thermostat_entity_id)
                 if band is not None:
                     ar.heat_to, ar.cool_to = band.heat_to, band.cool_to
             elif source == "override":
@@ -5983,14 +5984,27 @@ class CycleEngine:
             return inferred
         if can_start:
             excess = 0.0
+            past_target = 0.0
+            # In °F whatever unit Home Assistant reports the thermostat in.
+            ambient = _climate_temp_to_f(
+                ((thermo_state or {}).get("attributes") or {}).get("current_temperature"),
+                self._ha.ha_temp_unit,
+            )
             for ar in active_rooms.values():
                 avg = self._get_avg_temp(ar.room)
+                if avg is None and ambient is not None:
+                    # No reading of its own: go by the thermostat's, as the
+                    # choice between heating and cooling did. Without this a
+                    # zone with no room sensors could never switch its building.
+                    avg = float(ambient)
                 if avg is not None:
-                    # How far past the point where it would normally start.
                     gap = avg + ar.room.temp_offset - ar.target_temp
-                    past = (gap if inferred == "cooling" else -gap) - _effective_deadband(
-                        ar.room, tc.deadband, ar.deadband_override
-                    )
+                    beyond = gap if inferred == "cooling" else -gap
+                    # How far past its target, which is what the building's
+                    # switching threshold is measured against.
+                    past_target = max(past_target, beyond)
+                    # How far past the point where it would normally start.
+                    past = beyond - _effective_deadband(ar.room, tc.deadband, ar.deadband_override)
                     excess = max(excess, past)
             now = datetime.now(UTC)
             started = self._wait_started
@@ -6004,10 +6018,19 @@ class CycleEngine:
             )
             since = now if fresh or started is None else started[2]
             self._wait_started = (inferred, obey, since, now)
+            # How far past its target the zone has stayed over the last ten
+            # minutes: the least of the readings, so one spike counts for nothing.
+            if fresh:
+                self._wait_past = []
+            self._wait_past = [
+                (at, p) for at, p in self._wait_past if now - at < timedelta(minutes=10)
+            ] + [(now, past_target)]
             self.building_wait = {
                 "direction": inferred,
                 "since": since,
                 "excess": round(excess, 2),
+                "past": round(past_target, 2),
+                "held": round(min(p for _at, p in self._wait_past), 2),
                 "obeyed": obey,
             }
             if fresh and self._logger:

@@ -9,6 +9,12 @@ export const HP_DEFAULTS = {
   hp_aux_policy: "avoid" as const,
 };
 
+/** Fan defaults, as the backend returns them. For tests. */
+export const FAN_DEFAULTS = {
+  fan_level: "off" as const,
+  air_intake: "unsure" as const,
+};
+
 /** A zone profile for a thermostat, as GET /api/zones returns it. For tests. */
 export const zoneFor = (thermostat_entity_id: string, name = "") => ({
   thermostat_entity_id,
@@ -21,6 +27,7 @@ export const zoneFor = (thermostat_entity_id: string, name = "") => ({
   equipment_running_entity: null,
   heat_kit_confirmed: false,
   ...HP_DEFAULTS,
+  ...FAN_DEFAULTS,
 });
 
 /** GET /api/smart-control with the house defaults and the given sensors. For tests. */

@@ -9,13 +9,17 @@ contracts are unaffected.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from dataclasses import dataclass
 from typing import Any
 
 import aiosqlite
 
+from . import house
 from .user_errors import UserError, fixed
+
+log = logging.getLogger(__name__)
 
 SYSTEM_TYPES = ("conventional", "heat_pump")
 BACKUP_HEAT = ("electric", "gas", "none")
@@ -50,6 +54,10 @@ class ZoneProfile:
     hp_switchover_gap_min: int = 60
     hp_compressor_lockout_f: float | None = None
     hp_aux_policy: str = "avoid"
+    # Fan (backend/fan.py): off / watch / on, and whether the air handler
+    # draws in outside air: yes / no / unsure (treated as no).
+    fan_level: str = "off"
+    air_intake: str = "unsure"
 
     @property
     def is_heat_pump(self) -> bool:
@@ -96,6 +104,8 @@ _CHOICES = {
     "system_type": SYSTEM_TYPES,
     "backup_heat": BACKUP_HEAT,
     "hp_aux_policy": AUX_POLICIES,
+    "fan_level": ("off", "watch", "on"),
+    "air_intake": ("yes", "no", "unsure"),
 }
 _CHOICE_MESSAGES = {
     name: fixed(f"{name} must be one of: {', '.join(options)}")
@@ -150,6 +160,12 @@ async def create_building(conn: aiosqlite.Connection, raw_name: Any) -> Building
         (building.id, building.name, building.sort_order),
     )
     await conn.commit()
+    try:
+        # A house band from an earlier version waits for the first building or zone.
+        await house.adopt_house_band(conn)
+    except Exception:
+        # The building is made; the band is tried again at the next start.
+        log.exception("Could not carry the house band over to the new building")
     return building
 
 
@@ -178,16 +194,22 @@ async def delete_building(conn: aiosqlite.Connection, building_id: str) -> str:
     """Delete a building. Returns "deleted" or "missing".
 
     Its zones are kept and left in no building, where each chooses heating or
-    cooling for itself. The building's own settings (its mode and its zone
-    balance) go with it.
+    cooling for itself. The building's own settings (its mode, its zone
+    balance and its targets) go with it; a zone that followed its targets
+    keeps them as its own.
     """
     if await get_building(conn, building_id) is None:
         return "missing"
+    # Zones that followed the building's targets keep them as their own.
+    await house.hand_down(conn, building_id, await house.zones_under(conn, "building", building_id))
     await conn.execute(
         "UPDATE zone_profiles SET building_id=NULL WHERE building_id=?", (building_id,)
     )
     for table in ("building_modes", "zone_balance"):
         await conn.execute(f"DELETE FROM {table} WHERE building_id=?", (building_id,))  # noqa: S608
+    await conn.execute(
+        "DELETE FROM level_targets WHERE scope='building' AND scope_id=?", (building_id,)
+    )
     await conn.execute("DELETE FROM buildings WHERE id=?", (building_id,))
     await conn.commit()
     return "deleted"
@@ -258,6 +280,8 @@ def _profile(row: aiosqlite.Row) -> ZoneProfile:
                 "hp_switchover_gap_min": int(row["hp_switchover_gap_min"]),
                 "hp_compressor_lockout_f": row["hp_compressor_lockout_f"],
                 "hp_aux_policy": row["hp_aux_policy"],
+                "fan_level": row["fan_level"],
+                "air_intake": row["air_intake"],
             }
             if has_row
             else {}
@@ -272,10 +296,14 @@ async def update_zone_profile(
     zone = await get_zone_profile(conn, entity_id)
     if zone is None:
         return None
+    leaving: str | None = None
     if "building_id" in changes:
         bid = changes["building_id"]
         if bid is not None and (not isinstance(bid, str) or await get_building(conn, bid) is None):
             raise ZoneError(BUILDING_UNKNOWN)
+        if bid != zone.building_id and not (bid and await house.has_targets(conn, bid)):
+            # Leaving for no building, or for one with no targets of its own.
+            leaving = zone.building_id
         zone.building_id = bid
     if "sort_order" in changes:
         zone.sort_order = _int(changes["sort_order"], "sort_order")
@@ -307,13 +335,20 @@ async def update_zone_profile(
         zone.hp_compressor_lockout_f = (
             None if raw is None else _float(raw, "hp_compressor_lockout_f")
         )
+    for name in ("fan_level", "air_intake"):
+        if name in changes:
+            setattr(zone, name, _choice(changes[name], name))
+    if leaving is not None:
+        # Keep the targets it was following, which nothing replaces. Only
+        # now that nothing above can refuse the change; saved with it below.
+        await house.hand_down(conn, leaving, {entity_id})
     await conn.execute(
         """INSERT INTO zone_profiles(thermostat_entity_id, building_id, sort_order, system_type,
                compressor_stages, backup_heat, equipment_running_entity, heat_kit_confirmed,
                hp_max_step_f, hp_recovery_f_per_hr, hp_min_runtime_min,
                hp_min_open_heat_pct, hp_switchover_gap_min, hp_compressor_lockout_f,
-               hp_aux_policy)
-           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+               hp_aux_policy, fan_level, air_intake)
+           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
            ON CONFLICT(thermostat_entity_id) DO UPDATE SET
              building_id=excluded.building_id, sort_order=excluded.sort_order,
              system_type=excluded.system_type, compressor_stages=excluded.compressor_stages,
@@ -326,7 +361,8 @@ async def update_zone_profile(
              hp_min_open_heat_pct=excluded.hp_min_open_heat_pct,
              hp_switchover_gap_min=excluded.hp_switchover_gap_min,
              hp_compressor_lockout_f=excluded.hp_compressor_lockout_f,
-             hp_aux_policy=excluded.hp_aux_policy""",
+             hp_aux_policy=excluded.hp_aux_policy,
+             fan_level=excluded.fan_level, air_intake=excluded.air_intake""",
         (
             entity_id,
             zone.building_id,
@@ -343,6 +379,8 @@ async def update_zone_profile(
             zone.hp_switchover_gap_min,
             zone.hp_compressor_lockout_f,
             zone.hp_aux_policy,
+            zone.fan_level,
+            zone.air_intake,
         ),
     )
     await conn.commit()

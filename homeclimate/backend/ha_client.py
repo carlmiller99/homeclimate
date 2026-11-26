@@ -472,6 +472,27 @@ class HAClient:
             "climate", "set_hvac_mode", {"entity_id": entity_id, "hvac_mode": mode}
         )
 
+    async def set_thermostat_fan_mode(
+        self, entity_id: str, mode: str, *, restore: bool = False
+    ) -> None:
+        """Set a thermostat's fan. ``restore`` hands back a fan HomeClimate
+        itself turned on, which is done even in Developer Mode: leaving
+        equipment running is not what "send nothing" is for."""
+        if self.dev_mode and not restore:
+            log.info("[DEV] Would set %s fan_mode → %s", entity_id, mode)
+            if self._dev_logger:
+                await self._dev_logger.log(
+                    "info",
+                    "dev",
+                    f"Would set thermostat {entity_id} fan → {mode}",
+                    {"entity_id": entity_id, "fan_mode": mode, "action": "set_fan_mode"},
+                )
+            return
+        log.info("Setting %s fan_mode → %s", entity_id, mode)
+        await self.call_service(
+            "climate", "set_fan_mode", {"entity_id": entity_id, "fan_mode": mode}
+        )
+
     async def set_thermostat_temperature_range(
         self, entity_id: str, low: float, high: float
     ) -> None:

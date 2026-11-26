@@ -478,7 +478,7 @@ describe("Logs Page", () => {
     expect(await screen.findByText(/zone balance/i)).toBeInTheDocument();
   });
 
-  it("labels a room that ran on the house band in the cycle detail", async () => {
+  it("labels a room that ran on its targets in the cycle detail", async () => {
     vi.mocked(api.getCycleDetail).mockResolvedValue({
       ...mockCycleDetail,
       rooms: [
@@ -494,7 +494,7 @@ describe("Logs Page", () => {
     fireEvent.click(screen.getByText("Cycle History"));
     fireEvent.click(await screen.findByText(/climate\.test/i));
 
-    expect(await screen.findByText(/house band/i)).toBeInTheDocument();
+    expect(await screen.findByText(/^targets$/i)).toBeInTheDocument();
   });
 
   it("opens the temperature chart modal for a room", async () => {

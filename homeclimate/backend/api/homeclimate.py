@@ -17,6 +17,7 @@ from .. import (
     coasting,
     db,
     equipment_hint,
+    fan,
     fireplace,
     forecast,
     forecast_bias,
@@ -583,13 +584,19 @@ async def _building_modes_snapshot(request: web.Request) -> dict:
                 "name": building.name,
                 "mode": m.mode,
                 "auto_level": m.auto_level,
+                "switching": m.switching,
+                "switch_threshold": m.switch_threshold_f,
                 "side": decision.side if decision else building_mode.FIXED_SIDE.get(m.mode, m.side),
                 "obey": decision.obey if decision else m.mode != "auto" or m.auto_level == "on",
                 "note": decision.note if decision else "",
                 "waiting": waits.get(building.id, []),
             }
         )
-    return {"buildings": out}
+    return {
+        "buildings": out,
+        "min_threshold": building_mode.MIN_THRESHOLD_F,
+        "max_threshold": building_mode.MAX_THRESHOLD_F,
+    }
 
 
 @docs(tags=["buildings"], summary="Each building's mode, the side it is on, and zones waiting")
@@ -605,6 +612,12 @@ async def get_building_modes(request: web.Request) -> web.Response:
 @routes.put("/api/building-modes/{building_id}")
 async def update_building_mode(request: web.Request) -> web.Response:
     body = await _json_object(request)
+    # The write boundary converts the display-unit difference to °F (#231).
+    threshold = body.get("switch_threshold")
+    if isinstance(threshold, int | float) and not isinstance(threshold, bool):
+        body["switch_threshold"] = delta_to_f(
+            threshold, request.app["scheduler"].get_temperature_unit()
+        )
     conn = await get_conn(request)
     try:
         await building_mode.update(conn, request.match_info["building_id"], body)
@@ -623,6 +636,60 @@ async def update_building_mode(request: web.Request) -> web.Response:
     except Exception:
         log.exception("Could not apply the building mode straight away")
     return json_response(await _building_modes_snapshot(request))
+
+
+async def _fan_snapshot(request: web.Request) -> dict:
+    conn = await get_conn(request)
+    scheduler = request.app["scheduler"]
+    fans = scheduler.fans
+    now = datetime.now(tz.UTC)
+    return {
+        "zones": [
+            {
+                "thermostat_entity_id": z.thermostat_entity_id,
+                "name": z.name,
+                "level": z.level,
+                "air_intake": z.air_intake,
+                "supported": z.supported,
+                "running": fans.running(z.thermostat_entity_id),
+                "testing": fans.testing(z.thermostat_entity_id),
+                "note": fans.note(z.thermostat_entity_id),
+                "minutes_last_hour": fans.minutes_used(z.thermostat_entity_id, now),
+                "test": await fan.last_test(conn, z.thermostat_entity_id),
+            }
+            for z in await scheduler.fan_zones()
+        ],
+        "test_minutes": int(fan.TEST_LENGTH.total_seconds() // 60),
+    }
+
+
+@docs(tags=["zones"], summary="Each zone's fan: its level, what it is doing and the last test")
+@response_schema(schemas.FanSchema)
+@routes.get("/api/fan")
+async def get_fan(request: web.Request) -> web.Response:
+    return json_response(await _fan_snapshot(request))
+
+
+@docs(
+    tags=["zones"],
+    summary="Run a zone's fan for a few minutes to look for an outside air intake",
+    description=(
+        "Runs the fan alone and compares how the zone's rooms move with the outside"
+        " temperature. The result is a hint: mixing and ducts move temperatures too."
+    ),
+)
+@response_schema(schemas.FanSchema)
+@routes.post("/api/fan/{entity_id:[^/]+}/test")
+async def test_fan(request: web.Request) -> web.Response:
+    entity_id = request.match_info["entity_id"]
+    try:
+        await request.app["scheduler"].start_fan_test(entity_id)
+    except UserError as exc:
+        text = safe_text(exc)
+        status = {fan.ZONE_UNKNOWN: 404, fan.FAN_FAILED: 502}.get(text, 400)
+        return error(text, status=status)
+    await emit(request, "info", "api", "Fan test started", {"thermostat": entity_id})
+    return json_response(await _fan_snapshot(request))
 
 
 async def _peak_snapshot(request: web.Request) -> dict:
@@ -760,8 +827,19 @@ async def _house_snapshot(request: web.Request) -> dict:
     band = the_house.band
     unreadable = request.app["scheduler"].calendars.unreadable()
     return {
+        # A band left by an earlier version that no building or zone has taken
+        # over yet; null once it has been carried over.
         "house_heat_to": band.heat_to if band else None,
         "house_cool_to": band.cool_to if band else None,
+        "targets": [
+            {
+                "scope": scope,
+                "scope_id": scope_id,
+                "house_heat_to": level.heat_to,
+                "house_cool_to": level.cool_to,
+            }
+            for (scope, scope_id), level in sorted(the_house.levels.items())
+        ],
         "min_gap": house.MIN_GAP_F,
         "low": house.LOW_F,
         "high": house.HIGH_F,
@@ -795,33 +873,46 @@ async def _tick_everything(request: web.Request) -> None:
         log.exception("Could not apply the change straight away")
 
 
-@docs(tags=["house"], summary="The house band and each room's switches")
+@docs(tags=["house"], summary="Targets at each level, and each room's switches")
 @response_schema(schemas.HouseSchema)
 @routes.get("/api/house")
 async def get_house(request: web.Request) -> web.Response:
     return json_response(await _house_snapshot(request))
 
 
+BAD_SCOPE = "Targets belong to a building, a zone or a room"
+LEVEL_UNKNOWN = "That building, zone or room was not found"
+
+
 @docs(
     tags=["house"],
-    summary="Set or clear the house band",
-    description="Both temperatures in the display unit, or both null to clear the band.",
+    summary="Set or clear the heating and cooling targets of a building, a zone or a room",
+    description=(
+        "Both temperatures in the display unit, or both null to clear them so the level "
+        "inherits from the one above (room from zone, zone from building). The two may be "
+        "the same number."
+    ),
 )
 @request_schema(schemas.HouseBandSchema)
 @response_schema(schemas.HouseSchema)
-@routes.put("/api/house")
-async def update_house(request: web.Request) -> web.Response:
+@routes.put("/api/house/targets/{scope}/{scope_id:[^/]+}")
+async def update_targets(request: web.Request) -> web.Response:
+    scope, scope_id = request.match_info["scope"], request.match_info["scope_id"]
+    if scope not in house.SCOPES:
+        return error(BAD_SCOPE)
     body = await _json_object(request)
     if set(body) - {"house_heat_to", "house_cool_to"}:
-        return error("Unknown house setting")
+        return error("Unknown targets setting")
     problem = house.check_band(body)
     if problem is not None:
         return error(problem)
     heat, cool = body["house_heat_to"], body["house_cool_to"]
     unit = request.app["scheduler"].get_temperature_unit()
     conn = await get_conn(request)
+    if not await house.level_exists(conn, scope, scope_id):
+        return error(LEVEL_UNKNOWN, status=404)
     if heat is None:
-        await house.set_band(conn, None, None)
+        await house.set_level(conn, scope, scope_id, None, None)
     else:
         heat_f, cool_f = to_f(heat, unit), to_f(cool, unit)
         if not house.band_in_range(heat_f, cool_f):
@@ -830,23 +921,28 @@ async def update_house(request: web.Request) -> web.Response:
             shift = 32 if unit == "C" else 0
             low = math.ceil(round((house.LOW_F - shift) * scale, 6) * 10) / 10
             high = math.floor(round((house.HIGH_F - shift) * scale, 6) * 10) / 10
-            gap = math.ceil(round(house.MIN_GAP_F * scale, 6) * 10) / 10
             return error(
-                f"Heat-to and cool-to must be between {low} and {high}°{unit},"
-                f" at least {gap}° apart"
+                f"The targets must be between {low} and {high}°{unit}, and the cooling"
+                " target cannot be below the heating target"
             )
-        top, bottom = await house.safety_window(conn)
+        # Only the zones these targets can reach: one building's limits do
+        # not bind another's.
+        top, bottom = await house.safety_window(
+            conn, await house.zones_under(conn, scope, scope_id)
+        )
         if heat_f > top or cool_f < bottom:
             scale, shift = (5 / 9, 32) if unit == "C" else (1.0, 0)
             # Rounded inward, so the numbers named are ones that are accepted.
             most = math.floor(round((top - shift) * scale, 6) * 10) / 10
             least = math.ceil(round((bottom - shift) * scale, 6) * 10) / 10
             return error(
-                f"The band must sit inside every zone's safety limits: Heat To at most"
-                f" {most}°{unit} and Cool To at least {least}°{unit}"
+                f"The targets must sit inside the zones' safety limits: heating at most"
+                f" {most}°{unit} and cooling at least {least}°{unit}"
             )
-        await house.set_band(conn, heat_f, cool_f)
-    await emit(request, "info", "api", "House band changed", body)
+        await house.set_level(conn, scope, scope_id, heat_f, cool_f)
+    await emit(
+        request, "info", "api", "Targets changed", {"scope": scope, "scope_id": scope_id, **body}
+    )
     await _tick_everything(request)
     return json_response(await _house_snapshot(request))
 

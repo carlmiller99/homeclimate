@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.17
+
+- Dashboard: **Targets** replace the house band. Each building has a heating target and a cooling target, and a zone or a room can be given its own; anything without its own follows the level above, and the Dashboard says which. The two targets can be the same number, so a home can be held at 71, or between 71 and 72, all year: the 3 °F minimum between them is gone, here and on a schedule's, a hold's and an occupancy target's Cool To.
+- Upgrading: the house band you had becomes the targets of every building, and of every zone that is in no building, so every room is kept where it was.
+- Targets are checked against the safety limits of the zones they reach, so one building's limits no longer restrict another's targets. A zone that leaves its building, or whose building is deleted, keeps the targets it was following.
+- Smart Control → Forecasts: each building's Auto now has **Auto May Change Sides** (several times a day, once a day, once a week or once a month, each counted from the last change) and a **Switching Threshold** (3 °F unless changed): how far past its target on the other side a room must be before the building considers changing sides. Each choice is explained on the page.
+- The limit always holds. A room far from its target no longer changes a building's side early; to change sooner, set the building to Heat Only or Cool Only. Safety limits still act at once.
+- On a weekly or monthly limit, a change also waits until the forecast for the next three days favours the other side.
+- Smart Control → **Fan** (new, off until turned on per zone): while a building holds a zone to heating or to cooling, HomeClimate can run the fan alone to mix a room that is past its target on the other side with a room that is closer to it. No more than 30 minutes in any hour, not for 15 minutes after a run, never for a room paused by a door or window, and Watch Only logs what it would have done. See `docs/fan.md`.
+- My Home → Edit Zone: **Outside Air Intake** (Yes, No, Not Sure). With an intake, the fan only runs alone while outside air would help. **Test** runs the fan for 10 minutes and reports whether the rooms moved toward the outside temperature: a hint, not an answer.
+- API: `PUT /api/house/targets/{scope}/{scope_id}` replaces `PUT /api/house`, and `GET /api/house` lists the targets set at each level. `PUT /api/building-modes/{building_id}` takes `switching` and `switch_threshold`.
+
 ## 0.5.16
 
 - Room devices: each search now lists only the right kind of device (temperature sensors, vents, door and window sensors, occupancy sensors), and leads with the ones in the Home Assistant area named like the room.

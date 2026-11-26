@@ -1,4 +1,4 @@
-import { HP_DEFAULTS } from "./zoneFixtures";
+import { FAN_DEFAULTS, HP_DEFAULTS } from "./zoneFixtures";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createBuilding,
@@ -71,6 +71,7 @@ const base: ZoneProfile = {
   equipment_running_entity: null,
   heat_kit_confirmed: false,
   ...HP_DEFAULTS,
+  ...FAN_DEFAULTS,
 };
 
 describe("equipmentSummary", () => {

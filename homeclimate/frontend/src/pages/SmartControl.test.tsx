@@ -1,4 +1,4 @@
-import { HP_DEFAULTS } from "../zoneFixtures";
+import { FAN_DEFAULTS, HP_DEFAULTS } from "../zoneFixtures";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -22,6 +22,7 @@ vi.mock("./BuildingAutoCard", () => ({ default: () => <p>building auto</p> }));
 vi.mock("./EcoSection", () => ({ default: () => <p>eco section</p> }));
 vi.mock("./SuggestionsCard", () => ({ default: () => <p>suggestions card</p> }));
 vi.mock("./ZoneBalanceSection", () => ({ default: () => <p>zone balance section</p> }));
+vi.mock("./FanSection", () => ({ default: () => <p>fan section</p> }));
 vi.mock("./PeakSection", () => ({ default: () => <p>peak section</p> }));
 vi.mock("./FireplaceSection", () => ({ default: () => <p>fireplace section</p> }));
 vi.mock("./ShadesSection", () => ({
@@ -52,6 +53,7 @@ const zone = (id: string, name: string, building_id: string | null = null) => ({
   equipment_running_entity: null,
   heat_kit_confirmed: false,
   ...HP_DEFAULTS,
+  ...FAN_DEFAULTS,
 });
 
 const room = (id: string, name: string, thermostat_entity_id: string) =>
@@ -157,13 +159,18 @@ describe("Smart Control", () => {
     // Nothing is waiting to be built: every section is a link.
     expect(sc.PLANNED_SECTIONS).toEqual([]);
     expect(within(nav).queryByText("Planned")).toBeNull();
-    expect(within(nav).getAllByRole("link")).toHaveLength(8);
+    expect(within(nav).getAllByRole("link")).toHaveLength(9);
     expect(sc.getSmartControl).not.toHaveBeenCalled();
   });
 
   it("opens the Peak Hours section", () => {
     renderAt("/smart-control?section=peak-hours");
     expect(screen.getByText("peak section")).toBeInTheDocument();
+  });
+
+  it("opens the Fan section", () => {
+    renderAt("/smart-control?section=fan");
+    expect(screen.getByText("fan section")).toBeInTheDocument();
   });
 
   it("opens the Zone Balance section", () => {

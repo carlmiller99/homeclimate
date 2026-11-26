@@ -12,13 +12,13 @@ const ROWS: { key: keyof RoomSwitches; title: string; on: string; off: string }[
     key: "use_schedules",
     title: "Follow Its Schedules",
     on: "A schedule gives the room its own target while it is active.",
-    off: "The room's schedules are skipped, not deleted. It follows the house band instead.",
+    off: "The room's schedules are skipped, not deleted. It follows its targets instead.",
   },
   {
     key: "use_presence",
     title: "Follow Occupancy",
     on: "When someone is in the room it gets its occupied target.",
-    off: "Occupancy sets no target. The room follows the house band instead.",
+    off: "Occupancy sets no target. The room follows its targets instead.",
   },
 ];
 

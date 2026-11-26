@@ -35,6 +35,8 @@ def _zone(tid: str, running: str | None = None, wants: str | None = None, **wait
             "direction": wants,
             "since": NOW - timedelta(minutes=30),
             "excess": 0.5,
+            # Past the default switching threshold, unless a test says otherwise.
+            "past": 5.0,
             "obeyed": True,
         }
         w.update(wait)
@@ -62,6 +64,8 @@ async def test_by_default_zones_choose_for_themselves(client, site):
             "name": "Main House",
             "mode": "auto",
             "auto_level": "off",
+            "switching": "often",
+            "switch_threshold": 3.0,
             "side": None,
             "obey": False,
             "note": "",
@@ -152,7 +156,7 @@ async def test_auto_switches_only_when_every_condition_holds(client, site):
     early = NOW - timedelta(hours=4)
     waited = {"since": early - timedelta(minutes=30)}
     assert await note([_zone(T2, wants="cooling", **waited)], now=early) == (
-        "A zone wants cooling; 181 min until a switch is allowed"
+        "A zone wants cooling; 3 hours until a switch is allowed"
     )
     # The forecast does not call for it.
     cold = [forecast.Hour(NOW + timedelta(hours=i), 40.0, None, None, "") for i in range(8)]
@@ -182,7 +186,7 @@ async def test_the_house_band_sets_what_the_forecast_counts_as_needing_a_side():
     assert bm.forecast_wants(hours, "cooling", band, NOW + timedelta(days=2)) is None
 
 
-async def test_no_more_than_two_switches_a_day_unless_a_room_is_far_out(client, site):
+async def test_no_more_than_two_switches_a_day_however_far_out_a_room_is(client, site):
     await _on_heating(client, site, at=NOW - timedelta(hours=20))
     first = NOW - timedelta(hours=9)
     _p, switched = await _plan(
@@ -194,32 +198,16 @@ async def test_no_more_than_two_switches_a_day_unless_a_room_is_far_out(client, 
         client, [_zone(T2, wants="heating", **late)], now=NOW - timedelta(hours=4, minutes=30)
     )
     assert switched == [(site, "heating")]
-    # A third switch the same day is refused…
-    planner, switched = await _plan(client, [_zone(T2, wants="cooling")])
+    # A third switch the same day is refused, however far out the room is.
+    planner, switched = await _plan(client, [_zone(T2, wants="cooling", excess=9.0, past=9.5)])
     assert switched == []
     assert planner.decisions()[site].note == "A zone wants cooling; already switched twice today"
-    # …unless a room is 2 °F past where it would start, and has been for 3 minutes.
-    far = {"excess": 2.0}
+    # The count starts again the next day.
+    later = NOW + timedelta(days=1)
     planner, switched = await _plan(
-        client, [_zone(T2, wants="cooling", since=NOW - timedelta(minutes=1), **far)]
-    )
-    assert switched == []
-    planner, switched = await _plan(
-        client, [_zone(T2, wants="cooling", since=NOW - timedelta(minutes=3), **far)]
+        client, [_zone(T2, wants="cooling", since=later - timedelta(minutes=30))], now=later
     )
     assert switched == [(site, "cooling")]
-    # Even then a cycle still running on the old side is allowed to finish first.
-    planner, switched = await _plan(
-        client,
-        [_zone(T1, "cooling"), _zone(T2, wants="heating", excess=5.0)],
-        now=NOW + timedelta(minutes=5),
-    )
-    assert switched == []
-    # The count starts again the next day.
-    planner, switched = await _plan(
-        client, [_zone(T2, wants="heating")], now=NOW + timedelta(days=1)
-    )
-    assert switched == [(site, "heating")]
 
 
 async def test_the_side_survives_a_restart(client, site):
@@ -290,39 +278,209 @@ async def test_validation_and_failures(client, site, monkeypatch, caplog):
     assert "Could not apply the building mode straight away" in caplog.text
 
 
-async def test_an_urgent_switch_keeps_looser_limits_of_its_own(client, site):
-    await _on_heating(client, site, at=NOW - timedelta(minutes=30))
-    far = {"excess": 4.0, "since": NOW - timedelta(minutes=20)}
-    # Half an hour after the last switch is too soon, however far out the room is.
-    planner, switched = await _plan(client, [_zone(T2, wants="cooling", **far)])
+async def test_only_a_room_past_the_threshold_counts_toward_a_switch(client, site):
+    await _on_heating(client, site)
+    near = {"past": 2.9}
+    planner, switched = await _plan(client, [_zone(T2, wants="cooling", **near)])
     assert switched == []
     assert planner.decisions()[site].note == (
-        "A zone wants cooling; 211 min until a switch is allowed"
+        "A zone wants cooling; no room is far enough past its target"
     )
-    # An hour after it, the urgent room switches the building.
-    later = NOW + timedelta(minutes=31)
-    planner, switched = await _plan(client, [_zone(T2, wants="cooling", **far)], now=later)
+    # A wait from an engine that reports no distance from the target goes by
+    # how far past its starting point the room is.
+    old = _zone(T2, wants="cooling", excess=1.0)
+    del old.wait["past"]
+    _p, switched = await _plan(client, [old])
+    assert switched == []
+    # A lower threshold lets the same room switch the building. It arrives in
+    # the display unit: 1.5 °C is 2.7 °F.
+    client.app["scheduler"]._active_unit = "C"
+    try:
+        got = await _mode(client, site, switch_threshold=1.5)
+    finally:
+        client.app["scheduler"]._active_unit = "F"
+    assert got["switch_threshold"] == 2.7
+    _p, switched = await _plan(client, [_zone(T2, wants="cooling", **near)])
     assert switched == [(site, "cooling")]
-    # Two zones pulling opposite ways cannot flip it more than six times a day.
-    at, side = later, "cooling"
-    flips = 1
-    for _ in range(12):
-        at += timedelta(hours=1, minutes=1)
-        if tz_day(at) != tz_day(later):
-            break
-        want = "heating" if side == "cooling" else "cooling"
-        _p, switched = await _plan(
-            client, [_zone(T2, wants=want, excess=4.0, since=at - timedelta(minutes=20))], now=at
-        )
-        if switched:
-            side, flips = want, flips + 1
-    assert flips <= bm.URGENT_MAX_SWITCHES_A_DAY
 
 
-def tz_day(at):
-    from backend import tz
+@pytest.mark.parametrize(
+    ("switching", "too_soon", "note", "allowed"),
+    [
+        ("daily", timedelta(hours=23), "61 min", timedelta(hours=24, minutes=1)),
+        ("daily", timedelta(hours=10), "14 hours", timedelta(hours=24, minutes=1)),
+        ("weekly", timedelta(days=6), "24 hours", timedelta(days=7, minutes=1)),
+        ("monthly", timedelta(days=12), "18 days", timedelta(days=30, minutes=1)),
+    ],
+)
+async def test_a_longer_limit_counts_from_the_last_switch(
+    client, site, switching, too_soon, note, allowed
+):
+    start = NOW - timedelta(days=40)
+    await _mode(client, site, auto_level="on", switching=switching)
+    _p, switched = await _plan(client, [_zone(T1, "heating")], now=start)
+    assert switched == [(site, "heating")]
+    # The first side is not a switch on a weekly or monthly limit, so the
+    # first real switch is free; from then on the limit runs.
+    first = start + timedelta(days=1, minutes=5)
+    wants = lambda at, side: [_zone(T2, wants=side, since=at - timedelta(minutes=30))]  # noqa: E731
+    _p, switched = await _plan(client, wants(first, "cooling"), now=first)
+    assert switched == [(site, "cooling")]
+    # However far out a room is, the limit holds.
+    at = first + too_soon
+    far = [_zone(T2, wants="heating", since=at - timedelta(minutes=30), past=12.0, excess=11.0)]
+    planner, switched = await _plan(client, far, now=at)
+    assert switched == []
+    assert planner.decisions()[site].note == (
+        f"A zone wants heating; {note} until a switch is allowed"
+    )
+    at = first + allowed
+    _p, switched = await _plan(client, wants(at, "heating"), now=at)
+    assert switched == [(site, "heating")]
 
-    return tz.to_local(at).date()
+
+async def test_a_daily_limit_counts_the_first_side_and_checks_the_next_hours(client, site):
+    await _mode(client, site, auto_level="on", switching="daily")
+    _p, switched = await _plan(client, [_zone(T1, "heating")], now=NOW - timedelta(hours=5))
+    assert switched == [(site, "heating")]
+    planner, switched = await _plan(client, [_zone(T2, wants="cooling")])
+    assert switched == []
+    assert "until a switch is allowed" in planner.decisions()[site].note
+    later = NOW + timedelta(hours=20)
+    cold = [forecast.Hour(later + timedelta(hours=i), 40.0, None, None, "") for i in range(8)]
+    waiting = [_zone(T2, wants="cooling", since=later - timedelta(minutes=30))]
+    planner, switched = await _plan(client, waiting, now=later, hours=cold)
+    assert switched == []
+    assert planner.decisions()[site].note == (
+        "A zone wants cooling; the forecast does not call for it"
+    )
+    # With no forecast to rule it out, it switches.
+    _p, switched = await _plan(client, waiting, now=later)
+    assert switched == [(site, "cooling")]
+
+
+async def test_a_seasonal_switch_needs_the_coming_days_to_favour_it(client, site):
+    await _mode(client, site, auto_level="on", switching="monthly")
+    _p, switched = await _plan(client, [_zone(T1, "heating")], now=NOW - timedelta(hours=5))
+    assert switched == [(site, "heating")]
+
+    def days(temps):
+        return [
+            forecast.Hour(NOW + timedelta(hours=i), temps[i * len(temps) // 72], None, None, "")
+            for i in range(72)
+        ]
+
+    # One warm afternoon in three cold days does not spend the switch.
+    mostly_cold = days([40.0, 40.0, 80.0, 40.0, 40.0, 40.0])
+    planner, switched = await _plan(client, [_zone(T2, wants="cooling")], hours=mostly_cold)
+    assert switched == []
+    assert planner.decisions()[site].note == (
+        "A zone wants cooling; the coming days' forecast does not favour it"
+    )
+    # A forecast too short to judge by rules nothing out; warm days allow it.
+    assert bm.forecast_favours(mostly_cold[:10], "cooling", None, NOW) is None
+    band = house.Band(68.0, 74.0)
+    mild = days([66.0])
+    assert bm.forecast_favours(mild, "heating", band, NOW) is True
+    assert bm.forecast_favours(mild, "cooling", band, NOW) is False
+    # Days that need neither side say nothing against a switch.
+    assert bm.forecast_favours(mild, "heating", None, NOW) is None  # default: below 60
+    assert bm.forecast_favours(mild, "cooling", None, NOW) is None
+    mostly_warm = days([80.0, 80.0, 40.0, 80.0])
+    _p, switched = await _plan(client, [_zone(T2, wants="cooling")], hours=mostly_warm)
+    assert switched == [(site, "cooling")]
+
+
+async def test_a_reading_that_was_not_held_past_the_threshold_does_not_count(client, site):
+    await _on_heating(client, site)
+    spike = {"past": 4.5, "held": 1.0}
+    planner, switched = await _plan(client, [_zone(T2, wants="cooling", **spike)])
+    assert switched == []
+    assert planner.decisions()[site].note == (
+        "A zone wants cooling; no room is far enough past its target"
+    )
+    _p, switched = await _plan(client, [_zone(T2, wants="cooling", past=4.5, held=3.0)])
+    assert switched == [(site, "cooling")]
+
+
+async def test_only_a_switch_that_is_about_to_happen_is_passed_on_to_other_zones(client, site):
+    scheduler = client.app["scheduler"]
+    await _on_heating(client, site)
+    just = {"since": NOW - timedelta(minutes=3)}
+    planner, _s = await _plan(client, [_zone(T2, wants="cooling", **just)])
+    assert planner.decisions()[site].leaning == "cooling"
+    scheduler._waiting_at_plan = {T2: "cooling"}
+    assert scheduler._building_waiting(T1) == "cooling"
+    assert scheduler._building_waiting(T2) is None  # its own wait
+    # Held back by the limit, a wait can last a month: it is not passed on.
+    await _mode(client, site, switching="monthly")
+    _p, switched = await _plan(client, [_zone(T2, wants="cooling")], now=NOW)
+    assert switched == [(site, "cooling")]  # the new limit counts from here
+    later = NOW + timedelta(days=3)
+    waiting = [_zone(T2, wants="heating", since=later - timedelta(minutes=3))]
+    planner, _s = await _plan(client, waiting, now=later)
+    assert "until a switch is allowed" in planner.decisions()[site].note
+    assert planner.decisions()[site].leaning is None
+    scheduler._waiting_at_plan = {T2: "heating"}
+    assert scheduler._building_waiting(T1) is None
+
+
+async def test_changing_the_limit_or_leaving_auto_starts_the_count_again(client, site):
+    await _on_heating(client, site, at=NOW - timedelta(minutes=30))
+    planner, switched = await _plan(client, [_zone(T2, wants="cooling")])
+    assert "until a switch is allowed" in planner.decisions()[site].note
+    # Setting the same limit again changes nothing...
+    await _mode(client, site, switching="often")
+    _p, switched = await _plan(client, [_zone(T2, wants="cooling")])
+    assert switched == []
+    # ...a different one counts from the next change, so a first side taken
+    # under the old limit does not hold the building for a month.
+    await _mode(client, site, switching="monthly")
+    _p, switched = await _plan(client, [_zone(T2, wants="cooling")])
+    assert switched == [(site, "cooling")]
+    # Leaving Auto forgets today's count as well as the side.
+    conn = await client.app["scheduler"].get_db()
+    assert (await bm.load(conn))[site].switches == 1
+    await _mode(client, site, mode="heat_only")
+    assert (await bm.load(conn))[site].switches == 0
+
+
+async def test_switching_settings_are_checked_and_kept(client, site):
+    got = await _mode(client, site, switching="weekly", switch_threshold=4)
+    assert (got["switching"], got["switch_threshold"]) == ("weekly", 4.0)
+    snap = await (await client.get("/api/building-modes")).json()
+    assert (snap["min_threshold"], snap["max_threshold"]) == (0.0, 10.0)
+    for body, text in (
+        ({"switching": "yearly"}, bm.BAD_SWITCHING),
+        ({"switch_threshold": 11}, bm.BAD_THRESHOLD),
+        ({"switch_threshold": -1}, bm.BAD_THRESHOLD),
+        ({"switch_threshold": True}, bm.BAD_THRESHOLD),
+        ({"switch_threshold": "3"}, bm.BAD_THRESHOLD),
+    ):
+        resp = await client.put(f"/api/building-modes/{site}", json=body)
+        assert resp.status == 400, body
+        assert (await resp.json())["error"] == text
+    # The largest value the display unit shows converts back a hair over the
+    # limit, and is taken as the limit.
+    client.app["scheduler"]._active_unit = "C"
+    try:
+        got = await _mode(client, site, switch_threshold=5.56)
+    finally:
+        client.app["scheduler"]._active_unit = "F"
+    assert got["switch_threshold"] == 10.0
+    await _mode(client, site, switch_threshold=4)
+    # A mode change leaves them alone.
+    got = await _mode(client, site, mode="heat_only")
+    assert (got["switching"], got["switch_threshold"]) == ("weekly", 4.0)
+
+
+async def test_the_time_left_reads_in_the_unit_that_fits():
+    assert bm._time_left(timedelta(minutes=44, seconds=10)) == "45 min"
+    assert bm._time_left(timedelta(hours=1, minutes=58)) == "119 min"
+    assert bm._time_left(timedelta(hours=2)) == "2 hours"
+    assert bm._time_left(timedelta(hours=47, minutes=30)) == "48 hours"
+    assert bm._time_left(timedelta(hours=48)) == "2 days"
+    assert bm._time_left(timedelta(days=17, hours=1)) == "18 days"
 
 
 async def test_a_clock_set_backwards_does_not_lock_the_building(client, site):
@@ -387,6 +545,15 @@ async def test_a_building_with_no_side_takes_the_first_zone_to_start(client, sit
     assert planner.live_side(T2, {}) == (None, True)
     await _on_heating(client, site)
     assert planner.claim(T1, "cooling") is None  # already on a side
+
+
+async def test_a_building_with_no_side_holds_a_zone_while_two_others_run_opposite_ways(
+    client, site
+):
+    assert (await client.put(f"/api/zones/{T3}", json={"building_id": site})).status == 200
+    await _mode(client, site, auto_level="on")
+    planner, _switched = await _plan(client, [_zone(T1), _zone(T2), _zone(T3)])
+    assert planner.live_side(T3, {T1: "heating", T2: "cooling"}) == ("hold", True)
 
 
 async def test_a_zone_whose_claim_came_to_nothing_gives_way_next_time(client, site):

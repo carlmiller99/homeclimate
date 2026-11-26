@@ -24,7 +24,9 @@ test("zone delete confirmation dialog", async ({ page }) => {
   // ("Delete zone?") also matches a loose "Delete zone" search.
   await expect(dialog.locator("p")).toContainText("and all of its rooms");
 
-  await expect(page).toHaveScreenshot("thermostat-remove-confirm.png", { maxDiffPixels: 800 });
+  await expect(page).toHaveScreenshot("thermostat-remove-confirm.png", {
+    maxDiffPixels: 800,
+  });
 
   // Cancel — don't actually delete a zone other specs depend on.
   await dialog.getByRole("button", { name: "Cancel" }).click();

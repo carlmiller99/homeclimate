@@ -39,7 +39,7 @@ def need(temp: float, heat_below: float, cool_above: float) -> str:
 
 async def build(conn: aiosqlite.Connection, *, now: datetime) -> dict[str, Any]:
     the_house = await house.load(conn)
-    band = the_house.band
+    band = the_house.outer_band()
     heat_below = band.heat_to if band else building_mode.DEFAULT_HEAT_BELOW_F
     cool_above = band.cool_to if band else building_mode.DEFAULT_COOL_ABOVE_F
     hours, fetched = await forecast.load(conn, now=now)

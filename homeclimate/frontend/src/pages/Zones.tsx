@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router";
+import AirIntakeField from "../components/AirIntakeField";
 import ConfirmDialog from "../components/ConfirmDialog";
 import EntityPicker from "../components/EntityPicker";
 import { createThermostat, deleteThermostat, getThermostats, type ThermostatConfig } from "../api";
@@ -133,6 +134,7 @@ function ZoneEditor({
     hp_compressor_lockout_f:
       zone.hp_compressor_lockout_f === null ? null : toDisplay(zone.hp_compressor_lockout_f),
     hp_aux_policy: zone.hp_aux_policy,
+    air_intake: zone.air_intake,
   });
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -347,6 +349,13 @@ function ZoneEditor({
           </>
         )}
 
+        <AirIntakeField
+          entityId={zone.thermostat_entity_id}
+          zoneName={zone.name || zone.thermostat_entity_id}
+          value={form.air_intake}
+          onChange={(air_intake) => setForm((f) => ({ ...f, air_intake }))}
+        />
+
         {err && <p className="form-error">{err}</p>}
         <div className="zone-editor-actions">
           {saved && (
@@ -457,7 +466,7 @@ function BuildingHeader({
       {confirming && (
         <ConfirmDialog
           title="Delete building?"
-          message={`Delete "${building.name}"? Its zones and rooms are kept and moved to Unassigned, where each zone chooses heating or cooling for itself. The building's mode and zone balance settings are removed.`}
+          message={`Delete "${building.name}"? Its zones and rooms are kept and moved to Unassigned, where each zone chooses heating or cooling for itself. The building's mode and zone balance settings are removed. Zones that followed the building's targets keep them as their own.`}
           confirmLabel="Delete Building"
           onCancel={() => setConfirming(false)}
           onConfirm={() => void remove()}

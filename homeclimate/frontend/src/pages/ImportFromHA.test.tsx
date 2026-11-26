@@ -1,4 +1,4 @@
-import { HP_DEFAULTS } from "../zoneFixtures";
+import { FAN_DEFAULTS, HP_DEFAULTS } from "../zoneFixtures";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -108,6 +108,7 @@ beforeEach(() => {
       equipment_running_entity: null,
       heat_kit_confirmed: false,
       ...HP_DEFAULTS,
+      ...FAN_DEFAULTS,
     },
   ]);
   vi.mocked(zonesApi.runImport).mockResolvedValue(RESULT);

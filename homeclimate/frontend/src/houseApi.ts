@@ -3,16 +3,29 @@ import { api } from "./api";
 export interface RoomSwitches {
   /** Off: the room is not being used and asks for nothing but a hold. */
   in_use: boolean;
-  /** Off: the room's schedules are skipped and it follows the house band. */
+  /** Off: the room's schedules are skipped and it follows its targets. */
   use_schedules: boolean;
   /** Off: occupancy does not give the room its own target. */
   use_presence: boolean;
 }
 
+export type TargetScope = "building" | "zone" | "room";
+
+/** The heating and cooling targets set at one level, in °F. */
+export interface LevelTargets {
+  scope: TargetScope;
+  /** Building id, thermostat entity id, or room id. */
+  scope_id: string;
+  house_heat_to: number;
+  house_cool_to: number;
+}
+
 export interface House {
-  /** °F, or null when no house band is set. */
+  /** °F. A band left by an earlier version that no level has taken over; else null. */
   house_heat_to: number | null;
   house_cool_to: number | null;
+  /** The targets set at each level. A level with none inherits from the one above. */
+  targets?: LevelTargets[];
   /** °F delta required between the two. */
   min_gap: number;
   low: number;
@@ -45,9 +58,27 @@ export function switchesFor(house: House | null, roomId: string): RoomSwitches {
 
 export const getHouse = () => api<House>("/api/house");
 
-/** Both in the display unit, as typed; the backend converts. Both null clears the band. */
-export const setHouseBand = (heatTo: number | null, coolTo: number | null) =>
-  api<House>("/api/house", {
+/** One level's own targets in °F, or null when it has none of its own. */
+export function targetsFor(
+  house: House | null,
+  scope: TargetScope,
+  scopeId: string
+): { heat: number; cool: number } | null {
+  const found = house?.targets?.find((t) => t.scope === scope && t.scope_id === scopeId);
+  return found ? { heat: found.house_heat_to, cool: found.house_cool_to } : null;
+}
+
+/**
+ * Set one level's targets. Both in the display unit, as typed; the backend
+ * converts. Both null clears them, so the level follows the one above.
+ */
+export const setTargets = (
+  scope: TargetScope,
+  scopeId: string,
+  heatTo: number | null,
+  coolTo: number | null
+) =>
+  api<House>(`/api/house/targets/${scope}/${encodeURIComponent(scopeId)}`, {
     method: "PUT",
     body: JSON.stringify({ house_heat_to: heatTo, house_cool_to: coolTo }),
   });

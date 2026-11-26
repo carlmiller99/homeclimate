@@ -2,6 +2,8 @@ import { api } from "./api";
 
 export type BuildingModeName = "auto" | "heat_only" | "cool_only" | "off";
 export type AutoLevel = "off" | "watch" | "on";
+/** How often Auto may change sides, counted from the last change. */
+export type Switching = "often" | "daily" | "weekly" | "monthly";
 
 export interface BuildingWait {
   thermostat_entity_id: string;
@@ -17,6 +19,9 @@ export interface BuildingMode {
   name: string;
   mode: BuildingModeName;
   auto_level: AutoLevel;
+  switching: Switching;
+  /** °F difference: how far past its target on the other side a room must be. */
+  switch_threshold: number;
   /** "heating", "cooling", "off", or null when not on a side. */
   side: string | null;
   obey: boolean;
@@ -37,12 +42,24 @@ export const AUTO_LEVEL_LABELS: Record<AutoLevel, string> = {
   on: "On",
 };
 
+export const SWITCHING_LABELS: Record<Switching, string> = {
+  often: "Several Times a Day",
+  daily: "Once a Day",
+  weekly: "Once a Week",
+  monthly: "Once a Month",
+};
+
+/** The switching threshold's limits, as °F differences (backend/building_mode.py). */
+export const THRESHOLD_MIN_F = 0;
+export const THRESHOLD_MAX_F = 10;
+
 export const getBuildingModes = () =>
   api<{ buildings: BuildingMode[] }>("/api/building-modes").then((r) => r.buildings);
 
 export const setBuildingMode = (
   buildingId: string,
-  data: Partial<Pick<BuildingMode, "mode" | "auto_level">>
+  /** `switch_threshold` goes as typed, in the display unit; the backend converts. */
+  data: Partial<Pick<BuildingMode, "mode" | "auto_level" | "switching" | "switch_threshold">>
 ) =>
   api<{ buildings: BuildingMode[] }>(`/api/building-modes/${encodeURIComponent(buildingId)}`, {
     method: "PUT",

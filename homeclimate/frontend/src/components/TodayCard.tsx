@@ -72,7 +72,7 @@ export default function TodayCard() {
               </div>
               <p className="today-runs">{describeRuns(data.hours, hour)}</p>
               <p className="form-hint">
-                {`Heating when it is colder than ${fmtTemp(data.heat_below)} outside, cooling when warmer than ${fmtTemp(data.cool_above)}: the house band.`}
+                {`Heating when it is colder than ${fmtTemp(data.heat_below)} outside, cooling when warmer than ${fmtTemp(data.cool_above)}: your targets.`}
               </p>
             </>
           )}

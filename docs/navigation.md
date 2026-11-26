@@ -14,13 +14,13 @@ HomeClimate has five tabs. One rule decides what goes where, and where new featu
 
 Zones are grouped by building, and every room is listed under its zone with its temperature, whether or not it is part of a running cycle.
 
-**Today's Plan**, under the House band, shows the next 24 forecast hours as a strip (heating where it is colder outside than the house band's Heat To, cooling where warmer than its Cool To, coasting between), the next schedule blocks and peak hours on the clock in house time, and yesterday in a sentence: how often and how long heating and cooling ran, and how many warnings were logged. It refreshes every five minutes and changes nothing. With no weather source chosen it shows only yesterday.
+**Today's Plan**, under Targets, shows the next 24 forecast hours as a strip (heating where it is colder outside than the lowest heating target, cooling where warmer than the highest cooling target, coasting between), the next schedule blocks and peak hours on the clock in house time, and yesterday in a sentence: how often and how long heating and cooling ran, and how many warnings were logged. It refreshes every five minutes and changes nothing. With no weather source chosen it shows only yesterday.
 
 Manual controls live here and nowhere else:
 
 - **System On / Off** at the top right: one switch for all of HomeClimate's control. It asks before switching.
-- The **House** band at the top: one Heat To and Cool To for every room. See [House band](./house-band.md).
-- **Options** on each room: whether it is in use, and whether it follows its schedules and occupancy or the house band.
+- **Targets** at the top: a heating target and a cooling target for each building, with its zones and rooms underneath for the ones that should differ. See [Targets](./house-band.md).
+- **Options** on each room: whether it is in use, and whether it follows its schedules and occupancy or its targets.
 - **Hold** and **Cancel Hold** on each room, and the page-level **Temporary hold** button. See [Temperature holds](./temperature-holds.md).
 - **Clear Presence** on a room that presence is holding active.
 - **Suspend Eco**, for the house or for one zone. See [Eco Mode](./eco-mode.md).
@@ -48,6 +48,7 @@ A side menu of sections:
 - **Smart Learning** — records how each room heats and cools, and shows how much each room has collected. See [Smart Learning](./smart-learning.md).
 - **Forecasts** — the weather source, and the forecast HomeClimate has fetched. See [Forecasts](./forecasts.md).
 - **Fireplace** — which entity says a fire is lit, the rooms it warms, and what to do while it burns. Fireplaces are added here, not in My Home, because most rooms don't have one. See [Fireplace](./fireplace.md).
+- **Fan** — run the fan alone to mix a zone's rooms while its building holds it to heating or to cooling. See [Fan](./fan.md).
 - **Peak Hours** — bank heat or cool in banded rooms ahead of the hours when electricity costs most. See [Peak Hours](./peak-hours.md).
 - **Zone Balance** — per building: whether zones are kept within a gap of each other, and the gap. See [Zone Balance](./zone-balance.md).
 - **Eco Mode** — per zone: whether targets relax when it is very hot or cold outside, and by how much. A single room's own Eco settings stay with the room in My Home. See [Eco Mode](./eco-mode.md).

@@ -2,7 +2,10 @@ import { test, expect } from "./fixtures";
 
 test("room settings — full page with all room controls", async ({ page }) => {
   await page.goto("/my-home");
-  await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
+  await page.waitForSelector(".loading", {
+    state: "detached",
+    timeout: 15_000,
+  });
   await page.waitForLoadState("networkidle");
 
   // Open the Living Room's settings. Scope to the room card — the bare

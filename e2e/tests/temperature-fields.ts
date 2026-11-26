@@ -26,10 +26,7 @@
 /** Conversion kind — drives `_to_f` vs `_delta_to_f` on the backend
  * and whether `null` is accepted as a value. */
 export type TempKind =
-  | "absolute"
-  | "absolute_nullable"
-  | "delta"
-  | "delta_nullable";
+  "absolute" | "absolute_nullable" | "delta" | "delta_nullable";
 
 export interface TempField {
   /** Body key exactly as it appears on the wire. */
@@ -99,18 +96,25 @@ export const TEMPERATURE_FIELDS: TempField[] = [
     ui: true,
     endpoints: ["PUT /api/zone-balance/{building_id}"],
   },
-  // ── House band — PUT /api/house (Dashboard)
+  // ── Building mode — PUT /api/building-modes/{building_id} (Smart Control)
+  {
+    field: "switch_threshold",
+    kind: "delta",
+    ui: true,
+    endpoints: ["PUT /api/building-modes/{building_id}"],
+  },
+  // ── Targets — PUT /api/house/targets/{scope}/{scope_id} (Dashboard)
   {
     field: "house_heat_to",
     kind: "absolute_nullable",
     ui: true,
-    endpoints: ["PUT /api/house"],
+    endpoints: ["PUT /api/house/targets/{scope}/{scope_id}"],
   },
   {
     field: "house_cool_to",
     kind: "absolute_nullable",
     ui: true,
-    endpoints: ["PUT /api/house"],
+    endpoints: ["PUT /api/house/targets/{scope}/{scope_id}"],
   },
 
   // ── Room — POST /api/rooms, PUT /api/rooms/{id}

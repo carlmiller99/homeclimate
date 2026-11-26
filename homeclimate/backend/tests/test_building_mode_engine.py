@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 from unittest.mock import AsyncMock
 
 import pytest
@@ -34,6 +35,9 @@ async def test_a_zone_wanting_the_other_side_waits_and_says_so_once():
     engine._reset_setpoint_to_ambient.assert_awaited()
     wait = engine.building_wait
     assert (wait["direction"], wait["obeyed"], wait["excess"]) == ("cooling", True, 2.5)
+    # How far past its target, which the building's threshold is measured
+    # against, and the least it has been over the wait.
+    assert (wait["past"], wait["held"]) == (3.0, 3.0)
     assert _messages(engine) == [
         f"{engine.thermostat_entity_id} is waiting to start cooling: its building is on heating"
     ]
@@ -118,6 +122,38 @@ async def test_a_room_with_no_reading_adds_nothing_to_how_far_out_the_zone_is():
         conn, "cooling", "heating", True, active, tc, None, None, None
     )
     assert engine.building_wait["excess"] == 0.0
+    assert engine.building_wait["past"] == 0.0
+    # With no reading of their own they go by the thermostat's, as the choice
+    # of side did, or a zone with no room sensors could never switch its building.
+    await engine._keep_to_building_side(
+        conn,
+        "cooling",
+        "heating",
+        True,
+        active,
+        tc,
+        {"attributes": {"current_temperature": 79.0}},
+        None,
+        None,
+    )
+    # (Against the heating target here: this call skips the step that picks the band's edge.)
+    assert engine.building_wait["past"] == 11.0
+    await conn.close()
+
+
+async def test_one_reading_past_the_threshold_is_not_held_there():
+    temps = {"r1": 75.0, "r2": 71.0}
+    conn, engine, _started = await _zone(temps, "heating", ambient=75.0)
+    await engine._do_tick(conn)
+    assert (engine.building_wait["past"], engine.building_wait["held"]) == (1.0, 1.0)
+    engine._get_avg_temp = lambda room, **_k: {"r1": 78.5, "r2": 71.0}[room.id]
+    await engine._do_tick(conn)
+    # A spike: past now, but not held there over the wait.
+    assert (engine.building_wait["past"], engine.building_wait["held"]) == (4.5, 1.0)
+    # Readings older than ten minutes no longer count.
+    engine._wait_past = [(at - timedelta(minutes=11), p) for at, p in engine._wait_past]
+    await engine._do_tick(conn)
+    assert engine.building_wait["held"] == 4.5
     await conn.close()
 
 

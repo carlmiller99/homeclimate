@@ -803,6 +803,38 @@ class TestSetThermostatHvacMode:
         assert payload["service_data"] == {"entity_id": "climate.main", "hvac_mode": "cool"}
 
 
+class TestSetThermostatFanMode:
+    async def test_dev_mode_skips_ha_and_logs(self):
+        client = HAClient("ws://ha.local", "tok")
+        client.dev_mode = True
+        mock_logger = AsyncMock()
+        client._dev_logger = mock_logger
+        await client.set_thermostat_fan_mode("climate.main", "on")
+        mock_logger.log.assert_called_once()
+        details = mock_logger.log.call_args[0][3]
+        assert (details["fan_mode"], details["action"]) == ("on", "set_fan_mode")
+
+    async def test_dev_mode_without_logger_is_noop(self):
+        client = HAClient("ws://ha.local", "tok")
+        client.dev_mode = True
+        # No _ws — would raise if call_service were reached.
+        await client.set_thermostat_fan_mode("climate.main", "auto")
+
+    async def test_handing_a_fan_back_goes_out_even_in_dev_mode(self):
+        client = _make_auto_resolving_client()
+        client.dev_mode = True
+        await client.set_thermostat_fan_mode("climate.main", "auto", restore=True)
+        payload = client._ws.send_json.call_args[0][0]
+        assert payload["service_data"] == {"entity_id": "climate.main", "fan_mode": "auto"}
+
+    async def test_real_mode_calls_service(self):
+        client = _make_auto_resolving_client()
+        await client.set_thermostat_fan_mode("climate.main", "auto")
+        payload = client._ws.send_json.call_args[0][0]
+        assert (payload["domain"], payload["service"]) == ("climate", "set_fan_mode")
+        assert payload["service_data"] == {"entity_id": "climate.main", "fan_mode": "auto"}
+
+
 class TestSetThermostatRangeDevMode:
     async def test_dev_mode_skips_ha_and_logs_range(self):
         client = HAClient("ws://ha.local", "tok")

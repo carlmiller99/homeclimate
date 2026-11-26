@@ -100,6 +100,8 @@ async def test_zones_default_and_update(client):
         "hp_switchover_gap_min": 60,
         "hp_compressor_lockout_f": None,
         "hp_aux_policy": "avoid",
+        "fan_level": "off",
+        "air_intake": "unsure",
         "aux_heat_running": False,
         "strips_expected": False,
         "looks_like_heat_pump": False,

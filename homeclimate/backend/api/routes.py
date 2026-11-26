@@ -491,7 +491,7 @@ TEMPERATURE_FIELDS: dict[str, str] = {
     "deadband": "delta",
     "overshoot_delta": "delta",
     "cooling_lockout_below_f": "absolute_nullable",
-    # House band (backend/house.py) — PUT /api/house
+    # Targets (backend/house.py) — PUT /api/house/targets/{scope}/{scope_id}
     "house_heat_to": "absolute_nullable",
     "house_cool_to": "absolute_nullable",
     # Room
@@ -530,6 +530,8 @@ TEMPERATURE_FIELDS: dict[str, str] = {
     "peak_depth": "delta",
     # Zone Balance (backend/zone_balance.py) — PUT /api/zone-balance/{building_id}
     "zone_gap": "delta",
+    # Building mode (backend/building_mode.py) — PUT /api/building-modes/{building_id}
+    "switch_threshold": "delta",
     # Zone heat pump protection — PUT /api/zones/{id} (HomeClimate)
     "hp_max_step_f": "delta",
     "hp_recovery_f_per_hr": "delta",
@@ -1533,10 +1535,9 @@ async def _check_cool_to(
         # Bounds shown rounded inward, so the numbers in the message are accepted.
         low = math.ceil(round((house.LOW_F - shift) * scale, 6) * 10) / 10
         high = math.floor(round((house.HIGH_F - shift) * scale, 6) * 10) / 10
-        gap = math.ceil(round(house.MIN_GAP_F * scale, 6) * 10) / 10
         return None, error(
             f"{key} and its target must be between {low} and {high}°{unit},"
-            f" with {key} at least {gap}° above the target"
+            f" with {key} not below the target"
         )
     if problem == "safety":
         top, bottom = await house.safety_window(await get_conn(request))

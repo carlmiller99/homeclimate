@@ -52,11 +52,11 @@ async def test_a_schedule_can_have_a_band_or_a_single_target(client, room):
     resp = await client.put(f"{url}/{single['id']}", json={"target_temp": 70})
     assert (resp.status, (await resp.json())["cool_to"]) == (200, 74.0)
     assert await _following(client) == ("schedule", 70.0, 70.0, 74.0)
-    # A move that would leave less than 3 °F drops the band rather than refuse the
-    # change: a client that knows nothing of bands must still be able to move a target.
-    resp = await client.put(f"{url}/{single['id']}", json={"target_temp": 72})
+    # A move past the cool-to drops the band rather than refuse the change: a
+    # client that knows nothing of bands must still be able to move a target.
+    resp = await client.put(f"{url}/{single['id']}", json={"target_temp": 76})
     assert (resp.status, (await resp.json())["cool_to"]) == (200, None)
-    assert await _following(client) == ("schedule", 72.0, None, None)
+    assert await _following(client) == ("schedule", 76.0, None, None)
     await client.put(f"{url}/{single['id']}", json={"target_temp": 70, "cool_to": 74})
     # A change that leaves the target alone does not re-check anything.
     assert (await client.put(f"{url}/{single['id']}", json={"name": "Day"})).status == 200
@@ -90,14 +90,14 @@ async def test_what_a_band_must_be(client, room):
     url = f"/api/rooms/{room}/schedules"
     for cool, message in (
         (
-            70,
+            67,
             "cool_to and its target must be between 45.0 and 95.0°F,"
-            " with cool_to at least 3.0° above the target",
+            " with cool_to not below the target",
         ),
         (
             96,
             "cool_to and its target must be between 45.0 and 95.0°F,"
-            " with cool_to at least 3.0° above the target",
+            " with cool_to not below the target",
         ),
         ("warm", "cool_to must be a number or null"),
         (True, "cool_to must be a number or null"),
@@ -119,13 +119,11 @@ async def test_what_a_band_must_be(client, room):
     await _celsius(client, True)
     try:
         resp = await client.post(
-            f"/api/rooms/{room}/override", json={"target_temp": 20, "cool_to": 21}
+            f"/api/rooms/{room}/override", json={"target_temp": 20, "cool_to": 19}
         )
     finally:
         await _celsius(client, False)
-    assert (
-        "between 7.3 and 35.0°C, with cool_to at least 1.7° above" in (await resp.json())["error"]
-    )
+    assert "between 7.3 and 35.0°C, with cool_to not below" in (await resp.json())["error"]
 
 
 async def test_a_hold_can_be_a_band_and_only_for_that_hold(client, room):
@@ -176,7 +174,7 @@ async def test_an_occupancy_target_can_be_a_band(client, room):
     resp = await client.put(url, json={"system_wide_temp": 70})
     assert (await resp.json())["presence_cool_to"] == 74.0
     assert await _following(client) == ("presence", 70.0, 70.0, 74.0)
-    resp = await client.put(url, json={"system_wide_temp": 73})
+    resp = await client.put(url, json={"system_wide_temp": 76})
     assert (resp.status, (await resp.json())["presence_cool_to"]) == (200, None)
     await client.put(url, json={"system_wide_temp": 70, "presence_cool_to": 74})
     # …is untouched by an unrelated change, and goes when the target does.
@@ -280,7 +278,7 @@ async def test_a_refused_band_changes_nothing_else(client, room, fake_ha):
         json={
             "thermostat_entity_id": "climate.new",
             "system_wide_temp": 68,
-            "presence_cool_to": 69,
+            "presence_cool_to": 67,
         },
     )
     assert resp.status == 400

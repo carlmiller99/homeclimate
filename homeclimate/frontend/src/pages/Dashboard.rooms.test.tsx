@@ -6,13 +6,13 @@ import * as api from "../api";
 import * as zonesApi from "../zonesApi";
 import * as sc from "../smartControlApi";
 import { UnitContext, buildUnitContext } from "../contexts";
-import { HP_DEFAULTS, smartControl } from "../zoneFixtures";
+import { FAN_DEFAULTS, HP_DEFAULTS, smartControl } from "../zoneFixtures";
 import { makeHold } from "../testFixtures";
 
 vi.mock("../api");
 // The plan card loads by itself and has its own tests.
 vi.mock("../components/TodayCard", () => ({ default: () => null }));
-// The house band has its own tests (Dashboard.house.test.tsx); here it never loads.
+// The targets card has its own tests (Dashboard.house.test.tsx); here it never loads.
 vi.mock("../houseApi", async (orig) => ({
   ...(await orig<typeof import("../houseApi")>()),
   getHouse: () => Promise.reject(new Error("house not loaded")),
@@ -63,6 +63,7 @@ const profile = (
   equipment_running_entity: null,
   heat_kit_confirmed: false,
   ...HP_DEFAULTS,
+  ...FAN_DEFAULTS,
 });
 
 const thermostat = (id: string, name: string) =>

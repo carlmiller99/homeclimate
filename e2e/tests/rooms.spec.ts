@@ -3,7 +3,10 @@ import { openRoomSettings } from "./my-home";
 
 test("my home — buildings, zones and rooms", async ({ page }) => {
   await page.goto("/my-home");
-  await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
+  await page.waitForSelector(".loading", {
+    state: "detached",
+    timeout: 15_000,
+  });
   await page.waitForLoadState("networkidle");
 
   // No masks: the room cards show hardware only, and their live values come
@@ -15,7 +18,10 @@ test("my home — buildings, zones and rooms", async ({ page }) => {
 
 test("room detail — Living Room", async ({ page }) => {
   await page.goto("/my-home");
-  await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
+  await page.waitForSelector(".loading", {
+    state: "detached",
+    timeout: 15_000,
+  });
   await page.waitForLoadState("networkidle");
 
   // Open the Living Room detail card / modal
@@ -32,7 +38,10 @@ test("room detail — Living Room", async ({ page }) => {
 
 test("room delete confirmation dialog", async ({ page }) => {
   await page.goto("/my-home");
-  await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
+  await page.waitForSelector(".loading", {
+    state: "detached",
+    timeout: 15_000,
+  });
   await page.waitForLoadState("networkidle");
 
   // Delete lives on the Room Settings page, not on the card.
@@ -44,7 +53,9 @@ test("room delete confirmation dialog", async ({ page }) => {
   // ("Delete room?") also matches a loose "Delete room" text search.
   await expect(dialog.locator("p")).toContainText("Delete room");
 
-  await expect(page).toHaveScreenshot("room-delete-confirm.png", { maxDiffPixels: 800 });
+  await expect(page).toHaveScreenshot("room-delete-confirm.png", {
+    maxDiffPixels: 800,
+  });
 
   // Cancel — don't actually delete a room other specs depend on.
   await dialog.getByRole("button", { name: "Cancel" }).click();

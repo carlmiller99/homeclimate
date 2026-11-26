@@ -735,6 +735,12 @@ class ZoneProfileSchema(Schema):
         metadata={"description": "Heat pump: max warm-up rate (delta per hour, °F stored)"}
     )
     hp_aux_policy = fields.Str(metadata={"description": "avoid | allow (auxiliary heat)"})
+    fan_level = fields.Str(
+        metadata={"description": "Fan between rooms with nothing else running: off | watch | on"}
+    )
+    air_intake = fields.Str(
+        metadata={"description": "Whether the air handler draws in outside air: yes | no | unsure"}
+    )
     hp_min_runtime_min = fields.Int()
     hp_min_open_heat_pct = fields.Int()
     hp_switchover_gap_min = fields.Int()
@@ -774,6 +780,12 @@ class ZoneProfileWriteSchema(Schema):
         }
     )
     hp_aux_policy = fields.Str(metadata={"description": "avoid | allow (auxiliary heat)"})
+    fan_level = fields.Str(
+        metadata={"description": "Fan between rooms with nothing else running: off | watch | on"}
+    )
+    air_intake = fields.Str(
+        metadata={"description": "Whether the air handler draws in outside air: yes | no | unsure"}
+    )
     hp_min_runtime_min = fields.Int()
     hp_min_open_heat_pct = fields.Int()
     hp_switchover_gap_min = fields.Int()
@@ -925,10 +937,52 @@ class ShadesSchema(Schema):
     shades = fields.List(fields.Nested(ShadeSchema))
 
 
+class FanTestSchema(Schema):
+    at = fields.Str()
+    interrupted = fields.Bool(metadata={"description": "A cycle or a pause cut the test short"})
+    difference = fields.Float(
+        metadata={"description": "°F between inside and outside at the start"}
+    )
+    moved = fields.Float(
+        metadata={"description": "°F the zone moved toward the outside temperature"}
+    )
+    hint = fields.Str(metadata={"description": "possible | none. A hint, not a finding"})
+
+
+class FanZoneSchema(Schema):
+    thermostat_entity_id = fields.Str()
+    name = fields.Str()
+    level = fields.Str(metadata={"description": "off | watch | on"})
+    air_intake = fields.Str(metadata={"description": "yes | no | unsure"})
+    supported = fields.Bool(metadata={"description": "The thermostat has an on/auto fan setting"})
+    running = fields.Bool(metadata={"description": "HomeClimate has the fan on now"})
+    testing = fields.Bool()
+    note = fields.Str(metadata={"description": "What the fan is doing, or why it is not running"})
+    minutes_last_hour = fields.Int()
+    test = fields.Nested(FanTestSchema, allow_none=True)
+
+
+class FanSchema(Schema):
+    zones = fields.List(fields.Nested(FanZoneSchema))
+    test_minutes = fields.Int()
+
+
 class BuildingModeWriteSchema(Schema):
     mode = fields.Str(metadata={"description": "auto, heat_only, cool_only or off"})
     auto_level = fields.Str(
         metadata={"description": "For Auto: off, watch or on (hold zones to one side)"}
+    )
+    switching = fields.Str(
+        metadata={
+            "description": "How often Auto may change sides: often (4 hours apart, twice a"
+            " day), daily, weekly or monthly, each counted from the last switch"
+        }
+    )
+    switch_threshold = fields.Float(
+        metadata={
+            "description": "How far past its target on the far side a room must be before"
+            " Auto considers switching. Display-unit difference on write; °F on read"
+        }
     )
 
 
@@ -950,6 +1004,8 @@ class BuildingModeSchema(BuildingModeWriteSchema):
 
 class BuildingModesSchema(Schema):
     buildings = fields.List(fields.Nested(BuildingModeSchema))
+    min_threshold = fields.Float(metadata={"description": "°F difference"})
+    max_threshold = fields.Float(metadata={"description": "°F difference"})
 
 
 class PeakHoursWriteSchema(Schema):
@@ -1053,7 +1109,16 @@ class HouseRoomSchema(RoomSwitchesSchema):
     calendar = fields.Nested(RoomCalendarSchema, allow_none=True)
 
 
+class LevelTargetsSchema(HouseBandSchema):
+    scope = fields.Str(metadata={"description": "building, zone or room"})
+    scope_id = fields.Str(metadata={"description": "Building id, thermostat entity id, or room id"})
+
+
 class HouseSchema(HouseBandSchema):
+    targets = fields.List(
+        fields.Nested(LevelTargetsSchema),
+        metadata={"description": "The targets set at each level, in °F"},
+    )
     min_gap = fields.Float(metadata={"description": "°F delta required between the two"})
     low = fields.Float(metadata={"description": "°F, lowest heat-to allowed"})
     high = fields.Float(metadata={"description": "°F, highest cool-to allowed"})
