@@ -266,7 +266,7 @@ triggers a full clean CI run with no approval gate.
    fine, since the newest push is the one that counts. Just don't expect the
    earlier run to finish.
 7. If `Image vulnerability scan` fails on OS packages, the diff usually isn't the
-   cause: the `apk upgrade` layer in `smart_vent/Dockerfile` is cached and only
+   cause: the `apk upgrade` layer in `homeclimate/Dockerfile` is cached and only
    refreshes when its `>=` floors change. Read the per-package table from the job
    summary (the log only prints counts), raise those floors to the printed Fixed
    Version (check it exists in the Alpine v3.24 APKINDEX first), and push once.

@@ -44,7 +44,7 @@ The band resolves most specific first:
 |---|---|---|
 | **Schedule block** | *Temperature drift* in the block editor | Set on the block, **and** that block is what has the room active |
 | **Room** | *Deadband override* in Room settings | The block sets none, or no block is active |
-| **Thermostat** | *Deadband* on the Thermostats page | Neither override is set |
+| **Thermostat** | *Deadband* in the zone's Thermostat Settings (My Home → Edit Zone) | Neither override is set |
 
 Unset at a level means "inherit the next one down", so a room with no override and a block with no override behave exactly as they did before either field existed. The Schedules table marks a block that carries one with a `±3°F drift` badge, so wide-band blocks are visible without opening the editor.
 
@@ -75,4 +75,4 @@ The whole flip is also reachable over [MCP](./mcp.md): `create_schedule` takes `
 
 Schedule times are local-time, evaluated in the timezone configured on the add-on's **Configuration** tab. If you change the timezone, existing blocks keep their literal `HH:MM` values — they just now mean those times in the new zone. See the [top-level README](../README.md#timezone-configuration) for how to set this.
 
-The schedule form's time pickers and the **Auto-disable at** expiry are typed in that same house zone, wherever you open Plenum from; the ⓘ marker after each picker names the zone, and every time in the schedule table carries it as a tooltip (`EST`). An expiry sent over the API without an offset keeps meaning house-local time. See [Time zones](./time-zones.md).
+The schedule form's time pickers and the **Auto-disable at** expiry are typed in that same house zone, wherever you open HomeClimate from; the ⓘ marker after each picker names the zone, and every time in the schedule table carries it as a tooltip (`EST`). An expiry sent over the API without an offset keeps meaning house-local time. See [Time zones](./time-zones.md).

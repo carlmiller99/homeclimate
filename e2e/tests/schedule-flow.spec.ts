@@ -17,8 +17,8 @@ import { test, expect, captureModal } from "./fixtures";
  * done, so no other spec's golden is affected.
  */
 
-const API = `${process.env.PLENUM_URL ?? "http://localhost:8099"}/api`;
-const UNIT = (process.env.PLENUM_TEMP_UNIT ?? "F") as "F" | "C";
+const API = `${process.env.HOMECLIMATE_URL ?? "http://localhost:8099"}/api`;
+const UNIT = (process.env.HOMECLIMATE_TEMP_UNIT ?? "F") as "F" | "C";
 // A target comfortable and in-range in both units (≈68°F / 20°C).
 const TARGET = UNIT === "C" ? "20" : "68";
 // A fixed, far-future expiry so the rendered "Expires" cell is deterministic.
@@ -74,7 +74,7 @@ test.describe.serial("Scheduling flow (#359)", () => {
   test.afterAll(resetRooms);
 
   test("scheduling UI flow", async ({ page }) => {
-    await page.goto("/schedules");
+    await page.goto("/smart-control?section=schedules");
     await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
     await page.waitForLoadState("networkidle");
 

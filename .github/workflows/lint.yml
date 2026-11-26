@@ -75,13 +75,13 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: smart_vent/pyproject.toml
+          cache-dependency-path: homeclimate/pyproject.toml
       - run: pip install ".[dev]"
-        working-directory: smart_vent
+        working-directory: homeclimate
       - run: ruff check backend/
-        working-directory: smart_vent
+        working-directory: homeclimate
       - run: ruff format --check backend/
-        working-directory: smart_vent
+        working-directory: homeclimate
 
   python-test:
     name: Python (pytest)
@@ -94,14 +94,14 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: smart_vent/pyproject.toml
+          cache-dependency-path: homeclimate/pyproject.toml
       - run: pip install ".[dev]"
-        working-directory: smart_vent
+        working-directory: homeclimate
       - name: Run Tests with Coverage
         run: |
           set -o pipefail
           python -m pytest backend/tests/ -v 2>&1 | tee coverage_output.txt
-        working-directory: smart_vent
+        working-directory: homeclimate
       # pyproject's `fail_under` (enforced by pytest via addopts) gates the
       # COMBINED statements+branches number. That single figure lets a branch
       # regression hide behind a statement gain, so pin each metric separately
@@ -133,7 +133,7 @@ jobs:
                   failed = True
           sys.exit(1 if failed else 0)
           PY
-        working-directory: smart_vent
+        working-directory: homeclimate
       # Mass-deletion tripwire, NOT a ratchet. Coverage floors already catch
       # most test removal, because deleting a test usually drops coverage — but
       # a test whose lines another test also happens to execute can be deleted
@@ -156,7 +156,7 @@ jobs:
             echo "::error::backend test count $COUNT is below the tripwire $MIN — a large number of tests was removed"
             exit 1
           fi
-        working-directory: smart_vent
+        working-directory: homeclimate
       - name: Generate Coverage Summary
         if: always()
         run: |
@@ -164,7 +164,7 @@ jobs:
           echo '```' >> $GITHUB_STEP_SUMMARY
           awk '/^Name.*Stmts/,/^TOTAL/' coverage_output.txt >> $GITHUB_STEP_SUMMARY || echo "Coverage report not found" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-        working-directory: smart_vent
+        working-directory: homeclimate
 
   python-typecheck:
     name: Python (mypy)
@@ -177,11 +177,11 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: smart_vent/pyproject.toml
+          cache-dependency-path: homeclimate/pyproject.toml
       - run: pip install ".[dev]"
-        working-directory: smart_vent
+        working-directory: homeclimate
       - run: mypy backend/ --ignore-missing-imports
-        working-directory: smart_vent
+        working-directory: homeclimate
 
   frontend-lint:
     name: Frontend (ESLint + Prettier)
@@ -190,7 +190,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: smart_vent/frontend
+        working-directory: homeclimate/frontend
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v5
@@ -201,7 +201,7 @@ jobs:
           # those install e2e/ (Playwright), which never loads react-router.
           node-version: "22"
           cache: npm
-          cache-dependency-path: smart_vent/frontend/package-lock.json
+          cache-dependency-path: homeclimate/frontend/package-lock.json
       - run: npm ci
       - run: npm run lint
       - run: npm run format:check
@@ -332,7 +332,13 @@ jobs:
           cat trivy-report.txt >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
 
+      # The Security tab needs code scanning, which a private repository only
+      # has with GitHub Advanced Security. Without it the upload is refused
+      # ("Resource not accessible by integration"), which says nothing about
+      # the scan. The gate is the separate "Parse Trivy results" step, so a
+      # refused upload must not fail the job.
       - name: Upload SARIF to GitHub Security tab
+        continue-on-error: true
         uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:

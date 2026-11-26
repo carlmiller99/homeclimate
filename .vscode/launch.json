@@ -1,7 +1,7 @@
 {
-  // Plenum local-dev launch configurations.
+  // HomeClimate local-dev launch configurations.
   //
-  //   Backend (Python)        — runs `python -m backend.main` from smart_vent/.
+  //   Backend (Python)        — runs `python -m backend.main` from homeclimate/.
   //                             Loads .env at the repo root for HA_URL / HA_TOKEN.
   //   Frontend (Chrome)       — opens http://localhost:5173 against the Vite dev
   //                             server. The pre-launch task spins up `npm run dev`.
@@ -16,7 +16,7 @@
       "type": "debugpy",
       "request": "launch",
       "module": "backend.main",
-      "cwd": "${workspaceFolder}/smart_vent",
+      "cwd": "${workspaceFolder}/homeclimate",
       "envFile": "${workspaceFolder}/.env",
       "env": {
         "DEV_DOCS": "1"
@@ -30,7 +30,7 @@
       "request": "launch",
       "module": "pytest",
       "args": ["backend/tests/", "-v"],
-      "cwd": "${workspaceFolder}/smart_vent",
+      "cwd": "${workspaceFolder}/homeclimate",
       "justMyCode": false,
       "console": "integratedTerminal"
     },
@@ -39,7 +39,7 @@
       "type": "chrome",
       "request": "launch",
       "url": "http://localhost:5173",
-      "webRoot": "${workspaceFolder}/smart_vent/frontend/src",
+      "webRoot": "${workspaceFolder}/homeclimate/frontend/src",
       "preLaunchTask": "frontend: dev server",
       "sourceMaps": true
     },
@@ -48,7 +48,7 @@
       "type": "msedge",
       "request": "launch",
       "url": "http://localhost:5173",
-      "webRoot": "${workspaceFolder}/smart_vent/frontend/src",
+      "webRoot": "${workspaceFolder}/homeclimate/frontend/src",
       "preLaunchTask": "frontend: dev server",
       "sourceMaps": true
     }

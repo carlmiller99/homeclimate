@@ -2,7 +2,7 @@ import { test as base, expect, type Locator, type Page } from "@playwright/test"
 import { AUTH_MODE, SESSION_COOKIE, mintSession } from "../auth-cookie";
 
 // The browser's wall clock, pinned to the SAME absolute instant the backend is
-// pinned to via PLENUM_CLOCK_OVERRIDE in docker-compose.test.yml
+// pinned to via HOMECLIMATE_CLOCK_OVERRIDE in docker-compose.test.yml
 // (Wed 2025-06-04 10:00 ET = 14:00Z). Keeping both clocks in sync means any
 // client-side relative-time rendering agrees with the backend-computed status
 // line, so the two never drift apart between the update and verify screenshot
@@ -129,13 +129,13 @@ export async function captureModal(
  */
 export async function markDocument(page: Page): Promise<void> {
   await page.evaluate(() => {
-    (window as unknown as { __plenumNoReload?: true }).__plenumNoReload = true;
+    (window as unknown as { __homeclimateNoReload?: true }).__homeclimateNoReload = true;
   });
 }
 
 export async function expectSameDocument(page: Page): Promise<void> {
   const marked = await page.evaluate(
-    () => (window as unknown as { __plenumNoReload?: true }).__plenumNoReload === true,
+    () => (window as unknown as { __homeclimateNoReload?: true }).__homeclimateNoReload === true,
   );
   expect(marked, "the page reloaded or navigated during the flow").toBe(true);
 }

@@ -1,27 +1,31 @@
 import { test, expect } from "./fixtures";
+import { gotoMyHome, openZoneEditor } from "./my-home";
 
-test("thermostats", async ({ page }) => {
-  await page.goto("/thermostats");
-  await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
+// Thermostat settings live inside their zone on My Home; there is no separate
+// Thermostats page.
+const DOWNSTAIRS = "climate.downstairs_thermostat";
+
+test("thermostat settings inside a zone", async ({ page }) => {
+  await gotoMyHome(page);
+  await openZoneEditor(page, DOWNSTAIRS);
   await page.waitForLoadState("networkidle");
 
   await expect(page).toHaveScreenshot("thermostats.png", { fullPage: true });
 });
 
-test("thermostat remove confirmation dialog", async ({ page }) => {
-  await page.goto("/thermostats");
-  await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
-  await page.waitForLoadState("networkidle");
+test("zone delete confirmation dialog", async ({ page }) => {
+  await gotoMyHome(page);
+  const panel = await openZoneEditor(page, DOWNSTAIRS);
 
-  await page.getByRole("button", { name: "Remove" }).first().click();
+  await panel.getByRole("button", { name: "Delete Zone" }).click();
   const dialog = page.getByTestId("confirm-dialog");
   await expect(dialog).toBeVisible();
   // Scope to the message <p>, not the whole dialog — the modal title
-  // ("Remove thermostat?") also matches a loose "Remove thermostat" search.
-  await expect(dialog.locator("p")).toContainText("Remove thermostat");
+  // ("Delete zone?") also matches a loose "Delete zone" search.
+  await expect(dialog.locator("p")).toContainText("and all of its rooms");
 
   await expect(page).toHaveScreenshot("thermostat-remove-confirm.png", { maxDiffPixels: 800 });
 
-  // Cancel — don't actually remove a thermostat other specs depend on.
+  // Cancel — don't actually delete a zone other specs depend on.
   await dialog.getByRole("button", { name: "Cancel" }).click();
 });

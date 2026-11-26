@@ -43,7 +43,7 @@ import {
  * the typed wall clock comes back verbatim whatever zone the browser is in.
  */
 
-const API = `${process.env.PLENUM_URL ?? "http://localhost:8099"}/api`;
+const API = `${process.env.HOMECLIMATE_URL ?? "http://localhost:8099"}/api`;
 
 // What the user types into the datetime-local picker (house time), and the
 // text it must come back as.

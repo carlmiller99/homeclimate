@@ -1,17 +1,17 @@
 # Thermostat settings
 
-Per-thermostat configuration controls how aggressively Plenum drives the HVAC and what safety limits apply. These live on the **Thermostats** page.
+Per-thermostat configuration controls how aggressively HomeClimate drives the HVAC and what safety limits apply. These live on the **Thermostats** page.
 
 ## Settings reference
 
 | Setting | Default | What it does |
 |---|---|---|
 | **Default presence temp** | — | Fallback target °F for presence-activated rooms that have no room-level presence temp of their own. |
-| **Min / max setpoint** | 60 / 85 °F | Hard clamps — Plenum will never ask HA to set the thermostat outside this range, even with overshoot applied. |
+| **Min / max setpoint** | 60 / 85 °F | Hard clamps — HomeClimate will never ask HA to set the thermostat outside this range, even with overshoot applied. |
 | **Deadband** | 0.5 °F | Tolerance for "room at target". `0.5` means a 70 °F target is satisfied at 69.5–70.5 °F. Set to `0` for exact match. A room and a schedule block can each override it — see [Deadband inheritance](#deadband-inheritance). |
-| **Overshoot delta** | 2 °F | How far past the most demanding room's target Plenum sets the thermostat, to keep the HVAC running while easier rooms catch up. |
+| **Overshoot delta** | 2 °F | How far past the most demanding room's target HomeClimate sets the thermostat, to keep the HVAC running while easier rooms catch up. |
 | **Cycle timeout** | 3 hours | A cycle running longer than this is aborted and vents are restored. Safety net for stuck equipment. |
-| **Reconciliation interval** | 0 (disabled) | How often (minutes) Plenum re-reads actual vent and thermostat state from HA and corrects external overrides. `0` disables. Cannot exceed cycle timeout. |
+| **Reconciliation interval** | 0 (disabled) | How often (minutes) HomeClimate re-reads actual vent and thermostat state from HA and corrects external overrides. `0` disables. Cannot exceed cycle timeout. |
 | **Max vent closed** | 0 (disabled) | Force-reopen a vent after this many minutes even if its room is still at target. Safety valve for systems that need airflow for equipment protection. `0` disables. |
 | **Total vent count** | — (required at registration) | Total registers on this thermostat — **smart vents AND passive ones**. Drives the airflow-floor calculation; see [Safety: Airflow floor](./safety.md#airflow-floor--dead-head-protection). |
 | **I have a bypass damper** | unchecked | When ticked, the airflow floor is not enforced — the bypass damper mechanically relieves duct static pressure. |
@@ -27,7 +27,7 @@ Three settings in the **Welcome home** group decide what happens before a [vacat
 | **Start (minutes before return)** (`welcome_home_lead_min`) | 60 | 0–240, whole minutes | How long before the return it fires. This thermostat leaves the vacation hold at that moment. `0` fires at the return time. |
 | **Keep rooms occupied for (hours)** (`welcome_home_hours`) | 1 | 0.25–12 | How long the synthetic presence lasts after it fires. |
 
-The two numbers are disabled while the toggle is off. Helper text on the page: *Before you return from vacation, Plenum treats every room on this thermostat as occupied once, so the house is comfortable when you walk in. Rooms with an active schedule follow their schedule; every other room heats or cools to its presence temperature for the time set here, then normal presence detection takes over. Rooms with presence holdover set to 0 are skipped. Ending vacation early fires it straight away.*
+The two numbers are disabled while the toggle is off. Helper text on the page: *Before you return from vacation, HomeClimate treats every room on this thermostat as occupied once, so the house is comfortable when you walk in. Rooms with an active schedule follow their schedule; every other room heats or cools to its presence temperature for the time set here, then normal presence detection takes over. Rooms with presence holdover set to 0 are skipped. Ending vacation early fires it straight away.*
 
 They are accepted by `POST /api/thermostats` and `PUT /api/thermostats/{id}` (400 with a clear message outside the ranges above) and are deliberately not exposed on MQTT: they are install-time preferences, not automation targets.
 

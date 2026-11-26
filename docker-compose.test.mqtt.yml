@@ -1,4 +1,4 @@
-# Compose override that adds a real MQTT broker and points Plenum at it (#519).
+# Compose override that adds a real MQTT broker and points HomeClimate at it (#519).
 #
 # Layered on top of docker-compose.test.yml:
 #   docker compose -f docker-compose.test.yml -f docker-compose.test.mqtt.yml up
@@ -33,14 +33,14 @@ services:
       retries: 12
       start_period: 5s
 
-  plenum:
+  homeclimate:
     environment:
       MQTT_HOST: "mosquitto"
       MQTT_PORT: "1883"
       # Pinned so the round-trip script knows the tree without having to ask.
       # There is no Supervisor in this stack, so without it the prefix would
       # fall back to the default (and log the collision warning).
-      MQTT_TOPIC_PREFIX: "plenum"
+      MQTT_TOPIC_PREFIX: "homeclimate"
       MQTT_DISCOVERY: "true"
     depends_on:
       mosquitto:

@@ -1,7 +1,7 @@
 import { test, expect } from "./fixtures";
 
-test("thermostat modal — entity picker open", async ({ page, request }) => {
-  await page.goto("/thermostats");
+test("add zone — thermostat picker open", async ({ page, request }) => {
+  await page.goto("/my-home");
   await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
   await page.waitForLoadState("networkidle");
 
@@ -41,16 +41,15 @@ test("thermostat modal — entity picker open", async ({ page, request }) => {
     );
   }
 
-  // Open the Register Thermostat modal
-  await page.getByRole("button", { name: /Register thermostat/i }).click();
-  await page.waitForSelector(".modal");
+  // Open the Add Zone form: a thermostat, a name, a building, the first room
+  // and the vent count, all in one step.
+  await page.getByRole("button", { name: "Add Zone" }).click();
+  const form = page.getByRole("group", { name: "Add Zone" });
+  await form.waitFor({ state: "visible" });
 
-  // Focus the EntityPicker input and type to trigger the autocomplete lookup.
-  // Scope to the modal: the Thermostats page itself now mounts an EntityPicker
-  // via OutsideTempPicker, so a bare `.entity-picker input` is ambiguous
-  // (strict-mode violation — it matches two inputs).
-  await page.locator(".modal .entity-picker input").click();
-  await page.locator(".modal .entity-picker input").fill("thermostat");
+  // Focus the thermostat picker and type to trigger the autocomplete lookup.
+  await form.locator(".entity-picker input").click();
+  await form.locator(".entity-picker input").fill("thermostat");
 
   // Allow up to 2 s for the dropdown to appear.
   // With HA: real entities populate from the proxy.

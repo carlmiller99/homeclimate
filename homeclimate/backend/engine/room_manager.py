@@ -1,0 +1,758 @@
+"""
+Room manager: determines which rooms are active for a given thermostat
+and at what target temperature, applying priority order:
+
+  1. Active override (not yet expired)
+  2. Matching schedule block for current local day/time
+  3. Presence holdover active (expires_at > now)
+  4. Idle
+"""
+
+from __future__ import annotations
+
+import logging
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import UTC, datetime, time, timedelta
+
+import aiosqlite
+
+from .. import db, house, tz
+from ..models import PresenceHoldoverState, Room, Schedule
+
+log = logging.getLogger(__name__)
+
+DAYS_SHORT = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+
+@dataclass
+class ActiveRoom:
+    room: Room
+    target_temp: float
+    source: str  # 'override' | 'schedule' | 'presence' | 'idle'
+    # Eco Mode (Issue #404). ``target_temp`` above is the value the cycle
+    # actually runs to; when Eco relaxes it, ``requested_target`` preserves the
+    # pre-relaxation ask and ``eco_active`` flags that the relaxation happened.
+    # Populated by the engine's ``_apply_eco`` at cycle start/boundary; when Eco
+    # is off these stay ``None``/``False`` and ``target_temp`` is untouched.
+    requested_target: float | None = None
+    eco_active: bool = False
+    # Per-schedule deadband override (Issue #517). Carries the matched
+    # schedule's ``deadband_override`` so the engine can resolve the band
+    # without re-reading the block. ``None`` for every non-schedule source, so
+    # override/presence/safety rooms fall back to the room→thermostat chain.
+    deadband_override: float | None = None
+    # Temporary-hold Eco opt-in (Issue #576). Carries the hold's
+    # ``respect_eco`` so ``_apply_eco`` can decide without re-reading the row.
+    # ``False`` for every non-override source — safety rooms stay never-relaxed
+    # via their own branch, and the default preserves #419 for restored
+    # snapshots that predate the flag.
+    respect_eco: bool = False
+    # A band instead of one target (the house band, Smart Control). When set,
+    # ``target_temp`` is derived from it each tick by the engine: heat-to in a
+    # heating cycle, cool-to in a cooling cycle (see ``house.Band.target_for``).
+    # ``None`` for every single-target source.
+    heat_to: float | None = None
+    cool_to: float | None = None
+
+
+async def get_active_rooms(
+    conn: aiosqlite.Connection,
+    thermostat_entity_id: str,
+    now: datetime | None = None,
+) -> list[ActiveRoom]:
+    """Return all rooms for the given thermostat that should be active right now."""
+    if now is None:
+        now = datetime.now(UTC)
+
+    rooms = await db.get_rooms_for_thermostat(conn, thermostat_entity_id)
+    all_schedules = await db.get_all_schedules(conn)
+    schedules_by_room: dict[str, list[Schedule]] = {}
+    for s in all_schedules:
+        schedules_by_room.setdefault(s.room_id, []).append(s)
+
+    the_house = await house.load(conn)
+    active: list[ActiveRoom] = []
+    for room in rooms:
+        result = await _resolve_room(conn, room, schedules_by_room.get(room.id, []), now, the_house)
+        if result.source != "idle":
+            active.append(result)
+    return active
+
+
+async def _resolve_room(
+    conn: aiosqlite.Connection,
+    room: Room,
+    schedules: list[Schedule],
+    now: datetime,
+    the_house: house.House | None = None,
+) -> ActiveRoom:
+    """What a room is following right now, most specific first.
+
+    Hold, then schedule, then occupancy, then the house band. The room's
+    switches (``house.RoomSwitches``) can take the schedule and occupancy steps
+    out, and a room that is not in use follows nothing but a hold.
+    """
+    if the_house is None:
+        the_house = await house.load(conn)
+    switches = the_house.switches(room.id)
+
+    # 1. Override
+    override = await db.get_room_override(conn, room.id)
+    if override and override.expires_at > now:
+        cool_to = the_house.cool_to(
+            "hold", room.id, override.target_temp, house.hold_stamp(override.expires_at)
+        )
+        return ActiveRoom(
+            room=room,
+            target_temp=override.target_temp,
+            source="override",
+            respect_eco=override.respect_eco,
+            heat_to=override.target_temp if cool_to is not None else None,
+            cool_to=cool_to,
+        )
+
+    if not switches.in_use:
+        return ActiveRoom(room=room, target_temp=0.0, source="idle")
+
+    # 2. Schedule
+    match = _find_matching_schedule(schedules, now) if switches.use_schedules else None
+    if match is not None:
+        cool_to = the_house.cool_to("schedule", match.id, match.target_temp)
+        return ActiveRoom(
+            room=room,
+            target_temp=match.target_temp,
+            source="schedule",
+            deadband_override=match.deadband_override,
+            heat_to=match.target_temp if cool_to is not None else None,
+            cool_to=cool_to,
+        )
+
+    # 3. Presence holdover
+    if switches.use_presence and room.presence_holdover_hours > 0:
+        holdover = await db.get_holdover_state(conn, room.id)
+        if holdover and holdover.expires_at > now:
+            # Room-level temp takes priority; fall back to thermostat default_temp
+            presence_temp = room.system_wide_temp
+            if presence_temp is None:
+                tc = await db.get_thermostat_config(conn, room.thermostat_entity_id)
+                presence_temp = tc.default_temp
+            if presence_temp is not None:
+                # Only the room's own target can be a band, not the zone default.
+                cool_to = (
+                    the_house.cool_to("presence", room.id, presence_temp)
+                    if room.system_wide_temp is not None
+                    else None
+                )
+                return ActiveRoom(
+                    room=room,
+                    target_temp=presence_temp,
+                    source="presence",
+                    heat_to=presence_temp if cool_to is not None else None,
+                    cool_to=cool_to,
+                )
+            else:
+                log.debug(
+                    "Room %s has presence holdover but no presence temp configured "
+                    "(set room system_wide_temp or thermostat default_temp) — skipping",
+                    room.name,
+                )
+
+    # 4. The house band
+    band = the_house.band
+    if band is not None:
+        return ActiveRoom(
+            room=room,
+            target_temp=band.heat_to,
+            source="house",
+            heat_to=band.heat_to,
+            cool_to=band.cool_to,
+        )
+
+    return ActiveRoom(room=room, target_temp=0.0, source="idle")
+
+
+# ---------------------------------------------------------------------------
+# Schedule matching helpers (handle overnight blocks)
+# ---------------------------------------------------------------------------
+
+
+def _schedule_active(s: Schedule, current_day: int, current_time: time) -> bool:
+    """
+    Return True if the schedule is active at the given (weekday, time).
+    Handles overnight blocks where end_time < start_time, e.g. 21:00→07:00.
+    """
+    is_overnight = s.end_time <= s.start_time  # end next day
+
+    if not is_overnight:
+        # Normal daytime block: active on days in days_of_week during [start, end)
+        return current_day in s.days_of_week and s.start_time <= current_time < s.end_time
+    else:
+        # Overnight block spans midnight:
+        # - First portion: [start, 24:00) on the scheduled day
+        # - Second portion: [00:00, end) on the NEXT day
+        yesterday = (current_day - 1) % 7
+        in_first_portion = current_day in s.days_of_week and current_time >= s.start_time
+        in_second_portion = yesterday in s.days_of_week and current_time < s.end_time
+        return in_first_portion or in_second_portion
+
+
+def _find_matching_schedule(schedules: list[Schedule], now: datetime) -> Schedule | None:
+    """Return the best matching schedule block for the current moment, or None."""
+    # Disabled blocks are inert — never matched by the engine (Issue #359).
+    schedules = [s for s in schedules if s.enabled]
+    local_now = tz.to_local(now)  # UTC-aware → local-aware; naive → treated as local
+    current_day = local_now.weekday()  # 0=Monday
+    current_time = local_now.time().replace(second=0, microsecond=0)
+
+    matches = [s for s in schedules if _schedule_active(s, current_day, current_time)]
+    if not matches:
+        return None
+    # Prefer earliest start_time as tiebreak
+    matches.sort(key=lambda s: s.start_time)
+    return matches[0]
+
+
+def schedule_active_at(s: Schedule, now: datetime) -> bool:
+    """Whether schedule block ``s`` is in its active window at ``now``.
+
+    Ignores ``s.enabled`` (the expiry sweep calls this only for enabled blocks)
+    — it answers purely "is a block running right now", so the sweep can defer
+    disabling an expired schedule until its in-progress block ends (Issue #359).
+    """
+    local_now = tz.to_local(now)
+    current_time = local_now.time().replace(second=0, microsecond=0)
+    return _schedule_active(s, local_now.weekday(), current_time)
+
+
+def _matching_schedule(schedules: list[Schedule], now: datetime) -> float | None:
+    """Return target_temp of the first matching schedule block, or None."""
+    match = _find_matching_schedule(schedules, now)
+    return match.target_temp if match else None
+
+
+# ---------------------------------------------------------------------------
+# Schedule interval overlap
+# ---------------------------------------------------------------------------
+
+
+def _schedule_intervals(s: Schedule) -> list[tuple[int, int, int]]:
+    """
+    Decompose a schedule into (weekday, start_min, end_min) intervals.
+    Overnight schedules (end <= start) produce two intervals: one to midnight,
+    one from midnight on the next weekday.
+    """
+    sm = s.start_time.hour * 60 + s.start_time.minute
+    em = s.end_time.hour * 60 + s.end_time.minute
+    is_overnight = em <= sm
+
+    intervals: list[tuple[int, int, int]] = []
+    for d in s.days_of_week:
+        if not is_overnight:
+            intervals.append((d, sm, em))
+        else:
+            intervals.append((d, sm, 1440))  # start → midnight
+            intervals.append(((d + 1) % 7, 0, em))  # midnight → end (next day)
+    return intervals
+
+
+def schedules_overlap(a: Schedule, b: Schedule) -> bool:
+    """Return True if two schedules share any (day, time) slot."""
+    a_intervals = _schedule_intervals(a)
+    b_intervals = _schedule_intervals(b)
+    for ad, as_, ae in a_intervals:
+        for bd, bs, be in b_intervals:
+            if ad == bd and as_ < be and bs < ae:
+                return True
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Detailed room status (for UI)
+# ---------------------------------------------------------------------------
+
+
+def _seconds_until_schedule_end(s: Schedule, now: datetime) -> float:
+    """Return seconds until the currently-active block of schedule s ends."""
+    # Schedules are stored as wall-clock / local-time. `datetime.combine(...)`
+    # below produces a naive datetime, so normalize `now` to naive-local too —
+    # subtracting a naive from a tz-aware datetime raises TypeError.
+    local_now = tz.to_local_naive(now)
+    current_time = local_now.time()
+    today = local_now.date()
+
+    is_overnight = s.end_time <= s.start_time
+    if not is_overnight:
+        end_dt = datetime.combine(today, s.end_time)
+    else:
+        if current_time >= s.start_time:
+            # Evening portion → ends tomorrow at end_time
+            end_dt = datetime.combine(today + timedelta(days=1), s.end_time)
+        else:
+            # Morning portion → ends today at end_time
+            end_dt = datetime.combine(today, s.end_time)
+
+    return max(0.0, (end_dt - local_now).total_seconds())
+
+
+def _seconds_since_schedule_end(
+    schedules: list[Schedule],
+    now: datetime,
+) -> float | None:
+    """Seconds since the most recently ended schedule block, or None.
+
+    Used by the ambient pre-cool/pre-heat ``off_schedule_only`` mode
+    (Issue #248) to tell whether a room has *recently* come off a schedule.
+    Considers the real end instant of each block — for an overnight block
+    (``end_time <= start_time``) that is ``end_time`` on the day *after* the
+    scheduled day. Returns the smallest non-negative gap across all blocks that
+    have already ended within the past week, or None when none have.
+    """
+    # Disabled blocks are inert (Issue #359).
+    schedules = [s for s in schedules if s.enabled]
+    if not schedules:
+        return None
+
+    # Schedules are local wall-clock; do the arithmetic in naive-local so the
+    # naive datetime.combine(...) below lines up with ``now``.
+    local_now = tz.to_local_naive(now)
+
+    best: float | None = None
+    for s in schedules:
+        is_overnight = s.end_time <= s.start_time
+        # Walk back over the last 7 days; a block whose end falls on
+        # ``candidate_date`` belongs to a scheduled day that is the same day
+        # (daytime block) or the previous day (overnight block).
+        for day_offset in range(8):
+            candidate_date = local_now.date() - timedelta(days=day_offset)
+            end_weekday = candidate_date.weekday()
+            scheduled_day = end_weekday if not is_overnight else (end_weekday - 1) % 7
+            if scheduled_day not in s.days_of_week:
+                continue
+            end_dt = datetime.combine(candidate_date, s.end_time)
+            if end_dt > local_now:
+                continue  # this occurrence hasn't ended yet
+            gap = (local_now - end_dt).total_seconds()
+            if best is None or gap < best:
+                best = gap
+    return best
+
+
+def _next_schedule_start(
+    schedules: list[Schedule],
+    now: datetime,
+    exclude_id: str | None = None,
+) -> tuple[int, float, str] | None:
+    """
+    Find the soonest upcoming schedule start across all schedules (excluding
+    the one with id==exclude_id).
+
+    Returns (seconds_until_start, target_temp, label) or None.
+    Label example: "Mon 10:00 PM"
+    """
+    found = _next_schedule_block(schedules, now, exclude_id)
+    return None if found is None else (found[0], found[1].target_temp, found[2])
+
+
+def _next_schedule_block(
+    schedules: list[Schedule],
+    now: datetime,
+    exclude_id: str | None = None,
+) -> tuple[int, Schedule, str] | None:
+    """As ``_next_schedule_start``, but returns the block itself.
+
+    A block that expires before its next start is passed over: it will never run.
+    """
+    # Disabled blocks are inert (Issue #359).
+    schedules = [s for s in schedules if s.enabled]
+    if not schedules:
+        return None
+
+    # Schedules are local wall-clock; do all arithmetic in naive-local so the
+    # naive datetime.combine(...) below lines up with `now`.
+    local_now = tz.to_local_naive(now)
+
+    candidates: list[tuple[float, Schedule, str]] = []
+
+    for s in schedules:
+        if exclude_id and s.id == exclude_id:
+            continue
+        # Look ahead a full week INCLUSIVE (day_offset=0 is today, 7 is the
+        # same weekday next week). The 8th slot matters: a once-weekly
+        # schedule whose start already passed today has its next occurrence
+        # exactly 7 days out, which a range(7) lookahead never reaches.
+        for day_offset in range(8):
+            candidate_date = local_now.date() + timedelta(days=day_offset)
+            candidate_weekday = candidate_date.weekday()
+            if candidate_weekday not in s.days_of_week:
+                continue
+            start_dt = datetime.combine(candidate_date, s.start_time)
+            if start_dt <= local_now:
+                continue  # already passed
+            if s.expires_at is not None and s.expires_at <= start_dt:
+                break  # expires first: it will never run again
+            secs = (start_dt - local_now).total_seconds()
+            h = s.start_time.hour
+            m = s.start_time.minute
+            am_pm = "AM" if h < 12 else "PM"
+            h12 = h % 12 or 12
+            label = f"{DAYS_SHORT[candidate_weekday]} {h12}:{m:02d} {am_pm}"
+            candidates.append((secs, s, label))
+            break  # take only the soonest occurrence of this schedule
+
+    if not candidates:
+        return None
+
+    candidates.sort(key=lambda x: x[0])
+    secs, block, label = candidates[0]
+    return (int(secs), block, label)
+
+
+async def get_room_active_status(
+    conn: aiosqlite.Connection,
+    room: Room,
+    schedules: list[Schedule],
+    now: datetime | None = None,
+    the_house: house.House | None = None,
+) -> dict:
+    """
+    Return detailed active status for a single room, suitable for the UI.
+
+    Shape:
+    {
+        "room_id": str,
+        "source": "schedule" | "presence" | "override" | "house" | "idle",
+        "heat_to": float | None, "cool_to": float | None,  # only for source="house"
+        "target_temp": float | None,
+        "ends_in_seconds": int | None,
+        "override_respect_eco": bool | None,  # non-None only for source="override"
+        "next_schedule_in_seconds": int | None,
+        "next_schedule_target": float | None,
+        "next_schedule_label": str | None,
+    }
+    """
+    if now is None:
+        # Status read path: honours HOMECLIMATE_CLOCK_OVERRIDE so the E2E goldens are
+        # deterministic. The engine paths (get_active_rooms / handle_presence_event)
+        # keep real time — only what the UI *displays* is pinned (see tz.now_utc).
+        now = tz.now_utc()
+
+    if the_house is None:
+        the_house = await house.load(conn)
+    switches = the_house.switches(room.id)
+    resolved = await _resolve_room(conn, room, schedules, now, the_house)
+
+    ends_in_seconds: int | None = None
+    current_schedule_id: str | None = None
+
+    holdover = await db.get_holdover_state(conn, room.id)
+    # #439: surface the "cleared, waiting for the room to empty" state so the
+    # UI can explain why an occupied room shows no presence demand.
+    presence_suppressed = await db.is_presence_suppressed(conn, room.id)
+    # #434: mirror _resolve_room's gate — a stale holdover row left behind
+    # after the user zeroes presence_holdover_hours must not show the room as
+    # presence-active in the UI while the engine ignores it.
+    presence_holdover_active = (
+        switches.in_use
+        and switches.use_presence
+        and room.presence_holdover_hours > 0
+        and holdover is not None
+        and holdover.expires_at > now
+    )
+
+    override_respect_eco: bool | None = None
+    if resolved.source == "override":
+        override = await db.get_room_override(conn, room.id)
+        if override:
+            ends_in_seconds = max(0, int((override.expires_at - now).total_seconds()))
+            override_respect_eco = override.respect_eco
+
+    elif resolved.source == "schedule":
+        matching = _find_matching_schedule(schedules, now)
+        if matching:
+            current_schedule_id = matching.id
+            ends_in_seconds = int(_seconds_until_schedule_end(matching, now))
+
+    elif resolved.source == "presence" and holdover:
+        ends_in_seconds = max(0, int((holdover.expires_at - now).total_seconds()))
+
+    # Find next upcoming schedule
+    # A room whose schedules are skipped has no "next" one to look forward to.
+    next_sched = (
+        _next_schedule_start(schedules, now, exclude_id=current_schedule_id)
+        if switches.in_use and switches.use_schedules
+        else None
+    )
+
+    return {
+        "room_id": room.id,
+        "source": resolved.source,
+        # The house band has no single target. A band on a hold, a schedule or
+        # an occupancy target keeps that target here, as its heat-to, so a
+        # reader that knows nothing of bands still sees what was set.
+        "target_temp": (resolved.target_temp if resolved.source not in ("idle", "house") else None),
+        "heat_to": resolved.heat_to,
+        "cool_to": resolved.cool_to,
+        "ends_in_seconds": ends_in_seconds,
+        "override_respect_eco": override_respect_eco,
+        "presence_holdover_active": presence_holdover_active,
+        "presence_suppressed": presence_suppressed,
+        "next_schedule_in_seconds": next_sched[0] if next_sched else None,
+        "next_schedule_target": next_sched[1] if next_sched else None,
+        "next_schedule_label": next_sched[2] if next_sched else None,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Presence handling
+# ---------------------------------------------------------------------------
+
+
+async def handle_presence_event(
+    conn: aiosqlite.Connection,
+    room: Room,
+    now: datetime | None = None,
+) -> bool:
+    """
+    Called when a presence sensor fires for a room.
+    Updates/resets the holdover countdown.
+    Returns True if the room was newly activated (wasn't already in holdover).
+    """
+    if room.presence_holdover_hours <= 0:
+        return False
+    if now is None:
+        now = datetime.now(UTC)
+
+    existing = await db.get_holdover_state(conn, room.id)
+    was_active = existing is not None and existing.expires_at > now
+
+    expires_at = now + timedelta(hours=room.presence_holdover_hours)
+    # Never shorten a longer holdover: a welcome-home window (#728) can run
+    # past this room's own holdover, and walking in must not cut it short.
+    # For an ordinary holdover the existing expiry is last_detected + hours,
+    # which is never later than now + hours (unless the room's holdover was
+    # shortened since), so this changes nothing there.
+    if existing is not None and existing.expires_at > expires_at:
+        expires_at = existing.expires_at
+    state = PresenceHoldoverState(
+        room_id=room.id,
+        last_detected_at=now,
+        expires_at=expires_at,
+    )
+    await db.upsert_holdover_state(conn, state)
+    log.debug(
+        "Presence holdover reset for room %s — expires %s",
+        room.name,
+        expires_at.isoformat(),
+    )
+    return not was_active
+
+
+@dataclass
+class OverflowCandidate:
+    """A non-active room evaluated as a possible dumping ground for surplus
+    conditioned air during a cycle's minimum-runtime hold (Issue #237)."""
+
+    room: Room
+    current_temp: float
+    effective_setpoint: float | None  # None when neither room nor thermostat default is set
+    tier: int  # 1=surplus, 2=inside deadband, 3=headroom
+    headroom: float | None = None  # populated only for tier 3
+
+
+def _effective_deadband(
+    room: Room,
+    thermostat_deadband: float,
+    schedule_override: float | None = None,
+) -> float:
+    """Deadband (±°F) governing this room's at-target band.
+
+    Three levels, most specific first (Issues #277, #517)::
+
+        schedule.deadband_override → room.deadband_override → thermostat.deadband
+
+    ``None`` at a level means inherit the next one down, so a room with no
+    override and a block with no override behave exactly as before either
+    feature existed.
+
+    ``schedule_override`` must only ever be passed for a room whose ACTIVE
+    SOURCE is a schedule — i.e. from ``ActiveRoom.deadband_override``, which
+    ``_resolve_room`` leaves ``None`` for every other source. Callers holding a
+    bare ``Room`` (overflow candidates, the safety sweep) operate on non-active
+    rooms, which cannot have a matching block, and correctly omit the argument.
+
+    The override only widens/narrows the at-target tolerance band used when
+    deciding whether a room demands HVAC — it is unrelated to the
+    pre-cool/pre-heat ``ambient_suppression_deadband`` (the widened coasting
+    band), which the suppression vote still clamps with ``max()`` against
+    whatever deadband is passed here.
+    """
+    if schedule_override is not None:
+        return schedule_override
+    if room.deadband_override is not None:
+        return room.deadband_override
+    return thermostat_deadband
+
+
+async def get_overflow_candidates(
+    conn: aiosqlite.Connection,
+    thermostat_entity_id: str,
+    *,
+    hvac_mode: str,
+    active_room_ids: set[str],
+    active_cycle_target_f: float,
+    deadband_f: float,
+    in_vacation: bool,
+    get_avg_temp: Callable[[Room], float | None],
+) -> list[OverflowCandidate]:
+    """Return non-active rooms whose vents should be opened to absorb the
+    surplus conditioned air during the minimum-runtime hold (Issue #237).
+
+    Tries up to three tiers and returns the first non-empty result:
+      1. Rooms past their effective presence setpoint by more than ``deadband_f``.
+      2. Rooms past their effective presence setpoint but within the deadband.
+      3. Rooms already at-or-past goal: pick the one with the largest headroom
+         before triggering an opposite-direction cycle.
+
+    Returns ``[]`` in vacation mode or when no tier yields a candidate — the
+    caller falls back to today's behaviour (hold only the active-cycle rooms).
+    """
+    if in_vacation:
+        return []
+    if hvac_mode not in ("cooling", "heating"):
+        return []
+
+    rooms = await db.get_rooms_for_thermostat(conn, thermostat_entity_id)
+    tc = await db.get_thermostat_config(conn, thermostat_entity_id)
+
+    pool: list[OverflowCandidate] = []
+    for room in rooms:
+        if room.id in active_room_ids:
+            continue
+        avg = get_avg_temp(room)
+        if avg is None:
+            continue
+        # #434: apply the per-room calibration offset — every other comparison
+        # in the engine (monitor, hold satisfaction, safety rooms, votes) uses
+        # avg + temp_offset; ranking overflow candidates on the raw average
+        # mis-tiered calibrated rooms and skewed tier-3 headroom by the offset.
+        avg = avg + room.temp_offset
+        eff = room.system_wide_temp if room.system_wide_temp is not None else tc.default_temp
+        pool.append(
+            OverflowCandidate(
+                room=room,
+                current_temp=avg,
+                effective_setpoint=eff,
+                tier=0,
+            )
+        )
+
+    if not pool:
+        return []
+
+    # Tier 1: room is past its setpoint by more than the deadband AND the
+    # supply air is still moving it the right way. Each room's own deadband
+    # override governs its band (Issue #305), consistent with the rest of the
+    # engine's at-target checks.
+    #
+    # No schedule band applies here (#517), and the reason is NOT that a
+    # candidate cannot have a matching block. `active_room_ids` is the CURRENT
+    # CYCLE's room set, not every non-idle room, so a room dropped by
+    # `_filter_rooms_for_mode` for opposite-direction demand can reach this pool
+    # while a block of its own is running. The reason is that this whole
+    # calculation tiers against the room's PRESENCE setpoint above
+    # (`system_wide_temp` → `default_temp`), never the schedule target — so the
+    # room-level band is the consistent partner for it. Pairing a schedule
+    # block's band with a presence setpoint would compare two different
+    # activations' numbers.
+    tier1: list[OverflowCandidate] = []
+    for c in pool:
+        if c.effective_setpoint is None:
+            continue
+        db_f = _effective_deadband(c.room, deadband_f)
+        if hvac_mode == "cooling":
+            if (
+                c.current_temp > c.effective_setpoint + db_f
+                and c.current_temp > active_cycle_target_f
+            ):
+                tier1.append(OverflowCandidate(c.room, c.current_temp, c.effective_setpoint, 1))
+        else:  # heating
+            if (
+                c.current_temp < c.effective_setpoint - db_f
+                and c.current_temp < active_cycle_target_f
+            ):
+                tier1.append(OverflowCandidate(c.room, c.current_temp, c.effective_setpoint, 1))
+    if tier1:
+        return tier1
+
+    # Tier 2: same direction check but inside the deadband.
+    tier2: list[OverflowCandidate] = []
+    for c in pool:
+        if c.effective_setpoint is None:
+            continue
+        if hvac_mode == "cooling":
+            if c.current_temp > c.effective_setpoint and c.current_temp > active_cycle_target_f:
+                tier2.append(OverflowCandidate(c.room, c.current_temp, c.effective_setpoint, 2))
+        else:
+            if c.current_temp < c.effective_setpoint and c.current_temp < active_cycle_target_f:
+                tier2.append(OverflowCandidate(c.room, c.current_temp, c.effective_setpoint, 2))
+    if tier2:
+        return tier2
+
+    # Tier 3: nothing qualifies in the conditioning direction — accept pushing
+    # past goal, but only into the room with the most headroom before it would
+    # trigger the OPPOSITE cycle. Rooms with no ranking signal (no per-room and
+    # no thermostat default) are not eligible because we cannot compute their
+    # opposite-direction trigger.
+    headroom_pool: list[OverflowCandidate] = []
+    for c in pool:
+        if c.effective_setpoint is None:
+            continue
+        db_f = _effective_deadband(c.room, deadband_f)
+        if hvac_mode == "cooling":
+            # In cooling we are pushing the room cooler; the opposite trigger
+            # is its "would call for heat" threshold = setpoint - deadband.
+            opposite_trigger = c.effective_setpoint - db_f
+            headroom = c.current_temp - opposite_trigger
+        else:
+            # In heating we are pushing the room warmer; the opposite trigger
+            # is its "would call for cool" threshold = setpoint + deadband.
+            opposite_trigger = c.effective_setpoint + db_f
+            headroom = opposite_trigger - c.current_temp
+        if headroom > 0:
+            headroom_pool.append(
+                OverflowCandidate(
+                    room=c.room,
+                    current_temp=c.current_temp,
+                    effective_setpoint=c.effective_setpoint,
+                    tier=3,
+                    headroom=headroom,
+                )
+            )
+    if headroom_pool:
+        max_hr = max(c.headroom for c in headroom_pool if c.headroom is not None)
+        # Floating-point tie tolerance keeps near-equal headrooms grouped.
+        return [c for c in headroom_pool if c.headroom is not None and c.headroom >= max_hr - 1e-9]
+
+    return []
+
+
+async def expire_holdovers(
+    conn: aiosqlite.Connection,
+    now: datetime | None = None,
+) -> list[str]:
+    """
+    Remove expired holdover states. Returns list of room IDs that were removed.
+    Call this on every scheduler tick.
+    """
+    if now is None:
+        now = datetime.now(UTC)
+
+    all_states = await db.get_all_holdover_states(conn)
+    expired_ids: list[str] = []
+    for state in all_states:
+        if state.expires_at <= now:
+            await db.delete_holdover_state(conn, state.room_id)
+            expired_ids.append(state.room_id)
+            log.info("Presence holdover expired for room_id=%s", state.room_id)
+    return expired_ids

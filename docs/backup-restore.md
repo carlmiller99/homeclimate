@@ -1,6 +1,6 @@
 # Backup & restore
 
-All of Plenum's configuration — rooms, vents, schedules, thermostat settings, cycle history, event logs — lives in a single SQLite file (`app.db`) in the add-on's data directory.
+All of HomeClimate's configuration — rooms, vents, schedules, thermostat settings, cycle history, event logs — lives in a single SQLite file (`app.db`) in the add-on's data directory.
 
 ## Download a backup
 
@@ -28,26 +28,26 @@ the whole DB) and `/api/restore` sit in the highest scope tier alongside
 
 ## Finding the data directory
 
-The database location depends on how Plenum is installed.
+The database location depends on how HomeClimate is installed.
 
 **HA OS / Supervised**
 
 The on-disk path is not `/addon_configs` (that Samba share holds add-on *configuration* files). The data lives under the Supervisor's data tree. To find the exact path, run from the HAOS SSH terminal:
 
 ```bash
-docker inspect $(docker ps -q --filter name=plenum) --format '{{ json .Mounts }}' | python3 -m json.tool
+docker inspect $(docker ps -q --filter name=homeclimate) --format '{{ json .Mounts }}' | python3 -m json.tool
 ```
 
 Look for the entry where `"Destination": "/data"` — the `"Source"` field is the host path, typically:
 
 ```
-/mnt/data/supervisor/addons/data/<repo_id>_plenum/
+/mnt/data/supervisor/addons/data/<repo_id>_homeclimate/
 ```
 
 Confirm the database is there:
 
 ```bash
-ls -lh /mnt/data/supervisor/addons/data/<repo_id>_plenum/
+ls -lh /mnt/data/supervisor/addons/data/<repo_id>_homeclimate/
 ```
 
 **Docker**
@@ -58,6 +58,6 @@ The database is at whatever host path you bound to `/data` with `-v /path/to/dat
 
 ## Upgrading from ≤0.6.x
 
-Older installs stored the database as `flair.db`. On first boot after upgrade, Plenum automatically renames `flair.db` → `app.db` (along with any `-wal` / `-shm` sidecars) before opening any connection. The rename is idempotent — re-running startup after migration is a no-op.
+Older installs stored the database as `flair.db`. On first boot after upgrade, HomeClimate automatically renames `flair.db` → `app.db` (along with any `-wal` / `-shm` sidecars) before opening any connection. The rename is idempotent — re-running startup after migration is a no-op.
 
-No manual steps are needed. See [CHANGELOG](../smart_vent/CHANGELOG.md) for the full entry.
+No manual steps are needed. See [CHANGELOG](../homeclimate/CHANGELOG.md) for the full entry.

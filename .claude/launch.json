@@ -4,13 +4,13 @@
     {
       "name": "backend",
       "runtimeExecutable": "bash",
-      "runtimeArgs": ["-c", "cd smart_vent && ../.venv/bin/python -m backend.main"],
+      "runtimeArgs": ["-c", "cd homeclimate && ../.venv/bin/python -m backend.main"],
       "port": 8099
     },
     {
       "name": "frontend",
       "runtimeExecutable": "bash",
-      "runtimeArgs": ["-c", "cd smart_vent/frontend && npm run dev"],
+      "runtimeArgs": ["-c", "cd homeclimate/frontend && npm run dev"],
       "port": 5173
     }
   ]

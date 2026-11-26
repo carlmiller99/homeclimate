@@ -1,35 +1,35 @@
 ---
 name: hvac-zoning-reference
 description: >-
-  Domain theory for Plenum: HVAC physics for programmers (compressor, plenum,
+  Domain theory for HomeClimate: HVAC physics for programmers (compressor, supply trunk,
   short-cycling, dead-heading, coil icing), zoning control theory (setpoint,
   deadband, overshoot, hysteresis, opposite-cycle prevention tiers), absolute
   vs delta °F/°C math, and the Home Assistant entity model (climate hvac_action
   vs hvac_mode, cover control methods, sensor unit normalization, binary_sensor
   presence, ingress). Load when you need to understand WHY a guard/field exists,
   what a domain term means, why a conversion subtracts 32 (or must not), or how
-  Plenum reads/commands HA entities. Do NOT load for project invariants or
-  write-boundary contracts — that is plenum-architecture-contract.
+  HomeClimate reads/commands HA entities. Do NOT load for project invariants or
+  write-boundary contracts — that is homeclimate-architecture-contract.
 ---
 
-# HVAC zoning reference — the domain theory behind Plenum
+# HVAC zoning reference — the domain theory behind HomeClimate
 
 Audience: a mid-level software engineer with zero HVAC background working on
-this repo. Everything here is verified against `docs/`, `smart_vent/backend/`,
+this repo. Everything here is verified against `docs/`, `homeclimate/backend/`,
 and the issue history (as of 2026-07, v0.22.1).
 
 **When NOT to use this skill:** project invariants, the #231 write-boundary
 conversion contract, and "which layer converts" rules are owned by
-**plenum-architecture-contract**. Config-field inventories and add-a-knob
-checklists are owned by **plenum-config-and-flags**. Incident narratives are
-owned by **plenum-failure-archaeology**. This skill explains the *physics and
+**homeclimate-architecture-contract**. Config-field inventories and add-a-knob
+checklists are owned by **homeclimate-config-and-flags**. Incident narratives are
+owned by **homeclimate-failure-archaeology**. This skill explains the *physics and
 theory* those rules encode.
 
 ---
 
 ## 1. HVAC basics for programmers
 
-A **conventional forced-air system** — the only kind Plenum supports — has two
+A **conventional forced-air system** — the only kind HomeClimate supports — has two
 independent halves sharing one blower and one duct network:
 
 - **Furnace** (gas/electric): makes heat. Cheap to start/stop; the dangerous
@@ -42,17 +42,17 @@ independent halves sharing one blower and one duct network:
   pumping refrigerant mixed with lubricating oil, switched by a **contactor**
   (a heavy-duty relay).
 
-Airflow path: air handler → **supply plenum** (the sheet-metal distribution
-box the project is named after) → **ducts** → **registers** (the grilles in
-each room, also called **vents**). Plenum-the-software motorizes the registers:
+Airflow path: air handler → **supply trunk** (the sheet-metal distribution
+box) → **ducts** → **registers** (the grilles in
+each room, also called **vents**). HomeClimate motorizes the registers:
 an HA `cover.*` entity per smart vent opens/closes each room's air supply, so
 one thermostat's system conditions rooms selectively — that is **zoning**.
 
 The **thermostat** is a dumb feedback controller: when ambient drifts past its
 setpoint it issues a **call for heat** or **call for cool** (closes a relay
-circuit), and the equipment runs until ambient crosses back. Plenum doesn't
+circuit), and the equipment runs until ambient crosses back. HomeClimate doesn't
 replace the thermostat; it *manipulates* it — commanding the HA `climate.*`
-entity's setpoint so the thermostat calls for heat/cool exactly when Plenum's
+entity's setpoint so the thermostat calls for heat/cool exactly when HomeClimate's
 per-room logic wants conditioning, then restoring the setpoint to ambient so
 the HVAC shuts off naturally (`docs/cycle-engine.md`).
 
@@ -60,21 +60,21 @@ the HVAC shuts off naturally (`docs/cycle-engine.md`).
 the compressor for *both* directions — heating is the refrigeration cycle run
 in reverse — so every safety assumption here would need a heating-side twin
 (reversing-valve behavior, defrost cycles, low-ambient heating lockouts,
-auxiliary/emergency heat staging). Plenum assumes furnace-heat + AC-cool; that
-is why `cooling_lockout_below_f` has no heating equivalent
-(`models.py` comment: "heat pumps are not supported, so there is no
-corresponding heating lockout").
+auxiliary/emergency heat staging). HomeClimate assumes furnace-heat + AC-cool; that
+is why `cooling_lockout_below_f` has no heating equivalent. Heat pump zones
+(0.5.0+) add guards in `heat_pump.py`; the thermostat keeps backup heat and
+defrost.
 
 ---
 
-## 2. Why software can destroy equipment — and the exact Plenum guard for each
+## 2. Why software can destroy equipment — and the exact HomeClimate guard for each
 
-Plenum sends real commands to real compressors. Each physical failure mode
+HomeClimate sends real commands to real compressors. Each physical failure mode
 below maps to a specific guard and config field. These guards are one-way
 ratchets — never weaken one to fix a comfort complaint (inferred house rule;
-see plenum-change-control).
+see homeclimate-change-control).
 
-| Physical failure mode | What happens | Plenum guard | Config field(s) |
+| Physical failure mode | What happens | HomeClimate guard | Config field(s) |
 |---|---|---|---|
 | **Short-cycling** (rapid stop/start) | See below | Min-runtime hold + off-time lockout | `ThermostatConfig.min_cycle_runtime_min` (default 0, recommended 10), `min_cycle_offtime_min` (default 0, recommended 5) |
 | **Dead-heading / high static pressure** (too many vents closed) | Blower strain, furnace high-limit trip, frozen evaporator coil | Airflow floor | `total_vents_count`, `has_bypass_damper`, `min_open_vents_fraction` (default 0.333) |
@@ -97,10 +97,10 @@ Three separate physics reasons rapid stop/start destroys compressors:
    take minutes to equalize through the metering device. Restarting against
    the differential stalls the motor against enormous torque (and can pull
    liquid refrigerant into the cylinder). This is why **~5 minutes** is the
-   industry-standard anti-short-cycle off delay — Plenum's recommended
+   industry-standard anti-short-cycle off delay — HomeClimate's recommended
    `min_cycle_offtime_min` value (`docs/safety.md`).
 
-Plenum-side mapping:
+HomeClimate-side mapping:
 - `min_cycle_runtime_min` — a cycle that satisfies every room early is **held
   open** (not stopped) until the runtime clock is satisfied; the hold is
   persisted as `in_min_runtime_hold` on the cycle log and survives restarts.
@@ -130,7 +130,7 @@ registers — passive ones are always open and count toward the floor. Each tick
 
 ```
 required_smart_open = max(0, ceil(total_vents_count × min_open_vents_fraction)
-                             − (total_vents_count − smart_vents_count))
+                             − (total_vents_count − homeclimates_count))
 ```
 
 Worked example from the doc: 12 total registers, 4 smart, fraction 1/3 →
@@ -164,11 +164,11 @@ staleness guard (weather entities may legitimately report hourly).
 
 ---
 
-## 3. Control theory as Plenum uses it
+## 3. Control theory as HomeClimate uses it
 
 - **Setpoint**: the target temperature a controller regulates toward. Two
   distinct setpoints exist here: each *room's* target (schedule/override/
-  presence) and the *thermostat's* commanded setpoint (which Plenum
+  presence) and the *thermostat's* commanded setpoint (which HomeClimate
   manipulates to make the HVAC run or stop).
 - **Deadband** (`ThermostatConfig.deadband`, default 0.5 °F, stored as a ±
   tolerance): "at target" means within `target ± deadband`. **Why zero
@@ -179,8 +179,8 @@ staleness guard (weather entities may legitimately report hourly).
   small noise cannot cause state changes. Per-room override:
   `deadband_override` (nullable delta, Issue #277).
 - **Overshoot delta** (`overshoot_delta`, default 2 °F): when a cycle starts,
-  Plenum sets the thermostat *past* the most demanding room's target by this
-  amount. Why: the thermostat's own sensor sits in one hallway; if Plenum set
+  HomeClimate sets the thermostat *past* the most demanding room's target by this
+  amount. Why: the thermostat's own sensor sits in one hallway; if HomeClimate set
   it exactly to the target, the HVAC would shut off when the *hallway* reached
   target, long before the zoned rooms (behind partially-restricted ducts) got
   there. Overshoot keeps the equipment running while the easier rooms are
@@ -263,7 +263,7 @@ events carry the tier and (tier 3) the computed headroom.
 ## 4. Temperature math: absolute vs delta
 
 Two conversion kinds exist and confusing them silently corrupts data. All four
-functions live in `smart_vent/backend/units.py` (backend) and
+functions live in `homeclimate/backend/units.py` (backend) and
 `frontend/src/contexts.ts` `buildUnitContext` (frontend).
 
 | Kind | °C→°F | °F→°C | Applies to |
@@ -294,12 +294,12 @@ this choice per field and parity-test it.
 
 Rule of thumb: storage direction gets 2 dp (don't lose precision in the DB);
 display direction gets 1 dp (humans). Who converts where (frontend never
-converts outgoing payloads, #231) is owned by **plenum-architecture-contract**
+converts outgoing payloads, #231) is owned by **homeclimate-architecture-contract**
 — do not re-derive it from here.
 
 ---
 
-## 5. The HA entity model as Plenum uses it
+## 5. The HA entity model as HomeClimate uses it
 
 ### 5.1 `climate.*` — three different "what is it doing" fields (#38 territory)
 
@@ -313,7 +313,7 @@ Classic confusion — these are NOT interchangeable:
 
 A thermostat in mode `heat` with action `idle` is ON but satisfied. In mode
 `heat_cool` (auto), the *mode tells you nothing about direction* — only the
-action does. Plenum's `_read_hvac_mode()` (`cycle_engine.py`) encodes the
+action does. HomeClimate's `_read_hvac_mode()` (`cycle_engine.py`) encodes the
 correct precedence: trust `hvac_action` when it is `heating`/`cooling`; when
 `idle`, fall back to `hvac_mode` **only** for unambiguous single-direction
 modes (`heat`/`cool`) — mapping `heat_cool` to "heating" was a real bug that
@@ -341,7 +341,7 @@ Stored per vent as its control method:
 | `set_tilt_position` | `cover.set_cover_tilt_position` `tilt_position=100` | `tilt_position=0` | **Flair vents** (RobertD502 HACS integration) and anything reporting `current_tilt_position` |
 | `toggle` | `cover.toggle` | `cover.toggle` | Stateful flip-flop vents; last resort |
 
-Plenum judges whether a vent is passing air using the attribute that matches
+HomeClimate judges whether a vent is passing air using the attribute that matches
 its own configured `control_method` (#425) — it does not check both position
 attributes on every vent: a `set_tilt_position` vent reads
 `current_tilt_position`, a `set_position` vent reads `current_position`;
@@ -381,7 +381,7 @@ occupied room.
 
 ### 5.5 Ingress
 
-HA **ingress** is HA's authenticated reverse proxy for add-on UIs: the Plenum
+HA **ingress** is HA's authenticated reverse proxy for add-on UIs: the HomeClimate
 SPA is served through HA at a rewritten, token-protected base path rather than
 a raw port. Consequences: `config.yaml` sets `ingress: true`,
 `ingress_port: 8099`; asset URLs must be base-path-relative (issue #74 was a
@@ -402,12 +402,12 @@ blank screen from a base-path mismatch); direct port 8099 and the MCP port
 | **Coil icing** | Evaporator freezing over from low airflow or low ambient; blocks airflow further. |
 | **Compressor** | The AC's refrigerant pump; the expensive component all short-cycle/lockout guards protect. |
 | **Contactor** | Heavy-duty relay switching the compressor; worn by start count. |
-| **Cycle** | One Plenum-managed conditioning run: IDLE → RUNNING → TERMINATING → IDLE, one at a time per thermostat, 60 s ticks. |
+| **Cycle** | One HomeClimate-managed conditioning run: IDLE → RUNNING → TERMINATING → IDLE, one at a time per thermostat, 60 s ticks. |
 | **Deadband** | ± tolerance around a target within which a room counts as "at target"; hysteresis against oscillation. |
 | **Dead-heading** | Running the blower against a (nearly) closed duct system. |
 | **Delta** | A temperature *difference*; converts °F↔°C without the 32 offset. |
 | **Evaporator coil** | Indoor coil where refrigerant absorbs heat from the airstream. |
-| **Golden** | Committed reference screenshot the E2E visual-regression suite compares against (see plenum-ci-and-release). |
+| **Golden** | Committed reference screenshot the E2E visual-regression suite compares against (see homeclimate-ci-and-release). |
 | **Headroom** | How far a room can drift in the conditioning direction before it would call for the opposite cycle (overflow Tier 3 ranking). |
 | **Holdover** | Presence-activation timer that keeps a room active after the last motion event; persisted in DB. |
 | **HVAC action vs mode** | What equipment is doing now (`hvac_action` attribute) vs what it's configured to do (`hvac_mode` = entity state). |
@@ -420,10 +420,9 @@ blank screen from a base-path mismatch); direct port 8099 and the MCP port
 | **Overflow conditioning** | Routing surplus hold-phase air to non-active rooms via the tier system (#237). |
 | **Overshoot (delta)** | Setting the thermostat past the most demanding target so the HVAC keeps running for the slower rooms. |
 | **Passive register** | A vent with no motor; always open; counts toward the airflow floor. |
-| **Plenum (the word)** | The sheet-metal distribution box between air handler and ducts; also this project's name. |
 | **Presence** | Room activation from `binary_sensor` motion/occupancy events. |
 | **Reconciliation** | Periodic re-read of actual vent/thermostat state from HA to correct external overrides. |
-| **Register / vent** | The room-level grille; the `cover.*` entity Plenum opens and closes. |
+| **Register / vent** | The room-level grille; the `cover.*` entity HomeClimate opens and closes. |
 | **Setpoint** | A controller's target temperature (room target vs commanded thermostat setpoint — distinct). |
 | **Short-cycling** | Rapid compressor stop/start; kills compressors via oil starvation, start stress, and pressure-differential restarts. |
 | **Staleness (sensor)** | A reading whose HA `last_updated` exceeds the threshold; excluded from room averages. |
@@ -443,11 +442,11 @@ conditions, `_read_hvac_mode` precedence, staleness default/range, and ports/
 ingress). Sources: `docs/safety.md`,
 `docs/cycle-engine.md`, `docs/overflow-conditioning.md`, `docs/vent-control.md`,
 `docs/presence.md`, `docs/thermostat-settings.md`,
-`smart_vent/backend/units.py`, `smart_vent/backend/models.py`,
-`smart_vent/backend/api/routes.py`, `smart_vent/backend/engine/cycle_engine.py`,
-`smart_vent/backend/engine/vent_controller.py`, `smart_vent/backend/ha_client.py`,
-`smart_vent/frontend/src/contexts.ts`,
-`smart_vent/config.yaml`; issues #38, #86, #123, #208–#213, #237, #248, #251,
+`homeclimate/backend/units.py`, `homeclimate/backend/models.py`,
+`homeclimate/backend/api/routes.py`, `homeclimate/backend/engine/cycle_engine.py`,
+`homeclimate/backend/engine/vent_controller.py`, `homeclimate/backend/ha_client.py`,
+`homeclimate/frontend/src/contexts.ts`,
+`homeclimate/config.yaml`; issues #38, #86, #123, #208–#213, #237, #248, #251,
 #267, #277, #280, #291, #425. The physics explanations (oil return, contactor wear,
 pressure equalization, slugging, static pressure) are standard HVAC domain
 knowledge, not repo-derivable; the repo-side mappings are all verified.
@@ -457,14 +456,14 @@ Volatile facts and re-verification (run from repo root):
 - Defaults on `ThermostatConfig` (deadband 0.5, overshoot 2.0, setpoints 60/85,
   fraction 0.333, timeouts, `overflow_during_min_runtime=True`,
   `unavailable_abort_after_min=5`):
-  `grep -n 'class ThermostatConfig' -A 70 smart_vent/backend/models.py`
-- Rounding precision: `sed -n 23,55p smart_vent/backend/units.py` and
-  `grep -n 'toFixed' smart_vent/frontend/src/contexts.ts`
+  `grep -n 'class ThermostatConfig' -A 70 homeclimate/backend/models.py`
+- Rounding precision: `sed -n 23,55p homeclimate/backend/units.py` and
+  `grep -n 'toFixed' homeclimate/frontend/src/contexts.ts`
 - Tier conditions: `sed -n 20,50p docs/overflow-conditioning.md`
 - Airflow-floor formula: `grep -n -A6 'required_smart_open' docs/safety.md`
-- `TEMPERATURE_FIELDS` kinds: `grep -n -A 20 'TEMPERATURE_FIELDS: dict' smart_vent/backend/api/routes.py`
-- Staleness key/range: `grep -n 'sensor_stale_after_min' smart_vent/backend/api/routes.py`
-- `_read_hvac_mode` precedence: `grep -n -A 25 'def _read_hvac_mode' smart_vent/backend/engine/cycle_engine.py`
-- Ports/ingress: `grep -n 'ingress\|8099\|9099' smart_vent/config.yaml`
+- `TEMPERATURE_FIELDS` kinds: `grep -n -A 20 'TEMPERATURE_FIELDS: dict' homeclimate/backend/api/routes.py`
+- Staleness key/range: `grep -n 'sensor_stale_after_min' homeclimate/backend/api/routes.py`
+- `_read_hvac_mode` precedence: `grep -n -A 25 'def _read_hvac_mode' homeclimate/backend/engine/cycle_engine.py`
+- Ports/ingress: `grep -n 'ingress\|8099\|9099' homeclimate/config.yaml`
 - Cover methods table: `sed -n 1,25p docs/vent-control.md`
-- Vent-read attribute logic: `grep -n -A 20 'def _is_open' smart_vent/backend/engine/vent_controller.py`
+- Vent-read attribute logic: `grep -n -A 20 'def _is_open' homeclimate/backend/engine/vent_controller.py`

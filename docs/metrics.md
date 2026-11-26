@@ -6,7 +6,7 @@ The **Metrics** page (left nav → *Metrics*) shows how each thermostat — and 
 
 | Section                       | What it shows                                                                                                   |
 | ----------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| Outside-temperature picker    | Single system-wide HA entity Plenum reads at every cycle start/end. Live value displayed alongside.             |
+| Outside-temperature picker    | Single system-wide HA entity HomeClimate reads at every cycle start/end. Live value displayed alongside.             |
 | Filters                       | Thermostat selector ("All thermostats" by default), date-range picker, "Last 7 days" reset, **Export CSV**.     |
 | Summary tiles                 | Heating time, cooling time, duty cycle %, cycle count + completed count, average outside temperature.           |
 | Eco Mode impact               | Tiles (eco-relaxed cycles, eco runtime share, average drift, estimated savings) + three eco charts — shown for both the home view and a selected thermostat. See [Eco Mode](./eco-mode.md). |
@@ -39,7 +39,7 @@ The date range is in the house's calendar: "today" and "Last 7 days" are the hou
 | —   | Average Eco drift applied        | `/api/metrics/thermostats/{id}/eco-impact` (`days` series)            |
 | —   | Eco drift by room                | `/api/metrics/thermostats/{id}/eco-impact` (`rooms` breakdown)        |
 
-The eco-impact charts (and their summary tiles) also exist home-wide via `/api/metrics/thermostats/eco-impact`. The cycles-vs-outside-temp scatter colors Eco-relaxed cycles as a third (green) series. The "estimated savings" tile is a clearly-labeled rule-of-thumb (3–5% per °F of relaxation, applied to Eco-relaxed runtime) — Plenum cannot read kWh, so savings are inferred from drift, never measured.
+The eco-impact charts (and their summary tiles) also exist home-wide via `/api/metrics/thermostats/eco-impact`. The cycles-vs-outside-temp scatter colors Eco-relaxed cycles as a third (green) series. The "estimated savings" tile is a clearly-labeled rule-of-thumb (3–5% per °F of relaxation, applied to Eco-relaxed runtime) — HomeClimate cannot read kWh, so savings are inferred from drift, never measured.
 
 ## Outside-temperature source
 
@@ -53,7 +53,7 @@ Backfill is **not** attempted — data starts accumulating from the moment the e
 
 ## Live snapshot endpoint (Home Assistant integration)
 
-`GET /api/metrics/thermostats/{id}/live` returns today's running totals, the currently-running cycle (if any), and the current outside temperature. Intended for HA template sensors that want to render Plenum metrics natively.
+`GET /api/metrics/thermostats/{id}/live` returns today's running totals, the currently-running cycle (if any), and the current outside temperature. Intended for HA template sensors that want to render HomeClimate metrics natively.
 
 ```bash
 curl http://localhost:8099/api/metrics/thermostats/climate.upstairs/live

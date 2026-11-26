@@ -1,4 +1,5 @@
 import { test, expect } from "./fixtures";
+import { gotoMyHome, openZoneEditor } from "./my-home";
 
 /**
  * Round-trip regression for the temperature-unit conversion contract (#231).
@@ -13,7 +14,7 @@ import { test, expect } from "./fixtures";
  * asserted "POSTs the pre-converted °F"; backend tests asserted "GET returns
  * °F when given °C") — only an end-to-end round-trip exposes it.
  *
- * This spec is parameterised on PLENUM_TEMP_UNIT (set by the CI matrix) so
+ * This spec is parameterised on HOMECLIMATE_TEMP_UNIT (set by the CI matrix) so
  * the same assertions run under both °F and °C stacks. Under °F the round-trip
  * is trivial (no conversion); under °C it is the regression test.
  *
@@ -24,7 +25,7 @@ import { test, expect } from "./fixtures";
  * entry is mentioned in at least one `@covers:` here. Add a field, add a tag.
  */
 
-const UNIT = (process.env.PLENUM_TEMP_UNIT ?? "F") as "F" | "C";
+const UNIT = (process.env.HOMECLIMATE_TEMP_UNIT ?? "F") as "F" | "C";
 const isCelsius = UNIT === "C";
 
 // Values chosen so the °C number is comfortable in the field's valid range
@@ -53,6 +54,8 @@ const ROOM_DEADBAND_OVERRIDE = isCelsius ? "0.5" : "0.9";
 // Ambient pre-cool/pre-heat deltas (Issue #248). 5°C → 9.0°F and 3°C → 5.4°F
 // both round-trip cleanly through the backend's 2dp °F storage, and the
 // widened deadband (3) clears any thermostat deadband set earlier in this file.
+const HOUSE_HEAT_TO = isCelsius ? "19.5" : "67";
+const HOUSE_COOL_TO = isCelsius ? "24" : "75";
 const AMBIENT_MIN_DIFF = isCelsius ? "5" : "5";
 const AMBIENT_DEADBAND = isCelsius ? "3" : "3";
 
@@ -76,17 +79,14 @@ const ECO_VALUES: Record<string, string> = {
 // avoid strict-mode collisions with the second thermostat ("upstairs").
 const TC_ID = "climate.downstairs_thermostat";
 
-test.describe(`Temperature round-trip (PLENUM_TEMP_UNIT=${UNIT})`, () => {
+test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
   test("thermostat fields persist exactly as entered (#231)", async ({
     page,
   }) => {
     // @covers: default_temp, min_setpoint, max_setpoint, deadband, overshoot_delta, cooling_lockout_below_f
-    await page.goto("/thermostats");
-    await page.waitForSelector(".loading", {
-      state: "detached",
-      timeout: 15_000,
-    });
-    await page.waitForLoadState("networkidle");
+    // Thermostat settings live inside their zone on My Home.
+    await gotoMyHome(page);
+    await openZoneEditor(page, TC_ID);
 
     // Target the specific downstairs card by its unique input id. Two
     // thermostats are seeded, so unscoped label/role lookups would hit
@@ -135,6 +135,7 @@ test.describe(`Temperature round-trip (PLENUM_TEMP_UNIT=${UNIT})`, () => {
       timeout: 15_000,
     });
     await page.waitForLoadState("networkidle");
+    await openZoneEditor(page, TC_ID);
 
     const readBack = async (suffix: string) =>
       parseFloat(
@@ -168,7 +169,7 @@ test.describe(`Temperature round-trip (PLENUM_TEMP_UNIT=${UNIT})`, () => {
     page,
   }) => {
     // @covers: system_wide_temp, temp_offset, deadband_override
-    await page.goto("/rooms");
+    await page.goto("/my-home");
     await page.waitForSelector(".loading", {
       state: "detached",
       timeout: 15_000,
@@ -184,7 +185,7 @@ test.describe(`Temperature round-trip (PLENUM_TEMP_UNIT=${UNIT})`, () => {
         .locator(".card")
         .filter({ hasText: "Living Room" })
         .first()
-        .getByRole("button", { name: "Settings", exact: true })
+        .getByRole("button", { name: "Room Settings" })
         .click();
       const s = page.getByTestId("room-settings");
       await s.waitFor({ state: "visible", timeout: 10_000 });
@@ -248,7 +249,7 @@ test.describe(`Temperature round-trip (PLENUM_TEMP_UNIT=${UNIT})`, () => {
     );
 
     try {
-      await page.goto("/rooms");
+      await page.goto("/my-home");
       await page.waitForSelector(".loading", {
         state: "detached",
         timeout: 15_000,
@@ -260,7 +261,7 @@ test.describe(`Temperature round-trip (PLENUM_TEMP_UNIT=${UNIT})`, () => {
           .locator(".card")
           .filter({ hasText: "Living Room" })
           .first()
-          .getByRole("button", { name: "Settings", exact: true })
+          .getByRole("button", { name: "Room Settings" })
           .click();
         const s = page.getByTestId("room-settings");
         await s.waitFor({ state: "visible", timeout: 10_000 });
@@ -307,16 +308,19 @@ test.describe(`Temperature round-trip (PLENUM_TEMP_UNIT=${UNIT})`, () => {
     page,
   }) => {
     // @covers: eco_cooling_outdoor_threshold, eco_cooling_full_drift_temp, eco_cooling_max_drift, eco_heating_outdoor_threshold, eco_heating_full_drift_temp, eco_heating_max_drift, eco_hysteresis_band
-    await page.goto("/thermostats");
-    await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
-    await page.waitForLoadState("networkidle");
-
-    // The Eco numeric inputs are always editable (only the enable toggle needs
-    // an outside sensor). Fill each via its unique input id, save, reload, and
-    // assert the values survived the °C↔°F round-trip unchanged.
-    const idSel = (suffix: string) => `[id="thermo-${TC_ID}-${suffix}"]`;
+    // Eco Mode is tuned per zone in Smart Control.
+    const openEco = async () => {
+      await page.goto("/smart-control?section=eco-mode");
+      await page.waitForLoadState("networkidle");
+      await page.locator(idSel("eco_hysteresis_band")).waitFor();
+    };
+    // Fill each field via its unique input id, save, reload, and assert the
+    // values survived the °C↔°F round-trip unchanged. [id="…"] rather than
+    // `#…` because the entity id embeds a dot.
+    const idSel = (suffix: string) => `[id="eco-${TC_ID}-${suffix}"]`;
+    await openEco();
     const card = page
-      .locator(idSel("name"))
+      .locator(idSel("eco_hysteresis_band"))
       .locator("xpath=ancestor::*[contains(@class,'card')][1]");
 
     for (const [key, value] of Object.entries(ECO_VALUES)) {
@@ -327,7 +331,7 @@ test.describe(`Temperature round-trip (PLENUM_TEMP_UNIT=${UNIT})`, () => {
       (r) =>
         r.url().includes(`/api/thermostats/${TC_ID}`) && r.request().method() === "PUT",
     );
-    await card.getByRole("button", { name: "Save changes" }).click();
+    await card.getByRole("button", { name: "Save" }).click();
     const response = await putResponse;
     const responseText = await response.text();
     expect(
@@ -335,9 +339,7 @@ test.describe(`Temperature round-trip (PLENUM_TEMP_UNIT=${UNIT})`, () => {
       `PUT /api/thermostats/${TC_ID} failed: ${responseText}`,
     ).toBeLessThan(400);
 
-    await page.reload();
-    await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
-    await page.waitForLoadState("networkidle");
+    await openEco();
 
     for (const [key, value] of Object.entries(ECO_VALUES)) {
       const readBack = parseFloat(await page.locator(idSel(key)).inputValue());
@@ -349,7 +351,7 @@ test.describe(`Temperature round-trip (PLENUM_TEMP_UNIT=${UNIT})`, () => {
     page,
   }) => {
     // @covers: eco_cooling_outdoor_threshold, eco_cooling_full_drift_temp, eco_cooling_max_drift, eco_heating_outdoor_threshold, eco_heating_full_drift_temp, eco_heating_max_drift, eco_hysteresis_band
-    await page.goto("/rooms");
+    await page.goto("/my-home");
     await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
     await page.waitForLoadState("networkidle");
 
@@ -358,7 +360,7 @@ test.describe(`Temperature round-trip (PLENUM_TEMP_UNIT=${UNIT})`, () => {
         .locator(".card")
         .filter({ hasText: "Living Room" })
         .first()
-        .getByRole("button", { name: "Settings", exact: true })
+        .getByRole("button", { name: "Room Settings" })
         .click();
       const s = page.getByTestId("room-settings");
       await s.waitFor({ state: "visible", timeout: 10_000 });
@@ -470,6 +472,79 @@ test.describe(`Temperature round-trip (PLENUM_TEMP_UNIT=${UNIT})`, () => {
     expect(parseFloat(band)).toBeCloseTo(parseFloat(SCHEDULE_DRIFT), 1);
   });
 
+  test("schedule and occupancy Cool To persist exactly as entered", async ({
+    page,
+  }) => {
+    // @covers: cool_to, presence_cool_to
+    // A Cool To turns a target into a band. It is an absolute temperature
+    // like the target beside it, sent as typed and converted once.
+    const HEAT = isCelsius ? "20" : "68";
+    const COOL = isCelsius ? "24" : "76";
+
+    await page.goto("/schedules");
+    await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
+    await page.waitForLoadState("networkidle");
+    const card = () => page.locator(".card").filter({ hasText: "Living Room" }).first();
+    await card().getByText("Living Room").click();
+    await card().getByText("+ Add schedule block").click();
+    const modal = page.locator(".modal");
+    await modal.waitFor({ state: "visible", timeout: 10_000 });
+    // 05:00-06:00 is clear of the seeded blocks and of the block the test above adds.
+    await modal.getByLabel(/Start time/i).fill("05:00");
+    await modal.getByLabel(/End time/i).fill("06:00");
+    await modal.getByLabel(/Target temperature/i).fill(HEAT);
+    await modal.getByLabel(/Cool To/i).fill(COOL);
+    await modal.getByRole("button", { name: /^Save$/ }).click();
+    await modal.waitFor({ state: "detached", timeout: 5_000 });
+
+    await page.reload();
+    await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
+    await page.waitForLoadState("networkidle");
+    await card().getByText("Living Room").click();
+    const row = card().locator("tr").filter({ hasText: "05:00" });
+    await expect(row).toBeVisible();
+    const text = await row.innerText();
+    const band = text.match(/(\d+(?:\.\d+)?)\s*°[CF]\s+to\s+(\d+(?:\.\d+)?)\s*°[CF]/);
+    expect(band, `band not found in row: ${text}`).not.toBeNull();
+    expect(parseFloat(band![1])).toBeCloseTo(parseFloat(HEAT), 1);
+    expect(parseFloat(band![2])).toBeCloseTo(parseFloat(COOL), 1);
+    // Remove the block so nothing else sees a band on Living Room.
+    // The row's button is "Del"; the dialog it opens has the "Delete" that does it.
+    await row.getByRole("button", { name: "Del", exact: true }).click();
+    const dialog = page.getByTestId("confirm-dialog");
+    await dialog.getByRole("button", { name: "Delete", exact: true }).click();
+    await dialog.waitFor({ state: "detached", timeout: 5_000 });
+    await expect(row).toHaveCount(0);
+
+    // The occupancy target's Cool To, in the room's settings under My Home.
+    await page.goto("/my-home");
+    await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
+    await page.waitForLoadState("networkidle");
+    const openSettings = async () => {
+      await page
+        .locator(".card")
+        .filter({ hasText: "Living Room" })
+        .first()
+        .getByRole("button", { name: "Room Settings" })
+        .click();
+      const s = page.getByTestId("room-settings");
+      await s.waitFor({ state: "visible", timeout: 10_000 });
+      return s;
+    };
+    let settings = await openSettings();
+    await settings.getByLabel(/Presence-triggered temperature/i).fill(HEAT);
+    await settings.getByLabel(/Cool To/i).fill(COOL);
+    await settings.getByRole("button", { name: /Save changes/i }).click();
+    await settings.waitFor({ state: "detached", timeout: 5_000 });
+    settings = await openSettings();
+    const coolAfter = await settings.getByLabel(/Cool To/i).inputValue();
+    expect(parseFloat(coolAfter)).toBeCloseTo(parseFloat(COOL), 1);
+    // Back to a single target, as the other specs expect.
+    await settings.getByLabel(/Cool To/i).fill("");
+    await settings.getByRole("button", { name: /Save changes/i }).click();
+    await settings.waitFor({ state: "detached", timeout: 5_000 });
+  });
+
   test("temporary hold target persists exactly as entered (#576)", async ({
     page,
   }) => {
@@ -481,7 +556,8 @@ test.describe(`Temperature round-trip (PLENUM_TEMP_UNIT=${UNIT})`, () => {
     // the read-back target off by the °C↔°F factor.
     let heldRoomId: string | null = null;
     try {
-      await page.goto("/rooms");
+      // Holds are a manual control, so they live on the Dashboard.
+      await page.goto("/");
       await page.waitForSelector(".loading", {
         state: "detached",
         timeout: 15_000,
@@ -489,13 +565,14 @@ test.describe(`Temperature round-trip (PLENUM_TEMP_UNIT=${UNIT})`, () => {
       await page.waitForLoadState("networkidle");
 
       // Open the hold modal pre-scoped to Living Room (the room this spec
-      // owns). `exact: true` — the button reads "Manage hold" when a hold is
-      // already live, which would mean leaked state from an earlier run.
+      // owns) from its row. `exact: true` — the row offers "Cancel Hold for …"
+      // instead when a hold is already live, which would mean leaked state
+      // from an earlier run.
       await page
-        .locator(".card")
+        .locator(".dash-room")
         .filter({ hasText: "Living Room" })
         .first()
-        .getByRole("button", { name: "Hold", exact: true })
+        .getByRole("button", { name: "Hold for Living Room", exact: true })
         .click();
       const modal = page.getByTestId("hold-modal");
       await modal.waitFor({ state: "visible", timeout: 10_000 });
@@ -520,9 +597,10 @@ test.describe(`Temperature round-trip (PLENUM_TEMP_UNIT=${UNIT})`, () => {
       heldRoomId = response.url().match(/\/api\/rooms\/([^/]+)\/override/)?.[1] ?? null;
       await modal.waitFor({ state: "detached", timeout: 5_000 });
 
-      // Reload and read back through the card's status row. The target is
-      // rendered via fmtTemp(°F), re-deriving the display unit from storage —
-      // if the backend stored the wrong value the number would be off.
+      // Reload and read back through the Dashboard's hold strip. The target
+      // is rendered via fmtTemp(°F), re-deriving the display unit from
+      // storage — if the backend stored the wrong value the number would be
+      // off.
       await page.reload();
       await page.waitForSelector(".loading", {
         state: "detached",
@@ -530,13 +608,11 @@ test.describe(`Temperature round-trip (PLENUM_TEMP_UNIT=${UNIT})`, () => {
       });
       await page.waitForLoadState("networkidle");
 
-      const card = page.locator(".card").filter({ hasText: "Living Room" }).first();
-      await expect(card).toContainText("via Override");
-      // Scope to the target span — the card's "then …" schedule line renders
-      // a second fmtTemp number that a card-wide regex could match instead.
-      const targetText = await card.locator(".room-status-target").innerText();
-      const match = targetText.match(/(\d+(?:\.\d+)?)\s*°[CF]/);
-      expect(match, `hold target not found in status row: ${targetText}`).not.toBeNull();
+      const strip = page.getByTestId(`dashboard-hold-${heldRoomId}`);
+      await expect(strip).toContainText("Living Room");
+      const stripText = await strip.innerText();
+      const match = stripText.match(/held at\s*(\d+(?:\.\d+)?)\s*°[CF]/);
+      expect(match, `hold target not found in the hold strip: ${stripText}`).not.toBeNull();
       expect(parseFloat(match![1])).toBeCloseTo(parseFloat(HOLD_TARGET), 1);
     } finally {
       // Clear the hold so later specs see Living Room back on its schedule.
@@ -545,6 +621,148 @@ test.describe(`Temperature round-trip (PLENUM_TEMP_UNIT=${UNIT})`, () => {
       if (heldRoomId) {
         await page.request.delete(`/api/rooms/${heldRoomId}/override`);
       }
+    }
+  });
+
+  test("zone heat pump protection persists exactly as entered", async ({
+    page,
+  }) => {
+    // @covers: hp_max_step_f, hp_recovery_f_per_hr, hp_compressor_lockout_f
+    // Step and recovery rate are deltas (1°C ≡ 1.8°F, 2°C ≡ 3.6°F); the
+    // compressor lockout is absolute (-5°C ≡ 23°F). All round-trip cleanly
+    // through the backend's 2dp °F storage.
+    const STEP = isCelsius ? "1" : "1.8";
+    const RATE = isCelsius ? "2" : "3.6";
+    const LOCKOUT = isCelsius ? "-5" : "23";
+    const editor = () =>
+      page.getByRole("region", { name: /Edit Downstairs Thermostat/ });
+    const open = async () => {
+      await page.goto("/my-home");
+      await page.waitForLoadState("networkidle");
+      await page
+        .locator(".zone-row")
+        .filter({ hasText: TC_ID })
+        .getByRole("button", { name: "Edit Zone" })
+        .click();
+      await editor().waitFor({ state: "visible", timeout: 10_000 });
+      return editor();
+    };
+    try {
+      let zone = await open();
+      await zone.getByRole("radio", { name: "Heat Pump" }).click();
+      await zone.getByLabel("Max Setpoint Step").fill(STEP);
+      await zone.getByLabel("Max Recovery Rate").fill(RATE);
+      await zone.getByLabel("Compressor Lockout Below").fill(LOCKOUT);
+      const saved = page.waitForResponse(
+        (r) =>
+          r.url().includes(`/api/zones/${TC_ID}`) &&
+          r.request().method() === "PUT",
+      );
+      await zone.getByRole("button", { name: "Save Zone" }).click();
+      expect((await saved).ok()).toBeTruthy();
+
+      zone = await open();
+      for (const [label, value] of [
+        ["Max Setpoint Step", STEP],
+        ["Max Recovery Rate", RATE],
+        ["Compressor Lockout Below", LOCKOUT],
+      ] as const) {
+        const after = await zone.getByLabel(label).inputValue();
+        expect(parseFloat(after)).toBeCloseTo(parseFloat(value), 1);
+      }
+    } finally {
+      // Leave the zone conventional for the specs that screenshot it.
+      await page.request.put(`/api/zones/${TC_ID}`, {
+        data: {
+          system_type: "conventional",
+          hp_max_step_f: isCelsius ? 0.5556 : 1,
+          hp_recovery_f_per_hr: isCelsius ? 1.1111 : 2,
+          hp_compressor_lockout_f: null,
+        },
+      });
+    }
+  });
+
+  test("house band persists exactly as entered", async ({ page }) => {
+    // @covers: house_heat_to, house_cool_to
+    try {
+      await page.goto("/");
+      await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
+      const heat = page.getByLabel(/^Heat To/);
+      const cool = page.getByLabel(/^Cool To/);
+      await heat.fill(HOUSE_HEAT_TO);
+      await cool.fill(HOUSE_COOL_TO);
+      await page.getByRole("button", { name: /Set House Band|^Save$/ }).click();
+      await expect(page.getByRole("button", { name: "Turn Off" })).toBeVisible();
+
+      await page.reload();
+      await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
+      expect(parseFloat(await page.getByLabel(/^Heat To/).inputValue())).toBeCloseTo(
+        parseFloat(HOUSE_HEAT_TO),
+        1,
+      );
+      expect(parseFloat(await page.getByLabel(/^Cool To/).inputValue())).toBeCloseTo(
+        parseFloat(HOUSE_COOL_TO),
+        1,
+      );
+    } finally {
+      // Leave no band behind: with one set, every room becomes active.
+      await page.request.put("/api/house", {
+        data: { house_heat_to: null, house_cool_to: null },
+      });
+    }
+  });
+
+  test("zone balance gap limit persists exactly as chosen", async ({ page }) => {
+    // @covers: zone_gap
+    // A difference, not a temperature: 2.5°C ≡ 4.5°F, with no 32° offset.
+    const GAP = isCelsius ? "2.5" : "5";
+    const made = await page.request.post("/api/buildings", {
+      data: { name: "Gap Test House" },
+    });
+    const building = (await made.json()).id as string;
+    try {
+      await page.goto("/smart-control?section=zone-balance");
+      const gap = page.getByLabel("Gap limit for Gap Test House");
+      await gap.waitFor({ state: "visible", timeout: 15_000 });
+      const saved = page.waitForResponse(
+        (r) =>
+          r.url().includes(`/api/zone-balance/${building}`) &&
+          r.request().method() === "PUT",
+      );
+      await gap.selectOption(GAP);
+      await saved;
+
+      await page.reload();
+      await expect(
+        page.getByLabel("Gap limit for Gap Test House"),
+      ).toHaveValue(GAP);
+    } finally {
+      await page.request.delete(`/api/buildings/${building}`);
+    }
+  });
+
+  test("peak hours banking depth persists exactly as chosen", async ({ page }) => {
+    // @covers: peak_depth
+    // A difference, not a temperature: 1.5°C ≡ 2.7°F, with no 32° offset.
+    const DEPTH = isCelsius ? "1.5" : "3";
+    try {
+      await page.goto("/smart-control?section=peak-hours");
+      const depth = page.getByLabel("How far to bank");
+      await depth.waitFor({ state: "visible", timeout: 15_000 });
+      const saved = page.waitForResponse(
+        (r) =>
+          r.url().includes("/api/peak-hours") && r.request().method() === "PUT",
+      );
+      await depth.selectOption(DEPTH);
+      await saved;
+
+      await page.reload();
+      await expect(page.getByLabel("How far to bank")).toHaveValue(DEPTH);
+    } finally {
+      await page.request.put("/api/peak-hours", {
+        data: { peak_depth: isCelsius ? 1.1 : 2 },
+      });
     }
   });
 });

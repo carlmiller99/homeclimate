@@ -1,11 +1,12 @@
 import type { Page } from "@playwright/test";
 import { test, expect } from "./fixtures";
+import { openZoneEditor } from "./my-home";
 
 /**
  * Eco Suspend visibility rule (Issue #500).
  *
- * The Suspend Eco controls (Dashboard page button + zone-card controls,
- * Thermostats page button + card controls) only render when Eco is actually
+ * The Suspend Eco controls (Dashboard page button + zone-card controls)
+ * only render when Eco is actually
  * in play somewhere: a thermostat has Eco enabled, a room carries an explicit
  * per-room Eco opt-in, or a suspension is already active. This spec proves
  * all three configuration states with dedicated goldens:
@@ -24,7 +25,7 @@ import { test, expect } from "./fixtures";
  * unchanged and the page renders stay deterministic).
  */
 
-const API = `${process.env.PLENUM_URL ?? "http://localhost:8099"}/api`;
+const API = `${process.env.HOMECLIMATE_URL ?? "http://localhost:8099"}/api`;
 
 const UPSTAIRS = "climate.upstairs_thermostat";
 
@@ -88,10 +89,9 @@ test.describe.serial("Eco Suspend visibility (#500)", () => {
       fullPage: true,
     });
 
-    await gotoAndSettle(page, "/thermostats");
-    await expect(page.getByTestId("thermostats-eco-suspend-btn")).toHaveCount(
-      0,
-    );
+    // My Home edits structure and hardware only: it never carries the control.
+    await gotoAndSettle(page, "/my-home");
+    await openZoneEditor(page, UPSTAIRS);
     await expect(page.getByRole("button", { name: "Suspend Eco" })).toHaveCount(
       0,
     );
@@ -115,11 +115,6 @@ test.describe.serial("Eco Suspend visibility (#500)", () => {
       fullPage: true,
     });
 
-    await gotoAndSettle(page, "/thermostats");
-    await expect(page.getByTestId("thermostats-eco-suspend-btn")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Suspend Eco" })).toHaveCount(
-      2,
-    );
 
     // Leave the room opted out again; the next test sets its own state anyway.
     await setBedroomEco(null);
@@ -143,11 +138,6 @@ test.describe.serial("Eco Suspend visibility (#500)", () => {
       },
     );
 
-    await gotoAndSettle(page, "/thermostats");
-    await expect(page.getByTestId("thermostats-eco-suspend-btn")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Suspend Eco" })).toHaveCount(
-      2,
-    );
 
     await setThermostatEco(UPSTAIRS, false);
   });

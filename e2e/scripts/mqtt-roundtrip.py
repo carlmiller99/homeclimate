@@ -5,7 +5,7 @@ End-to-end MQTT round-trip against a real broker (Issue #519).
 The backend suite covers the bridge's logic against a fake transport; this
 covers the parts only a real broker can show:
 
-  * Plenum actually connects, subscribes, and publishes.
+  * HomeClimate actually connects, subscribes, and publishes.
   * Retained state survives and is readable by a fresh subscriber — which is how
     Home Assistant sees it after a restart.
   * A published command reaches the REST write boundary and changes the DB.
@@ -20,8 +20,8 @@ in the Playwright suite would cost a browser launch for nothing and force a
 grep-invert in three other legs.
 
 Usage:
-    python3 mqtt-roundtrip.py --plenum-url http://localhost:8099 \
-        --broker localhost --port 1883 --prefix plenum
+    python3 mqtt-roundtrip.py --homeclimate-url http://localhost:8099 \
+        --broker localhost --port 1883 --prefix homeclimate
 """
 
 from __future__ import annotations
@@ -103,14 +103,14 @@ def api(method: str, url: str, **kwargs) -> requests.Response:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--plenum-url", default="http://localhost:8099")
+    parser.add_argument("--homeclimate-url", default="http://localhost:8099")
     parser.add_argument("--broker", default="localhost")
     parser.add_argument("--port", type=int, default=1883)
-    parser.add_argument("--prefix", default="plenum")
+    parser.add_argument("--prefix", default="homeclimate")
     parser.add_argument("--discovery-prefix", default="homeassistant")
     args = parser.parse_args()
 
-    base = args.plenum_url.rstrip("/")
+    base = args.homeclimate_url.rstrip("/")
     prefix = args.prefix
 
     # ------------------------------------------------------------------
@@ -118,7 +118,7 @@ def main() -> None:
     # ------------------------------------------------------------------
     status = api("GET", f"{base}/api/settings/mqtt").json()
     if not status["configured"]:
-        fail(f"Plenum reports no broker configured: {status}")
+        fail(f"HomeClimate reports no broker configured: {status}")
     if status["connected"]:
         fail("the bridge is connected before the toggle was turned on")
     ok("bridge is configured but not connected while the toggle is off")

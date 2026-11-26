@@ -13,7 +13,7 @@ import { test, expect } from "./fixtures";
 // cycle history.
 
 test("logs live feed", async ({ page }) => {
-  await page.goto("/logs");
+  await page.goto("/settings?section=logs");
   await page.waitForSelector(".loading", {
     state: "detached",
     timeout: 15_000,
@@ -34,7 +34,7 @@ test("logs live feed", async ({ page }) => {
 });
 
 test("logs cycle history with expanded cycle", async ({ page }) => {
-  await page.goto("/logs");
+  await page.goto("/settings?section=logs");
   await page.waitForSelector(".loading", {
     state: "detached",
     timeout: 15_000,
@@ -57,7 +57,7 @@ test("logs cycle history with expanded cycle", async ({ page }) => {
 });
 
 test("logs cycle temp-sample chart modal", async ({ page }) => {
-  await page.goto("/logs");
+  await page.goto("/settings?section=logs");
   await page.waitForSelector(".loading", {
     state: "detached",
     timeout: 15_000,
@@ -83,7 +83,7 @@ test("logs cycle temp-sample chart modal", async ({ page }) => {
 });
 
 test("logs clear-confirm modal", async ({ page }) => {
-  await page.goto("/logs");
+  await page.goto("/settings?section=logs");
   await page.waitForSelector(".loading", {
     state: "detached",
     timeout: 15_000,
@@ -103,7 +103,7 @@ test("logs clear-confirm modal", async ({ page }) => {
 });
 
 test("logs retention settings tab", async ({ page }) => {
-  await page.goto("/logs");
+  await page.goto("/settings?section=logs");
   await page.waitForSelector(".loading", {
     state: "detached",
     timeout: 15_000,
@@ -125,7 +125,7 @@ test("logs retention settings tab", async ({ page }) => {
   //
   // fullPage: true is the wrong fix. It stitches the capture in viewport-height
   // slices and scrolls between them, so the position:sticky <nav> re-renders at
-  // every slice boundary — splicing the "Plenum" bar into the middle of the
+  // every slice boundary — splicing the "HomeClimate" bar into the middle of the
   // page on high-DPI mobile. That instability is why rooms.spec.ts and
   // room-settings.spec.ts both refuse fullPage.
   //

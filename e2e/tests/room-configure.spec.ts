@@ -1,10 +1,10 @@
 import { test, expect } from "./fixtures";
 
-// The "Configure sensors & vents" page (sensors, the per-vent control-method
-// table, presence sensors) had no golden before #458 — it is where the vent
+// The "Edit Devices" page (vents and the per-vent control-method table,
+// temperature sensors, doors & windows, occupancy sensors) had no golden before #458 — it is where the vent
 // table's mobile card layout renders, so it needs visual coverage.
-test("room configure — sensors & vents page", async ({ page }) => {
-  await page.goto("/rooms");
+test("room configure — edit devices page", async ({ page }) => {
+  await page.goto("/my-home");
   await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
   await page.waitForLoadState("networkidle");
 
@@ -15,7 +15,7 @@ test("room configure — sensors & vents page", async ({ page }) => {
     .locator(".card")
     .filter({ hasText: "Living Room" })
     .first()
-    .getByRole("button", { name: /Configure sensors & vents/ })
+    .getByRole("button", { name: "Edit Devices" })
     .click();
 
   const configure = page.getByTestId("room-configure");

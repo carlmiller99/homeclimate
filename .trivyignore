@@ -36,13 +36,13 @@
 # owned by no apk package — was built from go1.23.3 + golang.org/x/crypto
 # v0.26.0, so nothing this repo could do would patch it. Both entries are now
 # moot twice over: Home Assistant rebuilt tempio in 2026-07 (go1.26.5,
-# x/crypto v0.31.0 — past both fixes), and smart_vent/Dockerfile now deletes the
-# binary outright because Plenum never invokes it.
+# x/crypto v0.31.0 — past both fixes), and homeclimate/Dockerfile now deletes the
+# binary outright because HomeClimate never invokes it.
 #
 # Before adding an entry, check whether the finding can be FIXED instead:
-#   • an OS package → add an apk version floor to smart_vent/Dockerfile (the
+#   • an OS package → add an apk version floor to homeclimate/Dockerfile (the
 #     floors there are also what stops BuildKit re-serving a stale upgrade
 #     layer — see the comment above them);
-#   • a base-image file Plenum does not use → delete it in the Dockerfile;
+#   • a base-image file HomeClimate does not use → delete it in the Dockerfile;
 #   • a Python/npm dependency → bump it in pyproject.toml / package.json.
 # Suppress only what none of those can reach, and say why in a comment.

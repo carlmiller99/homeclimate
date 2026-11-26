@@ -22,7 +22,7 @@ description: >
 # #596 was opened to stop, one severity higher.
 #
 # What changed: the image now scans clean. `apk upgrade` plus the explicit
-# version floors in smart_vent/Dockerfile clear every OS-package finding, the
+# version floors in homeclimate/Dockerfile clear every OS-package finding, the
 # tempio deletion cleared the gobinary findings, and stripping build-time-only
 # pip cleared the last three (pip's vendored manifest — see the Dockerfile
 # comment). A gate can only be set at a level the artifact actually meets, and
@@ -51,7 +51,7 @@ description: >
 # two different meanings of "the scan is red".
 #
 # When a scan does flag something, prefer fixing it at the source (an apk
-# version floor in smart_vent/Dockerfile, a dependency bump, or deleting an
+# version floor in homeclimate/Dockerfile, a dependency bump, or deleting an
 # unused base-image binary) over a .trivyignore entry — see .trivyignore's
 # own header.
 
@@ -181,7 +181,7 @@ runs:
                 echo ""
               fi
               echo "Blocking = any CRITICAL, plus HIGH/MEDIUM with a released fix."
-              echo "Fix at the source (an apk \`>=\` floor in \`smart_vent/Dockerfile\`, a"
+              echo "Fix at the source (an apk \`>=\` floor in \`homeclimate/Dockerfile\`, a"
               echo "dependency bump in \`pyproject.toml\`/\`package.json\`, or deleting an"
               echo "unused base-image file). \`.trivyignore\` is the last resort, not the"
               echo "first; see that file's header."
@@ -220,7 +220,13 @@ runs:
         UPLOAD_SARIF: ${{ inputs.upload-sarif }}
       run: echo "upload_sarif=${UPLOAD_SARIF}" >> "$GITHUB_OUTPUT"
 
+    # The Security tab needs code scanning, which a private repository only
+    # has with GitHub Advanced Security. Without it the upload is refused
+    # ("Resource not accessible by integration"), which says nothing about
+    # the scan. The gate is the separate "Fail on blocking" step, so a
+    # refused upload must not fail the job.
     - name: Upload SARIF to GitHub Security tab
+      continue-on-error: true
       if: always() && steps.opts.outputs.upload_sarif == 'true'
       uses: github/codeql-action/upload-sarif@v4
       with:

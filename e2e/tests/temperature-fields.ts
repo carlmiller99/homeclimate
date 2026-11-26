@@ -1,5 +1,5 @@
 /**
- * Single source of truth for every temperature field that any Plenum
+ * Single source of truth for every temperature field that any HomeClimate
  * write endpoint accepts.
  *
  * Two enforcement mechanisms keep this list honest:
@@ -9,9 +9,9 @@
  *     with `// @covers: <field>[, <field>...]` so the parity test
  *     below can verify coverage by grep.
  *
- *  2. `smart_vent/backend/tests/test_temperature_field_parity.py`
+ *  2. `homeclimate/backend/tests/test_temperature_field_parity.py`
  *     compares this manifest to `TEMPERATURE_FIELDS` in
- *     `smart_vent/backend/api/routes.py` (both the field set and
+ *     `homeclimate/backend/api/routes.py` (both the field set and
  *     the kind for each), and asserts every `ui: true` entry has at
  *     least one `@covers:` mention in the e2e spec.
  *
@@ -85,12 +85,58 @@ export const TEMPERATURE_FIELDS: TempField[] = [
     endpoints: ["POST /api/thermostats", "PUT /api/thermostats/{id}"],
   },
 
+  // ── Peak Hours — PUT /api/peak-hours (Smart Control)
+  {
+    field: "peak_depth",
+    kind: "delta",
+    ui: true,
+    endpoints: ["PUT /api/peak-hours"],
+  },
+  // ── Zone Balance — PUT /api/zone-balance/{building_id} (Smart Control)
+  {
+    field: "zone_gap",
+    kind: "delta",
+    ui: true,
+    endpoints: ["PUT /api/zone-balance/{building_id}"],
+  },
+  // ── House band — PUT /api/house (Dashboard)
+  {
+    field: "house_heat_to",
+    kind: "absolute_nullable",
+    ui: true,
+    endpoints: ["PUT /api/house"],
+  },
+  {
+    field: "house_cool_to",
+    kind: "absolute_nullable",
+    ui: true,
+    endpoints: ["PUT /api/house"],
+  },
+
   // ── Room — POST /api/rooms, PUT /api/rooms/{id}
   {
     field: "system_wide_temp",
     kind: "absolute_nullable",
     ui: true,
     endpoints: ["POST /api/rooms", "PUT /api/rooms/{id}"],
+  },
+  // A cool-to that turns the room's occupancy target into a band.
+  {
+    field: "presence_cool_to",
+    kind: "absolute_nullable",
+    ui: true,
+    endpoints: ["PUT /api/rooms/{id}"],
+  },
+  // The same for a schedule block's target and a temporary hold's.
+  {
+    field: "cool_to",
+    kind: "absolute_nullable",
+    ui: true,
+    endpoints: [
+      "POST /api/rooms/{id}/schedules",
+      "PUT /api/rooms/{id}/schedules/{sid}",
+      "POST /api/rooms/{id}/override",
+    ],
   },
   {
     field: "temp_offset",
@@ -227,5 +273,25 @@ export const TEMPERATURE_FIELDS: TempField[] = [
       "PUT /api/rooms/{id}/schedules/{sid}",
       "POST /api/rooms/{id}/override (hold modal, #576)",
     ],
+  },
+
+  // ── Zone heat pump protection — PUT /api/zones/{id} (Zones page)
+  {
+    field: "hp_max_step_f",
+    kind: "delta",
+    ui: true,
+    endpoints: ["PUT /api/zones/{id}"],
+  },
+  {
+    field: "hp_recovery_f_per_hr",
+    kind: "delta",
+    ui: true,
+    endpoints: ["PUT /api/zones/{id}"],
+  },
+  {
+    field: "hp_compressor_lockout_f",
+    kind: "absolute_nullable",
+    ui: true,
+    endpoints: ["PUT /api/zones/{id}"],
   },
 ];

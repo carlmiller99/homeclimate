@@ -22,7 +22,7 @@
 #   - screenshots/     (README images)
 #   - e2e/screenshots/ (committed golden PNGs)
 # .github/ is deliberately NOT docs — a workflow edit must still run the suite.
-# Nested markdown outside those dirs (e.g. smart_vent/CHANGELOG.md) is code.
+# Nested markdown outside those dirs (e.g. homeclimate/CHANGELOG.md) is code.
 #
 # Note: `set -e` is intentionally NOT used — the bootstrap relies on `cmd ||
 # fallback` chains, and the final checks report failure explicitly so any lint/
@@ -32,7 +32,7 @@ set -uo pipefail
 # Resolve the repo root from this script's own location (.claude/hooks/…),
 # so the gate keeps working if the checkout lives somewhere else.
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-FRONTEND="$ROOT/smart_vent/frontend"
+FRONTEND="$ROOT/homeclimate/frontend"
 
 # ── docs-only classification ────────────────────────────────────────────────
 # Everything the pending commit could include: staged changes, plus unstaged
@@ -110,7 +110,7 @@ fi
 # ── run the checks (any failure blocks the commit) ──────────────────────────
 npm --prefix "$FRONTEND" run lint          || exit 1
 npm --prefix "$FRONTEND" run test:coverage || exit 1
-cd "$ROOT/smart_vent"
+cd "$ROOT/homeclimate"
 ruff check backend/                        || exit 1
 ruff format --check backend/               || exit 1
 

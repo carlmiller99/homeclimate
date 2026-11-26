@@ -14,7 +14,7 @@
 # leg also proves the toggle actually gates the transport (a 503 before, a
 # working session after).
 services:
-  plenum:
+  homeclimate:
     ports:
       # Compose appends override ports to the base list, so 8099 stays published.
       - "9099:9099"
@@ -23,5 +23,5 @@ services:
       # the CI matrix runs this leg once per mode so the stateful path — where the
       # server issues an Mcp-Session-Id that clients must echo back — is exercised
       # too. Test-only knob: no config.yaml option, no run.sh read, no UI control,
-      # same precedent as PLENUM_CLOCK_OVERRIDE above it.
-      PLENUM_MCP_STATELESS: "${PLENUM_MCP_STATELESS:-true}"
+      # same precedent as HOMECLIMATE_CLOCK_OVERRIDE above it.
+      HOMECLIMATE_MCP_STATELESS: "${HOMECLIMATE_MCP_STATELESS:-true}"

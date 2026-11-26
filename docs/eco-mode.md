@@ -13,11 +13,15 @@ off, the engine behaves exactly as it did before this feature existed.
 > cooling setpoint is roughly 3–5 % less cooling energy. Heating is the mirror
 > image on cold days. Background analysis: issues #402 and #404.
 
+## Where it is set
+
+Eco Mode is tuned for each zone in **Smart Control → Eco Mode**: the switch, the outdoor thresholds and the drift limits, with a worked example that follows what you type. A single room can be given its own Eco settings in its room settings under **My Home**. Suspending Eco for a while is done from the **Dashboard**, or from a zone's header in My Home.
+
 ## Requires an outside-temperature sensor
 
 Eco Mode is entirely driven by the outdoor temperature, so **it cannot be turned
-on until the house-wide outside-temperature entity is configured** (set it at the
-top of the Thermostats page). The UI disables the Eco toggle until then, and the
+on until the house-wide outside-temperature entity is configured** (set it in
+**Settings → Sensors**). Until then the UI will not save Eco Mode switched on, and the
 API rejects enabling it without a sensor.
 
 If you do not have a physical outdoor thermometer in Home Assistant, add a free
@@ -242,8 +246,8 @@ you pick, then resumes automatically. Modeled on
   table (never clobbered by a config save) and a scheduler sweep clears it
   when the resume time passes.
 
-**Where:** the 🍃 buttons on the Dashboard (page level + per zone card) and the
-Thermostats page (page level + per card header), and a green 🍃 banner shown on
+**Where:** the 🍃 buttons on the Dashboard (page level + per zone card), and a
+green 🍃 banner shown on
 every page while any thermostat is suspended — click it to edit or resume
 early. The buttons only appear when Eco is actually in play: a thermostat has
 Eco enabled, a room carries an explicit per-room Eco opt-in, or a suspension
@@ -274,7 +278,7 @@ whether Eco was active. Query the impact over any date range:
   fields, so you can trend drift against outdoor temperature.
 
 All of these are exposed as [MCP](./mcp.md) tools, so you can mine the collected
-data for savings after rollout. Because Plenum can't read kWh, savings are
+data for savings after rollout. Because HomeClimate can't read kWh, savings are
 inferred from **runtime reduction**, not measured directly.
 
 ## See also

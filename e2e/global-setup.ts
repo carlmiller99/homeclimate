@@ -6,7 +6,7 @@
  * A) WITH real HA (CI / Docker Compose):
  *    Configures the addon by navigating the actual UI with a headless Chromium
  *    browser.  The EntityPicker calls /api/ha/entities which proxies to HA, so
- *    this verifies the HA→Plenum connection is alive before any test screenshot
+ *    this verifies the HA→HomeClimate connection is alive before any test screenshot
  *    is taken.
  *
  * B) WITHOUT real HA (Claude Cloud / local no-Docker):
@@ -23,7 +23,7 @@
 
 import { chromium } from "@playwright/test";
 
-const BASE_URL = process.env.PLENUM_URL ?? "http://localhost:8099";
+const BASE_URL = process.env.HOMECLIMATE_URL ?? "http://localhost:8099";
 const API = `${BASE_URL}/api`;
 
 async function waitForAddon(): Promise<void> {
@@ -69,7 +69,7 @@ async function put(path: string, body: unknown): Promise<Response> {
 // Occupancy sensor defined in e2e/fixtures/ha-config/configuration.yaml. Wired
 // to the Office room so it resolves to `via Presence` in the goldens (#456).
 const PRESENCE_ENTITY = "binary_sensor.office_occupancy";
-// Mon–Fri. The pinned clock (PLENUM_CLOCK_OVERRIDE) lands on a Wednesday.
+// Mon–Fri. The pinned clock (HOMECLIMATE_CLOCK_OVERRIDE) lands on a Wednesday.
 const WEEKDAYS = [0, 1, 2, 3, 4];
 
 async function haIsReachable(): Promise<boolean> {
@@ -160,32 +160,18 @@ async function setupViaUI(): Promise<void> {
   page.setDefaultTimeout(30_000);
 
   try {
-    // ── Step 1: Register thermostats ─────────────────────────────────────────
-    await page.goto(`${BASE_URL}/thermostats`);
-    await page.waitForSelector(".loading", { state: "detached", timeout: 20_000 });
-    await page.waitForLoadState("networkidle");
-
+    // ── Step 1: Register the zones' thermostats ─────────────────────────────
+    // Over REST: in the UI a zone is added together with its first room, and
+    // the rooms below are created one by one through the Add Room form.
     for (const tc of THERMOSTATS) {
-      await page.getByRole("button", { name: /Register thermostat/i }).click();
-      await page.waitForSelector(".modal");
-
-      // Type the short name to narrow the EntityPicker dropdown.
-      // Scope to the modal — the Thermostats page itself now mounts an
-      // EntityPicker via OutsideTempPicker, so `.entity-picker input`
-      // alone is ambiguous (strict-mode violation in Playwright).
-      const search = tc.entityId.split(".")[1].split("_")[0]; // "downstairs"|"upstairs"
-      await page.locator(".modal .entity-picker input").fill(search);
-      // Dropdown requires a live HA connection; this will time out without Docker
-      await page.waitForSelector(".modal .entity-dropdown", { timeout: 20_000 });
-      await page.locator(".modal .entity-option").filter({ hasText: tc.entityId }).click();
-
-      await page.locator("#add-thermo-name").fill(tc.name);
-      // Airflow-floor (#213): total vent count is required at registration.
-      // Use a constant — the value only matters for engine behaviour, not
-      // for the round-trip / golden screenshots these e2e tests exist for.
-      await page.locator("#add-thermo-total-vents").fill("8");
-      await page.getByRole("button", { name: "Register", exact: true }).click();
-      await page.waitForSelector(".modal", { state: "detached" });
+      await post("/thermostats", {
+        thermostat_entity_id: tc.entityId,
+        name: tc.name,
+        // Airflow-floor (#213): total vent count is required at registration.
+        // Use a constant — the value only matters for engine behaviour, not
+        // for the round-trip / golden screenshots these e2e tests exist for.
+        total_vents_count: 8,
+      });
     }
 
     // ── Step 2: Create rooms and configure sensors / vents ───────────────────
@@ -196,13 +182,13 @@ async function setupViaUI(): Promise<void> {
       // "Add room" button mid-click ("element is not stable / detached from the
       // DOM"). A fresh navigation + load-state wait guarantees a stable button
       // before we click it. (#329)
-      await page.goto(`${BASE_URL}/rooms`);
+      await page.goto(`${BASE_URL}/my-home`);
       await page.waitForSelector(".loading", { state: "detached", timeout: 20_000 });
       await page.waitForLoadState("networkidle");
       const addRoomBtn = page.getByRole("button", { name: /Add room/i });
       await addRoomBtn.waitFor({ state: "visible" });
       await addRoomBtn.click();
-      // "+ Add room" now swaps to a full-page settings view (not a modal), so
+      // "Add Room" now swaps to a full-page settings view (not a modal), so
       // wait for the room-name field rather than a `.modal` container.
       await page.waitForSelector("#room-name");
       await page.locator("#room-name").fill(def.name);
@@ -236,8 +222,8 @@ async function setupViaUI(): Promise<void> {
       // Wait for any loading state to clear before clicking Back (same pattern as after room creation)
       await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
 
-      // Now click Back button (labeled "← All rooms")
-      await page.getByRole("button", { name: /All rooms/i }).click();
+      // Now click Back button (labeled "← My Home")
+      await page.getByRole("button", { name: /My Home/i }).click();
       await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
       console.log(`[e2e] ✓ Room "${def.name}" configured and back to room list`);
     }
@@ -284,7 +270,7 @@ async function setupViaREST(): Promise<void> {
 // ── Room active-status fixtures (schedules / presence) ───────────────────────
 //
 // Seeds the four status permutations the Rooms/Room-detail goldens capture,
-// evaluated against the pinned clock (PLENUM_CLOCK_OVERRIDE = Wed 2025-06-04
+// evaluated against the pinned clock (HOMECLIMATE_CLOCK_OVERRIDE = Wed 2025-06-04
 // 10:00 ET). Runs once, via REST, after rooms exist — identical on both the UI
 // (path A) and REST (path B) setup paths. See ROOM_DEFS for the per-room intent.
 
@@ -437,7 +423,7 @@ export default async function globalSetup(): Promise<void> {
   // Auth leg (#373): the stack runs require_auth=true with no Supervisor, so the
   // unauthenticated seeding below would 401 — and the auth specs (login page,
   // MCP-token card, settings) don't need seeded rooms/metrics. Skip it all.
-  if (process.env.PLENUM_E2E_AUTH === "1") {
+  if (process.env.HOMECLIMATE_E2E_AUTH === "1") {
     console.log("[e2e] Auth leg — skipping entity/metrics seeding (require_auth on)");
     return;
   }

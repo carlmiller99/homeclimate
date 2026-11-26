@@ -1,4 +1,4 @@
-# Plenum Release Runbook
+# HomeClimate Release Runbook
 
 ## Cutting a release
 
@@ -71,7 +71,7 @@ The last step of `release-pr.yml` (`gh release edit`) writes the same notes
 onto the GitHub Release object. It's a single API call with no fallback if it
 merged after the release PR was already opened — a transient GitHub API 5xx
 there (as happened for v0.32.0) leaves the release page showing the bare tag
-name instead of "Plenum vX.Y.Z" and no notes, even though the release PR body
+name instead of "HomeClimate vX.Y.Z" and no notes, even though the release PR body
 is correct. It's now retried automatically (5 attempts, backoff) on the
 normal tag-push path, but if it still comes up blank:
 
@@ -94,15 +94,13 @@ normal tag-push path, but if it still comes up blank:
 | Any PR or push to main | `lint.yml` | Ruff, pytest, mypy, frontend lint+tests, Trivy source scan. Skipped for docs-only diffs (see note below). |
 | Any PR | `container-ci.yml` | Docker smoke test, °F/°C round-trip E2E, MQTT round-trip E2E (#519), MCP conformance E2E (stateless + stateful, #543), °F/°C + auth visual-regression legs, golden fan-in commit. Skipped for docs-only diffs (see note below). |
 | Open PR → main (non-release) | `container-ci.yml` → `Image vulnerability scan` | Trivy-scans the `ci-<sha>` image the build just produced (fork PRs: the `docker load`ed artifact), so base-image CVEs surface on the PR that could fix them instead of piling up until the next release PR (#596). Blocking: any CRITICAL, any HIGH/MEDIUM with a released fix, and any committed secret. LOW, UNKNOWN and unfixable HIGH/MEDIUM are reported to the job summary and the Security tab without blocking. Skipped on release PRs — `Build (PR validation)` scans the published image there. |
-| Non-release branch merged → main | `docker.yml` → `build-and-push` | Build + push, only when `smart_vent/config.yaml` changed (version bump outside the release flow). Docs-only pushes are `paths-ignore`d. |
-| Open/update a PR → main | `beta.yml` → `Update beta pointer (in PR)` | Writes the beta version + changelog (incl. the PR's title) onto the PR's OWN branch, so it lands on main at merge. No image build; no push to main. Same-repo PRs only. Skipped for docs-only diffs (a docs change produces a byte-identical image). |
-| Merge to `main` (non-release) | `beta.yml` → `Publish beta image` | Reads the merged beta version and builds + pushes `ghcr.io/dhruvb14/plenum-beta:X.(Y+1).0-beta.N` + `:latest`. Registry push only — never writes to main. Skipped on release-PR merges. (A docs-only PR that skipped the pointer bump leaves the beta version unchanged, so nothing builds here.) |
+| Non-release branch merged → main | `docker.yml` → `build-and-push` | Build + push, only when `homeclimate/config.yaml` changed (version bump outside the release flow). Docs-only pushes are `paths-ignore`d. |
 
 ### Docs-only path limiting
 
 A PR (or push) whose diff touches **only** documentation-like paths skips the
 build/test pipeline. The ignore set is identical across `lint.yml`,
-`container-ci.yml`, `beta.yml`, `docker.yml`, and the local `git commit` gate
+`container-ci.yml`, `docker.yml`, and the local `git commit` gate
 (`.claude/hooks/precommit-gate.sh`):
 
 - root-level markdown (`*.md` at the repo root)
@@ -110,41 +108,9 @@ build/test pipeline. The ignore set is identical across `lint.yml`,
 
 `.github/` is intentionally **not** in the set — a workflow change must run the
 full pipeline so CI validates itself. Nested markdown outside those dirs (e.g.
-`smart_vent/CHANGELOG.md`) is treated as code. PR-triggered workflows gate with
+`homeclimate/CHANGELOG.md`) is treated as code. PR-triggered workflows gate with
 a job-level `if:` on a `changes` job (a skipped required check reports "skipped"
 and satisfies branch protection; a workflow-level `paths` filter would strand
 the required check and hang the PR — the #412 lesson). `docker.yml` is
 push-to-main only, so it can safely use a workflow-level `paths-ignore`.
 
-## Beta track (rolling)
-
-The **beta** add-on (`slug: plenum_beta`) tracks the tip of `main` so risky work
-can soak on real installs before it reaches stable. (Auth, #373, and MQTT,
-#519, both shipped this way and are now in stable too.) Because `main` is
-PR-only (the branch ruleset forbids direct pushes),
-`.github/workflows/beta.yml` splits into two event-gated jobs that **never push
-to `main`**:
-
-- **On a pull request → `main`** (`Update beta pointer`): computes the next beta
-  version (`MAJOR.(MINOR+1).0-beta.<commits-since-last-minor-tag>`), regenerates
-  `smart_vent_beta/CHANGELOG.md` (including *this PR's* title + number), bumps
-  `smart_vent_beta/config.yaml`, and commits them onto the **PR's own branch**
-  with `GITHUB_TOKEN`. The beta bump is part of the PR diff and lands on `main`
-  when the PR merges — so no post-merge write to `main` is ever needed. (Same-repo
-  PRs only; fork PRs skip, since their token is read-only.) No image is built here.
-- **On push to `main`** (`Publish beta image`): the version is already merged, so
-  this job just reads it and builds + pushes the multi-arch image to
-  `ghcr.io/dhruvb14/plenum-beta:<version>` + `:latest`. A registry push — never a
-  git push to `main`. It builds only when the beta version actually changed.
-
-Because the pointer rides inside the feature PR (not a separate bot PR) there is
-no PR-generating loop, and because `GITHUB_TOKEN` commits don't re-trigger
-workflows the bot's own pointer commit never re-runs the job. The version counter
-excludes `smart_vent_beta/` commits, so those bot commits can't inflate it.
-
-Beta is a **separate add-on** with its own database and host ports, installable
-alongside stable Plenum. Stable still advances only on a human `v#.#.#` tag.
-
-**One-time setup:** make the `ghcr.io/dhruvb14/plenum-beta` GHCR package
-**public** (HA Supervisor pulls anonymously). No branch-protection change is
-needed — the PR-based flow keeps `main` strictly PR-only.

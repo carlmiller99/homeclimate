@@ -1,0 +1,389 @@
+---
+name: homeclimate-research-frontier
+description: Open, SOTA-advancing research problems for HomeClimate — learned per-room thermal models, weather-aware predictive cycle planning, adaptive overshoot/deadband tuning, heat-pump shadow studies, and LLM/MCP self-explanation — each with the verified data asset behind it, the first three concrete in-repo steps, and a falsifiable numeric milestone. Load when asked "what could HomeClimate do that Flair/ecobee/research MPC can't", when starting an experiment on cycle-history data, or when scoping a learning/optimization feature. NOT a runbook for measuring today's behavior (homeclimate-diagnostics-and-tooling) or for how to run an experiment properly (homeclimate-research-methodology).
+---
+
+# HomeClimate research frontier
+
+Open problems where HomeClimate could plausibly advance the state of the art in
+residential HVAC zoning. Every item below is **candidate/open work — nothing
+here is built, promised, or proven**. This skill owns the WHAT (which problems,
+which data assets, which first steps, which success numbers). The DISCIPLINE —
+how a hunch becomes an accepted result, what evidence bar applies — is owned by
+**homeclimate-research-methodology**; read it before starting any item. The
+measurement substrate (DB queries, ready-made analysis scripts) is owned by
+**homeclimate-diagnostics-and-tooling**.
+
+## When NOT to use this skill
+
+| You want | Load instead |
+|---|---|
+| Numbers about what the system did (cycles, overshoot, duty cycle) | homeclimate-diagnostics-and-tooling |
+| The evidence bar / idea lifecycle for an experiment | homeclimate-research-methodology |
+| To actually change engine/guard code | homeclimate-change-control (gates), homeclimate-architecture-contract (invariants) |
+| Domain theory (deadband, short-cycling, RC thermal models context) | hvac-zoning-reference |
+| Where a config knob lives / its bounds | homeclimate-config-and-flags |
+
+## Ground rules for all experiments (non-negotiable)
+
+1. **Safety guards are one-way ratchets** (inferred rule from repo history — see
+   homeclimate-change-control). No experiment may weaken short-cycle protection
+   (`min_cycle_runtime_min` / `min_cycle_offtime_min`), the cooling lockout
+   (`cooling_lockout_below_f`), the airflow floor (`min_open_vents_fraction`),
+   the staleness/unavailability guards, or the `min_setpoint`/`max_setpoint`
+   envelope — even "temporarily, for data collection".
+2. **The sandbox is Dev Mode, not a simulator.** Dev Mode runs the engine
+   normally — real sensor reads, real room selection, real vent-move
+   computation — but intercepts every outbound HA service call
+   (`climate.set_temperature`, `cover.open_cover`, `cover.close_cover`,
+   `cover.set_cover_position`, `cover.set_cover_tilt_position`,
+   `cover.toggle`) and logs it to `event_log` instead of sending it. There are
+   **no simulated cycles and no synthetic house model**: what you get is
+   *shadow mode* — the engine's would-be commands against the real house's real
+   trajectory, which itself is being driven by whatever is actually controlling
+   the HVAC. Mode semantics are owned by **homeclimate-run-and-operate**; the one
+   line that matters here: the engine gate is `system_enabled OR dev_mode`
+   (`scheduler.py:477`), so engines keep ticking under Dev Mode even with
+   System Off — only both-off stops ticking entirely.
+   Design experiments accordingly — Dev Mode gives you counterfactual command
+   logs, not counterfactual temperatures. (Re-verified 2026-09-01: the gate is
+   now `scheduler.py:624`, `get_enabled=lambda: self._system_enabled or
+   self._dev_mode` — same semantics, line moved.)
+3. **Offline first.** Every item below starts with read-only analysis of
+   `app.db` (see homeclimate-run-and-operate for where it lives). Copy the DB out and
+   open it `mode=ro`, as the diagnostics scripts do.
+4. **All stored temperatures are °F; deltas are °F deltas** (no −32). Model in
+   °F end-to-end; convert only at the write boundary if a result ever ships
+   (see homeclimate-architecture-contract for the #231 contract; the conversion
+   helpers live in `homeclimate/backend/units.py` — pre-2026-07-05 CLAUDE.md
+   copies said routes.py; corrected in PR #388 — if docs and repo disagree
+   again, the repo wins). Timestamps in the DB are naive UTC ISO strings.
+5. **Anything that ships needs a UI control** (CLAUDE.md 100% rule) and clears
+   homeclimate-change-control. Advice-only outputs (a "suggested value" shown in the
+   UI) are a deliberately lower-risk shipping target than closed-loop control.
+
+## The verified data substrate (originally 2026-07 v0.22.1, re-verified 2026-09-01 v0.35.0)
+
+All verified by reading `homeclimate/backend/db.py` (SCHEMA, lines 43–322) and
+the engine. This per-room, per-tick, actuation-annotated dataset is the asset
+commercial products don't expose and research MPC testbeds have to build by
+hand.
+
+| Table | Columns that matter for research | Written by |
+|---|---|---|
+| `cycle_logs` | `started_at`, `ended_at`, `mode`, `ended_reason`, `thermostat_temp_at_start/_end`, `setpoint_at_start/_end`, `vents_at_start/_end`, **`outside_temp_at_start`**, **`outside_temp_at_end`**, `in_min_runtime_hold` | engine, cycle open/close (`cycle_engine.py` ~959 `insert_cycle_log`, ~1751 `close_cycle_log`) |
+| `room_cycle_states` | per (cycle, room): `target_temp`, **`reached_at`**, **`vent_closed_at`**, `temp_at_start`, `temp_at_end`, `joined_at`, `role` (`'overflow'` rows are conditioning ballast — exclude from comfort analyses), plus Eco Mode's `requested_target`/`effective_target`/`eco_active` (Issue #404 — see the item-1 caveat below) | engine |
+| `cycle_temp_samples` | **one row per active room per 60s tick**: `timestamp`, `room_temp`, `thermostat_temp`, `setpoint` (writer: `cycle_engine.py:1368`) | engine |
+| `cycle_setpoint_history` | every setpoint command with `reason` | engine |
+| `cycle_vent_events` | every vent `action` + `reason` with timestamp and `entity_id`/`room_id` | engine |
+| `daily_thermostat_metrics` / `monthly_…` | `heating_seconds`, `cooling_seconds`, cycle counts by outcome, `avg_outside_temp_at_start/_end` | rollup jobs |
+| `rooms` | the hand-tuned knobs to replace: `temp_offset`, `deadband_override`, `ambient_suppression_*` | user |
+| `thermostat_configs` | `overshoot_delta` (default 2.0 °F), `deadband` (default 0.5 °F), the safety envelope fields | user |
+| `event_log` | categorized narrative incl. Dev-Mode intercepted commands | event_logger |
+
+Plus: metrics endpoints (`/api/metrics/thermostats/{id}/timeseries`,
+`…/cycles-vs-outside-temp`, `…/overshoot-histogram`, `…/rooms` with
+time-to-target — `routes.py` ~3107–3316), the diagnostics scripts
+(`homeclimate-diagnostics-and-tooling/scripts/`: `cycle_report.py`,
+`overshoot_stats.py`, `hvac_quality.py`), and the full REST surface as
+auto-generated MCP tools (below).
+
+**Data-hygiene note (resolved, Issue #394 — no longer a live caveat as of
+2026-09-01):** an earlier version of this skill flagged that the only
+production writer of `cycle_temp_samples` always passes a non-NULL `room_id`
+while `db._degree_minutes_timeseries` filtered `s.room_id IS NULL`, which
+would have meant the degree-minutes chart computed over nothing. Re-reading
+`_degree_minutes_timeseries` (`db.py:2632`) confirms this was fixed: its
+docstring now states the per-tick sampler writes one row per active room, all
+carrying the same `thermostat_temp`/`setpoint` reading, so the query no
+longer filters by `room_id` at all — it collapses a multi-room tick to one
+row per `(cycle_id, timestamp)` with `MAX()` instead (legacy `room_id=NULL`
+rows, if any exist from before #394, still work unchanged through the same
+`MAX()`). `compute_overshoot_histogram` (`db.py:2716`) does still join on
+`(s.room_id = rcs.room_id OR s.room_id IS NULL)`, but that is a documented,
+intentional per-room fallback (Issue #290: use room-level samples when
+present, thermostat-level only when a room produced none) — not the same bug
+shape. Still worth a sanity query before building on either representation,
+but treat it as routine verification, not a known-suspect gap:
+`sqlite3 app.db "SELECT COUNT(*), SUM(room_id IS NULL) FROM cycle_temp_samples"`.
+
+---
+
+## Frontier item 1 — Learned per-room thermal response models (candidate)
+
+Replace the two hand-tuned per-room fudge factors — `rooms.temp_offset` (born
+from incident #86: post-closure drift blocked cycle termination) and
+`thermostat_configs.overshoot_delta` — with models fitted from cycle history.
+
+**Why current SOTA falls short.** Flair/Keen/ecobee zoning uses static per-room
+offsets and fixed hysteresis; none learn per-room dynamics or expose the data to
+let a user do it. Residential MPC research fits whole-house RC models on
+purpose-built testbeds; per-room models with *vent actuation as the control
+input* are rare because nobody logs per-room temperature trajectories aligned
+with vent open/close events. HomeClimate does, every 60 seconds.
+
+**HomeClimate's specific asset (verified above):** `cycle_temp_samples` per-tick
+room trajectories + `room_cycle_states.reached_at`/`vent_closed_at` giving the
+exact conditioning→coasting phase boundary per room + `cycle_vent_events` for
+every vent move + `cycle_logs.outside_temp_at_start/_end` for the disturbance
+term.
+
+**First three steps in this repo:**
+
+1. Write `scripts/response_rate.py` (this skill's dir, read-only, modeled on
+   `homeclimate-diagnostics-and-tooling/scripts/`): per-room conditioning-phase
+   response rate in °F/min vs outdoor temperature. Core query (schema-verified):
+   ```sql
+   SELECT rcs.room_id, cl.mode,
+          (rcs.temp_at_end - rcs.temp_at_start) * 60.0 /
+            MAX(1,(julianday(COALESCE(rcs.reached_at, cl.ended_at))
+                   - julianday(cl.started_at)) * 86400) AS f_per_min,
+          cl.outside_temp_at_start
+   FROM room_cycle_states rcs JOIN cycle_logs cl ON cl.id = rcs.cycle_id
+   WHERE cl.ended_at IS NOT NULL AND rcs.role != 'overflow'
+     AND rcs.temp_at_start IS NOT NULL AND rcs.temp_at_end IS NOT NULL;
+   ```
+   Refine with per-tick slopes from `cycle_temp_samples` joined on
+   `(cycle_id, room_id)` restricted to `timestamp < reached_at`.
+2. Write `scripts/drift_model.py`: post-closure drift per room — samples with
+   `timestamp > rcs.vent_closed_at`, plus `temp_at_end − target_temp` as the
+   terminal drift, regressed against `(outside_temp − room_temp)` and elapsed
+   minutes. Compare its predictions against the static `rooms.temp_offset`
+   baseline on held-out cycles (methodology: see homeclimate-research-methodology
+   for the split discipline).
+3. Fit a 1R1C model per room offline (`dT/dt = k_hvac·u + k_env·(T_out − T)`,
+   `u` = vent-open indicator from `cycle_vent_events`), least squares over the
+   per-tick samples; evaluate both models on the same holdout.
+
+**You have a result when:** the drift model predicts each room's temperature
+10 minutes after `vent_closed_at` within **±0.5 °F RMSE on ≥50 held-out
+(cycle, room) participations**, and beats the static-`temp_offset` predictor's
+RMSE on the same holdout. Below that, the hand-tuned knob stays.
+
+**Eco Mode caveat (shipped since this item was written — see `docs/eco-mode.md`):**
+`room_cycle_states.target_temp` is now the room's **effective** target — after
+Eco Mode's outdoor-temperature relaxation, when active (`eco_active = 1`,
+Issue #404) — not necessarily the temperature the room was originally asked
+for (`requested_target`). Fitting a response-rate or drift model straight off
+`target_temp` on a home with Eco Mode on will conflate genuine per-room
+thermal response with Eco's proportional setpoint drift. Either filter to
+`eco_active = 0` for a first pass, or model against `requested_target` and
+treat `effective_target − requested_target` as a known, already-explained
+input rather than something to learn.
+
+## Frontier item 2 — Weather-aware predictive cycle planning (candidate)
+
+Extend the shipped ambient-drift heuristic (`docs/precool-presence.md`) from a
+fixed threshold gate into a prediction: "will this room coast to target within
+N minutes?" — and eventually plan cycles against known future targets.
+
+**Why current SOTA falls short.** Commercial "smart recovery"/pre-cool uses
+fixed or opaque lead times and is whole-house. Research MPC handles forecasts
+but not per-room vent zoning on commodity hardware. HomeClimate's current heuristic
+(verified: `cycle_engine.py:2056` `_ambient_suppression_eligible`, gate =
+`outside ≥ target + min_differential`) is deliberately dumb — a 5 °F fixed
+differential regardless of how fast this particular room actually drifts.
+
+**Not superseded by Eco Mode.** Eco Mode (`docs/eco-mode.md`) also
+shipped since this item was written and is also outdoor-temperature-driven,
+but it solves a different problem: it *relaxes the target itself* by a static
+proportional formula (no prediction, no per-room learning) so the HVAC works
+less hard on extreme days. This item is about *predicting whether a room
+will reach its unrelaxed target on ambient drift alone*, to decide whether to
+run HVAC at all. The two are complementary, not redundant — a coast-time
+predictor here could in principle also inform how aggressively Eco Mode's
+ramp should be set, but that's future scope, not started.
+
+**HomeClimate's specific asset:** the `schedules` table means future targets are
+*known* (`days_of_week`, `start_time`, `end_time`, `target_temp`); item 1's
+drift model gives per-room coast rates; `daily_thermostat_metrics.heating_seconds/
+cooling_seconds` give the energy proxy to minimize; `/api/metrics/…/cycles-vs-outside-temp`
+(`db.compute_cycles_vs_outside_temp`, db.py:2901) already correlates cycle cost
+with weather.
+
+**First three steps in this repo:**
+
+1. `scripts/coast_replay.py`: for every historical presence/schedule-driven
+   cycle in `cycle_logs`, ask the item-1 drift model whether coasting would have
+   reached target within the presence holdover window; tally (a) conditioning
+   seconds that could have been skipped, (b) predicted comfort misses (>1 °F
+   beyond deadband). Pure offline replay — no engine changes.
+2. If replay is favorable, prototype replacing the fixed
+   `ambient_suppression_min_differential` gate with predicted time-to-target in
+   `_ambient_suppression_eligible` — per-room opt-in flag, default off, additive
+   schema change only, full homeclimate-change-control pass (touches engine
+   decision logic).
+3. Forecast ingestion (candidate, further out): read an HA `weather.*` /
+   forecast sensor via `ha_client.py` alongside the existing outside-temp
+   sensor, so the gate can use "outside temp in 60 min" instead of now.
+   Fail-safe like the current feature: unreadable forecast ⇒ behave exactly as
+   today.
+
+**You have a result when:** replay over **≥30 days of real history** predicts
+**≥10% reduction in total `heating_seconds + cooling_seconds`** (from
+`daily_thermostat_metrics`) with **≤1 predicted comfort miss per week** (room
+>1 °F beyond its effective deadband while coasting). If the drift model isn't
+past its item-1 milestone, this item is blocked — don't start here.
+
+## Frontier item 3 — Adaptive overshoot & deadband tuning inside the safety envelope (candidate)
+
+`overshoot_delta` (default 2.0 °F) and `deadband` (default 0.5 °F) are static
+per-thermostat guesses. The overshoot histogram
+(`db.compute_overshoot_histogram`, db.py:2716, semantics replicated in
+`overshoot_stats.py`) already measures how wrong they are; today a human closes
+the loop by hand.
+
+**Why current SOTA falls short.** ecobee's adaptive recovery is single-zone and
+unexplainable; no commercial zoning product tunes per-thermostat hysteresis
+from observed per-room overshoot, and none show their work.
+
+**HomeClimate's specific asset:** the histogram (`db.compute_overshoot_histogram`,
+db.py:2716) + `cycle_setpoint_history` (every setpoint command with `reason`)
++ `ended_reason` outcome buckets (`_ROLLUP_REASON_BUCKETS`, db.py:2140) + a
+*hard* envelope to tune inside: `min_setpoint`/`max_setpoint` (validated
+**40–100 °F** post-normalization — `routes.py` `_temp_range_error("Setpoints",
+40, 100, unit)`, e.g. ~line 1683; the `.jules/sentinel.md` file this was
+previously cited to was removed from the repo in #532 — the setpoint-bounds
+lesson it recorded is preserved in `homeclimate-failure-archaeology`),
+`min_cycle_runtime_min`/`min_cycle_offtime_min`, and `hvac_quality.py` as an
+automated regression detector (exit 1 on red flags).
+
+**First three steps in this repo:**
+
+1. `scripts/suggest_overshoot.py`: per thermostat, recommend
+   `overshoot_delta` = e.g. the 80th-percentile observed overshoot from the
+   histogram data over the last N weeks, floored at the current deadband;
+   print current vs suggested with supporting cycle counts.
+2. Surface it advice-only: a "suggested value" annotation next to
+   `overshoot_delta` on the Thermostats page (satisfies the UI rule; no control
+   authority; new read-only endpoint over the existing histogram query).
+3. Closed-loop candidate (only after 1–2 prove out): a nightly job proposing a
+   bounded step (≤0.5 °F per week) applied **via the existing PUT
+   `/api/thermostats/...` route** so the write-boundary validation and logging
+   apply — never a direct DB write. Trial first in Dev Mode / on the advice-only
+   output; requires homeclimate-change-control review as an engine-adjacent change.
+
+**You have a result when:** after adopting suggested values on a real system,
+the overshoot-histogram mass in bins **≥2 °F drops by ≥50% over ≥40 subsequent
+completed cycles**, while `timeout_count` does not rise and `hvac_quality.py`
+still exits 0 (no new short cycles / oscillation). A comfort gain that trips a
+safety flag is a failed result.
+
+## Frontier item 4 — Heat pumps as a shadow-mode research problem (long-horizon candidate)
+
+Since 0.5.0 heat pumps get guards only (`docs/heat-pumps.md`, `heat_pump.py`):
+a capped, rate-limited heating setpoint, runtime and airflow floors, a
+switchover wait, and observed (never commanded) backup heat. Reversing-valve
+and defrost semantics still stay with the thermostat. **Nothing in this item
+weakens that fence.** Any code change here must clear the
+homeclimate-change-control safety ratchet, and the docs' non-support line stays
+until support is real (homeclimate-docs-and-writing owns that claim discipline).
+
+**Why current SOTA falls short.** Vent zoning of ducted heat pumps is genuinely
+open: variable-capacity compressors interact badly with vent-induced static
+pressure, and no commercial vent product publishes a safety envelope for it.
+
+**HomeClimate's specific asset:** Dev Mode (verified, `docs/system-modes.md`) makes
+a *zero-actuation shadow study* possible on a real heat-pump home: the engine
+runs its full decision logic and every would-be `climate.*`/`cover.*` command
+lands in `event_log` — HomeClimate never touches the equipment.
+
+**First three steps in this repo:**
+
+1. Shadow deployment: run HomeClimate with **Dev Mode ON** in a heat-pump home
+   (rooms/sensors configured, vents mapped or fake `cover` helpers); collect
+   ≥2 weeks of `event_log` + `cycle_logs` of would-be behavior while the OEM
+   thermostat actually runs the house.
+2. Guard-by-guard failure analysis on that data: for each engine guard (mode
+   lock, cooling lockout `cycle_engine.py:~447`, min-runtime hold, ambient
+   reset), document what a reversing valve / defrost event would have done to
+   it. Deliverable: a `docs/`-style analysis note, not code.
+3. Only then: a design proposal through homeclimate-change-control defining a
+   heat-pump-specific envelope (e.g. compressor-protective minimum runtimes,
+   defrost-window command blackouts) before any `models.py` change.
+
+**You have a result when:** the shadow log over **≥14 days** shows the current
+engine would have issued **zero** commands violating a written heat-pump
+envelope — concretely: 0 would-be mode reversals within 30 min of a prior
+opposite-mode command, 0 would-be cycles shorter than 10 min, 100% of would-be
+setpoints inside `min_setpoint`/`max_setpoint`. Any violation is equally a
+result: it documents exactly why the fence exists, with data.
+
+## Frontier item 5 — LLM/MCP self-explanation and agent-assisted tuning (candidate)
+
+**HomeClimate's specific asset (verified in `mcp_openapi.py` / `mcp_http.py`,
+shipped 0.22.0 per issue #372/PR #375, port default 9099, `mcp_enabled`
+toggle off by default):** the *entire* REST surface — rooms, schedules,
+thermostat safety config, cycle and event logs, metrics — is auto-generated
+into MCP tools from the OpenAPI spec (`mcp_openapi.build_tool_specs`), each
+call dispatched back through the running routes over loopback, so agent
+writes get the same validation and unit conversion as the UI. No commercial
+zoning product exposes anything like this; "why did my HVAC do X last night?"
+is unanswerable in Flair/ecobee. **Since this item was written, #373 (auth)
+and #464 (OIDC) have both shipped** (`docs/auth.md`, `docs/mcp.md`): with
+`require_auth` on (the default), every `/mcp` call needs a bearer token
+scoped `read` / `write` / `destructive`, minted from the Settings page. This
+doesn't change what's achievable here, but it changes step 3 below.
+
+**First three steps in this repo:**
+
+1. Build an explanation eval: 20 questions with DB-ground-truth answers drawn
+   from a real `app.db` ("why did the 2pm cycle end?" → `cycle_logs.ended_reason`
+   + `cycle_setpoint_history.reason` + `cycle_vent_events`); attach Claude per
+   `docs/mcp.md` and grade tool-only answers.
+2. If the agent flails from too many round-trips, add one read-only
+   "cycle bundle" endpoint aggregating `cycle_logs` + samples + setpoint
+   history + vent events for a `cycle_id` (the per-room samples endpoint at
+   `routes.py:2403` is the seed). Read-only ⇒ lowest change-control class, but
+   still needs `@docs`/`@response_schema` (spec-enforcement test) and becomes
+   an MCP tool automatically.
+3. Agent-assisted tuning: agent proposes item-3 style config changes via the
+   existing PUT tools with a human approving each. #373 has since shipped, so
+   this is no longer blocked on a missing auth layer — mint a **`write`-scoped**
+   (not `destructive`) token for the agent so it cannot restart/restore/manage
+   tokens on its own, and keep the human approval step regardless: the risk
+   this item guards against is an agent making *unsupervised* control
+   changes, which scoped auth alone doesn't solve. Do not route an
+   autonomous loop around the human-approval step just because auth now
+   exists.
+
+**You have a result when:** the agent answers **≥90% of the 20-question eval
+correctly** (graded against the DB) using only MCP tools, with the transcript
+as the explanation artifact. Stretch: same bar from a non-developer's phrasing
+of the questions.
+
+---
+
+## Prioritization (one opinion, clearly labeled as such)
+
+Item 1 is the keystone: items 2 and 3 consume its model, and it needs nothing
+but a copied `app.db` and a few hundred logged cycles. Item 5 is independent
+and cheap to attempt today. Item 4 is deliberately last — highest safety
+stakes, longest horizon, and its first step requires access to a heat-pump
+home. All numeric milestones above are proposed bars, not attained results.
+
+## Provenance and maintenance
+
+Facts originally verified against the repo at v0.22.1, 2026-07-05.
+**Re-verified 2026-09-01 against v0.35.0 stable** (13 releases / ~100 commits
+later) — every line number below was re-grepped and corrected where it had
+drifted; the data-hygiene caveat, the MCP-auth framing, the heat-pump-fence
+citations, and the `min_setpoint`/`max_setpoint` bound were substantively
+wrong at the old date and are fixed above, not just renumbered. Re-verify
+again before use, especially anything with a line number:
+
+- Schema (tables/columns cited above): `grep -n "CREATE TABLE" homeclimate/backend/db.py` — SCHEMA block now at db.py lines 43–322 (grew from 42–247 with `eco_suspensions` and `mcp_tokens` tables, among others).
+- Per-tick sample writer (only production writer, always non-NULL room_id): `grep -rn insert_cycle_temp_sample homeclimate/backend --include=*.py | grep -v tests` → `cycle_engine.py:1368` only (moved from :1098).
+- Degree-minutes query: `_degree_minutes_timeseries` now at db.py:2632; per Issue #394 it no longer filters `s.room_id IS NULL` — see the data-hygiene note above. `compute_overshoot_histogram` (db.py:2716) does still use that join arm, intentionally (Issue #290).
+- Hand-tuned knobs + defaults: `rooms.temp_offset` (db.py:55, was :50), `overshoot_delta REAL NOT NULL DEFAULT 2.0` (db.py:121, was :100), `deadband … DEFAULT 0.5` (db.py:119, was :98).
+- Ambient-drift heuristic: `docs/precool-presence.md`; `_ambient_suppression_eligible` at `cycle_engine.py:2056` (moved from :1575).
+- Dev Mode semantics (intercept + log, no simulation): `docs/system-modes.md`.
+- Engine tick gate (`system_enabled OR dev_mode`): `scheduler.py:624` (moved from :477).
+- Heat-pump fence: README.md:112 (moved from :108), `docs/safety.md` top blockquote, `cycle_engine.py:~452` comment inside the cooling-lockout block. `models.py:210` is stale — that line is now just the `default_temp` field comment and models.py carries no heat-pump text at all; don't cite it.
+- Setpoint bounds: `min_setpoint`/`max_setpoint` are validated **40–100 °F** post-normalization (`routes.py` `_temp_range_error("Setpoints", 40, 100, unit)`, e.g. line 1683) — not 40–90 °F, which is the bound for `target_temp`/`default_temp`/`system_wide_temp` instead (`_temp_range_error(field, 40, 90, unit)`, several call sites). The `.jules/sentinel.md` file this was previously cited to no longer exists in the repo (removed by #532); the lesson it recorded is preserved in `homeclimate-failure-archaeology`.
+- MCP: `mcp_http.py` (port/toggle/503), `mcp_openapi.py` (`build_tool_specs`), `docs/mcp.md`; shipped 0.22.0, port row in config 0.22.1. `mcp_enabled` is still off by default (`scheduler.py:62`, `db.get_system_setting(..., "mcp_enabled", "0")`). **Auth (#373) and OIDC (#464) have since shipped** — `require_auth` defaults to `true` (`config.yaml`), gating every `/mcp` request behind a scoped bearer token (`docs/auth.md`); the pre-2026-09 "MCP is unauthenticated" framing is gone.
+- Metrics endpoints: `grep -n "@routes.get(\"/api/metrics/" homeclimate/backend/api/routes.py` — now ~lines 3107–3316 (moved from ~2023–2263); per-room samples endpoint at routes.py:2403 (moved from :1581).
+- Diagnostics scripts: `ls .claude/skills/homeclimate-diagnostics-and-tooling/scripts/`.
+- All SQL snippets in this file were executed against an in-memory DB built from the real SCHEMA string (2026-07-05) and re-checked by reading the current schema (2026-09-01); the columns item 1's query depends on (`room_cycle_states.target_temp/reached_at/vent_closed_at/temp_at_start/temp_at_end/role`, `cycle_logs.started_at/ended_at/outside_temp_at_start`) are unchanged. Still NOT run against a production `app.db`.
+- 60s tick: `homeclimate/backend/scheduler.py` (`seconds=60` at lines 158/177, moved from ~133/152).
+- Line numbers drift; re-grep rather than trust them after any engine/db change.

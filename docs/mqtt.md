@@ -1,6 +1,6 @@
 # MQTT interface for Home Assistant automations
 
-Plenum can expose its controls over MQTT so **Home Assistant automations drive
+HomeClimate can expose its controls over MQTT so **Home Assistant automations drive
 it directly** — enable a schedule when you leave, hold a room while a meeting is
 on the calendar, clear presence when the house arms, flip vacation mode from a
 travel calendar.
@@ -12,7 +12,7 @@ MQTT is — and with discovery on, every control shows up as a **native Home
 Assistant entity** you can pick from a dropdown, with no YAML at all.
 
 > **Off by default, one switch.** The bridge never connects until the **MQTT
-> bridge** toggle on Plenum's **Settings** page is turned on — the same shape as
+> bridge** toggle on HomeClimate's **Settings** page is turned on — the same shape as
 > the MCP server's toggle. There is nothing to enable in the add-on
 > configuration: with a broker available (HAOS's built-in Mosquitto, or
 > `MQTT_HOST` on Docker), the toggle is ready on first boot.
@@ -24,15 +24,15 @@ Assistant entity** you can pick from a dropdown, with no YAML at all.
 ### Home Assistant OS / Supervised
 
 1. Install the **Mosquitto broker** add-on if you have not already (restart
-   Plenum if it was already running when you installed it).
-2. Open Plenum → **Settings** → turn the **MQTT bridge** on.
+   HomeClimate if it was already running when you installed it).
+2. Open HomeClimate → **Settings** → turn the **MQTT bridge** on.
 
-That is all. Plenum asks the Supervisor for the built-in broker's address and
+That is all. HomeClimate asks the Supervisor for the built-in broker's address and
 credentials at startup, so there is nothing to type and nothing to set in the
 add-on configuration. The topic prefix defaults to the add-on slug — also
 fetched from the Supervisor — which is why stable and beta can share one broker
 without colliding. An add-on installed from a repository gets a slug (and so a
-prefix) like `88b5ffac_plenum` or `88b5ffac_plenum_beta`; the hash stays in the
+prefix) like `88b5ffac_homeclimate` or `88b5ffac_homeclimate_beta`; the hash stays in the
 topics but is hidden from anything human-facing.
 
 ### Standalone Docker
@@ -44,11 +44,11 @@ the bridge available:
 environment:
   MQTT_HOST: "mosquitto"
   MQTT_PORT: "1883"
-  MQTT_USER: "plenum"
+  MQTT_USER: "homeclimate"
   MQTT_PASSWORD: "…"
   # No add-on slug exists without a Supervisor, so the prefix falls back to
-  # "plenum". Set this if two Plenum containers share one broker.
-  MQTT_TOPIC_PREFIX: "plenum"
+  # "homeclimate". Set this if two HomeClimate containers share one broker.
+  MQTT_TOPIC_PREFIX: "homeclimate"
 ```
 
 Then turn the bridge on from **Settings**.
@@ -64,34 +64,34 @@ card is the only place it is visible.
 
 ## What you get
 
-With discovery on (the default), Plenum publishes Home Assistant MQTT Discovery
+With discovery on (the default), HomeClimate publishes Home Assistant MQTT Discovery
 configs and the controls appear as entities grouped into devices:
 
 | Device | Contains |
 |---|---|
 | **One per room** | Clear presence, hold temperature, each of that room's schedules, and every room setting (offset, holdover, pre-cool/pre-heat, per-room Eco overrides) |
 | **One per thermostat** | Setpoint bounds, deadband, overshoot, vacation HVAC mode, vacation safety cycles, Eco Mode and its base values, Eco Suspend |
-| **The app** (`Plenum App`) | Vacation mode, its return-at and start-at, the read-only *Vacation State* sensor, system on/off — also the hub device every room and thermostat shows as "Connected via" |
+| **The app** (`HomeClimate App`) | Vacation mode, its return-at and start-at, the read-only *Vacation State* sensor, system on/off — also the hub device every room and thermostat shows as "Connected via" |
 
-The instance's identity — the topic prefix, prettified (`plenum` → "Plenum",
-`plenum_beta` → "Plenum Beta", with a HAOS repository hash like `88b5ffac_` or
+The instance's identity — the topic prefix, prettified (`homeclimate` → "HomeClimate",
+`homeclimate_beta` → "HomeClimate Beta", with a HAOS repository hash like `88b5ffac_` or
 a `local_` slug prefix dropped from the display form) — leads every device
 name and fills the `manufacturer` field. The stable add-on publishes
-"Plenum *Room*, by Plenum" connected via **Plenum App**; the beta publishes
-"Plenum Beta *Room*, by Plenum Beta" connected via **Plenum Beta App**. Home
+"HomeClimate *Room*, by HomeClimate" connected via **HomeClimate App**; the beta publishes
+"HomeClimate Beta *Room*, by HomeClimate Beta" connected via **HomeClimate Beta App**. Home
 Assistant derives entity ids from device names, so beta entities register as
-`*.plenum_beta_…` and stable's as `*.plenum_…` — two installs on one broker
+`*.homeclimate_beta_…` and stable's as `*.homeclimate_…` — two installs on one broker
 stay apart at a glance, and in automations.
 
 > **Entity ids are minted once.** HA suggests an entity id at first discovery
 > and never renames the entity afterwards, so entities that existed before an
 > upgrade that changed device naming keep their old ids (the device name
 > updates in place). To re-mint them under the current names: delete the
-> Plenum devices from HA's MQTT integration, then restart Plenum (or toggle
+> HomeClimate devices from HA's MQTT integration, then restart HomeClimate (or toggle
 > the bridge off and on) — everything re-discovers within seconds. Automations
 > that referenced the old ids need re-pointing afterwards.
 
-Schedules are discovered **dynamically**: create one in Plenum and its switch
+Schedules are discovered **dynamically**: create one in HomeClimate and its switch
 appears in Home Assistant; delete it and the entity is removed. A schedule with
 a [name](./schedules.md) uses it; an unnamed one falls back to its id.
 
@@ -113,7 +113,7 @@ The equipment-protection settings — short-cycle protection
 airflow floor (`min_open_vents_fraction`, `max_vent_closed_min`),
 `unavailable_abort_after_min`, `overflow_during_min_runtime`, and
 `reconciliation_interval_min` — are **not** on MQTT and are reachable only from
-the Settings and Thermostats pages.
+a zone's Thermostat Settings (My Home → Edit Zone) and Settings.
 
 This is deliberate. MQTT's trust boundary is the broker's ACLs, which is a
 weaker gate than the [authentication](./auth.md) in front of the web UI and MCP.
@@ -122,7 +122,7 @@ stronger boundary. Install-time hardware facts (`total_vents_count`,
 `has_bypass_damper`), free-text notes, and display names are excluded too — they
 are not automation targets. So are the three [welcome home](./vacation-mode.md#welcome-home)
 settings (`welcome_home_enabled`, `welcome_home_lead_min`, `welcome_home_hours`):
-they are install-time preferences, set once on the Thermostats page.
+they are install-time preferences, set once in a zone's Thermostat Settings.
 
 ---
 
@@ -140,7 +140,7 @@ automation:
     actions:
       - action: number.set_value
         target:
-          entity_id: number.plenum_office_hold_temperature
+          entity_id: number.homeclimate_office_hold_temperature
         data:
           value: 68
 ```
@@ -151,7 +151,7 @@ Or publish to a topic directly, which is handy for addressing a room by name
 ```yaml
       - action: mqtt.publish
         data:
-          topic: plenum/room/office/hold/set
+          topic: homeclimate/room/office/hold/set
           payload: "68"
 ```
 
@@ -167,7 +167,7 @@ Every command publishes a result — **on every attempt, success or failure** �
 to the same topic with `/result` appended:
 
 ```
-plenum/room/office/hold/set          →  plenum/room/office/hold/set/result
+homeclimate/room/office/hold/set          →  homeclimate/room/office/hold/set/result
 ```
 
 ```json
@@ -175,7 +175,7 @@ plenum/room/office/hold/set          →  plenum/room/office/hold/set/result
 {"ok": false, "error": "target_temp must be between 40 and 90°F"}
 ```
 
-This matters more than it looks. Plenum validates writes (schedules cannot
+This matters more than it looks. HomeClimate validates writes (schedules cannot
 overlap, setpoints have bounds, pre-cool needs an outside sensor), so a command
 *can* be refused — and an automation that assumed otherwise would quietly do
 nothing. Subscribe to the result topic when a command needs to be reliable.
@@ -185,7 +185,7 @@ Results are **not** retained, so a new subscriber never replays an old verdict.
 
 ## Topic tree
 
-Every topic starts with the instance prefix (`plenum` unless you changed it).
+Every topic starts with the instance prefix (`homeclimate` unless you changed it).
 
 ```
 <prefix>/status                                    online | offline (retained)
@@ -216,8 +216,8 @@ Every topic starts with the instance prefix (`plenum` unless you changed it).
 `<room>` accepts **either** the room's id **or** its name:
 
 ```
-plenum/room/3f2a…-9c1b/hold/set        by id
-plenum/room/living_room/hold/set       by name
+homeclimate/room/3f2a…-9c1b/hold/set        by id
+homeclimate/room/living_room/hold/set       by name
 ```
 
 The name form is the sanitised name — lower-cased, with anything outside
@@ -226,7 +226,7 @@ The name form is the sanitised name — lower-cased, with anything outside
 Both forms carry retained state, and a result echoes back on whichever form the
 command used. Because the sanitised name has to be unambiguous, **room names
 must be unique once sanitised** — "Office" and "office" now collide, and the
-Rooms page will say so. On upgrade, any existing collisions are renamed
+Room Settings form will say so. On upgrade, any existing collisions are renamed
 automatically (`"Office"` → `"Office (2)"`) and each rename is recorded in the
 event log.
 
@@ -247,7 +247,7 @@ Plain values, one per topic:
 | Datetime | ISO-8601, e.g. `2026-08-01T18:00:00-04:00` |
 | Button | anything (the payload is ignored) |
 
-**Temperatures are in your display unit**, not always °F. If Plenum is showing
+**Temperatures are in your display unit**, not always °F. If HomeClimate is showing
 °C, publish `20`, not `68` — the same value you would type into the web UI.
 State topics report in the display unit too.
 
@@ -258,8 +258,8 @@ to its thermostat's deadband, and each per-room Eco override falls back field by
 field. Two ways to clear one:
 
 ```
-plenum/room/office/deadband_override/set     payload: ""    (empty)
-plenum/room/office/deadband_override/clear   payload: any
+homeclimate/room/office/deadband_override/set     payload: ""    (empty)
+homeclimate/room/office/deadband_override/clear   payload: any
 ```
 
 The `/clear` topic exists because Home Assistant's number entity has no way to
@@ -276,9 +276,9 @@ Vacation mode and Eco Suspend both need an end time before they can be switched
 on, so their switches handle `OFF` and reject a bare `ON`:
 
 ```
-plenum/system/vacation_mode/return_at/set        2026-08-14T17:00:00-04:00   ← enables
-plenum/system/vacation_mode/set                  OFF                         ← disables
-plenum/system/vacation_mode/set                  ON                          ← rejected
+homeclimate/system/vacation_mode/return_at/set        2026-08-14T17:00:00-04:00   ← enables
+homeclimate/system/vacation_mode/set                  OFF                         ← disables
+homeclimate/system/vacation_mode/set                  ON                          ← rejected
 ```
 
 The rejection explains what to set instead, on the result topic. Same for
@@ -297,7 +297,7 @@ so creating one goes through a single JSON command topic. It has no Home
 Assistant entity; call it with `mqtt.publish`:
 
 ```
-plenum/system/vacation_mode/schedule/set   {"start_at": "2026-12-20T17:00:00-05:00", "return_at": "2026-12-28T15:00:00-05:00"}
+homeclimate/system/vacation_mode/schedule/set   {"start_at": "2026-12-20T17:00:00-05:00", "return_at": "2026-12-28T15:00:00-05:00"}
 ```
 
 `start_at` is optional: leave it out (or give a time already passed) and the
@@ -328,7 +328,7 @@ automation:
     actions:
       - action: mqtt.publish
         data:
-          topic: plenum/system/vacation_mode/schedule/set
+          topic: homeclimate/system/vacation_mode/schedule/set
           payload: >-
             {"start_at": "{{ trigger.calendar_event.start }}",
              "return_at": "{{ trigger.calendar_event.end }}"}
@@ -343,24 +343,24 @@ automation:
   not retained.
 - **Do not publish commands with `retain: true`.** A retained command would be
   replayed by the broker on every reconnect, re-applying it after every restart
-  forever — so Plenum ignores retained messages on command topics and clears
+  forever — so HomeClimate ignores retained messages on command topics and clears
   them from the broker instead of executing them.
-- **Stale topics are cleaned up.** Shortly after connecting, Plenum retires any
+- **Stale topics are cleaned up.** Shortly after connecting, HomeClimate retires any
   retained state or discovery config left behind by an earlier run — a room
   deleted or renamed while the bridge was disconnected does not linger as a
   ghost entity in Home Assistant.
 - **Availability.** `<prefix>/status` is a Last Will topic: `online` while
   connected, `offline` on a clean shutdown *or* an ungraceful one. Discovered
-  entities go unavailable rather than showing stale values if Plenum dies.
+  entities go unavailable rather than showing stale values if HomeClimate dies.
 - **Successful MQTT commands are logged** to the event log, exactly like a UI
-  or API change — the Logs page shows what changed and when. A *rejected*
+  or API change — Settings → Logs shows what changed and when. A *rejected*
   command reports only on its result topic, the same way a rejected UI edit
   shows an inline error rather than a log entry.
 - **No rate limiting.** Commands go through the same validation as REST; there is
   no MQTT-specific throttling.
-- **Authentication does not extend to MQTT.** Plenum's `require_auth` gates the
+- **Authentication does not extend to MQTT.** HomeClimate's `require_auth` gates the
   web UI and MCP; MQTT access is whatever your broker allows. Use broker ACLs to
-  restrict who can publish to Plenum's topics.
+  restrict who can publish to HomeClimate's topics.
 
 ---
 
@@ -368,7 +368,7 @@ automation:
 
 **The bridge will not turn on.** The Settings card says no broker was found.
 On Home Assistant OS that means the Supervisor had no MQTT service to offer —
-install/start the **Mosquitto broker** add-on and restart Plenum. On standalone
+install/start the **Mosquitto broker** add-on and restart HomeClimate. On standalone
 Docker, set `MQTT_HOST`. The card shows the last connection error when there is
 one, as a short fixed description: the broker rejected the username or
 password, refused the connection, could not be resolved, had nothing listening
@@ -386,7 +386,7 @@ and *Eco Suspend Until* need Home Assistant 2026.5 or newer — older versions
 have no MQTT `datetime` platform and drop those two configs silently.
 
 **A command does nothing.** Subscribe to its `/result` topic — a rejected write
-says why. `mosquitto_sub -h <broker> -t 'plenum/#' -v` shows the whole tree.
+says why. `mosquitto_sub -h <broker> -t 'homeclimate/#' -v` shows the whole tree.
 
 **Stable and beta are fighting.** Both installs default their prefix to their
 add-on slug (fetched from the Supervisor at startup), so this should not happen

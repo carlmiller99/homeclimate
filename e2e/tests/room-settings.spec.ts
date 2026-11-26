@@ -1,7 +1,7 @@
 import { test, expect } from "./fixtures";
 
 test("room settings — full page with all room controls", async ({ page }) => {
-  await page.goto("/rooms");
+  await page.goto("/my-home");
   await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
   await page.waitForLoadState("networkidle");
 
@@ -12,12 +12,12 @@ test("room settings — full page with all room controls", async ({ page }) => {
     .locator(".card")
     .filter({ hasText: "Living Room" })
     .first()
-    .getByRole("button", { name: "Settings", exact: true })
+    .getByRole("button", { name: "Room Settings" })
     .click();
 
   // Room settings used to be a tall modal that the visual suite could only
   // capture partially (the dialog overflowed the viewport and scrolled). It now
-  // renders as its own full page — like "Configure sensors & vents".
+  // renders as its own full page — like "Edit Devices".
   const settings = page.getByTestId("room-settings");
   await settings.waitFor({ state: "visible" });
   // The Eco worked-example resolves from the selected thermostat's config; wait
@@ -27,7 +27,7 @@ test("room settings — full page with all room controls", async ({ page }) => {
   // Grow the viewport tall enough to paint the whole form in a single pass.
   // Otherwise Playwright stitches the capture in viewport-height slices, and
   // because it scrolls between slices the position:sticky <nav> re-renders at
-  // each slice top — splicing the "Plenum" bar into the middle of the page on
+  // each slice top — splicing the "HomeClimate" bar into the middle of the page on
   // high-DPI mobile and clipping the title under it on desktop. One paint (no
   // scroll) avoids both; width/DPI stay per-project so the layout is unchanged,
   // and the element capture sits below the sticky nav so the nav is excluded.
