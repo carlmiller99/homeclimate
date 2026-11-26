@@ -29,7 +29,12 @@ weather integration — **[PirateWeather](https://pirateweather.net/)** is a goo
 drop-in (Met.no and OpenWeatherMap work too) — and point the
 outside-temperature setting at its temperature sensor.
 
-If the sensor later becomes unreadable (unavailable/stale), Eco Mode simply does
+You can choose more than one sensor there. HomeClimate then uses their average
+as the outside temperature everywhere (Eco Mode, the cooling lockout,
+pre-cool/pre-heat, the recorder, the analytics), and a sensor that stops
+answering is left out of the average until it comes back.
+
+If no sensor can be read (unavailable/stale), Eco Mode simply does
 nothing that cycle — the room runs to its real requested target.
 
 ## The drift model — a proportional ramp

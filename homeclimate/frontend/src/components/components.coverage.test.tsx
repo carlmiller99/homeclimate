@@ -393,9 +393,9 @@ describe("OutsideTempPicker — non-Error failures", () => {
       entity_id: "sensor.outdoor",
       current_value: 50,
     });
-    vi.mocked(api.setOutsideTempEntity).mockRejectedValue(NOT_AN_ERROR);
+    vi.mocked(api.setOutsideTempEntities).mockRejectedValue(NOT_AN_ERROR);
     renderPicker();
-    fireEvent.click(await screen.findByRole("button", { name: "Clear" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Remove sensor.outdoor" }));
     expect(await screen.findByText("Save failed")).toBeInTheDocument();
     // The previously configured entity is still shown — a failed save must not
     // look like a successful clear.

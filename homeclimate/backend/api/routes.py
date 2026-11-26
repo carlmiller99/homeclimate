@@ -27,6 +27,7 @@ import aiosqlite
 from aiohttp import web
 
 from .. import auth, db, demo_seed, house, oidc, schedule_rules, scopes, session, structure, tz
+from .. import outside as outside_sensors
 from ..engine import room_manager
 from ..models import (
     VALID_CONTROL_METHODS,
@@ -278,8 +279,7 @@ async def _eco_enable_blocked(conn, enabling: bool) -> web.Response | None:
     """
     if not enabling:
         return None
-    entity_id = await db.get_system_setting(conn, "outside_temperature_entity_id", "")
-    if not entity_id:
+    if not await outside_sensors.entity_ids(conn):
         return error(
             "Eco Mode needs an outside-temperature sensor. Configure the "
             "outside-temperature entity in Settings, Sensors first — if you "
@@ -307,8 +307,7 @@ async def _ambient_enable_blocked(conn, enabling: bool) -> web.Response | None:
     """
     if not enabling:
         return None
-    entity_id = await db.get_system_setting(conn, "outside_temperature_entity_id", "")
-    if not entity_id:
+    if not await outside_sensors.entity_ids(conn):
         return error(
             "Pre-cool/pre-heat needs an outside-temperature sensor. Configure the "
             "outside-temperature entity in Settings, Sensors first — if you "
@@ -2928,55 +2927,74 @@ async def clear_event_logs(request: web.Request) -> web.Response:
     return json_response({"cleared": True})
 
 
-@docs(tags=["settings"], summary="Get outside temperature entity setting")
+def _outside_setting(ha, ids: list[str]) -> dict:
+    """The outside-sensor setting as the API reports it.
+
+    ``entity_id`` is the first sensor, kept for clients written when there was
+    only one; ``entity_ids`` is the whole list and ``current_value`` the average
+    of those that can be read.
+    """
+    values = outside_sensors.readings(ha, ids)
+    return {
+        "entity_id": ids[0] if ids else None,
+        "entity_ids": ids,
+        "current_value": outside_sensors.average(values),
+        "values": values,
+    }
+
+
+OUTSIDE_NOT_FOUND = "An outside temperature sensor was not found in Home Assistant"
+OUTSIDE_NOT_NUMERIC = "An outside temperature sensor does not report a number, so it cannot be used"
+OUTSIDE_TOO_MANY = f"Choose at most {outside_sensors.MAX_SENSORS} outside temperature sensors"
+
+
+@docs(tags=["settings"], summary="Get outside temperature sensor setting")
 @response_schema(schemas.OutsideTempEntitySettingSchema)
 @routes.get("/api/settings/outside-temp-entity")
 async def get_outside_temp_entity(request: web.Request) -> web.Response:
-    """Return the configured outside-temperature HA entity_id and its current value (Issue #85 Phase 1b)."""
+    """Return the outside-temperature sensors and their current average (Issue #85 Phase 1b)."""
     conn = await get_conn(request)
-    entity_id = await db.get_system_setting(conn, "outside_temperature_entity_id", "")
-    current_value: float | None = None
-    if entity_id:
-        ha = request.app["ha"]
-        try:
-            current_value = ha.get_numeric_state(entity_id)
-        except Exception:
-            current_value = None
-    return json_response({"entity_id": entity_id or None, "current_value": current_value})
+    return json_response(
+        _outside_setting(request.app["ha"], await outside_sensors.entity_ids(conn))
+    )
 
 
-@docs(tags=["settings"], summary="Set outside temperature entity setting")
+@docs(tags=["settings"], summary="Set outside temperature sensor setting")
 @request_schema(schemas.OutsideTempEntitySettingSchema)
 @response_schema(schemas.OutsideTempEntitySettingSchema)
 @routes.put("/api/settings/outside-temp-entity")
 async def set_outside_temp_entity(request: web.Request) -> web.Response:
-    """Set the outside-temperature HA entity_id (Issue #85 Phase 1b).
+    """Set the outside-temperature sensors (Issue #85 Phase 1b).
 
-    Validates that the entity exists in HA and exposes a numeric state via
-    HAClient.get_numeric_state(); rejects with 400 otherwise. Pass
-    entity_id=null (or empty string) to clear the setting.
+    Send ``entity_ids`` (a list; several are averaged) or, as before,
+    ``entity_id`` (one sensor). Each must exist in HA and expose a numeric
+    state via HAClient.get_numeric_state(); otherwise 400. An empty list,
+    ``entity_id=null`` or an empty string clears the setting.
     """
     conn = await get_conn(request)
     body = await request.json()
-    if "entity_id" not in body:
-        return error("entity_id field required")
-    raw = body["entity_id"]
-    if raw is None or (isinstance(raw, str) and raw.strip() == ""):
-        await db.set_system_setting(conn, "outside_temperature_entity_id", "")
-        return json_response({"entity_id": None, "current_value": None})
-    if not isinstance(raw, str):
-        return error("entity_id must be a string or null")
-    entity_id = raw.strip()
+    if not isinstance(body, dict) or ("entity_ids" not in body and "entity_id" not in body):
+        return error("entity_ids or entity_id field required")
+    if "entity_ids" in body:
+        raw_ids = body["entity_ids"]
+        if not isinstance(raw_ids, list) or not all(isinstance(i, str) for i in raw_ids):
+            return error("entity_ids must be a list of strings")
+    else:
+        raw = body["entity_id"]
+        if raw is not None and not isinstance(raw, str):
+            return error("entity_id must be a string or null")
+        raw_ids = [raw or ""]
+    ids = outside_sensors.parse(",".join(i.replace(",", " ") for i in raw_ids))
+    if len(ids) > outside_sensors.MAX_SENSORS:
+        return error(OUTSIDE_TOO_MANY)
     ha = request.app["ha"]
-    if ha.get_state(entity_id) is None:
-        return error(f"Entity {entity_id!r} not found in Home Assistant")
-    value = ha.get_numeric_state(entity_id)
-    if value is None:
-        return error(
-            f"Entity {entity_id!r} does not return a numeric state (cannot be used as outside temperature)"
-        )
-    await db.set_system_setting(conn, "outside_temperature_entity_id", entity_id)
-    return json_response({"entity_id": entity_id, "current_value": value})
+    for entity_id in ids:
+        if ha.get_state(entity_id) is None:
+            return error(f"{OUTSIDE_NOT_FOUND}: {entity_id}")
+        if ha.get_numeric_state(entity_id) is None:
+            return error(f"{OUTSIDE_NOT_NUMERIC}: {entity_id}")
+    await outside_sensors.store(conn, ids)
+    return json_response(_outside_setting(ha, ids))
 
 
 @docs(tags=["settings"], summary="Get sensor-staleness threshold (Issue #211)")
@@ -4082,13 +4100,13 @@ async def metrics_thermostat_live(request: web.Request) -> web.Response:
         }
 
     # Current outside-temp reading via HAClient.get_numeric_state (°C → °F).
-    outside_entity = await db.get_system_setting(conn, "outside_temperature_entity_id", "")
-    current_outside_temp = None
-    if outside_entity:
-        try:
-            current_outside_temp = request.app["ha"].get_numeric_state(outside_entity)
-        except Exception:
-            current_outside_temp = None
+    # One sensor or the average of several; the first id is reported for
+    # clients that show which sensor it is.
+    outside_ids = await outside_sensors.entity_ids(conn)
+    outside_entity = outside_ids[0] if outside_ids else ""
+    current_outside_temp = outside_sensors.average(
+        outside_sensors.readings(request.app["ha"], outside_ids)
+    )
 
     return json_response(
         {

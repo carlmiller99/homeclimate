@@ -228,7 +228,12 @@ class TestOutsideTempEntityEdges:
         assert resp.status == 200
         body = await resp.json()
         # The entity id is still reported; only the reading degrades to null.
-        assert body == {"entity_id": "sensor.flaky", "current_value": None}
+        assert body == {
+            "entity_id": "sensor.flaky",
+            "entity_ids": ["sensor.flaky"],
+            "current_value": None,
+            "values": {"sensor.flaky": None},
+        }
         assert "secret internals" not in await resp.text()
 
     @pytest.mark.asyncio

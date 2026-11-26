@@ -55,7 +55,7 @@ A side menu of sections:
 A side menu of sections:
 
 - **General** — the house time zone, and backup and restore.
-- **Sensors** — the outside temperature sensor and the sensor-staleness threshold.
+- **Sensors** — the outside temperature sensors (one, or several that are averaged) and the sensor-staleness threshold.
 - **Integrations** — the MCP server and its access tokens, and the MQTT bridge.
 - **Notifications** — which warnings are sent to your phone, through which Home Assistant notify service, and the daily summary. See [Notifications](./notifications.md).
 - **Logs** — the live feed, cycle history and log retention.

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.15
+
+- Settings → Sensors: you can now choose several outside temperature sensors. HomeClimate uses their average wherever it needs the outside temperature, and leaves out one that stops answering until it comes back. One sensor works as before.
+
 ## 0.5.14
 
 The first release from `main` since 0.5.0. It carries everything listed below under 0.5.2 to 0.5.13, which until now was only in test builds.

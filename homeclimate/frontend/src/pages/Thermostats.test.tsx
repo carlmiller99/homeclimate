@@ -654,14 +654,14 @@ describe("Thermostats Page", () => {
 
   it("renders the house-wide outside temperature sensor picker", async () => {
     render(<Thermostats />);
-    expect(await screen.findByText("Outside temperature sensor")).toBeInTheDocument();
+    expect(await screen.findByText("Outside temperature sensors")).toBeInTheDocument();
   });
 
   it("saves the outside temperature sensor selection", async () => {
     vi.mocked(api.getHAEntities).mockResolvedValue([
       { entity_id: "sensor.outdoor", friendly_name: "Outdoor", state: "50" },
     ]);
-    vi.mocked(api.setOutsideTempEntity).mockResolvedValue({
+    vi.mocked(api.setOutsideTempEntities).mockResolvedValue({
       entity_id: "sensor.outdoor",
       current_value: 50,
     });
@@ -675,7 +675,7 @@ describe("Thermostats Page", () => {
     fireEvent.mouseDown(option);
 
     await waitFor(() => {
-      expect(api.setOutsideTempEntity).toHaveBeenCalledWith("sensor.outdoor");
+      expect(api.setOutsideTempEntities).toHaveBeenCalledWith(["sensor.outdoor"]);
     });
   });
 

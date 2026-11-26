@@ -437,6 +437,18 @@ describe("API Client", () => {
     expect(fetch).toHaveBeenCalledWith("/api/settings/outside-temp-entity", expect.anything());
   });
 
+  it("setOutsideTempEntities sends the whole list in a PUT", async () => {
+    mockJsonResponse({});
+    await api.setOutsideTempEntities(["sensor.north", "sensor.south"]);
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/settings/outside-temp-entity",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({ entity_ids: ["sensor.north", "sensor.south"] }),
+      })
+    );
+  });
+
   it("setOutsideTempEntity sends a PUT", async () => {
     mockJsonResponse({});
     await api.setOutsideTempEntity("sensor.outside");

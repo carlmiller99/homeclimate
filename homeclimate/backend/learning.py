@@ -20,6 +20,7 @@ from typing import Any
 import aiosqlite
 
 from . import db
+from . import outside as outside_sensors
 from .models import Room, RoomVent
 from .units import to_f
 from .user_errors import UserError, fixed
@@ -161,8 +162,7 @@ async def collect(
     of its door and window sensors.
     """
     rooms: list[Room] = await db.get_all_rooms(conn)
-    outside_id = await db.get_system_setting(conn, "outside_temperature_entity_id", "")
-    outside = ha.get_numeric_state(outside_id) if outside_id else None
+    outside = await outside_sensors.read(conn, ha)
 
     room_vents: dict[str, list[float | None]] = {}
     zone_vents: dict[str, list[float | None]] = {}
