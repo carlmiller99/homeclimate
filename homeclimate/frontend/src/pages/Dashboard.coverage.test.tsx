@@ -156,7 +156,7 @@ describe("Dashboard — uncovered branches", () => {
     vi.mocked(api.getThermostats).mockResolvedValue([thermostat("climate.a", "Upstairs")]);
 
     renderDashboard();
-    await screen.findByText("Upstairs");
+    await screen.findAllByText("Upstairs");
 
     const den = screen.getByText("Den").closest(".dash-room") as HTMLElement;
     expect(within(den).getByText("1/4 open")).toBeInTheDocument();
@@ -203,7 +203,7 @@ describe("Dashboard — uncovered branches", () => {
     vi.mocked(api.getThermostats).mockResolvedValue([thermostat("climate.a", "Upstairs")]);
 
     const { container } = renderDashboard();
-    await screen.findByText("Upstairs");
+    await screen.findAllByText("Upstairs");
 
     // modeColor("heating") === "orange"; modeLabel("heating", …) === "Heating".
     const badge = screen.getByText("Heating");
@@ -280,7 +280,7 @@ describe("Dashboard — uncovered branches", () => {
     vi.mocked(api.getThermostats).mockResolvedValue([thermostat("climate.a", "Upstairs")]);
 
     const { container } = renderDashboard();
-    await screen.findByText("Upstairs");
+    await screen.findAllByText("Upstairs");
     const card = cardFor("climate.a");
 
     // Ambient and Setpoint both fall back to the em-dash.
@@ -356,7 +356,7 @@ describe("Dashboard — uncovered branches", () => {
     vi.mocked(api.getOverrides).mockResolvedValue([makeHold({ room_id: "r1" })]);
 
     renderDashboard("C");
-    await screen.findByText("Upstairs");
+    await screen.findAllByText("Upstairs");
 
     // Zone ambient / setpoint.
     expect(screen.getByText("24.0°C")).toBeInTheDocument();
