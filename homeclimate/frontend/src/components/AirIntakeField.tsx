@@ -93,7 +93,7 @@ export default function AirIntakeField({
       </label>
       <p className="field-help">
         Does a duct bring outside air into this system when its fan runs? If so, the fan runs by
-        itself only when outside air would help.
+        itself only when outside air would help. Not Sure counts as No. Not Sure counts as No.
       </p>
       {zone && (
         <div className="air-intake-test">

@@ -462,8 +462,8 @@ function RoomSettings({
               onChange={(e) => setTempOffset(e.target.value)}
             />
             <div className="form-hint">
-              Use this when the room always ends up warmer or cooler than its target. Example: if it
-              settles 3° too cool, enter +3.
+              Use this when the room always ends up off its target. A negative number keeps the room
+              warmer, a positive one cooler: if it settles 3° too cool, enter −3.
             </div>
           </div>
 

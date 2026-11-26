@@ -25,52 +25,50 @@ export interface ForecastDay {
   high: number;
   low: number;
   hours: number;
-  /** What each forecast hour of the day asks of the house, in order. */
-  needs: ("heat" | "coast" | "cool")[];
+  /** Consecutive forecast hours asking for the same thing, in order. */
+  runs: ForecastRun[];
   /** Home Assistant's condition id for the sky most of the day's hours share. */
   condition: string;
 }
 
-type Need = ForecastDay["needs"][number];
+export interface ForecastRun {
+  need: "heat" | "coast" | "cool";
+  /** The run's first forecast hour. */
+  at: string;
+  hours: number;
+}
 
 /** A day in a word, from what its hours ask for. */
-export function dayType(needs: Need[]): "Swing" | "Warm" | "Cool" | "Mild" {
-  const heat = needs.includes("heat");
-  const cool = needs.includes("cool");
+export function dayType(runs: ForecastRun[]): "Swing" | "Warm" | "Cool" | "Mild" {
+  const heat = runs.some((r) => r.need === "heat");
+  const cool = runs.some((r) => r.need === "cool");
   return heat && cool ? "Swing" : cool ? "Warm" : heat ? "Cool" : "Mild";
 }
 
-/** Consecutive hours asking for the same thing, as [need, hours, index of first hour]. */
-export function needRuns(needs: Need[]): [Need, number, number][] {
-  const runs: [Need, number, number][] = [];
-  needs.forEach((n, i) => {
-    const last = runs[runs.length - 1];
-    if (last && last[0] === n) last[1] += 1;
-    else runs.push([n, 1, i]);
-  });
-  return runs;
-}
-
-const VERB: Record<Need, string> = { heat: "heat", coast: "coast", cool: "cool" };
+/** Fewer forecast hours than this is only part of a day. */
+const WHOLE_DAY_HOURS = 20;
 
 /**
  * A day's plan in a sentence: "Heat until 10 AM, coast, cool from 2 PM."
- * `hourAt` names the clock hour of the day's nth forecast hour.
+ * `hour` names the clock hour of an instant. A day with only a few forecast
+ * hours left is not called "all day".
  */
-export function dayPlan(needs: Need[], hourAt: (index: number) => string): string {
-  const runs = needRuns(needs);
+export function dayPlan(runs: ForecastRun[], hour: (at: string) => string): string {
   if (runs.length === 0) return "";
   if (runs.length === 1) {
-    return { heat: "Heat all day.", cool: "Cool all day.", coast: "No heating or cooling." }[
-      runs[0][0]
-    ];
+    const whole = runs[0].hours >= WHOLE_DAY_HOURS;
+    return {
+      heat: whole ? "Heat all day." : "Heat for these hours.",
+      cool: whole ? "Cool all day." : "Cool for these hours.",
+      coast: "No heating or cooling.",
+    }[runs[0].need];
   }
-  const parts = runs.map(([need, , start], i) =>
+  const parts = runs.map((r, i) =>
     i === 0
-      ? `${VERB[need]} until ${hourAt(runs[1][2])}`
-      : i === runs.length - 1 || need !== "coast"
-        ? `${VERB[need]} from ${hourAt(start)}`
-        : VERB[need]
+      ? `${r.need} until ${hour(runs[1].at)}`
+      : i === runs.length - 1 || r.need !== "coast"
+        ? `${r.need} from ${hour(r.at)}`
+        : r.need
   );
   const text = parts.join(", ");
   return `${text[0].toUpperCase()}${text.slice(1)}.`;

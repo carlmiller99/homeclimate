@@ -121,6 +121,10 @@ export default function TodayCard() {
                   {ticks.map((i) => (
                     <span
                       key={hours[i].at}
+                      className={
+                        i === 0 ? "is-first" : i === hours.length - 1 ? "is-last" : undefined
+                      }
+                      style={{ left: `${((i / span) * 100).toFixed(1)}%` }}
                       title={`${fmtTemp(hours[i].temp)} outside, ${NEED_WORD[hours[i].need]}`}
                     >
                       {i === 0 ? "Now" : hour(hours[i].at)}

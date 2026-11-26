@@ -58,8 +58,8 @@ export default function FanSection() {
     <div className="card">
       <h3 className="card-title">Fan</h3>
       <p className="page-subtitle">
-        Runs the fan by itself to even out the rooms of a zone when one is too warm or too cold. It
-        runs at most 30 minutes in any hour.
+        Runs the fan by itself to even out the rooms of a zone. Only while the zone is idle and its
+        building is set to Heat Only or Cool Only.
       </p>
       {loadFailed && !zones && <p className="form-error">Could not load the zones.</p>}
       {!loadFailed && !zones && <p className="page-subtitle">Loading the zones…</p>}

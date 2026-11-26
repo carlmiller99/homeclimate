@@ -3494,13 +3494,22 @@ button.sc-nav-item {
   vector-effect: non-scaling-stroke;
 }
 .today-axis {
-  display: flex;
-  justify-content: space-between;
-  gap: 0.5rem;
+  position: relative;
+  height: 1.2rem;
   font-size: 0.78rem;
   color: var(--gray-600);
   white-space: nowrap;
-  overflow: hidden;
+}
+/* Each time sits under its own point of the line above. */
+.today-axis > span {
+  position: absolute;
+  transform: translateX(-50%);
+}
+.today-axis > span.is-first {
+  transform: none;
+}
+.today-axis > span.is-last {
+  transform: translateX(-100%);
 }
 .today-events {
   list-style: none;

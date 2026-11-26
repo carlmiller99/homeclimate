@@ -88,8 +88,8 @@ export default function OutsideTempPicker({
     <div className="card" style={{ marginBottom: "1rem" }}>
       <div className="card-title">Outside temperature sensors</div>
       <div className="text-sm text-muted" style={{ marginBottom: "1rem" }}>
-        The temperature outside, from one sensor or the average of several. Eco Mode and the cooling
-        limit <strong>need</strong> it.
+        The temperature outside, from one sensor or the average of several. Eco Mode and the limit
+        on cooling in cold weather <strong>need</strong> it.
       </div>
 
       {error && (

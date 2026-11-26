@@ -1179,10 +1179,11 @@ class ForecastDaySchema(Schema):
     high = fields.Float(metadata={"description": "°F, over the forecast hours of that date"})
     low = fields.Float(metadata={"description": "°F, over the forecast hours of that date"})
     hours = fields.Int()
-    needs = fields.List(
-        fields.Str(),
+    runs = fields.List(
+        fields.Dict(),
         metadata={
-            "description": 'One of "heat", "coast", "cool" for each forecast hour of that date'
+            "description": "Consecutive forecast hours asking for the same thing, in order: "
+            '{"need": "heat" | "coast" | "cool", "at": first hour, "hours": how many}'
         },
     )
     condition = fields.Str(metadata={"description": "The sky most hours of that date share"})

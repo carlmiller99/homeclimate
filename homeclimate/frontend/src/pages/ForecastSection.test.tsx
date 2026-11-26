@@ -55,7 +55,11 @@ function data(over: Partial<fa.Forecast> = {}): fa.Forecast {
         high: 68,
         low: 50,
         hours: 12,
-        needs: [...Array(4).fill("cool"), ...Array(3).fill("coast"), ...Array(5).fill("heat")],
+        runs: [
+          { need: "cool", at: "2026-01-05T17:00:00+00:00", hours: 4 },
+          { need: "coast", at: "2026-01-05T21:00:00+00:00", hours: 3 },
+          { need: "heat", at: "2026-01-06T00:00:00+00:00", hours: 5 },
+        ],
         condition: "partlycloudy",
       },
       {
@@ -64,7 +68,7 @@ function data(over: Partial<fa.Forecast> = {}): fa.Forecast {
         high: 59,
         low: 41,
         hours: 24,
-        needs: Array(24).fill("heat"),
+        runs: [{ need: "heat", at: "2026-01-06T05:00:00+00:00", hours: 24 }],
         condition: "",
       },
     ],
@@ -121,23 +125,34 @@ beforeEach(() => {
 });
 
 describe("describing a day", () => {
-  const at = (i: number) => `h${i}`;
+  const run = (need: fa.ForecastRun["need"], at: string, hours = 1): fa.ForecastRun => ({
+    need,
+    at,
+    hours,
+  });
+  const hour = (at: string) => at;
   it("names the day from what its hours ask for", () => {
-    expect(fa.dayType(["heat", "coast", "cool"])).toBe("Swing");
-    expect(fa.dayType(["coast", "cool"])).toBe("Warm");
-    expect(fa.dayType(["heat", "coast"])).toBe("Cool");
-    expect(fa.dayType(["coast"])).toBe("Mild");
+    expect(fa.dayType([run("heat", "a"), run("coast", "b"), run("cool", "c")])).toBe("Swing");
+    expect(fa.dayType([run("coast", "a"), run("cool", "b")])).toBe("Warm");
+    expect(fa.dayType([run("heat", "a"), run("coast", "b")])).toBe("Cool");
+    expect(fa.dayType([run("coast", "a")])).toBe("Mild");
     expect(fa.dayType([])).toBe("Mild");
   });
-  it("puts the plan in a sentence", () => {
-    expect(fa.dayPlan([], at)).toBe("");
-    expect(fa.dayPlan(["cool", "cool"], at)).toBe("Cool all day.");
-    expect(fa.dayPlan(["coast"], at)).toBe("No heating or cooling.");
-    expect(fa.dayPlan(["heat", "heat", "coast", "cool"], at)).toBe(
-      "Heat until h2, coast, cool from h3."
-    );
+  it("puts the plan in a sentence, naming each change by when it starts", () => {
+    expect(fa.dayPlan([], hour)).toBe("");
+    expect(fa.dayPlan([run("cool", "a", 24)], hour)).toBe("Cool all day.");
+    expect(fa.dayPlan([run("heat", "a", 22)], hour)).toBe("Heat all day.");
+    // A few hours left of a day are not the whole of it.
+    expect(fa.dayPlan([run("heat", "a", 3)], hour)).toBe("Heat for these hours.");
+    expect(fa.dayPlan([run("cool", "a", 1)], hour)).toBe("Cool for these hours.");
+    expect(fa.dayPlan([run("coast", "a", 2)], hour)).toBe("No heating or cooling.");
+    expect(
+      fa.dayPlan([run("heat", "6am", 4), run("coast", "10am", 4), run("cool", "2pm")], hour)
+    ).toBe("Heat until 10am, coast, cool from 2pm.");
     // A day that ends coasting says when the coasting begins.
-    expect(fa.dayPlan(["heat", "coast"], at)).toBe("Heat until h1, coast from h1.");
+    expect(fa.dayPlan([run("heat", "6am"), run("coast", "9am")], hour)).toBe(
+      "Heat until 9am, coast from 9am."
+    );
   });
 });
 
@@ -152,7 +167,8 @@ describe("Forecasts section", () => {
     expect(days).toHaveLength(2);
     // A card per day: its name, its kind of day, its range, its sky, and the
     // plan as a bar and as a sentence, in the house's time.
-    expect(days[0]).toHaveTextContent("Today");
+    // Only the house's own today is called Today; the fixture's days are long past.
+    expect(days[0]).toHaveTextContent("Monday");
     expect(within(days[0]).getByText("Swing")).toBeInTheDocument();
     expect(within(days[0]).getByText("50.0°F to 68.0°F")).toBeInTheDocument();
     expect(within(days[0]).getByText("Partly cloudy")).toBeInTheDocument();
@@ -165,6 +181,7 @@ describe("Forecasts section", () => {
       within(days[0]).getByText("Cool until 4 PM, coast, heat from 7 PM.")
     ).toBeInTheDocument();
     expect(days[1]).toHaveTextContent("Tuesday");
+    expect(screen.queryByText("Today")).toBeNull();
     expect(within(days[1]).getByText("Cool")).toBeInTheDocument();
     expect(within(days[1]).getByText("41.0°F to 59.0°F")).toBeInTheDocument();
     expect(within(days[1]).getByText("Heat all day.")).toBeInTheDocument();

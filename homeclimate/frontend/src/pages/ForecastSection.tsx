@@ -4,12 +4,12 @@ import EntityPicker from "../components/EntityPicker";
 import { RuleRow } from "../components/SmartControlControls";
 import Time from "../components/Time";
 import { useTimeZone, useUnit } from "../contexts";
+import { todayInZone } from "../time";
 import {
   accuracyText,
   dayPlan,
   dayType,
   describeCondition,
-  needRuns,
   getForecast,
   refreshForecast,
   updateForecastSettings,
@@ -164,17 +164,14 @@ export default function ForecastSection() {
         {showing && (
           <>
             <ul className="forecast-days" aria-label="Outlook">
-              {data.days.map((d, n) => {
-                const type = dayType(d.needs);
-                const at = (index: number) =>
-                  tz.format(Date.parse(d.starts_at) + index * 3_600_000, "time", {
-                    hour: "numeric",
-                  });
+              {data.days.map((d) => {
+                const type = dayType(d.runs);
+                const hour = (at: string) => tz.format(at, "time", { hour: "numeric" });
                 return (
                   <li key={d.date} className="forecast-day">
                     <div className="forecast-day-head">
                       <strong>
-                        {n === 0 ? (
+                        {d.date === todayInZone(tz.zone) ? (
                           "Today"
                         ) : (
                           <Time value={d.starts_at} kind="date" options={{ weekday: "long" }} />
@@ -187,15 +184,15 @@ export default function ForecastSection() {
                     </div>
                     <div className="forecast-sky">{describeCondition(d.condition) || "—"}</div>
                     <div className="forecast-bar" aria-hidden="true">
-                      {needRuns(d.needs).map(([need, count, start]) => (
+                      {d.runs.map((r) => (
                         <span
-                          key={start}
-                          className={`forecast-${need}`}
-                          style={{ flexGrow: count }}
+                          key={r.at}
+                          className={`forecast-${r.need}`}
+                          style={{ flexGrow: r.hours }}
                         />
                       ))}
                     </div>
-                    <div className="forecast-plan">{dayPlan(d.needs, at)}</div>
+                    <div className="forecast-plan">{dayPlan(d.runs, hour)}</div>
                   </li>
                 );
               })}

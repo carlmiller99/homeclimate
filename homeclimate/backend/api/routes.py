@@ -294,7 +294,7 @@ async def _eco_enable_blocked(conn, enabling: bool) -> web.Response | None:
     if not await outside_sensors.entity_ids(conn):
         return error(
             "Eco Mode needs an outside-temperature sensor. Configure the "
-            "outside-temperature entity in Settings, Sensors first — if you "
+            "outside-temperature entity in My Home, Outside first — if you "
             "have no physical outdoor thermometer in Home Assistant, add a free "
             "weather integration such as PirateWeather and point it at that."
         )
@@ -322,7 +322,7 @@ async def _ambient_enable_blocked(conn, enabling: bool) -> web.Response | None:
     if not await outside_sensors.entity_ids(conn):
         return error(
             "Pre-cool/pre-heat needs an outside-temperature sensor. Configure the "
-            "outside-temperature entity in Settings, Sensors first — if you "
+            "outside-temperature entity in My Home, Outside first — if you "
             "have no physical outdoor thermometer in Home Assistant, add a free "
             "weather integration such as PirateWeather and point it at that."
         )

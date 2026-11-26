@@ -777,7 +777,7 @@ describe("Thermostats Page — vacation mode selector", () => {
     expect(toggle).toBeChecked();
     expect(toggle).toBeEnabled();
     // The single-setpoint hint points at the per-room control below it.
-    expect(screen.getByText(/is heated or cooled by itself/)).toBeVisible();
+    expect(screen.getByText(/gets heating or cooling for that room/)).toBeVisible();
 
     fireEvent.click(toggle);
     const card = toggle.closest(".card") as HTMLElement;

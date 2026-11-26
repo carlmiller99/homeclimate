@@ -1045,7 +1045,7 @@ class CycleEngine:
                             f"Cooling lockout is configured for {self.thermostat_entity_id} "
                             "but the outdoor-temperature sensor is unset or unreadable — "
                             "allowing the cooling cycle (fail-open). Set the outdoor sensor "
-                            "in Settings, Sensors for the lockout to take effect.",
+                            "in My Home, Outside for the lockout to take effect.",
                             {"thermostat": self.thermostat_entity_id},
                         )
                 elif lockout_state == "locked_out":

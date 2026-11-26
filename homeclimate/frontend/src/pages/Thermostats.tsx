@@ -254,8 +254,8 @@ export function AddThermostatModal({
             <span>I have a bypass damper</span>
           </label>
           <div className="form-hint">
-            A bypass damper lets extra air escape when vents close. Most homes do not have one. Tick
-            this only if yours does.
+            A bypass damper lets extra air escape when vents close. Most homes do not have one.
+            Ticking this turns off the limit on closed vents.
           </div>
         </div>
 
@@ -699,8 +699,8 @@ export function ThermostatCard({
           }}
         />
         <div className="form-hint">
-          Cooling does not run when it is colder than this outside, to protect the air conditioner.
-          About 55°F (13°C) is usual; leave blank for no limit.
+          Cooling does not run when it is colder than this outside. About 55°F (13°C) is usual, and
+          it needs an outside sensor (My Home, Outside).
         </div>
       </div>
 
@@ -715,8 +715,8 @@ export function ThermostatCard({
         Airflow floor — dead-head protection
       </div>
       <div className="form-hint" style={{ marginBottom: "1rem" }}>
-        Closing too many vents at once can damage the equipment. HomeClimate always keeps this share
-        of the zone&apos;s vents open.
+        Closing too many vents at once can damage the equipment. HomeClimate keeps this share of the
+        zone&apos;s vents open.
       </div>
 
       <div
@@ -776,7 +776,8 @@ export function ThermostatCard({
             <span>I have a bypass damper</span>
           </label>
           <div className="form-hint">
-            A bypass damper lets extra air escape when vents close. Most homes do not have one.
+            A bypass damper lets extra air escape when vents close. Ticking this turns off the limit
+            on closed vents.
           </div>
         </div>
       </div>
@@ -931,7 +932,7 @@ export function ThermostatCard({
             <>
               While you are away, a room that gets colder than {form.min_setpoint}
               {unitLabel} or warmer than {form.max_setpoint}
-              {unitLabel} is heated or cooled by itself.
+              {unitLabel} gets heating or cooling for that room.
             </>
           )}
         </div>
@@ -992,7 +993,7 @@ export function ThermostatCard({
           </div>
           <div className="form-hint" style={{ marginTop: ".5rem" }}>
             <em>Test auto mode</em> switches the thermostat to its heat-and-cool mode so you can
-            check it responds. <em>Revert test</em> puts it back.
+            check it responds. <em>Revert test</em> turns it off again.
           </div>
         </div>
       )}
