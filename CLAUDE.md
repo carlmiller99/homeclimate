@@ -213,7 +213,7 @@ Every time the UI shows or accepts is in the **house's** zone (add-on `timezone`
 ```bash
 cd homeclimate && python -m pytest backend/tests/ -v
 ```
-Coverage threshold: **99.9%** (`pyproject.toml` `fail_under = 99.9`). Subset runs
+Coverage threshold: **99.5%** (`pyproject.toml` `fail_under = 99.5`; CI also holds statements and branches at 99.5 each). Subset runs
 need `--no-cov` or the gate fails the partial run.
 
 **Test patterns:**
@@ -231,7 +231,7 @@ need `--no-cov` or the gate fails the partial run.
 cd homeclimate/frontend && npx vitest run
 npx vitest run --coverage   # also checks thresholds
 ```
-Coverage thresholds (in `vite.config.ts`): lines 99.9, functions 99.9, branches 99.1, statements 99.5.
+Coverage thresholds (in `vite.config.ts`): lines 99.5, functions 99.5, branches 99.1, statements 99.5.
 
 **Test patterns:**
 - Celsius mode: wrap with `<UnitContext.Provider value={buildUnitContext("C")}>`
@@ -311,6 +311,8 @@ that **both** sides' tests read — `roomNames.test.ts` and
 
 ## CI (`.github/workflows/lint.yml`)
 
+Runs on pull requests only (not again on the merge to `main`).
+
 | Job | What it runs |
 |---|---|
 | Python (ruff) | `pip install ".[dev]"` then `ruff check backend/` + `ruff format --check backend/` |
@@ -331,6 +333,8 @@ also code. The identical ignore set gates the container pipeline (container-ci's
 `changes` job, including `Build (PR validation)`), `docker.yml` (push-to-main `paths-ignore`), and the local
 `git commit` gate (`.claude/hooks/precommit-gate.sh`) — keep all five in sync
 when adding a docs-like path.
+
+**Minutes.** The repo is private, so Actions minutes are limited. The round-trip, MQTT and MCP conformance legs each run only when a path they exercise changed (the `units` / `mqtt` / `mcp` outputs of container-ci's `changes` job); a release PR, an image or compose change, or any `.github/` edit runs all of them. Work is batched: build and test locally, push once.
 
 **Container CI (`.github/workflows/container-ci.yml`)** builds the addon image **once** and reuses it across the **Build (PR validation)**, **Image vulnerability scan**, **Docker Smoke Test**, **Round-trip (F)/(C)** temperature-conversion, **MQTT round-trip**, **MCP conformance (stateless/stateful)**, and **E2E visual regression (F)/(C)/(auth)** jobs — instead of rebuilding the container per PR. See #333. `docker-compose.test.yml`'s `homeclimate` service reads `${HOMECLIMATE_IMAGE}` so each E2E leg reuses the prebuilt image rather than rebuilding. The `build` job picks a mode at runtime (#337):
 - **Normal same-repo PR** → multi-arch build, push `ghcr.io/<repo>:ci-<pr-sha>` (throwaway); downstream jobs **pull** it.

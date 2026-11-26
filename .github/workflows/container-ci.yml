@@ -78,6 +78,9 @@ jobs:
     outputs:
       code: ${{ steps.filter.outputs.code }}
       ui: ${{ steps.filter.outputs.ui }}
+      units: ${{ steps.filter.outputs.units }}
+      mqtt: ${{ steps.filter.outputs.mqtt }}
+      mcp: ${{ steps.filter.outputs.mcp }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -91,8 +94,7 @@ jobs:
           if [ -z "${BASE_SHA}" ]; then
             # workflow_dispatch has no PR diff — run everything (this is the
             # manual golden-regeneration path).
-            echo "code=true" >> "$GITHUB_OUTPUT"
-            echo "ui=true" >> "$GITHUB_OUTPUT"
+            for flag in code ui units mqtt mcp; do echo "${flag}=true" >> "$GITHUB_OUTPUT"; done
             exit 0
           fi
           git diff --name-only "${BASE_SHA}...HEAD" > /tmp/changed.txt
@@ -127,6 +129,27 @@ jobs:
             echo "No UI-affecting paths — visual-regression legs will be skipped."
             echo "ui=false" >> "$GITHUB_OUTPUT"
           fi
+          # The three slow integration legs each run only when something they
+          # exercise changed, to spare Actions minutes (a private repo has a
+          # monthly allowance). A release PR (config.yaml), an image or
+          # compose change, or any workflow edit still runs all of them, so
+          # every published image has been through the whole pipeline.
+          full=false
+          if grep -qE '^(homeclimate/config\.yaml|homeclimate/Dockerfile|homeclimate/run\.sh|homeclimate/pyproject\.toml|docker-compose\.test|\.github/)' /tmp/changed.txt; then
+            full=true
+          fi
+          leg() {
+            if [ "$full" = true ] || grep -qE "$2" /tmp/changed.txt; then
+              echo "$1=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "Nothing the $1 leg exercises changed — it will be skipped."
+              echo "$1=false" >> "$GITHUB_OUTPUT"
+            fi
+          }
+          # Temperature round-trip: the forms, the specs, and the write boundary.
+          leg units '^(homeclimate/frontend/|e2e/(tests|global-setup|playwright)|homeclimate/backend/(api/|units\.py|db\.py|models\.py|house\.py|building_mode\.py))'
+          leg mqtt '^(homeclimate/backend/(mqtt/|api/|models\.py|db\.py|scheduler\.py)|e2e/scripts/mqtt)'
+          leg mcp '^homeclimate/backend/(mcp|api/|auth\.py|tests/integration/test_mcp_conformance)'
 
   # -----------------------------------------------------------------------
   # Build the image once. Mode (ci-<sha> / release :<version> / fork artifact)
@@ -570,7 +593,7 @@ jobs:
     needs: [build, changes]
     # Skipped (not absent) on docs-only PRs — a skipped job still reports its
     # check, so branch protection cannot hang (#412).
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.units == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     permissions:
@@ -727,7 +750,7 @@ jobs:
     needs: [build, changes]
     # Skipped (not absent) on docs-only PRs — a skipped job still reports its
     # check, so branch protection cannot hang (#412).
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.mqtt == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     permissions:
@@ -849,7 +872,7 @@ jobs:
     needs: [build, changes]
     # Skipped (not absent) on docs-only PRs — a skipped job still reports its
     # check, so branch protection cannot hang (#412).
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.mcp == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     permissions:
