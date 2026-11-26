@@ -627,6 +627,7 @@ export default function Dashboard() {
   });
   const [smart, setSmart] = useState<SmartControl | null>(null);
   const [house, setHouse] = useState<House | null>(null);
+  const [structureLoaded, setStructureLoaded] = useState(false);
   const [buildingModes, setBuildingModes] = useState<BuildingMode[]>([]);
   const system = useSystem();
   const [confirmSystem, setConfirmSystem] = useState(false);
@@ -654,8 +655,8 @@ export default function Dashboard() {
     // Building layout, pauses and idle-room temperatures are extras: a failure
     // here leaves the zone cards ungrouped and idle rooms showing "—".
     const [b, zp, sc, health, hs, bm] = await Promise.all([
-      getBuildings().catch(() => [] as Building[]),
-      getZones().catch(() => [] as ZoneProfile[]),
+      getBuildings().catch(() => null),
+      getZones().catch(() => null),
       getSmartControl().catch(() => null),
       getSensorHealth().catch(() => null),
       getHouse().catch(() => null),
@@ -665,8 +666,11 @@ export default function Dashboard() {
     // unsaved band edit and close an open Options dialog.
     if (hs) setHouse(hs);
     if (bm) setBuildingModes(bm);
-    setBuildings(b);
-    setProfiles(zp);
+    setBuildings(b ?? []);
+    setProfiles(zp ?? []);
+    // Targets are laid out by building and zone: with either list missing
+    // the card would show levels in the wrong place.
+    setStructureLoaded(b !== null && zp !== null);
     setSmart(sc ?? null);
     const key = r.map((room) => room.id).join(",");
     const cache = sensorsByRoom.current;
@@ -901,7 +905,9 @@ export default function Dashboard() {
         <UnavailableThermostatsBanner />
         <StaleSensorsBanner />
 
-        {house && <TargetsCard house={house} groups={targetGroups} onSaved={setHouse} />}
+        {house && structureLoaded && (
+          <TargetsCard house={house} groups={targetGroups} onSaved={setHouse} />
+        )}
         <TodayCard />
 
         {/* Eco Suspend + Temporary hold buttons — sit above climate cards.

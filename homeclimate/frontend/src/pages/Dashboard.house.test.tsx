@@ -283,6 +283,41 @@ describe("Dashboard targets", () => {
     ).toBeInTheDocument();
   });
 
+  it("says what clearing a room's targets does when nothing above has any", async () => {
+    vi.mocked(ha.getHouse).mockResolvedValue(
+      house({
+        targets: [{ scope: "room", scope_id: "kitchen", house_heat_to: 70, house_cool_to: 74 }],
+      })
+    );
+    show();
+    fireEvent.click(await screen.findByRole("button", { name: "Clear targets for Kitchen" }));
+    expect(screen.getByText("Clear these targets?").closest(".modal")).toHaveTextContent(
+      /^.*This room stops asking for heating or cooling straight away, unless a hold/
+    );
+  });
+
+  it("notes targets close enough to heat and cool in turn", async () => {
+    show();
+    const cool = await screen.findByLabelText(COOL);
+    expect(screen.queryByText(/With targets this close/)).toBeNull();
+    fireEvent.change(cool, { target: { value: "69.5" } });
+    expect(screen.getByText(/With targets this close/)).toBeInTheDocument();
+    fireEvent.change(cool, { target: { value: "70" } });
+    expect(screen.queryByText(/With targets this close/)).toBeNull();
+  });
+
+  it("leaves the targets card out when the home's layout could not be loaded", async () => {
+    vi.mocked(zonesApi.getBuildings).mockRejectedValue(new Error("down"));
+    show();
+    await screen.findByRole("button", { name: "Options for Kitchen" });
+    await waitFor(() => expect(ha.getHouse).toHaveBeenCalled());
+    expect(screen.queryByText("Targets")).toBeNull();
+    // It comes back with the layout.
+    vi.mocked(zonesApi.getBuildings).mockResolvedValue([]);
+    fireEvent.click(screen.getByRole("button", { name: /Refresh/ }));
+    expect(await screen.findByLabelText(HEAT)).toHaveValue(68);
+  });
+
   it("shows no targets card before there is anything to give targets to", async () => {
     vi.mocked(zonesApi.getZones).mockResolvedValue([]);
     show();

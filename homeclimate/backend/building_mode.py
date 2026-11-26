@@ -17,19 +17,32 @@ shown, and what it would have held back is logged, but nothing is held), or
 The side starts as whatever the building's first cycle runs. It switches when
 a zone has been waiting for the other side and all of these hold:
 
+- a room in that zone is the building's switching threshold (3 °F unless
+  changed) past its target on the far side;
 - no cycle on the current side is running in the building;
 - the zone has waited 10 minutes;
-- it is 4 hours since the last switch;
-- there have been fewer than 2 switches today;
-- the forecast, if there is one, needs the new side in 2 of the next 6 hours.
+- the building's limit allows it (``switching``, below);
+- the forecast, if there is one, does not rule it out.
 
-A room 2 °F past its target on the far side switches at once (after any
-running cycle ends). Safety cycles are never held to a side.
+``switching`` is how often Auto may change sides, counted from the last
+switch, not by the calendar:
+
+- ``often``: 4 hours apart and at most twice a day. The forecast must need the
+  new side in 2 of the next 6 hours.
+- ``daily``: 24 hours apart, with the same forecast check.
+- ``weekly`` / ``monthly``: 7 / 30 days apart. The forecast for the coming
+  days must need the new side for more hours than the side the building is
+  on, so one warm afternoon does not spend the switch.
+
+The limit always holds: no room, however far out, switches the building
+early. Safety cycles are never held to a side, so a room past a safety limit
+is still protected.
 """
 
 from __future__ import annotations
 
 import asyncio
+import math
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -46,14 +59,26 @@ FIXED_SIDE = {"heat_only": "heating", "cool_only": "cooling", "off": "off"}
 WAIT_BEFORE_SWITCH = timedelta(minutes=10)
 MIN_BETWEEN_SWITCHES = timedelta(hours=4)
 MAX_SWITCHES_A_DAY = 2
-URGENT_EXCESS_F = 2.0
-# An urgent switch skips the ordinary limits but keeps looser ones of its own,
-# so two zones that want opposite sides cannot flip the building all day.
-URGENT_WAIT = timedelta(minutes=3)
-URGENT_MIN_BETWEEN_SWITCHES = timedelta(hours=1)
-URGENT_MAX_SWITCHES_A_DAY = 6
+# How often Auto may change sides: the least time between two switches.
+SWITCHING = ("often", "daily", "weekly", "monthly")
+BETWEEN_SWITCHES = {
+    "often": MIN_BETWEEN_SWITCHES,
+    "daily": timedelta(hours=24),
+    "weekly": timedelta(days=7),
+    "monthly": timedelta(days=30),
+}
+# The limits long enough that a switch is a change of season, not of weather.
+SEASONAL = ("weekly", "monthly")
+# How far past its target on the far side (°F) a room must be before its zone's
+# wait counts toward a switch.
+DEFAULT_THRESHOLD_F = 3.0
+MIN_THRESHOLD_F, MAX_THRESHOLD_F = 0.0, 10.0
 FORECAST_LOOKAHEAD_HOURS = 6
 FORECAST_HOURS_NEEDED = 2
+# A seasonal switch looks this far ahead, and needs this many forecast hours
+# to judge by; with fewer it has no forecast to go on.
+SEASONAL_LOOKAHEAD_HOURS = 72
+SEASONAL_HOURS_NEEDED = 24
 # Outdoor °F below/above which an hour counts as needing heating/cooling when
 # there is no house band to judge by.
 DEFAULT_HEAT_BELOW_F, DEFAULT_COOL_ABOVE_F = 60.0, 70.0
@@ -65,6 +90,8 @@ class BuildingModeError(UserError):
 
 BAD_MODE = fixed("mode must be auto, heat_only, cool_only or off")
 BAD_LEVEL = fixed("auto_level must be off, watch or on")
+BAD_SWITCHING = fixed("switching must be often, daily, weekly or monthly")
+BAD_THRESHOLD = fixed("The switching threshold is outside its limits")
 UNKNOWN_FIELD = fixed("Unknown building mode field")
 BUILDING_UNKNOWN = fixed("Building not found")
 
@@ -74,6 +101,8 @@ class BuildingMode:
     building_id: str
     mode: str = "auto"
     auto_level: str = "off"
+    switching: str = "often"
+    switch_threshold_f: float = DEFAULT_THRESHOLD_F
     side: str | None = None
     switched_at: datetime | None = None
     switch_day: str = ""
@@ -90,6 +119,8 @@ async def load(conn: aiosqlite.Connection) -> dict[str, BuildingMode]:
                     building_id=r["building_id"],
                     mode=r["mode"],
                     auto_level=r["auto_level"],
+                    switching=r["switching"],
+                    switch_threshold_f=r["switch_threshold_f"],
                     side=r["side"],
                     switched_at=(
                         None
@@ -104,16 +135,20 @@ async def load(conn: aiosqlite.Connection) -> dict[str, BuildingMode]:
 
 async def _save(conn: aiosqlite.Connection, m: BuildingMode) -> None:
     await conn.execute(
-        """INSERT INTO building_modes(building_id, mode, auto_level, side, switched_at,
-               switch_day, switches) VALUES(?,?,?,?,?,?,?)
+        """INSERT INTO building_modes(building_id, mode, auto_level, switching,
+               switch_threshold_f, side, switched_at, switch_day, switches)
+               VALUES(?,?,?,?,?,?,?,?,?)
            ON CONFLICT(building_id) DO UPDATE SET mode=excluded.mode,
-               auto_level=excluded.auto_level, side=excluded.side,
+               auto_level=excluded.auto_level, switching=excluded.switching,
+               switch_threshold_f=excluded.switch_threshold_f, side=excluded.side,
                switched_at=excluded.switched_at, switch_day=excluded.switch_day,
                switches=excluded.switches""",
         (
             m.building_id,
             m.mode,
             m.auto_level,
+            m.switching,
+            m.switch_threshold_f,
             m.side,
             None if m.switched_at is None else int(m.switched_at.timestamp()),
             m.switch_day,
@@ -131,6 +166,18 @@ async def update(conn: aiosqlite.Connection, building_id: str, body: dict[str, A
         elif name == "auto_level":
             if value not in AUTO_LEVELS:
                 raise BuildingModeError(BAD_LEVEL)
+        elif name == "switching":
+            if value not in SWITCHING:
+                raise BuildingModeError(BAD_SWITCHING)
+        elif name == "switch_threshold":
+            # Already °F: the API converts at the write boundary.
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, int | float)
+                or not math.isfinite(value)
+                or not MIN_THRESHOLD_F - 1e-6 <= value <= MAX_THRESHOLD_F + 1e-6
+            ):
+                raise BuildingModeError(BAD_THRESHOLD)
         else:
             raise BuildingModeError(UNKNOWN_FIELD)
     modes = await load(conn)
@@ -139,6 +186,11 @@ async def update(conn: aiosqlite.Connection, building_id: str, body: dict[str, A
     current = modes[building_id]
     current.mode = body.get("mode", current.mode)
     current.auto_level = body.get("auto_level", current.auto_level)
+    current.switching = body.get("switching", current.switching)
+    if "switch_threshold" in body:
+        current.switch_threshold_f = min(
+            MAX_THRESHOLD_F, max(MIN_THRESHOLD_F, float(body["switch_threshold"]))
+        )
     if current.mode != "auto" or current.auto_level == "off":
         # Auto is no longer choosing. Forget the side it was on, so that when
         # it is turned back on it starts from what the building is doing then
@@ -162,6 +214,32 @@ def forecast_wants(hours: list[Any], side: str, band: Any, now: datetime) -> boo
         1 for h in window if (h.temp < heat_below if side == "heating" else h.temp > cool_above)
     )
     return needing >= FORECAST_HOURS_NEEDED
+
+
+def forecast_favours(hours: list[Any], side: str, band: Any, now: datetime) -> bool | None:
+    """Whether the coming days need ``side`` more than the other one.
+
+    For a switch that will not be undone for a week or a month. None when the
+    forecast does not reach far enough to say.
+    """
+    window = [h for h in hours if now <= h.at < now + timedelta(hours=SEASONAL_LOOKAHEAD_HOURS)]
+    if len(window) < SEASONAL_HOURS_NEEDED:
+        return None
+    heat_below = band.heat_to if band else DEFAULT_HEAT_BELOW_F
+    cool_above = band.cool_to if band else DEFAULT_COOL_ABOVE_F
+    heating = sum(1 for h in window if h.temp < heat_below)
+    cooling = sum(1 for h in window if h.temp > cool_above)
+    return cooling > heating if side == "cooling" else heating > cooling
+
+
+def _time_left(left: timedelta) -> str:
+    """ "45 min", "5 hours" or "12 days": how long until a switch is allowed."""
+    seconds = left.total_seconds()
+    if seconds < 2 * 3600:
+        return f"{int(seconds // 60) + 1} min"
+    if seconds < 48 * 3600:
+        return f"{math.ceil(seconds / 3600)} hours"
+    return f"{math.ceil(seconds / 86400)} days"
 
 
 @dataclass(frozen=True)
@@ -337,7 +415,9 @@ class Planner:
             if len(running) != 1:
                 return Decision(None, obey, "Not on a side yet")
             m.side = running.pop()
-            m.switched_at = now
+            # Taking a first side is not a switch. A seasonal limit must not
+            # lock the building for a month onto whatever ran first.
+            m.switched_at = None if m.switching in SEASONAL else now
             await _save(conn, m)
             return Decision(m.side, obey, "", switched_to=m.side)
 
@@ -348,40 +428,59 @@ class Planner:
             # runs it. Count that as the wait it would have been.
             since = watched[1] if watched and watched[0] == other else now
             self._watched_since[m.building_id] = (other, since)
-            waits.append({"direction": other, "since": since, "excess": 0.0, "obeyed": False})
+            # Nothing held it, so there is no telling how far it would have
+            # been let go: it counts as past the threshold.
+            waits.append(
+                {
+                    "direction": other,
+                    "since": since,
+                    "excess": 0.0,
+                    "past": m.switch_threshold_f,
+                    "obeyed": False,
+                }
+            )
         if not waits:
             return Decision(
                 m.side, obey, f"Waiting for {other} to finish" if other in every_cycle else ""
             )
         if m.side in running:
             return Decision(m.side, obey, f"Waiting for {m.side} to finish")
+        # Only a room far enough past its target on the far side counts.
+        waits = [w for w in waits if w.get("past", w["excess"]) >= m.switch_threshold_f - 1e-6]
+        if not waits:
+            return Decision(
+                m.side, obey, f"A zone wants {other}; no room is far enough past its target"
+            )
         today = tz.to_local(now).date().isoformat()
         switches_today = m.switches if m.switch_day == today else 0
         # A clock set backwards must not lock the building until it catches up.
         since_switch = (
             now - m.switched_at if m.switched_at is not None and m.switched_at <= now else None
         )
-        urgent = (
-            any(w["excess"] >= URGENT_EXCESS_F and now - w["since"] >= URGENT_WAIT for w in waits)
-            and (since_switch is None or since_switch >= URGENT_MIN_BETWEEN_SWITCHES)
-            and switches_today < URGENT_MAX_SWITCHES_A_DAY
-        )
-        if not urgent:
-            longest = max(now - w["since"] for w in waits)
-            if longest < WAIT_BEFORE_SWITCH:
-                return Decision(m.side, obey, f"A zone wants {other}; waiting 10 minutes")
-            if since_switch is not None and since_switch < MIN_BETWEEN_SWITCHES:
-                left = MIN_BETWEEN_SWITCHES - since_switch
-                mins = int(left.total_seconds() // 60) + 1
+        longest = max(now - w["since"] for w in waits)
+        if longest < WAIT_BEFORE_SWITCH:
+            return Decision(m.side, obey, f"A zone wants {other}; waiting 10 minutes")
+        between = BETWEEN_SWITCHES[m.switching]
+        if since_switch is not None and since_switch < between:
+            return Decision(
+                m.side,
+                obey,
+                f"A zone wants {other}; {_time_left(between - since_switch)} until a switch"
+                " is allowed",
+            )
+        if m.switching == "often" and switches_today >= MAX_SWITCHES_A_DAY:
+            return Decision(m.side, obey, f"A zone wants {other}; already switched twice today")
+        if m.switching in SEASONAL:
+            if forecast_favours(hours, other, band, now) is False:
                 return Decision(
-                    m.side, obey, f"A zone wants {other}; {mins} min until a switch is allowed"
+                    m.side,
+                    obey,
+                    f"A zone wants {other}; the coming days' forecast does not favour it",
                 )
-            if switches_today >= MAX_SWITCHES_A_DAY:
-                return Decision(m.side, obey, f"A zone wants {other}; already switched twice today")
-            if forecast_wants(hours, other, band, now) is False:
-                return Decision(
-                    m.side, obey, f"A zone wants {other}; the forecast does not call for it"
-                )
+        elif forecast_wants(hours, other, band, now) is False:
+            return Decision(
+                m.side, obey, f"A zone wants {other}; the forecast does not call for it"
+            )
         self._watched_since.pop(m.building_id, None)
         m.side = other
         m.switched_at = now

@@ -15,6 +15,7 @@ from typing import Any
 
 import aiosqlite
 
+from . import house
 from .user_errors import UserError, fixed
 
 SYSTEM_TYPES = ("conventional", "heat_pump")
@@ -150,6 +151,8 @@ async def create_building(conn: aiosqlite.Connection, raw_name: Any) -> Building
         (building.id, building.name, building.sort_order),
     )
     await conn.commit()
+    # A house band from an earlier version waits for the first building or zone.
+    await house.adopt_house_band(conn)
     return building
 
 
@@ -179,10 +182,13 @@ async def delete_building(conn: aiosqlite.Connection, building_id: str) -> str:
 
     Its zones are kept and left in no building, where each chooses heating or
     cooling for itself. The building's own settings (its mode, its zone
-    balance and its targets) go with it.
+    balance and its targets) go with it; a zone that followed its targets
+    keeps them as its own.
     """
     if await get_building(conn, building_id) is None:
         return "missing"
+    # Zones that followed the building's targets keep them as their own.
+    await house.hand_down(conn, building_id, await house.zones_under(conn, "building", building_id))
     await conn.execute(
         "UPDATE zone_profiles SET building_id=NULL WHERE building_id=?", (building_id,)
     )
@@ -279,6 +285,9 @@ async def update_zone_profile(
         bid = changes["building_id"]
         if bid is not None and (not isinstance(bid, str) or await get_building(conn, bid) is None):
             raise ZoneError(BUILDING_UNKNOWN)
+        if bid is None and zone.building_id is not None:
+            # Leaving for no building: keep the targets it was following.
+            await house.hand_down(conn, zone.building_id, {entity_id})
         zone.building_id = bid
     if "sort_order" in changes:
         zone.sort_order = _int(changes["sort_order"], "sort_order")

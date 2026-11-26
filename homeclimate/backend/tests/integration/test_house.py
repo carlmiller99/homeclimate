@@ -232,7 +232,7 @@ async def test_the_band_must_sit_inside_every_zones_safety_limits(client, rooms)
     )
     assert resp.status in (200, 201), await resp.text()
     message = (
-        "The targets must sit inside every zone's safety limits: heating at most 84.0°F"
+        "The targets must sit inside the zones' safety limits: heating at most 84.0°F"
         " and cooling at least 61.0°F"
     )
     for heat, cool in ((88, 95), (45, 50), (84.5, 90)):
@@ -246,7 +246,7 @@ async def test_the_band_must_sit_inside_every_zones_safety_limits(client, rooms)
         resp = await _set(client, 30, 35)
         # 84 °F is 28.89 °C and 61 °F is 16.11 °C: named so that they are accepted.
         assert (await resp.json())["error"] == (
-            "The targets must sit inside every zone's safety limits: heating at most 28.8°C"
+            "The targets must sit inside the zones' safety limits: heating at most 28.8°C"
             " and cooling at least 16.2°C"
         )
         assert (await _set(client, 28.8, 35)).status == 200
@@ -607,9 +607,14 @@ async def test_targets_inherit_room_from_zone_from_building(client, rooms):
     # A level's targets go with it when it is deleted.
     assert (await put("room", rooms["craft"], 65, 77)).status == 200
     assert (await client.delete(f"/api/rooms/{rooms['craft']}")).status == 200
+    # A deleted building leaves its targets with the zones that followed
+    # them, so their rooms go on being heated and cooled.
     assert (await client.delete(f"/api/buildings/{building}")).status == 200
     snap = await (await client.get("/api/house")).json()
-    assert snap["targets"] == []
+    assert [(t["scope"], t["scope_id"], t["house_heat_to"]) for t in snap["targets"]] == [
+        ("zone", T1, 71.0)
+    ]
+    assert (await _sources(client))["Bunk Room"] == ("house", 71.0, 72.0)
     assert (await put("zone", T1, 70, 71)).status == 200
     assert (await client.delete(f"/api/thermostats/{T1}?with_rooms=true")).status == 200
     assert (await (await client.get("/api/house")).json())["targets"] == []
@@ -624,6 +629,91 @@ async def test_targets_inherit_room_from_zone_from_building(client, rooms):
         )
 
 
+async def test_a_zone_leaving_its_building_keeps_the_targets_it_followed(client, rooms):
+    conn = await client.app["scheduler"].get_db()
+    ids = {}
+    for name in ("Main House", "Pool House"):
+        ids[name] = (await (await client.post("/api/buildings", json={"name": name})).json())["id"]
+    main, pool = ids["Main House"], ids["Pool House"]
+    await house.set_level(conn, "building", main, 71, 72)
+    await house.set_level(conn, "building", pool, 60, 85)
+    assert (await client.put(f"/api/zones/{T1}", json={"building_id": main})).status == 200
+    # Between buildings it follows the new one, and is given nothing.
+    assert (await client.put(f"/api/zones/{T1}", json={"building_id": pool})).status == 200
+    assert (await _sources(client))["Bunk Room"] == ("house", 60.0, 85.0)
+    assert ("zone", T1) not in (await house.load(conn)).levels
+    # Out of every building, it keeps what it was following...
+    assert (await client.put(f"/api/zones/{T1}", json={"building_id": None})).status == 200
+    assert (await _sources(client))["Bunk Room"] == ("house", 60.0, 85.0)
+    # ...unless it had targets of its own, which stay as they were.
+    assert (await client.put(f"/api/zones/{T1}", json={"building_id": main})).status == 200
+    assert (await client.put(f"/api/zones/{T1}", json={"building_id": None})).status == 200
+    assert (await house.load(conn)).levels[("zone", T1)] == house.Band(60.0, 85.0)
+    # A building with no targets hands nothing down.
+    await house.set_level(conn, "zone", T1, None, None)
+    await house.set_level(conn, "building", main, None, None)
+    assert (await client.put(f"/api/zones/{T1}", json={"building_id": main})).status == 200
+    assert (await client.put(f"/api/zones/{T1}", json={"building_id": None})).status == 200
+    assert ("zone", T1) not in (await house.load(conn)).levels
+
+
+async def test_only_the_zones_that_targets_reach_limit_them(client, rooms):
+    """A pool house capped at 65 says nothing about the main house's targets."""
+    ids = {}
+    for name in ("Main House", "Pool House"):
+        ids[name] = (await (await client.post("/api/buildings", json={"name": name})).json())["id"]
+    for tid, top, building in ((T1, 90, "Main House"), ("climate.pool", 65, "Pool House")):
+        resp = await client.post(
+            "/api/thermostats",
+            json={
+                "thermostat_entity_id": tid,
+                "name": tid,
+                "min_setpoint": 50,
+                "max_setpoint": top,
+                "total_vents_count": 4,
+            },
+        )
+        assert resp.status in (200, 201), await resp.text()
+        resp = await client.put(f"/api/zones/{tid}", json={"building_id": ids[building]})
+        assert resp.status == 200, await resp.text()
+
+    async def put(scope, scope_id):
+        resp = await client.put(
+            f"/api/house/targets/{scope}/{scope_id}",
+            json={"house_heat_to": 68, "house_cool_to": 74},
+        )
+        return resp.status
+
+    assert await put("building", ids["Main House"]) == 200
+    assert await put("zone", T1) == 200
+    assert await put("room", rooms["bunk"]) == 200
+    assert await put("building", ids["Pool House"]) == 400
+    assert await put("zone", "climate.pool") == 400
+    # A building with no zones yet has no limits to answer to.
+    empty = (await (await client.post("/api/buildings", json={"name": "Barn"})).json())["id"]
+    assert await put("building", empty) == 200
+    conn = await client.app["scheduler"].get_db()
+    assert await house.zones_under(conn, "room", "gone") == set()
+
+
+async def test_the_forecast_is_judged_against_every_target_in_use(client, rooms):
+    conn = await client.app["scheduler"].get_db()
+    main = (await (await client.post("/api/buildings", json={"name": "Main House"})).json())["id"]
+    assert (await client.put(f"/api/zones/{T1}", json={"building_id": main})).status == 200
+    # Nothing set: nothing to judge by.
+    loaded = await house.load(conn)
+    assert (loaded.outer_band(), loaded.building_outer_band(main)) == (None, None)
+    # Only the zone has targets; its building still has a band to judge by.
+    await house.set_level(conn, "zone", T1, 69, 73)
+    await house.set_level(conn, "zone", "climate.elsewhere", 50, 90)
+    await house.set_level(conn, "room", rooms["bunk"], 64, 71)
+    loaded = await house.load(conn)
+    assert loaded.building_outer_band(main) == house.Band(69.0, 73.0)
+    assert loaded.outer_band() == house.Band(50.0, 90.0)
+    await house.set_level(conn, "building", main, 71, 72)
+    assert (await house.load(conn)).building_outer_band(main) == house.Band(69.0, 73.0)
+
+
 async def test_a_house_band_from_an_earlier_version_is_handed_to_the_levels(client, rooms):
     conn = await client.app["scheduler"].get_db()
     # With nothing to give it to, the old band is kept.
@@ -634,9 +724,15 @@ async def test_a_house_band_from_an_earlier_version_is_handed_to_the_levels(clie
     assert await house.adopt_house_band(conn) == 0
     assert (await house.load(conn)).band == house.Band(68.0, 74.0)
 
+    # The first building made is given it at once, without a restart.
     building = (await (await client.post("/api/buildings", json={"name": "Main House"})).json())[
         "id"
     ]
+    loaded = await house.load(conn)
+    assert (loaded.band, loaded.levels) == (None, {("building", building): house.Band(68.0, 74.0)})
+
+    # As on a start after upgrading, with the home already laid out.
+    await house.set_level(conn, "building", building, None, None)
     other = (await (await client.post("/api/buildings", json={"name": "Pool House"})).json())["id"]
     for tid in (T1, "climate.loose"):
         resp = await client.post(
@@ -645,16 +741,25 @@ async def test_a_house_band_from_an_earlier_version_is_handed_to_the_levels(clie
         )
         assert resp.status in (200, 201), await resp.text()
     await client.put(f"/api/zones/{T1}", json={"building_id": building})
+    await house.set_band(conn, 68, 74)
     # A level that already has targets keeps them.
     await house.set_level(conn, "building", other, 60, 80)
+    # A room whose thermostat was never set up as a zone is still run by
+    # the engine, so its thermostat is given the band too.
+    await conn.execute(
+        "INSERT INTO rooms (id, name, thermostat_entity_id) VALUES ('r-old', 'Attic',"
+        " 'climate.unregistered')"
+    )
+    await conn.commit()
 
-    assert await house.adopt_house_band(conn) == 2
+    assert await house.adopt_house_band(conn) == 3
     loaded = await house.load(conn)
     assert loaded.band is None
     assert loaded.levels == {
         ("building", building): house.Band(68.0, 74.0),
         ("building", other): house.Band(60.0, 80.0),
         ("zone", "climate.loose"): house.Band(68.0, 74.0),
+        ("zone", "climate.unregistered"): house.Band(68.0, 74.0),
     }
     assert loaded.band_for("any-room", T1) == house.Band(68.0, 74.0)
     assert loaded.outer_band() == house.Band(60.0, 80.0)

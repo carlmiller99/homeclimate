@@ -457,7 +457,7 @@ function BuildingHeader({
       {confirming && (
         <ConfirmDialog
           title="Delete building?"
-          message={`Delete "${building.name}"? Its zones and rooms are kept and moved to Unassigned, where each zone chooses heating or cooling for itself. The building's mode and zone balance settings are removed.`}
+          message={`Delete "${building.name}"? Its zones and rooms are kept and moved to Unassigned, where each zone chooses heating or cooling for itself. The building's mode and zone balance settings are removed. Zones that followed the building's targets keep them as their own.`}
           confirmLabel="Delete Building"
           onCancel={() => setConfirming(false)}
           onConfirm={() => void remove()}

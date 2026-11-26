@@ -5983,14 +5983,17 @@ class CycleEngine:
             return inferred
         if can_start:
             excess = 0.0
+            past_target = 0.0
             for ar in active_rooms.values():
                 avg = self._get_avg_temp(ar.room)
                 if avg is not None:
-                    # How far past the point where it would normally start.
                     gap = avg + ar.room.temp_offset - ar.target_temp
-                    past = (gap if inferred == "cooling" else -gap) - _effective_deadband(
-                        ar.room, tc.deadband, ar.deadband_override
-                    )
+                    beyond = gap if inferred == "cooling" else -gap
+                    # How far past its target, which is what the building's
+                    # switching threshold is measured against.
+                    past_target = max(past_target, beyond)
+                    # How far past the point where it would normally start.
+                    past = beyond - _effective_deadband(ar.room, tc.deadband, ar.deadband_override)
                     excess = max(excess, past)
             now = datetime.now(UTC)
             started = self._wait_started
@@ -6008,6 +6011,7 @@ class CycleEngine:
                 "direction": inferred,
                 "since": since,
                 "excess": round(excess, 2),
+                "past": round(past_target, 2),
                 "obeyed": obey,
             }
             if fresh and self._logger:

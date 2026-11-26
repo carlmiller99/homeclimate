@@ -12,6 +12,9 @@ export interface TargetLevel {
   parent?: TargetLevel;
 }
 
+/** °F: targets closer than this get a note about heating and cooling in turn. */
+const CLOSE_F = 2;
+
 /** The targets a level uses: its own, else the nearest level above that has some. */
 function effective(house: House, level: TargetLevel | undefined) {
   for (let at = level; at; at = at.parent) {
@@ -21,7 +24,13 @@ function effective(house: House, level: TargetLevel | undefined) {
   return null;
 }
 
-const KIND: Record<TargetScope, string> = { building: "building", zone: "zone", room: "room" };
+/** What clearing a level's targets does when nothing above it has any. */
+const CLEAR_WITH_NOTHING_ABOVE: Record<TargetScope, string> = {
+  building:
+    "Rooms in this building that have no targets of their own, or from their zone, stop asking for heating or cooling straight away, which ends any cycle running just for them.",
+  zone: "Rooms in this zone that have no targets of their own stop asking for heating or cooling straight away, which ends any cycle running just for them.",
+  room: "This room stops asking for heating or cooling straight away, unless a hold, a schedule or occupancy gives it a target. That ends any cycle running just for it.",
+};
 
 /**
  * One level's heating and cooling targets. Form values are display-unit text;
@@ -37,7 +46,7 @@ function TargetsRow({
   level: TargetLevel;
   onSaved: (house: House) => void;
 }) {
-  const { toDisplay, unitLabel } = useUnit();
+  const { toDisplay, toDisplayDelta, unitLabel } = useUnit();
   const own = targetsFor(house, level.scope, level.id);
   const inherited = effective(house, level.parent);
   const stored = {
@@ -145,14 +154,20 @@ function TargetsRow({
       {Number.isFinite(heat) && Number.isFinite(cool) && cool < heat && (
         <p className="form-error">The cooling target cannot be below the heating target.</p>
       )}
+      {valid && cool - heat < toDisplayDelta(CLOSE_F) && (
+        <p className="targets-follows targets-note">
+          With targets this close, only a room&apos;s deadband separates heating from cooling. To
+          limit how often the building changes between them, turn its Auto on under Smart Control.
+        </p>
+      )}
       {error && <p className="form-error">{error}</p>}
       {confirmClear && (
         <ConfirmDialog
           title="Clear these targets?"
           message={
             inherited
-              ? `This ${KIND[level.scope]} goes back to following ${inherited.from.name}.`
-              : `Rooms in this ${KIND[level.scope]} that have no targets of their own stop asking for heating or cooling straight away, which ends any cycle running just for them.`
+              ? `This ${level.scope} goes back to following ${inherited.from.name}.`
+              : CLEAR_WITH_NOTHING_ABOVE[level.scope]
           }
           confirmLabel="Clear Targets"
           onCancel={() => setConfirmClear(false)}
@@ -194,10 +209,10 @@ export default function TargetsCard({
           Targets
         </h2>
         <p className="house-band-help">
-          Each building has a heating target and a cooling target; they can be the same number. A
-          room is heated below the first and cooled above the second, unless a hold, a schedule or
-          occupancy gives it its own. A zone or a room follows its building unless you give it
-          targets of its own.
+          A heating target and a cooling target; they can be the same number. A room is heated below
+          the first and cooled above the second, unless a hold, a schedule or occupancy gives it its
+          own. A room follows its zone, and a zone its building, unless you give it targets of its
+          own.
         </p>
       </div>
       {groups.map((g) => (

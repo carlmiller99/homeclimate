@@ -316,6 +316,8 @@ CREATE TABLE IF NOT EXISTS building_modes (
     building_id TEXT PRIMARY KEY,
     mode TEXT NOT NULL DEFAULT 'auto',
     auto_level TEXT NOT NULL DEFAULT 'off',
+    switching TEXT NOT NULL DEFAULT 'often',
+    switch_threshold_f REAL NOT NULL DEFAULT 3.0,
     side TEXT,
     switched_at INTEGER,
     switch_day TEXT NOT NULL DEFAULT '',
@@ -1408,6 +1410,14 @@ MIGRATIONS: tuple[Migration, ...] = (
         (
             "ALTER TABLE room_models ADD COLUMN sun REAL NOT NULL DEFAULT 0",
             "ALTER TABLE room_models ADD COLUMN sun_hours REAL NOT NULL DEFAULT 0",
+        ),
+    ),
+    Migration(
+        25,
+        "Add how often Auto may switch, and its threshold, to building_modes",
+        (
+            "ALTER TABLE building_modes ADD COLUMN switching TEXT NOT NULL DEFAULT 'often'",
+            "ALTER TABLE building_modes ADD COLUMN switch_threshold_f REAL NOT NULL DEFAULT 3.0",
         ),
     ),
 )

@@ -750,6 +750,49 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
     }
   });
 
+  test("a building's switching threshold persists exactly as entered", async ({
+    page,
+  }) => {
+    // @covers: switch_threshold
+    // A difference, not a temperature: 2.5°C ≡ 4.5°F, with no 32° offset.
+    const THRESHOLD = isCelsius ? "2.5" : "4.5";
+    const made = await page.request.post("/api/buildings", {
+      data: { name: "Threshold Test House" },
+    });
+    const building = (await made.json()).id as string;
+    try {
+      await page.goto("/smart-control?section=forecasts");
+      const field = page.getByLabel(
+        /^Switching threshold for Threshold Test House/,
+      );
+      await field.waitFor({ state: "visible", timeout: 15_000 });
+      const saved = page.waitForResponse(
+        (r) =>
+          r.url().includes(`/api/building-modes/${building}`) &&
+          r.request().method() === "PUT",
+      );
+      await field.fill(THRESHOLD);
+      await page
+        .getByRole("button", {
+          name: "Save switching threshold for Threshold Test House",
+        })
+        .click();
+      await saved;
+
+      await page.reload();
+      const after = page.getByLabel(
+        /^Switching threshold for Threshold Test House/,
+      );
+      await after.waitFor({ state: "visible", timeout: 15_000 });
+      expect(parseFloat(await after.inputValue())).toBeCloseTo(
+        parseFloat(THRESHOLD),
+        2,
+      );
+    } finally {
+      await page.request.delete(`/api/buildings/${building}`);
+    }
+  });
+
   test("zone balance gap limit persists exactly as chosen", async ({
     page,
   }) => {

@@ -96,6 +96,13 @@ export const TEMPERATURE_FIELDS: TempField[] = [
     ui: true,
     endpoints: ["PUT /api/zone-balance/{building_id}"],
   },
+  // ── Building mode — PUT /api/building-modes/{building_id} (Smart Control)
+  {
+    field: "switch_threshold",
+    kind: "delta",
+    ui: true,
+    endpoints: ["PUT /api/building-modes/{building_id}"],
+  },
   // ── Targets — PUT /api/house/targets/{scope}/{scope_id} (Dashboard)
   {
     field: "house_heat_to",

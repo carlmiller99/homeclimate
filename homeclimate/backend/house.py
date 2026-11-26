@@ -38,14 +38,15 @@ import aiosqlite
 from . import db, tz
 from .user_errors import UserError, fixed
 
-# Both edges in one setting ("68.00,74.00"), so a reader never sees half a change.
+# The setting that held the one house-wide band before targets had levels:
+# both edges in one value ("68.00,74.00"). It is copied to every building (and
+# every zone in no building) as soon as there is one, and then cleared.
 BAND_SETTING = "house_band"
 # °F between the heating and the cooling target. None is required: they may be
-# the same number, and the building's mode decides which side is worked.
+# the same number. Only the room's deadband then separates heating from
+# cooling, unless its building is held to one side (Heat Only, Cool Only, or
+# Auto set to On), which is what limits how often the side changes.
 MIN_GAP_F = 0.0
-# The setting that held the one house-wide band before targets had levels. It
-# is read once, copied to every building (and every zone in no building), and
-# cleared.
 SCOPES = ("building", "zone", "room")
 # °F a band edge must stay inside a zone's safety limits, so a cycle working
 # toward it can always finish.
@@ -158,18 +159,31 @@ class House:
             return self.band
         return self.levels.get(("building", building_id)) or self.band
 
+    def building_outer_band(self, building_id: str) -> Band | None:
+        """The lowest heating and highest cooling target in use in a building.
+
+        Its own and those of its zones, for judging a forecast against: a
+        building whose zones each have their own targets has none itself.
+        """
+        return (
+            _outer(
+                [
+                    band
+                    for (scope, scope_id), band in self.levels.items()
+                    if (scope == "building" and scope_id == building_id)
+                    or (scope == "zone" and self.zone_building.get(scope_id) == building_id)
+                ]
+            )
+            or self.band
+        )
+
     def outer_band(self) -> Band | None:
-        """The lowest heating and highest cooling target of any building.
+        """The lowest heating and highest cooling target set anywhere.
 
         For a view of the whole home (Today's Plan): outdoors colder than this
         heats somewhere, warmer cools somewhere.
         """
-        bands = [b for (scope, _id), b in self.levels.items() if scope == "building"]
-        if self.band is not None:
-            bands.append(self.band)
-        if not bands:
-            return None
-        return Band(min(b.heat_to for b in bands), max(b.cool_to for b in bands))
+        return _outer([*self.levels.values(), *([self.band] if self.band else [])])
 
     def cool_to(self, kind: str, ref_id: str, target: float, stamp: str = "") -> float | None:
         """The cool-to that makes ``target`` a band, or None for a single target.
@@ -189,6 +203,12 @@ class House:
         if calendar is None:
             return found
         return RoomSwitches(calendar.in_use, found.use_schedules, found.use_presence)
+
+
+def _outer(bands: list[Band]) -> Band | None:
+    if not bands:
+        return None
+    return Band(min(b.heat_to for b in bands), max(b.cool_to for b in bands))
 
 
 def _stored(value: str) -> Band | None:
@@ -212,9 +232,12 @@ async def adopt_house_band(conn: aiosqlite.Connection) -> int:
         return 0
     async with conn.execute("SELECT id FROM buildings") as cur:
         wanted = [("building", r["id"]) for r in await cur.fetchall()]
+    # A room's thermostat counts as a zone even when it was never set up as
+    # one: the engine runs for it all the same.
     async with conn.execute(
-        "SELECT t.thermostat_entity_id AS tid FROM thermostat_configs t"
-        " LEFT JOIN zone_profiles z ON z.thermostat_entity_id = t.thermostat_entity_id"
+        "SELECT t.tid AS tid FROM (SELECT thermostat_entity_id AS tid FROM thermostat_configs"
+        " UNION SELECT thermostat_entity_id FROM rooms) t"
+        " LEFT JOIN zone_profiles z ON z.thermostat_entity_id = t.tid"
         " WHERE z.building_id IS NULL"
     ) as cur:
         wanted += [("zone", r["tid"]) for r in await cur.fetchall()]
@@ -359,14 +382,53 @@ def band_in_range(heat_to: float, cool_to: float) -> bool:
     return heat_to >= LOW_F and cool_to <= HIGH_F and cool_to - heat_to >= MIN_GAP_F - 1e-6
 
 
-async def safety_window(conn: aiosqlite.Connection) -> tuple[float, float]:
-    """(highest heat-to, lowest cool-to) every zone's safety limits allow, in °F.
+async def zones_under(conn: aiosqlite.Connection, scope: str, scope_id: str) -> set[str]:
+    """The zones (thermostat entity ids) that targets set at a level can reach."""
+    if scope == "zone":
+        return {scope_id}
+    if scope == "room":
+        room = await db.get_room(conn, scope_id)
+        return {room.thermostat_entity_id} if room else set()
+    async with conn.execute(
+        "SELECT thermostat_entity_id FROM zone_profiles WHERE building_id=?", (scope_id,)
+    ) as cur:
+        return {r[0] for r in await cur.fetchall()}
+
+
+async def hand_down(conn: aiosqlite.Connection, building_id: str, zone_ids: set[str]) -> None:
+    """Give a building's targets to zones that are leaving it and have none.
+
+    A zone that followed its building would otherwise stop being heated and
+    cooled the moment it left. Does not commit.
+    """
+    async with conn.execute(
+        "SELECT heat_to, cool_to FROM level_targets WHERE scope='building' AND scope_id=?",
+        (building_id,),
+    ) as cur:
+        row = await cur.fetchone()
+    if row is None:
+        return
+    for zone_id in zone_ids:
+        await conn.execute(
+            "INSERT OR IGNORE INTO level_targets (scope, scope_id, heat_to, cool_to)"
+            " VALUES ('zone',?,?,?)",
+            (zone_id, row[0], row[1]),
+        )
+
+
+async def safety_window(
+    conn: aiosqlite.Connection, zone_ids: set[str] | None = None
+) -> tuple[float, float]:
+    """(highest heat-to, lowest cool-to) the zones' safety limits allow, in °F.
 
     Heating toward heat-to needs a setpoint below the zone's maximum, and
     cooling toward cool-to one above its minimum; outside that a cycle could
-    never finish.
+    never finish. ``zone_ids`` narrows it to the zones a setting can reach;
+    None means every zone.
     """
     configs = await db.get_all_thermostat_configs(conn)
+    if zone_ids is not None:
+        configs = [tc for tc in configs if tc.thermostat_entity_id in zone_ids]
     top = min((tc.max_setpoint for tc in configs), default=HIGH_F + SAFETY_MARGIN_F)
     bottom = max((tc.min_setpoint for tc in configs), default=LOW_F - SAFETY_MARGIN_F)
     return top - SAFETY_MARGIN_F, bottom + SAFETY_MARGIN_F

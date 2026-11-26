@@ -930,6 +930,18 @@ class BuildingModeWriteSchema(Schema):
     auto_level = fields.Str(
         metadata={"description": "For Auto: off, watch or on (hold zones to one side)"}
     )
+    switching = fields.Str(
+        metadata={
+            "description": "How often Auto may change sides: often (4 hours apart, twice a"
+            " day), daily, weekly or monthly, each counted from the last switch"
+        }
+    )
+    switch_threshold = fields.Float(
+        metadata={
+            "description": "How far past its target on the far side a room must be before"
+            " Auto considers switching. Display-unit difference on write; °F on read"
+        }
+    )
 
 
 class BuildingWaitSchema(Schema):
@@ -950,6 +962,8 @@ class BuildingModeSchema(BuildingModeWriteSchema):
 
 class BuildingModesSchema(Schema):
     buildings = fields.List(fields.Nested(BuildingModeSchema))
+    min_threshold = fields.Float(metadata={"description": "°F difference"})
+    max_threshold = fields.Float(metadata={"description": "°F difference"})
 
 
 class PeakHoursWriteSchema(Schema):

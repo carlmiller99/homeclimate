@@ -583,13 +583,19 @@ async def _building_modes_snapshot(request: web.Request) -> dict:
                 "name": building.name,
                 "mode": m.mode,
                 "auto_level": m.auto_level,
+                "switching": m.switching,
+                "switch_threshold": m.switch_threshold_f,
                 "side": decision.side if decision else building_mode.FIXED_SIDE.get(m.mode, m.side),
                 "obey": decision.obey if decision else m.mode != "auto" or m.auto_level == "on",
                 "note": decision.note if decision else "",
                 "waiting": waits.get(building.id, []),
             }
         )
-    return {"buildings": out}
+    return {
+        "buildings": out,
+        "min_threshold": building_mode.MIN_THRESHOLD_F,
+        "max_threshold": building_mode.MAX_THRESHOLD_F,
+    }
 
 
 @docs(tags=["buildings"], summary="Each building's mode, the side it is on, and zones waiting")
@@ -605,6 +611,12 @@ async def get_building_modes(request: web.Request) -> web.Response:
 @routes.put("/api/building-modes/{building_id}")
 async def update_building_mode(request: web.Request) -> web.Response:
     body = await _json_object(request)
+    # The write boundary converts the display-unit difference to °F (#231).
+    threshold = body.get("switch_threshold")
+    if isinstance(threshold, int | float) and not isinstance(threshold, bool):
+        body["switch_threshold"] = delta_to_f(
+            threshold, request.app["scheduler"].get_temperature_unit()
+        )
     conn = await get_conn(request)
     try:
         await building_mode.update(conn, request.match_info["building_id"], body)
@@ -858,14 +870,18 @@ async def update_targets(request: web.Request) -> web.Response:
                 f"The targets must be between {low} and {high}°{unit}, and the cooling"
                 " target cannot be below the heating target"
             )
-        top, bottom = await house.safety_window(conn)
+        # Only the zones these targets can reach: one building's limits do
+        # not bind another's.
+        top, bottom = await house.safety_window(
+            conn, await house.zones_under(conn, scope, scope_id)
+        )
         if heat_f > top or cool_f < bottom:
             scale, shift = (5 / 9, 32) if unit == "C" else (1.0, 0)
             # Rounded inward, so the numbers named are ones that are accepted.
             most = math.floor(round((top - shift) * scale, 6) * 10) / 10
             least = math.ceil(round((bottom - shift) * scale, 6) * 10) / 10
             return error(
-                f"The targets must sit inside every zone's safety limits: heating at most"
+                f"The targets must sit inside the zones' safety limits: heating at most"
                 f" {most}°{unit} and cooling at least {least}°{unit}"
             )
         await house.set_level(conn, scope, scope_id, heat_f, cool_f)

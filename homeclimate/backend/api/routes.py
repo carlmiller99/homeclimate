@@ -530,6 +530,8 @@ TEMPERATURE_FIELDS: dict[str, str] = {
     "peak_depth": "delta",
     # Zone Balance (backend/zone_balance.py) — PUT /api/zone-balance/{building_id}
     "zone_gap": "delta",
+    # Building mode (backend/building_mode.py) — PUT /api/building-modes/{building_id}
+    "switch_threshold": "delta",
     # Zone heat pump protection — PUT /api/zones/{id} (HomeClimate)
     "hp_max_step_f": "delta",
     "hp_recovery_f_per_hr": "delta",

@@ -27,27 +27,48 @@ Things to know:
 
 ## Auto (Smart Control → Forecasts)
 
-Auto has three levels for each building:
+What Auto means is set for each building, in three parts.
 
-- **Off** (the default). Each zone chooses heating or cooling for itself, as it did before building mode existed.
+### Auto: whether zones are held to one side
+
+- **Off** (the default). Zones run independently: each chooses heating or cooling for itself.
 - **Watch Only.** HomeClimate works out the building's side and logs each time it would have made a zone wait, but holds nothing. Use this to see what On would do.
 - **On.** Every zone in the building is kept to the building's side.
 
+### Auto May Change Sides: how often
+
+| Choice | What it allows |
+| --- | --- |
+| **Several Times a Day** (the default) | Changes at least 4 hours apart, and no more than twice a day. For days that need heat in the morning and cooling in the afternoon. |
+| **Once a Day** | One change in any 24 hours. The building heats or cools for the day, and the other side waits. |
+| **Once a Week** | One change in any 7 days. |
+| **Once a Month** | One change in any 30 days: a change of season. |
+
+The time is counted from the last change, not by the calendar: a building that changed on Tuesday at 3 pm on a weekly limit can next change the following Tuesday at 3 pm.
+
+**The limit always holds.** No room, however far from its target, changes the building's side early. To change sides sooner, set the building to Heat Only or Cool Only on the Dashboard; going back to Auto afterwards starts it fresh. Safety limits are separate and are never held back (above).
+
+### Switching Threshold
+
+How far past its target on the other side a room must be before the building considers changing sides: 3 °F (1.7 °C) unless changed, from 0 to 10 °F (0 to 5.6 °C). On a building that is heating with a cooling target of 72 °F, a room has to reach 75 °F before its zone's wait counts. A room that is past its target by less than this simply waits, and outside air does the rest.
+
 ### How the side is chosen
 
-The building takes the side of the first cycle that starts in it. After that it switches only when all of these are true:
+The building takes the side of the first cycle that starts in it. After that it changes only when all of these are true:
 
-1. A zone wants the other side and no cycle on the current side is still running. A running cycle is always allowed to finish.
+1. A zone wants the other side, with a room at least the switching threshold past its target, and no cycle on the current side is still running. A running cycle is always allowed to finish.
 2. That zone has been waiting at least 10 minutes.
-3. At least 4 hours have passed since the last switch.
-4. The building has switched fewer than 2 times today.
-5. The forecast does not rule it out. A switch to cooling needs at least 2 of the next 6 forecast hours above the building's cooling target; a switch to heating needs 2 below its heating target. With no targets for the building the limits are 70 °F and 60 °F. With no forecast, this check is skipped.
+3. The limit above allows it.
+4. The forecast does not rule it out:
+   - **Several Times a Day** and **Once a Day**: a change to cooling needs at least 2 of the next 6 forecast hours above the highest cooling target in use in the building; a change to heating needs 2 below its lowest heating target.
+   - **Once a Week** and **Once a Month**: over the next three days, more forecast hours must call for the new side than for the one the building is on, so one warm afternoon does not use up the change.
+   - With no targets in the building the limits are 70 °F and 60 °F. With no forecast (or, for the weekly and monthly check, less than a day of it), this check is skipped.
 
-One exception: when a zone has been waiting 3 minutes and a room is 2 °F (1.1 °C) or more past the point where it would normally start, the building switches without checks 2 to 5. That exception has limits of its own: at least 1 hour since the last switch, and no more than 6 switches in a day.
+On a weekly or monthly limit, taking the first side does not count as a change, so a building that happened to start on the wrong side is not kept there for a month.
 
 A zone only asks for a switch it could use. A zone whose thermostat has no cooling mode, whose cooling is locked out because it is too cold outside, or whose rooms Eco Mode would leave alone, does not make the building switch.
 
-On **Watch Only** nothing is held, so a zone that wants the other side simply runs. The time it spends running counts as its wait, and the side shown follows the same rules.
+On **Watch Only** nothing is held, so a zone that wants the other side simply runs. The time it spends running counts as its wait and it counts as past the threshold, and the side shown follows the same rules.
 
 While a zone waits, its rooms that need the building's current side are still served. The side is remembered across a restart. Setting a fixed mode, or setting Auto to Off, forgets it; Auto starts again from the next cycle.
 
@@ -56,4 +77,4 @@ Each switch is written to the Logs under Engine ("Main House is now on cooling")
 ## API
 
 - `GET /api/building-modes` returns every building with its mode, Auto level, side, a note on what it is waiting for, and the zones waiting.
-- `PUT /api/building-modes/{building_id}` takes `mode` (`auto`, `heat_only`, `cool_only`, `off`) and/or `auto_level` (`off`, `watch`, `on`).
+- `PUT /api/building-modes/{building_id}` takes any of `mode` (`auto`, `heat_only`, `cool_only`, `off`), `auto_level` (`off`, `watch`, `on`), `switching` (`often`, `daily`, `weekly`, `monthly`) and `switch_threshold` (a difference in the display unit; returned in °F).

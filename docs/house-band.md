@@ -16,7 +16,9 @@ A level with no targets of its own follows the one above, and the Dashboard show
 - Setting targets makes **every room in use** under them call for heating or cooling whenever it is outside them. That is a big change on a home that has relied on schedules and occupancy alone.
 - The cooling target cannot be below the heating target. Both must be between 45 and 95 °F, and inside every zone's safety limits: the heating target at least 1 °F below the lowest maximum safety temperature, the cooling target at least 1 °F above the highest minimum.
 - Targets do not expire. **Clear** removes a level's own targets, so it follows the level above again.
-- How often a building may change between heating and cooling is its mode's business, not the targets': see [Building mode](./building-mode.md). In Heat Only or Cool Only it only ever does the one.
+- With the two targets close together, only a room's deadband separates heating from cooling. What limits how often a building changes between them is its mode: Heat Only or Cool Only, or Auto set to On with a limit of your choosing. See [Building mode](./building-mode.md). A zone in no building, or a building whose Auto is Off, has no such limit.
+- The safety-limit check looks only at the zones the targets can reach: a building's zones, the one zone, or a room's zone.
+- A zone that leaves its building for none, or whose building is deleted, keeps the targets it was following as its own.
 
 A room's deadband applies at each target, exactly as it does around a single target: heating starts once the room is a deadband below the heating target and stops at it; cooling starts a deadband above the cooling target and stops at it. A room resting between the two is left out of any cycle running for other rooms.
 
@@ -30,7 +32,7 @@ Things to know before setting them:
 
 ### Upgrading from the house band
 
-Versions before 0.5.17 had one Heat To and Cool To for the whole house. On the first start after upgrading, those two numbers become the targets of every building, and of every zone that is in no building, so every room is kept where it was. Nothing needs doing.
+Versions before 0.5.17 had one Heat To and Cool To for the whole house. On the first start after upgrading, those two numbers become the targets of every building, and of every zone that is in no building, so every room is kept where it was. Nothing needs doing. The same happens when a backup from an earlier version is restored.
 
 ## A band on a schedule, a hold or occupancy
 
@@ -87,7 +89,7 @@ Under **Smart Control → Schedules → Rooms In Use by Calendar**, a room's In 
 
 ## API
 
-- `GET /api/house` — `targets`, one entry per level that has its own (`scope`, `scope_id`, `house_heat_to`, `house_cool_to`, in °F), and every room's switches.
+- `GET /api/house` — `targets`, one entry per level that has its own (`scope`, `scope_id`, `house_heat_to`, `house_cool_to`, in °F), and every room's switches. The top-level `house_heat_to` and `house_cool_to` are null except on a home with no building or zone yet to take over an earlier version's band.
 - `PUT /api/house/targets/{scope}/{scope_id}` — `scope` is `building`, `zone` or `room`; `scope_id` is the building id, the zone's thermostat entity id, or the room id. Send `house_heat_to` and `house_cool_to` in the display unit, or both null to clear. Both keys are required. This replaces `PUT /api/house`, which is gone.
 - `PUT /api/house/rooms/{room_id}` — `in_use`, `use_schedules`, `use_presence`.
 - `PUT /api/house/rooms/{room_id}/calendar` — `entity_id`, `match_text`, `lead_min`; `DELETE` to stop following.

@@ -397,6 +397,8 @@ class Scheduler:
         mqtt_val = await db.get_system_setting(self._db_conn, "mqtt_enabled", "0")
         self._mqtt_enabled = mqtt_val == "1"
         self._theme = await db.get_system_setting(self._db_conn, "theme", "system")
+        # A backup from before targets had levels still has the one house band.
+        await self.adopt_house_band()
         await self._load_vacation_state()
         self._eco_suspends = await db.get_all_eco_suspensions(self._db_conn)
         if self._unit_override not in ("F", "C"):
@@ -1050,6 +1052,8 @@ class Scheduler:
     # ------------------------------------------------------------------
 
     async def refresh_engines(self) -> None:
+        # The home's structure may have just gained its first building or zone.
+        await self.adopt_house_band()
         await self._load_heat_pumps()
         await self._sync_engines()
 
@@ -1828,7 +1832,7 @@ class Scheduler:
                 hours = (await forecast_bias.load(self._db_conn)).correct(hours)
             the_house = await house.load(self._db_conn)
             band = {
-                b.id: the_house.building_band(b.id)
+                b.id: the_house.building_outer_band(b.id)
                 for b in await zones.list_buildings(self._db_conn)
             }
             zones_now = self.zones_now()

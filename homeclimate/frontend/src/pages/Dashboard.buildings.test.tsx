@@ -34,6 +34,8 @@ const MAIN: bm.BuildingMode = {
   name: "Main House",
   mode: "auto",
   auto_level: "on",
+  switching: "often",
+  switch_threshold: 3,
   side: "heating",
   obey: true,
   note: "Waiting for heating to finish",

@@ -2783,6 +2783,11 @@ button.sc-nav-item {
   font-size: 0.875rem;
   color: var(--gray-600);
 }
+.targets-note {
+  flex-basis: 100%;
+  margin: 0;
+  max-width: 70ch;
+}
 .targets-row .form-error {
   flex-basis: 100%;
   margin: 0;
@@ -2840,6 +2845,34 @@ button.sc-nav-item {
   .calendar-row {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+/* Smart Control → One Side Per Building */
+.auto-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 0.85rem 1.5rem;
+  align-items: start;
+}
+.threshold-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+.choice-list {
+  margin: 0.25rem 0 0;
+  display: grid;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+}
+.choice-list dt {
+  font-weight: 600;
+  color: var(--gray-900);
+}
+.choice-list dd {
+  margin: 0;
+  color: var(--gray-600);
+  max-width: 70ch;
 }
 
 /* Dashboard → building mode */
