@@ -233,6 +233,11 @@ async def test_in_developer_mode_nothing_is_turned_on_and_a_running_fan_is_still
     assert run.modes() == ["on", "auto"] and not run.manager.running(T1)
     assert run.said[-1].startswith("Fan would run for Main (Developer Mode): Loft")
     assert len([m for m in run.said if "Developer Mode" in m]) == 1
+    # Developer Mode coming on in the middle of a tick is caught at the send.
+    assert await run.tick(_zone(), NOW + timedelta(minutes=22)) == (
+        "The thermostat did not accept the fan change"
+    )
+    assert not run.manager.running(T1)
     # Nor can the intake test be started there.
     conn = await client.app["scheduler"].get_db()
     with pytest.raises(fan.FanError) as raised:

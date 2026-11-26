@@ -271,6 +271,10 @@ class Manager:
         return int(used // 60)
 
     async def _set(self, ha: Any, thermostat_entity_id: str, mode: str) -> bool:
+        if mode == "on" and getattr(ha, "dev_mode", False):
+            # Developer Mode came on since this tick began: the command would
+            # only be logged, and must not be taken for a fan that is running.
+            return False
         try:
             # Handing a fan back is done even in Developer Mode.
             await ha.set_thermostat_fan_mode(thermostat_entity_id, mode, restore=mode == "auto")
