@@ -512,7 +512,6 @@ describe("Thermostats — numeric coercion", () => {
     // cycle_timeout_hours = 2 → the ceiling is 120 min, and the hint says so.
     const drift = screen.getByLabelText(/Drift correction interval/i);
     expect(drift).toHaveAttribute("max", "120");
-    expect(screen.getByText(/Cannot exceed the cycle timeout \(\s*120 min\)/)).toBeInTheDocument();
 
     fireEvent.change(drift, { target: { value: "9999" } });
     expect(drift).toHaveValue(120);

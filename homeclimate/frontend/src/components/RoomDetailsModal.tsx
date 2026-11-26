@@ -111,9 +111,8 @@ export default function RoomDetailsModal({
             <h4 className="room-details-title">Targets</h4>
             <TargetsRow house={house} level={level} onSaved={onSaved} />
             <p className="field-help">
-              Leave these empty and the room follows the level above. Give it numbers of its own to
-              keep this room somewhere different. A hold, a schedule or occupancy, when one applies,
-              comes first.
+              Leave these empty and the room follows its zone or building. A hold, a schedule or
+              occupancy comes first.
             </p>
           </section>
         )}

@@ -456,15 +456,8 @@ function RoomSettings({
             onChange={(e) => setTempOffset(e.target.value)}
           />
           <div className="form-hint">
-            Compensates for temperature drift after the vent closes. The offset is added to the
-            room's measured temperature before comparing to the schedule target — so the vent closes
-            earlier, leaving room for drift.
-            <br />
-            <strong>Example:</strong> your schedule targets 70°F in cooling, but this room always
-            ends up at 67°F even after the vent closes. Set offset to <strong>+3</strong> — the
-            system will now close the vent when the room reads 67°F (67 + 3 = 70, "at target"), and
-            the room drifts to ~70°F instead of 67°F. Leave at 0 if the room reaches its target
-            accurately.
+            Use this when the room always ends up warmer or cooler than its target. Example: if it
+            settles 3° too cool, enter +3.
           </div>
         </div>
 
@@ -484,17 +477,9 @@ function RoomSettings({
             onChange={(e) => setDeadbandOverride(e.target.value)}
           />
           <div className="form-hint">
-            Replaces the thermostat&rsquo;s deadband for <strong>this room only</strong> — the ±
-            tolerance around the target within which the room is &ldquo;at target&rdquo; and calls
-            for no heating or cooling. Leave blank to inherit the thermostat&rsquo;s deadband (
-            {thermoDeadbandDisplay}
+            How close to its target this room must be before heating or cooling stops. Leave blank
+            to use the zone&rsquo;s setting ({thermoDeadbandDisplay}
             {unitLabel}).
-            <br />
-            <strong>Example:</strong> a 70{unitLabel} target with a 1{unitLabel} override means the
-            room only calls for cooling above 71{unitLabel} and for heating below 69{unitLabel}. A
-            smaller value holds the room tighter to target (more cycling); a larger value is more
-            relaxed (less cycling). This is <em>not</em> the widened pre-cool/pre-heat deadband
-            below.
           </div>
         </div>
 
@@ -523,14 +508,8 @@ function RoomSettings({
             </div>
           )}
           <div className="form-hint">
-            When presence would heat or cool this room but the outside air will carry it to target
-            on its own, HomeClimate skips the HVAC and lets the room drift.
-            <br />
-            <strong>Example:</strong> your night schedule holds this room at 68{unitLabel} and ends
-            at 7am. At 7:30am someone walks in and presence wants 70{unitLabel}. It is already
-            warmer outside, so the room will reach 70{unitLabel} on its own — HomeClimate skips the
-            heater. The moment the room actually reaches 70{unitLabel}, normal heating/cooling
-            resumes.
+            When someone walks in and the weather will bring the room to temperature by itself,
+            HomeClimate waits instead of running the equipment.
           </div>
         </div>
 
@@ -552,10 +531,8 @@ function RoomSettings({
                 <option value="off_schedule_only">Only after a schedule ends</option>
               </select>
               <div className="form-hint">
-                <strong>Example:</strong> &ldquo;Only after a schedule ends&rdquo; skips presence
-                heat/cool just after a schedule block ends (the 7am case) but behaves normally
-                midday. &ldquo;Any presence&rdquo; applies the check every time presence activates
-                the room.
+                Choose whether to wait every time someone walks in, or only just after a schedule
+                ends.
               </div>
             </div>
 
@@ -594,13 +571,8 @@ function RoomSettings({
                 onChange={(e) => setAmbientMinDiff(e.target.value)}
               />
               <div className="form-hint">
-                How far past the target the outside temperature must be before coasting.
-                <br />
-                <strong>Example:</strong> set to 5{unitLabel} with a 70{unitLabel} target,
-                HomeClimate only skips heating when it is at least 75{unitLabel} outside, and only
-                skips cooling when it is at most 65{unitLabel} outside. If it is only 71{unitLabel}{" "}
-                out, that is too little push, so it heats normally. Bigger = only coast when the
-                weather strongly favors it.
+                How much warmer or cooler than the target it must be outside before HomeClimate
+                waits. A bigger number means it waits less often.
               </div>
             </div>
 
@@ -618,14 +590,9 @@ function RoomSettings({
                 onChange={(e) => setAmbientDeadband(e.target.value)}
               />
               <div className="form-hint">
-                <strong>Example:</strong> your thermostat&rsquo;s deadband is{" "}
-                {thermoDeadbandDisplay}
-                {unitLabel}. This widened deadband must be at least that — set it the same or
-                higher. With a 70{unitLabel} target and a widened deadband of 3{unitLabel}, while
-                coasting up HomeClimate will not call for heat until the room drops 3{unitLabel}{" "}
-                below target. The instant the room rises past 70{unitLabel}, normal control resumes
-                — it cools at the normal deadband, not the widened one. The thermostat&rsquo;s
-                min/max setpoint always overrides this.
+                How far the room may slip from its target while waiting on the weather. It must be
+                at least {thermoDeadbandDisplay}
+                {unitLabel}, the zone&rsquo;s own setting.
               </div>
             </div>
           </>
@@ -656,17 +623,13 @@ function RoomSettings({
           </select>
           {!hasOutsideSensor && (
             <div className="form-hint" style={{ color: "var(--orange)" }}>
-              Eco Mode needs an outside-temperature sensor — configure one in{" "}
-              <strong>Settings</strong>, Sensors to force it on here. No physical outdoor
-              thermometer in Home Assistant? Add a free weather integration such as{" "}
-              <strong>PirateWeather</strong> and point the outside-temperature setting at it.
+              Eco Mode needs to know the outside temperature. Choose a sensor or a weather service
+              in <strong>Settings</strong>, Sensors.
             </div>
           )}
           <div className="form-hint">
-            &ldquo;Inherit&rdquo; follows the zone&rsquo;s Eco Mode switch in Smart Control. Choose
-            &ldquo;On&rdquo; to relax this room even when the thermostat has Eco off, or
-            &ldquo;Off&rdquo; to opt this room out. Each field below is blank by default and
-            inherits the thermostat; enter a value to override just that field.
+            Inherit follows the zone&rsquo;s Eco Mode setting. On or Off sets it for this room only,
+            and a blank field below uses the zone&rsquo;s value.
           </div>
         </div>
         <div
@@ -1227,7 +1190,7 @@ function RoomDeviceModal({
         {kind === "temps" && (
           <EntitySection
             title="Temperature Sensors"
-            description="Used to calculate the room's average temperature. Add all sensors in this room. The thermostat's own sensor can optionally be included in Room Settings."
+            description="The room's temperature is the average of these. Add every temperature sensor in the room."
             icon="🌡"
             items={sensors}
             domain="sensor"

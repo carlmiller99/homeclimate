@@ -92,9 +92,8 @@ export default function AirIntakeField({
         </select>
       </label>
       <p className="field-help">
-        Does this system have a duct that brings in outside air when its fan runs? With one,
-        HomeClimate only runs the fan by itself while outside air would help. Not Sure is treated as
-        No.
+        Does a duct bring outside air into this system when its fan runs? If so, the fan runs by
+        itself only when outside air would help.
       </p>
       {zone && (
         <div className="air-intake-test">

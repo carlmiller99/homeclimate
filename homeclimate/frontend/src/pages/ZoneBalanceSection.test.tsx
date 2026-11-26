@@ -91,6 +91,26 @@ describe("Zone Balance", () => {
     await waitFor(() => expect(zb.setZoneBalance).toHaveBeenCalledWith("b1", { zone_gap: 2.5 }));
   });
 
+  it("colours the dot of a zone that is being brought back", async () => {
+    const pulled = zone("South", 64, { target: 67 });
+    vi.mocked(zb.getZoneBalance).mockResolvedValue(
+      wrap([
+        { ...MAIN, level: "on", direction: "cooling", zones: [zone("North", 70), pulled] },
+        { ...MAIN, building_id: "b2", name: "Den", zones: [zone("Lounge", 68), pulled] },
+      ])
+    );
+    render(<ZoneBalanceSection />);
+    await screen.findByText("Den right now");
+    const dots = [...document.querySelectorAll(".balance-dot")].map((d) => d.className);
+    // With no direction given, a zone being brought back is shown as heating.
+    expect(dots).toEqual([
+      "balance-dot",
+      "balance-dot balance-cooling",
+      "balance-dot",
+      "balance-dot balance-heating",
+    ]);
+  });
+
   it("says what a building is doing about its zones", () => {
     expect(text({ zones: [zone("North", 70)] })).toBe("Needs two zones in the building.");
     expect(text({ spread: null })).toBe("Waiting for a temperature from two zones.");

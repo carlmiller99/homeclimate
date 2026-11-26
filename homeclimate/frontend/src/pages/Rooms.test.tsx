@@ -1194,7 +1194,7 @@ describe("Rooms Page — Eco Mode override (#404)", () => {
     });
 
     // The gating hint is shown when no sensor is configured.
-    expect(screen.getByText(/PirateWeather/i)).toBeInTheDocument();
+    expect(screen.getByText(/Eco Mode needs to know the outside temperature/)).toBeInTheDocument();
 
     // Force "on" (the option is disabled in the UI, but the save still guards).
     const ecoSelect = screen.getByLabelText(/^Eco Mode$/) as HTMLSelectElement;

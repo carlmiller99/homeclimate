@@ -116,9 +116,8 @@ function TimeZoneCard() {
       </div>
       <div style={{ marginBottom: ".5rem" }}>{body}</div>
       <div className="form-hint">
-        All times in HomeClimate are shown and entered in this time zone, wherever you view it from.
-        Change it with the add-on&apos;s <code>timezone</code> option (or the <code>TIMEZONE</code>{" "}
-        environment variable on Docker), then restart the add-on.
+        Every time in HomeClimate uses this time zone, wherever you view it from. Change it in the
+        add-on&apos;s <code>timezone</code> option, then restart the add-on.
       </div>
     </div>
   );

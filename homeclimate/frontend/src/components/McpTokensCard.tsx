@@ -92,9 +92,8 @@ export default function McpTokensCard() {
     <div className="card" style={{ marginBottom: "1rem" }}>
       <div className="card-title">MCP access tokens</div>
       <div className="form-hint" style={{ marginBottom: ".75rem" }}>
-        When authentication is required, MCP clients must present a bearer token. Mint one below,
-        copy the secret (shown only once), and configure your MCP client with an{" "}
-        <code>Authorization: Bearer &lt;token&gt;</code> header.
+        An AI assistant needs a token to connect when sign-in is required. Create one below and copy
+        it now: it is shown only once.
       </div>
 
       <form onSubmit={mint} className="mcp-token-form">

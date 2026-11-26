@@ -723,9 +723,7 @@ describe("Thermostats Page — vacation mode selector", () => {
     // Issue #638: the hold parks in a recovered direction rather than
     // commanding the HVAC off; this phrase is unique to the single-setpoint
     // branch (the range branch describes a bare heat_cool range instead).
-    expect(
-      screen.getByText(/rather than\s+turning the HVAC off, the system parks it in a/i)
-    ).toBeInTheDocument();
+    expect(screen.getByText(/While you are away the house is kept between/)).toBeInTheDocument();
   });
 
   it("shows helper text and Test button for range mode", async () => {
@@ -741,12 +739,12 @@ describe("Thermostats Page — vacation mode selector", () => {
     // helper-text branch stubbed out entirely (verified by mutation). The
     // strings below are direct text nodes of the range hint, so they are
     // reachable by getByText and unique to that branch.
-    expect(screen.getByText(/letting it manage both heating and cooling natively/i)).toBeVisible();
-    expect(screen.queryByText(/Once back in range, the HVAC turns off again/i)).toBeNull();
+    expect(screen.getByText(/The thermostat keeps the house between/)).toBeVisible();
+    expect(screen.queryByText(/While you are away the house is kept between/)).toBeNull();
     // The range hint quotes the current min/max bounds, so the two setpoints
     // reach the user as the range they will actually be held between.
     const hint = screen
-      .getByText(/letting it manage both heating and cooling natively/i)
+      .getByText(/The thermostat keeps the house between/)
       .closest(".form-hint") as HTMLElement;
     expect(hint).toHaveTextContent("60°F");
     expect(hint).toHaveTextContent("80°F");
@@ -779,7 +777,7 @@ describe("Thermostats Page — vacation mode selector", () => {
     expect(toggle).toBeChecked();
     expect(toggle).toBeEnabled();
     // The single-setpoint hint points at the per-room control below it.
-    expect(screen.getByText(/only mode that can also watch each room/i)).toBeVisible();
+    expect(screen.getByText(/is heated or cooled by itself/)).toBeVisible();
 
     fireEvent.click(toggle);
     const card = toggle.closest(".card") as HTMLElement;
@@ -801,10 +799,10 @@ describe("Thermostats Page — vacation mode selector", () => {
     // The range hint must warn that sensing falls back to the thermostat's own
     // probe, and recommend single setpoint. Asserted as whole text nodes so a
     // reword is a deliberate two-file change.
-    expect(screen.getByText(/your rooms' temperature sensors are not consulted/i)).toBeVisible();
     expect(
-      screen.getByText(/A heat_cool thermostat decides heating vs cooling itself/i)
+      screen.getByText(/Room sensors are not used, and nothing guards against short cycles/)
     ).toBeVisible();
+    expect(screen.getByText(/Not available in/)).toBeVisible();
   });
 
   it("Revert button calls revertVacationTest", async () => {
@@ -1348,7 +1346,7 @@ describe("Thermostats Page — welcome home (#728)", () => {
     expect(within(g).getByLabelText(/Get the house ready/i)).toBeChecked();
     expect(within(g).getByLabelText(/minutes before return/i)).toHaveValue(60);
     expect(within(g).getByLabelText(/Keep rooms occupied for/i)).toHaveValue(1);
-    expect(g).toHaveTextContent(/Rooms with presence holdover set to 0\s+are skipped/);
+    expect(g).toHaveTextContent(/each room is brought to its occupied temperature for this long/);
   });
 
   it("bottom-aligns both timing fields so their inputs line up when one caption wraps", async () => {

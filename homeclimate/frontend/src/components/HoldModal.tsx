@@ -209,10 +209,8 @@ export default function HoldModal({ rooms, initialRoom, holds, onClose, onChange
             Allow Eco Mode to relax this hold
           </label>
           <div className="form-hint">
-            Off (the default), the hold runs to its exact target for its full duration — Eco Mode
-            never adjusts it. On, Eco Mode may relax the hold's target on extreme days, exactly like
-            a scheduled room; a thermostat-level Eco suspension or a disabled Eco config still
-            prevents relaxation.
+            Off: the hold keeps its exact temperature. On: Eco Mode may let it drift a little on
+            very hot or cold days.
           </div>
         </div>
 
