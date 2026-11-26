@@ -341,6 +341,18 @@ async def test_leaving_auto_forgets_the_side_it_was_on(client, site):
     assert (await _mode(client, site, auto_level="watch"))["side"] is None
 
 
+async def test_a_mode_left_behind_by_a_removed_building_is_ignored(client, site):
+    from backend import building_mode
+
+    conn = await client.app["scheduler"].get_db()
+    await conn.execute(
+        "INSERT INTO building_modes(building_id, mode) VALUES('gone-building', 'off')"
+    )
+    await conn.commit()
+    modes = await building_mode.load(conn)
+    assert "gone-building" not in modes and len(modes) >= 1
+
+
 async def test_nothing_new_starts_against_a_cycle_that_is_still_running(client, site):
     planner = client.app["scheduler"].building_plan
     await _mode(client, site, mode="heat_only")

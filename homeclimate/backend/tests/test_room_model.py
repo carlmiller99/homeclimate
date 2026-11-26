@@ -138,6 +138,25 @@ def test_the_sun_on_a_rooms_windows_is_learned():
     assert few.fitted_at is None and 0 < few.sun_hours < 12
 
 
+def test_a_climb_no_room_could_make_is_left_out_as_a_sensor_fault():
+    samples = _house(1)
+    steady = rm.windows_from(samples)
+
+    # The sensor creeps up 1.4 °F every five minutes for an hour: no single
+    # step is a spike, but no room moves at 16 °F an hour, so no half-hour
+    # of it is counted.
+    def creep(i: int) -> float:
+        return 1.4 * min(max(i - 40, 0), 12)
+
+    crept = [
+        learning.RoomSample(**{**x.__dict__, "room_temp": (x.room_temp or 0) + creep(i)})
+        for i, x in enumerate(samples)
+    ]
+    faulty = rm.windows_from(crept)
+    assert len(faulty) < len(steady)
+    assert all(abs(w.rate) <= rm.MAX_RATE_F_PER_H for w in faulty)
+
+
 def test_a_half_open_vent_delivers_half_and_the_full_rate_is_still_found():
     model = rm.fit("r1", rm.windows_from(_house(20, vent=0.5)), now=NOW)
     assert model.heat == pytest.approx(TRUE["heat"], rel=0.2)

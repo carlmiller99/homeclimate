@@ -78,8 +78,8 @@ test("@auth settings menu shows auth status + logout", async ({ page }) => {
 });
 
 test("@auth MCP token management card", async ({ page }) => {
-  // The MCP token card moved to the dedicated Settings page (#471).
-  await page.goto("/settings");
+  // The MCP token card is on the Settings page (#471), in its Integrations section.
+  await page.goto("/settings?section=integrations");
   await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
   // Screenshot just the card locator, so we wait for the card itself.
   const card = page.locator(".card").filter({ hasText: "MCP access tokens" });
@@ -91,7 +91,7 @@ test("@auth MCP token management card", async ({ page }) => {
 });
 
 test("@auth MCP token revoke confirmation dialog", async ({ page }) => {
-  await page.goto("/settings");
+  await page.goto("/settings?section=integrations");
   await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
   const card = page.locator(".card").filter({ hasText: "MCP access tokens" });
   await expect(card).toBeVisible({ timeout: 15_000 });
@@ -126,7 +126,7 @@ test("@auth settings page (auth on — full page with token card)", async ({ pag
   // minting card directly beneath it, and Backup & Restore — the layout a real
   // authenticated install sees. Distinct filename so it never collides with the
   // auth-off `settings.png`.
-  await page.goto("/settings");
+  await page.goto("/settings?section=integrations");
   await page.waitForSelector(".loading", { state: "detached", timeout: 15_000 });
   await page.waitForLoadState("networkidle");
   // Both MCP controls present, proving the toggle and the minting UI sit together.

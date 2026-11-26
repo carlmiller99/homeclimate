@@ -81,6 +81,14 @@ async def test_only_the_last_thirty_days_are_used(client, rooms):
     assert 29 * 48 <= model.windows <= 30 * 48
 
 
+async def test_a_fit_needs_no_event_log_to_run(client, rooms, monkeypatch):
+    bunk, _craft = rooms
+    await _record(client, bunk, 10)
+    scheduler = client.app["scheduler"]
+    monkeypatch.setattr(scheduler, "_event_logger", None)
+    assert await scheduler.fit_room_models_now() == 1
+
+
 async def test_a_failed_fit_never_escapes_the_job(client, rooms, monkeypatch, caplog):
     async def boom(*_a, **_k):
         raise RuntimeError("disk full")

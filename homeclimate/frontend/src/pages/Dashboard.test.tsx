@@ -129,7 +129,10 @@ describe("Dashboard Page", () => {
     );
 
     expect(await screen.findByText("Dashboard")).toBeInTheDocument();
-    expect(await screen.findByText(/Main HVAC/i)).toBeInTheDocument();
+    // The zone's name is on its card and, once the building modes have
+    // loaded, in the building's list of zones too: one or two matches,
+    // depending on which request lands first.
+    expect((await screen.findAllByText(/Main HVAC/i)).length).toBeGreaterThan(0);
     expect(screen.getByText("75.2°F")).toBeInTheDocument();
     expect(screen.getByText("72.0°F")).toBeInTheDocument();
     expect(screen.getByText("Living Room")).toBeInTheDocument();
