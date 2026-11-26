@@ -58,11 +58,17 @@ describe("Zone Balance", () => {
     const level = await screen.findByLabelText("Balance for Main House");
     expect(level).toHaveValue("off");
     expect(screen.getByText("Zones are 6.0°F apart.")).toBeInTheDocument();
-    expect(screen.getByText("North 70.0°F · South 64.0°F")).toBeInTheDocument();
+    // Each zone on a line from the coolest reading to the warmest.
+    expect(screen.getByText("Main House right now")).toBeInTheDocument();
+    expect(screen.getByText("Gap 6.0°F of 3.0°F allowed")).toBeInTheDocument();
+    const dots = [...document.querySelectorAll<HTMLElement>(".balance-dot")];
+    expect(dots.map((d) => d.style.left)).toEqual(["90%", "10%"]);
+    expect(screen.getByText("70.0°F")).toBeInTheDocument();
+    expect(screen.getByText("64.0°F")).toBeInTheDocument();
     fireEvent.change(level, { target: { value: "on" } });
     await waitFor(() => expect(zb.setZoneBalance).toHaveBeenCalledWith("b1", { level: "on" }));
     await waitFor(() => expect(screen.getByLabelText("Balance for Main House")).toHaveValue("on"));
-    expect(screen.getByText(/brought back to the limit\.$/)).toBeInTheDocument();
+    expect(screen.getByText(/^On: a zone that falls further behind/)).toBeInTheDocument();
     const gap = screen.getByLabelText("Gap limit for Main House");
     expect(gap).toHaveValue("3");
     fireEvent.change(gap, { target: { value: "5" } });
@@ -79,7 +85,8 @@ describe("Zone Balance", () => {
     );
     const gap = await screen.findByLabelText("Gap limit for Main House");
     expect(gap).toHaveValue("2.2");
-    expect(screen.getByText("Gap Limit (°C)")).toBeInTheDocument();
+    expect(screen.getByText("Limit the Gap Between Zones in Main House To")).toBeInTheDocument();
+    expect(screen.getByText("°C")).toBeInTheDocument();
     fireEvent.change(gap, { target: { value: "2.5" } });
     await waitFor(() => expect(zb.setZoneBalance).toHaveBeenCalledWith("b1", { zone_gap: 2.5 }));
   });
@@ -116,7 +123,9 @@ describe("Zone Balance", () => {
       wrap([{ ...MAIN, spread: null, zones: [zone("North", 70), zone("South", null)] }])
     );
     const first = render(<ZoneBalanceSection />);
-    expect(await screen.findByText("North 70.0°F · South no reading")).toBeInTheDocument();
+    expect(await screen.findByText("No reading")).toBeInTheDocument();
+    expect(screen.getByText("Waiting for two readings")).toBeInTheDocument();
+    expect(document.querySelectorAll(".balance-dot")).toHaveLength(1);
     vi.mocked(zb.setZoneBalance).mockRejectedValueOnce(new Error("Nope"));
     fireEvent.change(screen.getByLabelText("Balance for Main House"), { target: { value: "on" } });
     expect(await screen.findByText("Nope")).toBeInTheDocument();

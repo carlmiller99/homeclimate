@@ -195,10 +195,8 @@ export default function EcoSection() {
     <section className="sc-section" id="eco-mode">
       <h2 className="sc-section-title">Eco Mode</h2>
       <p className="sc-section-lead">
-        When it is very hot or very cold outside, Eco Mode lets each room&rsquo;s target drift a few
-        degrees so the equipment works less. It is set for each zone here. A single room can be
-        given its own Eco settings in My Home, and Eco can be suspended for a while from the
-        Dashboard.
+        On very hot or very cold days, lets each room drift a few degrees from its target so the
+        equipment runs less.
       </p>
       {loadFailed && <p className="form-error">Could not load the zones.</p>}
       {!loadFailed && !zones && <p className="page-subtitle">Loading the zones…</p>}

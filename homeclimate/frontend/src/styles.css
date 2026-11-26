@@ -1689,6 +1689,73 @@ tr:hover td {
 .zone-editor {
   background: var(--surface);
 }
+/* Smart Control → Zone Balance */
+.balance-building + .balance-building {
+  margin-top: 1.25rem;
+}
+.balance-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.balance-controls select {
+  width: auto;
+  min-width: 4.5rem;
+  font-weight: 600;
+}
+.balance-now {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.85rem 1rem;
+  margin-top: 0.25rem;
+}
+.balance-now-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+.balance-now-gap {
+  font-size: 0.85rem;
+  color: var(--gray-600);
+}
+.balance-zone {
+  display: grid;
+  grid-template-columns: minmax(6rem, 9rem) minmax(0, 1fr) 5.5rem;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.3rem 0;
+  font-size: 0.92rem;
+}
+.balance-track {
+  position: relative;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--gray-100);
+}
+.balance-dot {
+  position: absolute;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--state-idle);
+}
+.balance-dot.balance-heating {
+  background: var(--state-heating);
+}
+.balance-dot.balance-cooling {
+  background: var(--state-cooling);
+}
+.balance-zone-temp {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.balance-now > .rule-help {
+  margin: 0.4rem 0 0;
+}
 /* Smart Control → Schedules: whether a room is in use */
 .room-in-use {
   margin-top: 0.9rem;
@@ -2103,6 +2170,22 @@ tr:hover td {
 }
 .sc-section-lead {
   margin: 0;
+  color: var(--gray-600);
+  max-width: 40rem;
+}
+/* Every card under Smart Control and Settings reads the same: a section
+   title, one or two lines about it, then its rule rows. */
+.sc-layout .card {
+  border-radius: 20px;
+  padding: 1.5rem;
+}
+.sc-layout .card > .card-title {
+  margin: 0 0 0.5rem;
+  font-size: 1.375rem;
+  font-weight: 700;
+}
+.sc-layout .card > .page-subtitle {
+  margin: 0 0 0.75rem;
   color: var(--gray-600);
   max-width: 40rem;
 }

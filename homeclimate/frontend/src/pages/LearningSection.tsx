@@ -106,7 +106,7 @@ export default function LearningSection() {
   const [shorten, setShorten] = useState<number | null>(null);
   const [fitting, setFitting] = useState(false);
   const [fitErr, setFitErr] = useState<string | null>(null);
-  const { toDisplayDelta, unitLabel, isCelsius } = useUnit();
+  const { toDisplayDelta, unitLabel } = useUnit();
   const tz = useTimeZone();
 
   useEffect(() => {
@@ -157,9 +157,8 @@ export default function LearningSection() {
       <section className="sc-section" id="smart-learning">
         <h2 className="sc-section-title">Smart Learning</h2>
         <p className="sc-section-lead">
-          HomeClimate records how each room heats and cools, and each night works out how fast each
-          room warms, cools and drifts. The one thing that uses it so far is Start Rooms Early,
-          below, which is off until you turn it on.
+          HomeClimate learns how fast each room warms and cools. The options below use that to be
+          ready on time and to run less.
         </p>
         <RuleRow
           id="learning-sampling"
@@ -242,14 +241,13 @@ export default function LearningSection() {
           </button>
         </div>
         <p className="sc-section-lead">
-          Worked out each night at 3:20 AM from the last 30 days, leaving out any time a door or
-          window was open, a fire was lit or auxiliary heat ran. A room is Ready after about six
-          days of usable readings across a spread of weather.
+          Updated each night from the last 30 days. A room is Ready after about six days of
+          readings.
         </p>
         <RuleRow
           id="learning-early-start"
           title="Start Rooms Early"
-          help="Starts heating or cooling a room ahead of its next schedule block, by as long as the room has taught it takes in this weather (15 minutes to 3 hours), so it is ready on time. Only for rooms whose rate has been learned, and only when the weather agrees: a setback is never started early. Watch Only logs what it would do."
+          help="Starts heating or cooling a room before its schedule begins, so it is at temperature on time. Watch Only records what it would do without doing it."
         >
           <select
             className="form-control"
@@ -268,7 +266,7 @@ export default function LearningSection() {
         <RuleRow
           id="learning-coast"
           title="Let Rooms Coast"
-          help={`When a room is a little short of its target but will drift there on its own soon, the call waits instead of starting the equipment: up to 45 minutes, or three times that for electric strip heat. Never for a hold, and never once a room is ${isCelsius ? "1.1°" : "2°"} off. ${describeCoasting(data.coasting, (iso) => tz.format(iso))}`}
+          help={`Waits before starting the equipment when a room will reach its target by itself soon. ${describeCoasting(data.coasting, (iso) => tz.format(iso))}`}
         >
           <select
             className="form-control"
@@ -287,7 +285,7 @@ export default function LearningSection() {
         <RuleRow
           id="learning-arrivals"
           title="Get Rooms Ready for Usual Arrivals"
-          help="Once a room's occupancy sensors have shown, for two weeks or more, the hours of the week it is usually used, it is brought to its occupied temperature shortly before the first of them: half an hour ahead, or the time the room has taught, up to an hour and a half. Only a room with nothing more specific to follow and no schedule for that hour. It gives way to any room that asks for itself, and is let go if nobody has arrived half an hour in: a run already going for it is then wound up. Watch Only writes what it would do to the Engine log."
+          help="Gets a room to temperature shortly before the time it is usually first used. It stops if nobody arrives within half an hour."
         >
           <select
             className="form-control"
@@ -306,7 +304,7 @@ export default function LearningSection() {
         <RuleRow
           id="learning-early-cool"
           title="Early Cooling"
-          help={`On a day the forecast says is still warming, a room following a band is kept ${isCelsius ? "0.8°" : "1.5°"} below its Cool To for as long as its own model says it would pass it within three hours if left alone, rather than waiting for the warmest part of the afternoon. Never a hold, never outside the band, and it gives way to any room that asks for itself. It moves cooling earlier and may use a little more of it. Watch Only writes what it would do to the Engine log.`}
+          help="On a warming day, starts cooling a little sooner so a room does not get too warm later. Watch Only records what it would do without doing it."
         >
           <select
             className="form-control"
