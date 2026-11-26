@@ -364,8 +364,7 @@ function RoomSettings({
           </label>
           {thermostats.length === 0 ? (
             <div className="form-hint" style={{ color: "var(--orange)" }}>
-              No zones yet. Go back to My Home and use <strong>Add Zone</strong>, which adds a zone
-              together with its first room.
+              No zones yet. Go back to My Home and use <strong>Add Zone</strong> first.
             </div>
           ) : (
             <select
@@ -1610,6 +1609,7 @@ export default function MyHome() {
               <button
                 type="button"
                 className="btn btn-primary"
+                style={{ marginTop: ".6rem" }}
                 onClick={() => setSettings({ room: null, returnTo: "list", zoneId })}
               >
                 Add Room

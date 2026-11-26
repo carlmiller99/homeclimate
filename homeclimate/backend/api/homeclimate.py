@@ -119,7 +119,8 @@ async def delete_building(request: web.Request) -> web.Response:
     outcome = await zones.delete_building(conn, building_id)
     if outcome == "missing":
         return error("Building not found", status=404)
-    # Its zones are in no building now, which changes how they choose a side.
+    # Its zones are in no building now. The zone profiles are reloaded here;
+    # the building planner drops the deleted building on its next tick.
     await refresh(request)
     return json_response({"deleted": building_id})
 
