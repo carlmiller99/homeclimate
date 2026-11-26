@@ -820,6 +820,13 @@ class TestSetThermostatFanMode:
         # No _ws — would raise if call_service were reached.
         await client.set_thermostat_fan_mode("climate.main", "auto")
 
+    async def test_handing_a_fan_back_goes_out_even_in_dev_mode(self):
+        client = _make_auto_resolving_client()
+        client.dev_mode = True
+        await client.set_thermostat_fan_mode("climate.main", "auto", restore=True)
+        payload = client._ws.send_json.call_args[0][0]
+        assert payload["service_data"] == {"entity_id": "climate.main", "fan_mode": "auto"}
+
     async def test_real_mode_calls_service(self):
         client = _make_auto_resolving_client()
         await client.set_thermostat_fan_mode("climate.main", "auto")

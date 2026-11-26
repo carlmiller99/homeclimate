@@ -270,8 +270,10 @@ class FakeHomeAssistant:
             "attributes": dict(cur.get("attributes") or {}),
         }
 
-    async def set_thermostat_fan_mode(self, entity_id: str, mode: str) -> None:
-        if self.dev_mode:
+    async def set_thermostat_fan_mode(
+        self, entity_id: str, mode: str, *, restore: bool = False
+    ) -> None:
+        if self.dev_mode and not restore:
             await self._dev_log(
                 f"Would set thermostat {entity_id} fan → {mode}",
                 {"entity_id": entity_id, "fan_mode": mode, "action": "set_fan_mode"},

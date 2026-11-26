@@ -491,16 +491,6 @@ class Scheduler:
         return self._dev_mode
 
     async def set_dev_mode(self, enabled: bool) -> None:
-        try:
-            if enabled:
-                # While commands still reach the thermostats: hand back any
-                # fan that is really on. In Developer Mode it could not be.
-                await self._fan.release(self._db_conn, self._ha, datetime.now(UTC))
-            else:
-                # What was "turned on" in Developer Mode was only logged.
-                await self._fan.forget(self._db_conn)
-        except Exception:
-            log.exception("Could not settle the fans before changing Developer Mode")
         self._dev_mode = enabled
         self._ha.dev_mode = enabled
         await db.set_system_setting(self._db_conn, "developer_mode", "1" if enabled else "0")
@@ -1846,6 +1836,7 @@ class Scheduler:
                 say=self._say_fan,
                 open_vents=self._open_room_vents,
                 unit=self._active_unit,
+                dry=self._dev_mode,
             )
         except Exception:
             log.exception("Could not run the fans")
@@ -1867,6 +1858,7 @@ class Scheduler:
             zone,
             await outside.read(self._db_conn, self._ha),
             datetime.now(UTC),
+            dry=self._dev_mode,
         )
 
     async def _run_shades(self) -> None:

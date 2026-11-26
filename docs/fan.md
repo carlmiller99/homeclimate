@@ -27,7 +27,7 @@ It stops when the room is back at its target, when the two rooms are within 0.75
 - **A room paused by an open door or window counts for nothing**, either as the reason or as the room to mix with. A paused zone does not run the fan at all.
 - **Not while the system is off, in Vacation Mode, or while a fireplace is lit** in one of the zone's rooms.
 - **A fan somebody else turned on is left alone.** HomeClimate only turns off a fan it turned on. That one it always sets back to auto when it is done: after a restart, when its zone is deleted, and when the thermostat did not answer the first time (it keeps trying). If HomeClimate cannot read the zones at all, it hands every fan back.
-- In Developer Mode the fan is not switched; what would have been sent is logged, as for every other command. Turning Developer Mode on hands back any fan HomeClimate has running first.
+- In Developer Mode no fan is turned on; what would have run is logged once, as with Watch Only, and the test cannot be started. A fan HomeClimate had already turned on is still set back to auto when it is done.
 - While a thermostat is unavailable in Home Assistant, a fan HomeClimate turned on stays remembered, and is set back to auto when the thermostat returns.
 - After a restart, a fan HomeClimate had on is set back to auto if it is no longer wanted, even if somebody turned it on by hand in the meantime.
 - Rooms that are not in use are left out.
@@ -57,4 +57,4 @@ The result is a hint and no more. Rooms moving 0.5 °F (0.3 °C) or more toward 
 
 ## Smart Learning
 
-Time the fan runs alone is left out of what [Smart Learning](./smart-learning.md) learns about a room, since the room is not drifting by itself then.
+Time the fan runs alone is left out of what [Smart Learning](./smart-learning.md) learns about a room, since the room is not drifting by itself then. That includes a fan somebody set to On at the thermostat: a zone whose fan is left on all the time gives Smart Learning nothing to learn its idle drift from.

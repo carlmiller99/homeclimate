@@ -79,7 +79,9 @@ class FanError(UserError):
 ZONE_UNKNOWN = fixed("That zone was not found, or has no rooms yet")
 NO_FAN_SETTING = fixed("This thermostat has no fan setting HomeClimate can switch")
 TEST_BUSY = fixed("Wait until the zone is idle and its fan has stopped, then try again")
-TEST_BLOCKED = fixed("The fan cannot be tested while the system is off or paused")
+TEST_BLOCKED = fixed(
+    "The fan cannot be tested while the system is off or paused, or in Developer Mode"
+)
 TEST_NO_OUTSIDE = fixed(
     "The test needs an outside temperature and a room temperature for this zone"
 )
@@ -168,6 +170,12 @@ def _past_own(room: RoomNow, warm: bool) -> bool:
     if warm:
         return room.cool_to is not None and room.temp >= room.cool_to
     return room.heat_to is not None and room.temp <= room.heat_to
+
+
+def _answering(ha: Any, thermostat_entity_id: str) -> bool:
+    """Whether a thermostat is there to be told anything."""
+    state = ha.get_state(thermostat_entity_id)
+    return state is not None and state.get("state") not in ("unavailable", "unknown")
 
 
 def _degrees(delta_f: float, unit: str) -> str:
@@ -264,7 +272,8 @@ class Manager:
 
     async def _set(self, ha: Any, thermostat_entity_id: str, mode: str) -> bool:
         try:
-            await ha.set_thermostat_fan_mode(thermostat_entity_id, mode)
+            # Handing a fan back is done even in Developer Mode.
+            await ha.set_thermostat_fan_mode(thermostat_entity_id, mode, restore=mode == "auto")
         except Exception:
             log.exception("Could not set the fan of %s to %s", thermostat_entity_id, mode)
             return False
@@ -320,27 +329,13 @@ class Manager:
         """
         await self._load(conn, now)
         for tid in sorted(self._ours):
-            if await self._set(ha, tid, "auto"):
+            if _answering(ha, tid) and await self._set(ha, tid, "auto"):
                 self._ours.discard(tid)
                 self._for.pop(tid, None)
                 began = self._since.pop(tid, None)
                 if began is not None:
                     self._runs.setdefault(tid, []).append((began, now))
         self._tests.clear()
-        await self._remember(conn)
-
-    async def forget(self, conn: aiosqlite.Connection) -> None:
-        """Drop every fan from the books without sending anything.
-
-        For leaving Developer Mode: what was "turned on" there was only
-        logged, so there is nothing to hand back, and a fan somebody has on
-        for real must not be turned off on the strength of it.
-        """
-        self._ours.clear()
-        self._since.clear()
-        self._for.clear()
-        self._tests.clear()
-        self._loaded = True
         await self._remember(conn)
 
     async def tick(
@@ -354,21 +349,24 @@ class Manager:
         say: Callable[[str, dict], Awaitable[None]],
         open_vents: Callable[[list[str]], Awaitable[None]],
         unit: str = "F",
+        dry: bool = False,
     ) -> None:
+        """``dry`` is Developer Mode: nothing is turned on, only said."""
         await self._load(conn, now)
         seen = {z.thermostat_entity_id for z in zones}
         for gone in sorted(self._ours - seen):
             # Its zone has no engine any more (deleted, or emptied of rooms):
             # hand the fan back before forgetting it, and keep trying if that fails.
-            if await self._set(ha, gone, "auto"):
+            if _answering(ha, gone) and await self._set(ha, gone, "auto"):
                 self._ours.discard(gone)
+                self._for.pop(gone, None)
                 self._since.pop(gone, None)
                 await self._remember(conn)
         for gone in set(self._tests) - seen:
             del self._tests[gone]
         for zone in zones:
             try:
-                await self._tick_zone(conn, ha, zone, outside, now, say, open_vents, unit)
+                await self._tick_zone(conn, ha, zone, outside, now, say, open_vents, unit, dry)
             except Exception:
                 # One zone's trouble must not leave another's fan unattended.
                 log.exception("Could not run the fan for %s", zone.thermostat_entity_id)
@@ -383,6 +381,7 @@ class Manager:
         say: Callable[[str, dict], Awaitable[None]],
         open_vents: Callable[[list[str]], Awaitable[None]],
         unit: str,
+        dry: bool,
     ) -> None:
         tid = zone.thermostat_entity_id
         if zone.cycle_mode is not None or tid not in self._met:
@@ -416,11 +415,14 @@ class Manager:
             f" room is {_degrees(want.spread, unit)} closer to it"
         )
         details = {"thermostat": tid, "room": want.room_id, "past": want.past}
-        if zone.level == "watch":
+        if zone.level == "watch" or (dry and tid not in self._ours):
+            # Developer Mode is treated as watching: a fan is never recorded
+            # as running unless it really was turned on.
             self._notes[tid] = f"Would run: {what}"
             if tid not in self._watched:
                 self._watched.add(tid)
-                await say(f"Fan would run for {zone.name} (watching only): {what}", details)
+                why = "watching only" if zone.level == "watch" else "Developer Mode"
+                await say(f"Fan would run for {zone.name} ({why}): {what}", details)
             return
         self._notes[tid] = f"Running: {what}"
         if tid in self._ours:
@@ -446,6 +448,8 @@ class Manager:
         zone: ZoneInput | None,
         outside: float | None,
         now: datetime,
+        *,
+        dry: bool = False,
     ) -> None:
         if zone is None:
             raise FanError(ZONE_UNKNOWN)
@@ -454,7 +458,7 @@ class Manager:
             raise FanError(TEST_RUNNING)
         if not zone.supported:
             raise FanError(NO_FAN_SETTING)
-        if zone.blocked:
+        if zone.blocked or dry:
             raise FanError(TEST_BLOCKED)
         await self._load(conn, now)
         if not zone.idle or tid in self._ours:

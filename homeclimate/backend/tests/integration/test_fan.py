@@ -130,13 +130,17 @@ class _Run:
 
     def __init__(self, client, fake_ha, *, met: bool = True) -> None:
         self.client, self.ha = client, fake_ha
+        # Thermostats that are there to be told things.
+        for tid in (T1, "climate.other", "climate.gone"):
+            if fake_ha.get_state(tid) is None:
+                fake_ha.seed_state(tid, "heat", {})
         # As if the zones had been seen before: a manager that has only just
         # started waits out a run that may have ended before it did.
         self.manager = fan.Manager(_met={T1, "climate.other"}) if met else fan.Manager()
         self.said: list[str] = []
         self.opened: list[list[str]] = []
 
-    async def tick(self, zone, now=NOW, outside=None, unit="F") -> str:
+    async def tick(self, zone, now=NOW, outside=None, unit="F", dry=False) -> str:
         conn = await self.client.app["scheduler"].get_db()
 
         async def say(message, _details):
@@ -147,7 +151,7 @@ class _Run:
 
         zones = [] if zone is None else [zone]
         await self.manager.tick(
-            conn, self.ha, zones, outside, now, say=say, open_vents=open_vents, unit=unit
+            conn, self.ha, zones, outside, now, say=say, open_vents=open_vents, unit=unit, dry=dry
         )
         return self.manager.note(T1)
 
@@ -207,46 +211,48 @@ async def test_the_room_a_running_fan_is_for_follows_whoever_needs_it(client, fa
     assert run.manager._for == {T1: "attic"} and run.modes() == ["on"]
 
 
-async def test_leaving_developer_mode_forgets_what_was_only_said(client, fake_ha):
-    scheduler = client.app["scheduler"]
-    manager = scheduler.fans
-    conn = await scheduler.get_db()
-    manager._met.add(T1)
-
-    async def nothing(*_a, **_k):
-        return None
-
-    async def tick(zone, at):
-        await manager.tick(conn, fake_ha, [zone], None, at, say=nothing, open_vents=nothing)
-
-    # A fan really on is handed back on the way into Developer Mode...
-    await tick(_zone(), NOW)
-    await scheduler.set_dev_mode(True)
-    assert [c.data["fan_mode"] for c in fake_ha.calls_for("set_fan_mode")] == ["on", "auto"]
-    assert not manager.running(T1)
-    # ...and one only "turned on" there is forgotten on the way out, so a
-    # fan somebody has on for real is not turned off on the strength of it.
-    manager._runs.clear()  # that run ended on the real clock, not this test's
-    await tick(_zone(), NOW + timedelta(minutes=70))
-    assert manager.running(T1)
-    await scheduler.set_dev_mode(False)
-    assert not manager.running(T1)
-    await tick(_zone(fan_mode="on", level="off"), NOW + timedelta(minutes=71))
-    assert [c.data["fan_mode"] for c in fake_ha.calls_for("set_fan_mode")] == ["on", "auto"]
-
-
-async def test_a_failure_settling_the_fans_does_not_stop_developer_mode(
-    client, fake_ha, monkeypatch, caplog
+async def test_in_developer_mode_nothing_is_turned_on_and_a_running_fan_is_still_handed_back(
+    client, fake_ha
 ):
-    scheduler = client.app["scheduler"]
+    run = _Run(client, fake_ha)
+    await run.tick(_zone())
+    assert run.modes() == ["on"]
+    fake_ha.dev_mode = True
+    # Already running for real: it goes on being looked after, and is handed
+    # back with a real command when it is done.
+    assert (await run.tick(_zone(fan_mode="on"), NOW + timedelta(minutes=1), dry=True)).startswith(
+        "Running:"
+    )
+    still = [_room("Loft", 71.0), _room("Den", 71.0)]
+    await run.tick(_zone(fan_mode="on", rooms=still), NOW + timedelta(minutes=2), dry=True)
+    assert run.modes() == ["on", "auto"] and not run.manager.running(T1)
+    # A new reason is only said, once, and never recorded as a running fan.
+    for minute in (20, 21):
+        note = await run.tick(_zone(), NOW + timedelta(minutes=minute), dry=True)
+        assert note.startswith("Would run: Loft")
+    assert run.modes() == ["on", "auto"] and not run.manager.running(T1)
+    assert run.said[-1].startswith("Fan would run for Main (Developer Mode): Loft")
+    assert len([m for m in run.said if "Developer Mode" in m]) == 1
+    # Nor can the intake test be started there.
+    conn = await client.app["scheduler"].get_db()
+    with pytest.raises(fan.FanError) as raised:
+        await run.manager.start_test(conn, fake_ha, _zone(), 40.0, NOW, dry=True)
+    assert str(raised.value) == fan.TEST_BLOCKED
 
-    async def _boom(*_a, **_k):
-        raise RuntimeError("database is locked")
 
-    monkeypatch.setattr(scheduler.fans, "release", _boom)
-    await scheduler.set_dev_mode(True)
-    assert scheduler._dev_mode is True
-    assert "Could not settle the fans before changing Developer Mode" in caplog.text
+async def test_a_thermostat_that_is_away_is_not_told_to_stop_by_any_route(client, fake_ha):
+    run = _Run(client, fake_ha)
+    conn = await client.app["scheduler"].get_db()
+    fake_ha.seed_state(T1, "heat", {})
+    await run.tick(_zone())
+    fake_ha.seed_state(T1, "unavailable", {})
+    # Its zone is gone, or the zones cannot be read: still remembered.
+    await run.tick(None, NOW + timedelta(minutes=1))
+    await run.manager.release(conn, fake_ha, NOW + timedelta(minutes=1))
+    assert run.modes() == ["on"] and run.manager.running(T1)
+    fake_ha.seed_state(T1, "heat", {})
+    await run.tick(None, NOW + timedelta(minutes=2))
+    assert run.modes() == ["on", "auto"] and not run.manager.running(T1)
 
 
 async def test_notes_are_in_the_houses_unit(client, fake_ha):
@@ -494,33 +500,6 @@ async def test_a_restart_in_the_middle_of_a_test_hands_the_fan_back(client, fake
     restarted = _Run(client, fake_ha)
     await restarted.tick(_zone(rooms=rooms, level="off", fan_mode="on"), NOW + timedelta(minutes=1))
     assert restarted.modes() == ["on", "auto"]
-
-
-async def test_in_developer_mode_the_fan_is_only_said(client, fake_ha):
-    fake_ha.dev_mode = True
-    run = _Run(client, fake_ha)
-    assert (await run.tick(_zone())).startswith("Running:")
-    assert run.modes() == []
-
-
-async def test_a_test_that_cannot_hand_the_fan_back_stays_under_the_hourly_limit(
-    client, fake_ha, monkeypatch
-):
-    run = _Run(client, fake_ha)
-    conn = await client.app["scheduler"].get_db()
-    rooms = [_room("Loft", 70.0), _room("Den", 72.0)]
-    await run.manager.start_test(conn, fake_ha, _zone(rooms=rooms), 40.0, NOW)
-
-    async def refuse(*_a, **_k):
-        raise RuntimeError("unavailable")
-
-    monkeypatch.setattr(fake_ha, "call_service", refuse)
-    await run.tick(_zone(fan_mode="on", rooms=rooms), NOW + timedelta(minutes=10))
-    assert run.manager.running(T1) and not run.manager.testing(T1)
-    assert run.manager.minutes_used(T1, NOW + timedelta(minutes=20)) == 20
-    monkeypatch.undo()
-    await run.tick(_zone(fan_mode="on"), NOW + timedelta(minutes=31))
-    assert run.modes() == ["on", "auto"]
 
 
 async def test_when_the_intake_test_cannot_run(client, fake_ha, monkeypatch):
