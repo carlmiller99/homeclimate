@@ -131,15 +131,16 @@ jobs:
           fi
           # The three slow integration legs each run only when something they
           # exercise changed, to spare Actions minutes (a private repo has a
-          # monthly allowance). A release PR (config.yaml), an image or
-          # compose change, or any workflow edit still runs all of them, so
-          # every published image has been through the whole pipeline.
+          # monthly allowance). The temperature round-trip also runs on a
+          # release PR (config.yaml) and on an image, compose or workflow
+          # change. The MQTT and MCP legs do not: a release that touched
+          # neither has nothing new for them to find.
           full=false
           if grep -qE '^(homeclimate/config\.yaml|homeclimate/Dockerfile|homeclimate/run\.sh|homeclimate/pyproject\.toml|docker-compose\.test|\.github/)' /tmp/changed.txt; then
             full=true
           fi
           leg() {
-            if [ "$full" = true ] || grep -qE "$2" /tmp/changed.txt; then
+            if { [ "$3" = always-on-full ] && [ "$full" = true ]; } || grep -qE "$2" /tmp/changed.txt; then
               echo "$1=true" >> "$GITHUB_OUTPUT"
             else
               echo "Nothing the $1 leg exercises changed — it will be skipped."
@@ -147,9 +148,9 @@ jobs:
             fi
           }
           # Temperature round-trip: the forms, the specs, and the write boundary.
-          leg units '^(homeclimate/frontend/|e2e/(tests|global-setup|playwright)|homeclimate/backend/(api/|units\.py|db\.py|models\.py|house\.py|building_mode\.py))'
-          leg mqtt '^(homeclimate/backend/(mqtt/|api/|models\.py|db\.py|scheduler\.py)|e2e/scripts/mqtt)'
-          leg mcp '^homeclimate/backend/(mcp|api/|auth\.py|tests/integration/test_mcp_conformance)'
+          leg units '^(homeclimate/frontend/|e2e/(tests|global-setup|playwright)|homeclimate/backend/(api/|units\.py|db\.py|models\.py|house\.py|building_mode\.py))' always-on-full
+          leg mqtt '^(homeclimate/backend/(mqtt/|api/|models\.py|db\.py|scheduler\.py)|e2e/scripts/mqtt|docker-compose\.test\.mqtt)'
+          leg mcp '^(homeclimate/backend/(mcp|api/|auth\.py|tests/integration/test_mcp_conformance)|docker-compose\.test\.mcp)'
 
   # -----------------------------------------------------------------------
   # Build the image once. Mode (ci-<sha> / release :<version> / fork artifact)

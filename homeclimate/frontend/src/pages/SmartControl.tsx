@@ -283,7 +283,7 @@ export default function SmartControl() {
   return (
     <SectionLayout
       title="Smart Control"
-      subtitle="Tune how HomeClimate runs on its own: schedules, pauses, shades, learning, forecasts, fireplaces, Eco Mode, Zone Balance, the fan and Peak Hours."
+      subtitle="Tune how HomeClimate runs on its own: schedules, Auto Mode, pauses, shades, learning, forecasts, fireplaces, Eco Mode, Zone Balance, the fan and Peak Hours."
       basePath="/smart-control"
       sections={SMART_CONTROL_SECTIONS}
       current={section}
@@ -295,11 +295,10 @@ export default function SmartControl() {
           <LearningSection />
           <SuggestionsCard />
         </>
+      ) : section === "auto-mode" ? (
+        <BuildingAutoCard />
       ) : section === "forecasts" ? (
-        <>
-          <ForecastSection />
-          <BuildingAutoCard />
-        </>
+        <ForecastSection />
       ) : section === "fireplace" ? (
         <FireplaceSection />
       ) : section === "eco-mode" ? (

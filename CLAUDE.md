@@ -334,7 +334,7 @@ also code. The identical ignore set gates the container pipeline (container-ci's
 `git commit` gate (`.claude/hooks/precommit-gate.sh`) — keep all five in sync
 when adding a docs-like path.
 
-**Minutes.** The repo is private, so Actions minutes are limited. The round-trip, MQTT and MCP conformance legs each run only when a path they exercise changed (the `units` / `mqtt` / `mcp` outputs of container-ci's `changes` job); a release PR, an image or compose change, or any `.github/` edit runs all of them. Work is batched: build and test locally, push once.
+**Minutes.** The repo is private, so Actions minutes are limited. The round-trip, MQTT and MCP conformance legs each run only when a path they exercise changed (the `units` / `mqtt` / `mcp` outputs of container-ci's `changes` job); the round-trip also runs on a release PR, an image or compose change, or any `.github/` edit; the MQTT and MCP legs run only when their own paths changed. Work is batched: build and test locally, push once.
 
 **Container CI (`.github/workflows/container-ci.yml`)** builds the addon image **once** and reuses it across the **Build (PR validation)**, **Image vulnerability scan**, **Docker Smoke Test**, **Round-trip (F)/(C)** temperature-conversion, **MQTT round-trip**, **MCP conformance (stateless/stateful)**, and **E2E visual regression (F)/(C)/(auth)** jobs — instead of rebuilding the container per PR. See #333. `docker-compose.test.yml`'s `homeclimate` service reads `${HOMECLIMATE_IMAGE}` so each E2E leg reuses the prebuilt image rather than rebuilding. The `build` job picks a mode at runtime (#337):
 - **Normal same-repo PR** → multi-arch build, push `ghcr.io/<repo>:ci-<pr-sha>` (throwaway); downstream jobs **pull** it.

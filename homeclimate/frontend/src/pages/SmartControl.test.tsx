@@ -159,7 +159,7 @@ describe("Smart Control", () => {
     // Nothing is waiting to be built: every section is a link.
     expect(sc.PLANNED_SECTIONS).toEqual([]);
     expect(within(nav).queryByText("Planned")).toBeNull();
-    expect(within(nav).getAllByRole("link")).toHaveLength(9);
+    expect(within(nav).getAllByRole("link")).toHaveLength(10);
     expect(sc.getSmartControl).not.toHaveBeenCalled();
   });
 

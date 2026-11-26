@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.18
+
+- Warnings look the same on every page: a quiet row saying what and why, the particulars folded under Details, and a link to where it is fixed. The orange and yellow Dashboard banners are gone.
+- Smart Control → **Auto Mode** (was "One Side Per Building", under Forecasts): its own section, in plain words. For each building: whether in Auto it lets each zone decide or heats and cools as one, how often it may switch between heating and cooling, and how far past its target a room must be first.
+
 ## 0.5.17
 
 - Dashboard: **Targets** replace the house band. Each building has a heating target and a cooling target, and a zone or a room can be given its own; anything without its own follows the level above, and the Dashboard says which. The two targets can be the same number, so a home can be held at 71, or between 71 and 72, all year: the 3 °F minimum between them is gone, here and on a schedule's, a hold's and an occupancy target's Cool To.
@@ -61,7 +66,7 @@ The first release from `main` since 0.5.0. It carries everything listed below un
 ## 0.5.6
 
 - Dashboard: each building has a mode, Auto, Heat Only, Cool Only or Off, with a line saying what the building is doing and which zones are waiting. Safety limits still act in every mode.
-- Smart Control → Forecasts → One Side Per Building: Auto can keep every zone in a building heating or cooling together, switching sides only after the running cycle ends, a 10-minute wait, 4 hours since the last switch, no more than twice a day, and a forecast that does not rule it out. A room 2 °F past where it would start switches it sooner. Off by default; Watch Only logs what it would do without holding anything. See docs/building-mode.md.
+- Smart Control → Forecasts → Auto Mode: Auto can keep every zone in a building heating or cooling together, switching sides only after the running cycle ends, a 10-minute wait, 4 hours since the last switch, no more than twice a day, and a forecast that does not rule it out. A room 2 °F past where it would start switches it sooner. Off by default; Watch Only logs what it would do without holding anything. See docs/building-mode.md.
 - Eco Mode's zone settings moved from the thermostat settings in My Home to Smart Control → Eco Mode, with their own Save. Nothing about how Eco works has changed. A room's own Eco settings are still in its room settings.
 
 ## 0.5.5

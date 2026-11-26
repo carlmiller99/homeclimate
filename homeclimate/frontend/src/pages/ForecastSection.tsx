@@ -69,7 +69,7 @@ export default function ForecastSection() {
         <h2 className="sc-section-title">Forecasts</h2>
         <p className="sc-section-lead">
           HomeClimate fetches the hourly forecast and keeps a record of it. Its one use in control
-          so far is One Side Per Building, below.
+          so far is Auto Mode, when a building heats or cools as one.
         </p>
         <RuleRow
           id="forecast-enabled"

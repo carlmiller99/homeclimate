@@ -15,7 +15,7 @@ The section also shows each zone's temperature, how far apart the warmest and co
 
 ## The rules
 
-- **Only in the direction the building is working in.** That is the side its zones are held to under [One Side Per Building](./building-mode.md) (or its fixed Heat Only or Cool Only mode), and otherwise the way its zones are running at the moment. A side that is only being watched does not count. With nothing running and no side, nothing is balanced. A building that is Off is never balanced.
+- **Only in the direction the building is working in.** That is the side its zones are held to under [Auto Mode](./building-mode.md) (or its fixed Heat Only or Cool Only mode), and otherwise the way its zones are running at the moment. A side that is only being watched does not count. With nothing running and no side, nothing is balanced. A building that is Off is never balanced.
 - **Only against a zone that is in use.** A zone counts as in use while a hold, a schedule or occupancy is asking for one of its rooms. A zone that only follows its targets does not count, so an empty building is left alone.
 - **The least that is needed.** When heating, a zone more than the limit colder than the warmest in-use zone is heated to that zone's temperature less the limit, to the nearest half degree. Cooling is the mirror of that.
 - **A zone's temperature** is the average of its rooms that are in use and have a reading. A room set aside for a lit fireplace is left out, so a fire in one zone does not make the others look cold.
