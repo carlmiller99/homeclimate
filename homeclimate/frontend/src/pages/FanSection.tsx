@@ -59,7 +59,7 @@ export default function FanSection() {
       <h3 className="card-title">Fan</h3>
       <p className="page-subtitle">
         Runs the fan by itself to even out the rooms of a zone. Only while the zone is idle and its
-        building is set to Heat Only or Cool Only.
+        building is heating or cooling as one.
       </p>
       {loadFailed && !zones && <p className="form-error">Could not load the zones.</p>}
       {!loadFailed && !zones && <p className="page-subtitle">Loading the zones…</p>}

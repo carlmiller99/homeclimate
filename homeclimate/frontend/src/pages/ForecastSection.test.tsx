@@ -196,6 +196,20 @@ describe("Forecasts section", () => {
     expect(within(rows[2]).getAllByText("—")).toHaveLength(3);
   });
 
+  it("calls the house's own today Today", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    // Noon in New York on the fixture's first day.
+    vi.setSystemTime(new Date("2026-01-05T17:30:00+00:00"));
+    try {
+      show();
+      const days = await screen.findAllByRole("listitem");
+      expect(days[0]).toHaveTextContent("Today");
+      expect(days[1]).toHaveTextContent("Tuesday");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("converts for a Celsius house", async () => {
     show("C");
     expect(await screen.findByText("10.0°C to 20.0°C")).toBeInTheDocument();
