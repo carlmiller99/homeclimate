@@ -1933,9 +1933,15 @@ class CycleEngine:
                         # its vent, so only ``reached_at`` still says so) and
                         # within its Stop Early lead of the target asks for
                         # nothing more.
+                        # So does the last room to come within its lead: the
+                        # hold began before its vent was ever closed.
                         held is not None
-                        and held.reached_at is not None
-                        and self._within_stop_early_lead(joined, avg, hvac_mode)
+                        and (
+                            self._within_stop_early_lead(joined, avg, hvac_mode)
+                            if held.reached_at is not None
+                            else self._stop_early_level == "on"
+                            and self._stops_early(joined, held, avg, hvac_mode)
+                        )
                     ):
                         unsatisfied.append(joined.room.name)
                 if unsatisfied:

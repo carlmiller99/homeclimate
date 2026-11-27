@@ -77,8 +77,10 @@ function MakeSchedule({
     const same = (b: (typeof left)[number]) =>
       have.some(
         (h) =>
-          h.start_time === b.start &&
-          h.end_time === b.end &&
+          h.enabled &&
+          // Stored times carry seconds ("07:00:00").
+          h.start_time.slice(0, 5) === b.start &&
+          h.end_time.slice(0, 5) === b.end &&
           [...h.days_of_week].sort().join("") === [...b.days].sort().join("")
       );
     // Each block is tried: one that is refused does not stop the rest.

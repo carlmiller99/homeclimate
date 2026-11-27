@@ -309,7 +309,10 @@ async def test_a_running_room_is_closed_short_of_its_target_only_when_on(level, 
         (1, "presence", 72.2, False),  # only watching: nothing was closed early
     ],
 )
-async def test_a_room_closed_early_keeps_the_minimum_runtime_hold(level, source, temp, kept):
+@pytest.mark.parametrize("closed_first", [True, False])
+async def test_a_room_closed_early_keeps_the_minimum_runtime_hold(
+    level, source, temp, kept, closed_first
+):
     """Its trigger changes mid-hold; short of the target by less than the lead is no new call."""
     from .test_cycle_diagnostics import _running_cycle_with_vent
 
@@ -322,8 +325,12 @@ async def test_a_room_closed_early_keeps_the_minimum_runtime_hold(level, source,
     await engine._read_stop_early(conn, False)
     # The room was closed early, then the hold began: entering it the way the
     # engine does reopens the vent and leaves only ``reached_at`` to say so.
+    # Or it was the last room to come within its lead, and the hold began
+    # before its vent was closed at all.
     state = engine._room_cycle_states[room.id]
-    state.vent_closed_at = state.reached_at = NOW
+    state.temp_at_start = 75.0
+    if closed_first:
+        state.vent_closed_at = state.reached_at = NOW
     await engine._enter_min_runtime_hold(conn)
     assert cycle.in_min_runtime_hold and state.vent_closed_at is None
     engine._ha.get_numeric_state.return_value = temp

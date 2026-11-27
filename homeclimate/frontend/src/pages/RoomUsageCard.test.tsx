@@ -170,8 +170,25 @@ describe("Smart Learning → When Rooms Are Used", () => {
     // The weekday block went in on an earlier visit; the list could not be read the second time.
     vi.mocked(api.getSchedules)
       .mockResolvedValueOnce([
-        { days_of_week: [4, 3, 2, 1, 0], start_time: "07:00", end_time: "09:00" } as api.Schedule,
-        { days_of_week: [5, 6], start_time: "21:00", end_time: "00:00" } as api.Schedule,
+        {
+          days_of_week: [4, 3, 2, 1, 0],
+          start_time: "07:00:00",
+          end_time: "09:00:00",
+          enabled: true,
+        } as api.Schedule,
+        // The same hours switched off, and different hours, are not it.
+        {
+          days_of_week: [5, 6],
+          start_time: "22:00:00",
+          end_time: "00:00:00",
+          enabled: false,
+        } as api.Schedule,
+        {
+          days_of_week: [5, 6],
+          start_time: "21:00:00",
+          end_time: "00:00:00",
+          enabled: true,
+        } as api.Schedule,
       ])
       .mockRejectedValueOnce(new Error("offline"));
     vi.mocked(api.createSchedule).mockRejectedValueOnce(new Error("Too late."));
