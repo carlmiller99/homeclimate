@@ -157,7 +157,7 @@ function EcoZoneCard({
             <div className="eco-side">
               <strong className="eco-side-title eco-side-heat">On Cold Days</strong>
               <EcoSlider
-                id={`eco-${tid}-heat-at`}
+                id={`eco-${tid}-eco_heating_outdoor_threshold`}
                 label="Start When Outside Is Below"
                 value={form.eco_heating_outdoor_threshold}
                 min={r.cold[0]}
@@ -173,7 +173,7 @@ function EcoZoneCard({
                 }
               />
               <EcoSlider
-                id={`eco-${tid}-heat-by`}
+                id={`eco-${tid}-eco_heating_max_drift`}
                 label="Let Rooms Run Cooler By Up To"
                 value={form.eco_heating_max_drift}
                 min={r.drift[0]}
@@ -186,7 +186,7 @@ function EcoZoneCard({
             <div className="eco-side">
               <strong className="eco-side-title eco-side-cool">On Hot Days</strong>
               <EcoSlider
-                id={`eco-${tid}-cool-at`}
+                id={`eco-${tid}-eco_cooling_outdoor_threshold`}
                 label="Start When Outside Is Above"
                 value={form.eco_cooling_outdoor_threshold}
                 min={r.hot[0]}
@@ -201,7 +201,7 @@ function EcoZoneCard({
                 }
               />
               <EcoSlider
-                id={`eco-${tid}-cool-by`}
+                id={`eco-${tid}-eco_cooling_max_drift`}
                 label="Let Rooms Run Warmer By Up To"
                 value={form.eco_cooling_max_drift}
                 min={r.drift[0]}

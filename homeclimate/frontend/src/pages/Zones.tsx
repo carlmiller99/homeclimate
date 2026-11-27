@@ -1,5 +1,5 @@
 import EntityName from "../components/EntityName";
-import { entityName, prettyEntity } from "../entityNames";
+import { entityName, prettyEntity, useEntityName } from "../entityNames";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import AirIntakeField from "../components/AirIntakeField";
@@ -404,6 +404,7 @@ function EditZoneDialog({
   thermostat: ReactNode;
 }) {
   const [tab, setTab] = useState<"equipment" | "thermostat">("equipment");
+  const thermostatName = useEntityName(zone.thermostat_entity_id);
   const name = zone.name || entityName(zone.thermostat_entity_id);
   return (
     <div
@@ -416,7 +417,9 @@ function EditZoneDialog({
         <div className="edit-zone-head">
           <div>
             <div className="modal-title">{name}</div>
-            <EntityName id={zone.thermostat_entity_id} className="zone-entity" />
+            <div className="zone-entity" title={zone.thermostat_entity_id}>
+              {`Thermostat: ${thermostatName}`}
+            </div>
           </div>
           {thermostat && (
             <div className="segmented" role="tablist" aria-label="Zone settings">

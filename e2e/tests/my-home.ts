@@ -3,7 +3,7 @@ import type { Locator, Page } from "@playwright/test";
 /**
  * Helpers for My Home, the one page that holds buildings, zones and rooms.
  * A zone's thermostat settings are a tab of its Edit Zone dialog, and a room's settings
- * behind its card's "Room Settings" button.
+ * behind the pencil beside its name.
  */
 
 export async function gotoMyHome(page: Page): Promise<void> {
@@ -41,6 +41,11 @@ export async function openZoneEditor(
     state: "visible",
     timeout: 10_000,
   });
+  // Most settings sit under Advanced Options, closed until asked for.
+  await page
+    .getByRole("tabpanel", { name: "Thermostat" })
+    .locator("details.advanced-box > summary")
+    .click();
   return panel;
 }
 
@@ -55,25 +60,43 @@ export async function openRoomSettings(
   roomName: string,
 ): Promise<Locator> {
   await roomCard(page, roomName)
-    .getByRole("button", { name: "Room Settings" })
+    .getByRole("button", { name: `Edit ${roomName}`, exact: true })
     .click();
   const settings = page.getByTestId("room-settings");
   await settings.waitFor({ state: "visible", timeout: 10_000 });
   return settings;
 }
 
+/** A room's card in Smart Control → Rooms, opened. */
+export async function openRoomPlan(
+  page: Page,
+  roomName: string,
+): Promise<Locator> {
+  await page.goto("/smart-control?section=rooms");
+  await page.waitForSelector(".loading", {
+    state: "detached",
+    timeout: 15_000,
+  });
+  await page.waitForLoadState("networkidle");
+  const card = page
+    .locator(".room-plan")
+    .filter({ has: page.locator(".room-plan-name", { hasText: roomName }) })
+    .first();
+  await card.locator(".room-plan-head").click();
+  await card.getByRole("button", { name: "Add Block", exact: true }).waitFor();
+  return card;
+}
+
 /**
- * Open how a room is heated and cooled: Smart Control → Rooms → Change.
- * Returns the dialog, which closes when it saves.
+ * Open how a room is heated and cooled: Smart Control → Rooms → the room →
+ * Fine Tuning. Returns the dialog, which closes when it saves.
  */
 export async function openRoomTuning(
   page: Page,
   roomName: string,
 ): Promise<Locator> {
-  await page.goto("/smart-control?section=rooms");
-  await page
-    .getByRole("button", { name: `Change ${roomName}`, exact: true })
-    .click();
+  const card = await openRoomPlan(page, roomName);
+  await card.getByRole("button", { name: /^Fine Tuning/ }).click();
   const settings = page.getByTestId("room-settings");
   await settings.waitFor({ state: "visible", timeout: 10_000 });
   return settings;

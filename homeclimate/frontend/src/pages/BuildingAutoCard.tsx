@@ -130,20 +130,18 @@ export default function BuildingAutoCard() {
   };
 
   return (
-    <div className="section-stack">
-      <div>
-        <h3 className="card-title">Auto Mode</h3>
-        <p className="page-subtitle">
-          What a building does when its mode on the Dashboard is Auto.
-        </p>
-      </div>
+    <section className="sc-section" id="auto-mode">
+      <h2 className="sc-section-title">Auto Mode</h2>
+      <p className="sc-section-lead">
+        What a building does when its mode on the Dashboard is Auto.
+      </p>
       {loadFailed && <p className="form-error">Could not load the buildings.</p>}
       {!loadFailed && !buildings && <p className="page-subtitle">Loading the buildings…</p>}
       {buildings && buildings.length === 0 && (
         <p className="page-subtitle">Add a building in My Home and put zones in it to use this.</p>
       )}
       {buildings?.map((b) => (
-        <section key={b.building_id} className="card auto-card" aria-label={b.name}>
+        <div role="group" key={b.building_id} className="card auto-card" aria-label={b.name}>
           <div className="auto-head">
             <h4 className="sensor-title">{b.name}</h4>
             <Segmented
@@ -186,9 +184,9 @@ export default function BuildingAutoCard() {
               />
             </div>
           )}
-        </section>
+        </div>
       ))}
       {err && <p className="form-error">{err}</p>}
-    </div>
+    </section>
   );
 }

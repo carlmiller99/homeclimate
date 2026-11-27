@@ -91,7 +91,6 @@ export default function OutsideTempPicker({
   return (
     <section className="card outside-card" aria-label="Outside">
       <div className="outside-now">
-        <span className="field-label">Outside</span>
         <span className="outside-temp">
           {average === null || average === undefined ? "—" : fmtTemp(average)}
         </span>

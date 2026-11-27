@@ -728,7 +728,7 @@ function RoomSchedules({
             </div>
           )}
           {schedules.length === 0 ? (
-            <p className="text-muted text-sm">No schedules. Add one below.</p>
+            <p className="text-muted text-sm">No blocks yet.</p>
           ) : (
             <div className="table-wrap">
               <table className="table-cards">
