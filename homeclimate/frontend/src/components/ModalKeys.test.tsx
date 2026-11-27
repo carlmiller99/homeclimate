@@ -57,6 +57,30 @@ describe("Dialog keyboard behaviour", () => {
     await waitFor(() => expect(opener).toHaveFocus());
   });
 
+  it("copes when the thing that opened a dialog is gone by the time it closes", async () => {
+    function Gone() {
+      const [stage, setStage] = useState(0);
+      return (
+        <>
+          <ModalKeys />
+          {stage === 0 && <button onClick={() => setStage(1)}>Open</button>}
+          {stage === 1 && <Dialog onClose={() => setStage(2)} />}
+          {stage === 2 && <p>after</p>}
+        </>
+      );
+    }
+    render(<Gone />);
+    const opener = screen.getByRole("button", { name: "Open" });
+    opener.focus();
+    fireEvent.click(opener);
+    await waitFor(() => expect(screen.getByTestId("box")).toHaveFocus());
+    key("Escape");
+    // Nothing to go back to, and nothing breaks; later page changes are ignored.
+    expect(await screen.findByText("after")).toBeInTheDocument();
+    await act(async () => {});
+    expect(document.body).toHaveFocus();
+  });
+
   it("leaves by Close or Cancel, and by the backdrop where there is neither", async () => {
     const closed = vi.fn();
     const { rerender } = render(
@@ -77,6 +101,12 @@ describe("Dialog keyboard behaviour", () => {
     );
     key("Escape");
     expect(closed).toHaveBeenLastCalledWith("backdrop");
+    // A key already used by something else, or typed while composing text, is left alone.
+    const used = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    used.preventDefault();
+    document.dispatchEvent(used);
+    fireEvent.keyDown(document, { key: "Escape", isComposing: true });
+    expect(closed).toHaveBeenCalledTimes(2);
     // Other keys, and keys with no dialog open, do nothing.
     key("a");
     rerender(<ModalKeys />);

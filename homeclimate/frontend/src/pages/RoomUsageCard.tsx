@@ -54,7 +54,10 @@ function MakeSchedule({
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const count = suggestion.blocks.length;
+  // Blocks already added, so trying again after one is refused does not add them twice.
+  const [added, setAdded] = useState<string[]>([]);
+  const left = suggestion.blocks.filter((b) => !added.includes(`${b.days.join("")}-${b.start}`));
+  const count = left.length;
 
   const add = async () => {
     const value = parseFloat(temp);
@@ -69,7 +72,7 @@ function MakeSchedule({
     setSaving(true);
     setError("");
     try {
-      for (const b of suggestion.blocks) {
+      for (const b of left) {
         // The temperature is sent as typed; the backend converts it.
         await createSchedule(suggestion.room_id, {
           days_of_week: b.days,
@@ -80,10 +83,12 @@ function MakeSchedule({
           expires_at: null,
           name: "Usual hours",
         });
+        setAdded((done) => [...done, `${b.days.join("")}-${b.start}`]);
       }
       onDone();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not add the schedule");
+      const why = e instanceof Error ? e.message : "Could not add the schedule";
+      setError(`${why}. Change that block under Schedules, then try again.`);
       setSaving(false);
     }
   };

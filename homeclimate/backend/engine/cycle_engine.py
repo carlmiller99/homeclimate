@@ -1415,9 +1415,13 @@ class CycleEngine:
         """Whether this room is close enough to its target to be closed now.
 
         It will run on the rest of the way (``backend/stop_early.py``). Never
-        for a safety room, and never by more than the room's own deadband.
+        for a safety room, never by more than half the room's own deadband,
+        and only once in a run: a room that was closed and has since been
+        opened again (it drifted back) is taken all the way to its target.
         """
         if self._stop_early_level == "off" or ar.source == "safety":
+            return False
+        if rcs.reached_at is not None:
             return False
         band = _effective_deadband(ar.room, self._stop_early_deadband, ar.deadband_override)
         lead = stop_early.lead(self._stop_early_table, ar.room.id, mode, band)
@@ -2307,7 +2311,7 @@ class CycleEngine:
             if early:
                 on = self._stop_early_level == "on"
                 said = (rcs.cycle_id, room_id)
-                if self._logger and said not in self._stop_early_said:
+                if not on and self._logger and said not in self._stop_early_said:
                     self._stop_early_said = {
                         s for s in self._stop_early_said if s[0] == rcs.cycle_id
                     } | {said}
@@ -2315,8 +2319,8 @@ class CycleEngine:
                     await self._logger.log(
                         "info",
                         "engine",
-                        f"Stop Early: {ar.room.name} {'closed' if on else 'would have closed'}"
-                        f" {short:.1f}°F before its target; it usually runs on the rest",
+                        f"Stop Early would have closed {ar.room.name}'s vent {short:.1f}°F"
+                        " before its target; it usually runs on the rest",
                         {"room_id": room_id, "room_name": ar.room.name, "short_f": round(short, 2)},
                     )
                 at_target = on
@@ -2389,6 +2393,15 @@ class CycleEngine:
                 else:
                     closed = await self._vent.close_room_vents(
                         vents, all_zone_vents, tc, self._room_cycle_states
+                    )
+                if closed and early and self._logger:
+                    short = abs(rcs.target_temp - effective_avg)
+                    await self._logger.log(
+                        "info",
+                        "engine",
+                        f"Stop Early closed {ar.room.name}'s vent {short:.1f}°F before its"
+                        " target; it usually runs on the rest",
+                        {"room_id": room_id, "room_name": ar.room.name, "short_f": round(short, 2)},
                     )
                 if closed:
                     rcs.vent_closed_at = datetime.now(UTC)

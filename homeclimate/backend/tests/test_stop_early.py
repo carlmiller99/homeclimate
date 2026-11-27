@@ -27,11 +27,13 @@ def test_the_lead_is_the_run_on_most_closes_reached():
     assert stop_early.lead_from([4.0] * 6) == stop_early.MAX_LEAD_F
 
 
-def test_the_lead_used_never_passes_the_deadband():
+def test_the_lead_used_is_at_most_half_the_deadband():
+    """The other half is the room's hysteresis: it may dip without being opened again."""
     table = {"den": {"heating": {"lead": 0.9, "runs": 8}, "cooling": {"lead": 0.0, "runs": 2}}}
     assert stop_early.lead(table, "den", "heating", 2.0) == 0.9
-    assert stop_early.lead(table, "den", "heating", 0.5) == 0.5
-    assert stop_early.lead(table, "den", "heating", 0.1) == 0.0  # too small to matter
+    assert stop_early.lead(table, "den", "heating", 1.0) == 0.5
+    assert stop_early.lead(table, "den", "heating", 0.5) == 0.25
+    assert stop_early.lead(table, "den", "heating", 0.3) == 0.0  # too small to matter
     assert stop_early.lead(table, "den", "cooling", 2.0) == 0.0
     assert stop_early.lead(table, "loft", "heating", 2.0) == 0.0
     assert stop_early.lead({"den": {"heating": "bad"}}, "den", "heating", 2.0) == 0.0
@@ -55,14 +57,19 @@ def test_when_a_room_is_closed_early(mode, temp, start, expected):
     assert stop_early.stops_now(0.0, mode, temp, 70.0, start) is False
 
 
-async def _close(conn, room_id, when, mode="heating", role="active"):
+async def _close(conn, room_id, when, mode="heating", role="active", at_close=None):
     log = CycleLog.create(thermostat_entity_id=THERMO_ID, mode=mode, rooms_json="{}")
     log.started_at = when - timedelta(minutes=20)
     await db.insert_cycle_log(conn, log)
     await db.upsert_room_cycle_state(
         conn,
         RoomCycleState(
-            cycle_id=log.id, room_id=room_id, target_temp=70, vent_closed_at=when, role=role
+            cycle_id=log.id,
+            room_id=room_id,
+            target_temp=70,
+            vent_closed_at=when,
+            role=role,
+            temp_at_end=at_close,
         ),
     )
 
@@ -79,9 +86,9 @@ async def _readings(conn, room_id, when, temps, **flags):
                 room_temp=t,
                 zone_temp=70.0,
                 outside_temp=40.0,
-                hvac_action="idle",
+                hvac_action=flags.get("actions", {}).get(i, "idle"),
                 aux_heat=False,
-                vent_open=0.0,
+                vent_open=flags.get("vent", 0.0),
                 zone_vent_open=0.5,
                 occupied=None,
                 opening=flags.get("opening"),
@@ -127,14 +134,50 @@ async def test_learning_reads_the_half_hour_after_each_close():
         await _readings(conn, room.id, at, fall)
         await _close(conn, room.id, at, mode="cooling")
 
+    # Where the run recorded the temperature at the close itself, that is the
+    # starting point: the reading before it (68.0 here) is stale.
+    other = Room.create(name="Loft", thermostat_entity_id=THERMO_ID)
+    await db.upsert_room(conn, other)
+    for day in range(1, 6):
+        at = NOW - timedelta(days=day)
+        await _readings(conn, other.id, at, [68.0, 69.4, 69.5, 69.5, 69.4, 69.3, 69.2])
+        await _close(conn, other.id, at + timedelta(minutes=4), at_close=69.1)
+    # A half hour cut short by the next run: only what came before it counts,
+    # and one cut short at once says nothing.
+    third = Room.create(name="Study", thermostat_entity_id=THERMO_ID)
+    await db.upsert_room(conn, third)
+    for day in range(1, 6):
+        at = NOW - timedelta(days=day)
+        await _readings(
+            conn,
+            third.id,
+            at,
+            [69.0, 69.2, 69.3, 71.0, 72.0, 72.0, 72.0],
+            actions={3: "heating", 4: "heating"},
+            vent=1.0,
+        )
+        await _close(conn, third.id, at)
+    at = NOW - timedelta(days=6)
+    await _readings(
+        conn,
+        third.id,
+        at,
+        [69.0, 72.0, 72.0, 72.0, 72.0, 72.0, 72.0],
+        actions={1: "heating"},
+        vent=1.0,
+    )
+    await _close(conn, third.id, at)
+
     table = await stop_early.learn(conn, now=NOW)
+    assert table.pop(other.id)["heating"] == {"lead": 0.4, "runs": 5}
+    assert table.pop(third.id)["heating"] == {"lead": 0.3, "runs": 5}
     assert table == {
         room.id: {
             "heating": {"lead": 0.8, "runs": 6},
             "cooling": {"lead": 0.5, "runs": 5},
         }
     }
-    assert await stop_early.load(conn) == table
+    assert (await stop_early.load(conn))[room.id] == table[room.id]
     await db.set_system_setting(conn, stop_early.KEY, "not json")
     assert await stop_early.load(conn) == {}
     await db.set_system_setting(conn, stop_early.KEY, json.dumps([1]))
@@ -164,16 +207,22 @@ async def test_what_the_engine_reads_each_tick_and_who_is_left_alone():
     assert engine._stop_early_level == "on"
     state = RoomCycleState(cycle_id="c1", room_id=room.id, target_temp=70.0, temp_at_start=67.0)
     following = ActiveRoom(room=room, target_temp=70.0, source="schedule")
-    # The zone's deadband is 0.5, so the 0.6 learned is used as 0.5.
-    assert engine._stops_early(following, state, 69.5, "heating")
-    assert not engine._stops_early(following, state, 69.4, "heating")
+    # The zone's deadband is 0.5, so the 0.6 learned is used as 0.25: half of it.
+    assert engine._stops_early(following, state, 69.75, "heating")
+    assert not engine._stops_early(following, state, 69.7, "heating")
     # The room's offset moves both where it is and where it began.
     room.temp_offset = 0.3
-    assert engine._stops_early(following, state, 69.2, "heating")
+    assert engine._stops_early(following, state, 69.45, "heating")
     room.temp_offset = 0.0
-    # A room with its own wider deadband may use all it learned.
+    # A room with its own wider deadband may use more of what it learned.
     wide = ActiveRoom(room=room, target_temp=70.0, source="schedule", deadband_override=1.0)
-    assert engine._stops_early(wide, state, 69.4, "heating")
+    assert engine._stops_early(wide, state, 69.5, "heating")
+    assert not engine._stops_early(wide, state, 69.4, "heating")
+    # Once in a run: a room that was closed and opened again goes all the way.
+    again = RoomCycleState(
+        cycle_id="c1", room_id=room.id, target_temp=70.0, temp_at_start=67.0, reached_at=NOW
+    )
+    assert not engine._stops_early(following, again, 69.9, "heating")
     # Safety protection is never cut short; nor a room with no starting temperature.
     assert not engine._stops_early(
         ActiveRoom(room=room, target_temp=70.0, source="safety"), state, 69.9, "heating"
@@ -208,7 +257,7 @@ def _open_vents(engine):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("level, closes", [(1, False), (2, True)])
 async def test_a_running_room_is_closed_short_of_its_target_only_when_on(level, closes):
-    """A cooling run to 72 that began at 75: at 72.4 the room is within its 0.5 lead."""
+    """A cooling run to 72 that began at 75: at 72.2 the room is within its 0.25 lead."""
     from .test_cycle_diagnostics import _running_cycle_with_vent
 
     engine, conn, cycle, room = await _running_cycle_with_vent()
@@ -224,11 +273,11 @@ async def test_a_running_room_is_closed_short_of_its_target_only_when_on(level, 
     ar = engine._active_rooms[room.id]
     tc = await db.get_thermostat_config(conn, THERMO_ID)
 
-    engine._ha.get_numeric_state.return_value = 72.4
+    engine._ha.get_numeric_state.return_value = 72.2
     # Every judge of "is this room done" agrees, or the run could not end.
     assert engine._all_active_rooms_satisfied("cooling") is closes
     read = engine._get_avg_temp
-    engine._get_avg_temp = lambda room, refresh=True: 72.4
+    engine._get_avg_temp = lambda room, refresh=True: 72.2
     assert engine._done_in_this_run(ar, tc) is closes
     engine._get_avg_temp = read
     await engine._monitor_rooms(conn, "cooling")
@@ -236,9 +285,9 @@ async def test_a_running_room_is_closed_short_of_its_target_only_when_on(level, 
 
     said = [c.args[2] for c in engine._logger.log.await_args_list if "Stop Early" in c.args[2]]
     verb = "closed" if closes else "would have closed"
-    # Said once for the run, not on every look.
+    # Said once for the run, not on every look; and "closed" only once it has.
     assert said == [
-        f"Stop Early: {room.name} {verb} 0.4°F before its target; it usually runs on the rest"
+        f"Stop Early {verb} {room.name}'s vent 0.2°F before its target; it usually runs on the rest"
     ]
     assert (state.vent_closed_at is not None) is closes
     events = await db.get_cycle_vent_events(conn, cycle.id)
@@ -264,3 +313,27 @@ async def test_a_room_not_yet_close_enough_runs_on_as_before():
     assert engine._room_cycle_states[room.id].vent_closed_at is None
     assert not engine._all_active_rooms_satisfied("cooling")
     await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_closes_are_read_as_utc_whatever_zone_the_house_is_in(monkeypatch):
+    """Close times are stored without a zone. The add-on runs with TZ set to the
+    house's zone, and must not shift them by its offset."""
+    import time
+
+    monkeypatch.setenv("TZ", "America/Chicago")
+    time.tzset()
+    try:
+        conn = await _conn()
+        room = Room.create(name="Den", thermostat_entity_id=THERMO_ID)
+        await db.upsert_room(conn, room)
+        for day in range(1, 7):
+            at = NOW - timedelta(days=day)
+            await _readings(conn, room.id, at, [69.0, 69.3, 69.6, 69.8, 69.7, 69.6, 69.5])
+            await _close(conn, room.id, at + timedelta(seconds=30))
+        table = await stop_early.learn(conn, now=NOW)
+        assert table[room.id]["heating"] == {"lead": 0.8, "runs": 6}
+        await conn.close()
+    finally:
+        monkeypatch.undo()
+        time.tzset()

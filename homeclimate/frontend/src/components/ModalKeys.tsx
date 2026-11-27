@@ -27,14 +27,17 @@ function topDialog(): { backdrop: HTMLElement; box: HTMLElement } | null {
 export default function ModalKeys() {
   useEffect(() => {
     let seen: HTMLElement | null = null;
-    let before: Element | null = null;
+    // The last thing focused outside every dialog: where focus goes back to.
+    let outside: Element | null = document.activeElement;
+    const onFocus = (e: FocusEvent) => {
+      const at = e.target;
+      if (at instanceof Element && !at.closest(".modal-backdrop")) outside = at;
+    };
 
     const settle = () => {
       const top = topDialog();
       if (top?.backdrop === seen) return;
       if (top) {
-        // The first dialog remembers where focus was; one opened over it does not.
-        if (!seen || !document.contains(seen)) before = document.activeElement;
         seen = top.backdrop;
         if (!top.box.contains(document.activeElement)) {
           if (!top.box.hasAttribute("tabindex")) top.box.setAttribute("tabindex", "-1");
@@ -43,13 +46,13 @@ export default function ModalKeys() {
         return;
       }
       seen = null;
-      if (before instanceof HTMLElement && document.contains(before)) before.focus();
-      before = null;
+      if (outside instanceof HTMLElement && document.contains(outside)) outside.focus();
     };
 
     const onKey = (e: KeyboardEvent) => {
       const top = topDialog();
-      if (!top) return;
+      // A key something else has already used (a picker, text being composed) is left alone.
+      if (!top || e.defaultPrevented || e.isComposing) return;
       if (e.key === "Escape") {
         e.preventDefault();
         const leave = Array.from(top.box.querySelectorAll<HTMLButtonElement>("button")).find(
@@ -82,10 +85,12 @@ export default function ModalKeys() {
     const watch = new MutationObserver(settle);
     watch.observe(document.body, { childList: true, subtree: true });
     document.addEventListener("keydown", onKey);
+    document.addEventListener("focusin", onFocus);
     settle();
     return () => {
       watch.disconnect();
       document.removeEventListener("keydown", onKey);
+      document.removeEventListener("focusin", onFocus);
     };
   }, []);
   return null;

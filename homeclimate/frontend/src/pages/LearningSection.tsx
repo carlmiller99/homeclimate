@@ -327,7 +327,7 @@ export default function LearningSection() {
         <RuleRow
           id="learning-stop-early"
           title="Stop Early to Avoid Overshoot"
-          help="Closes a room's vent a little before its target when the room usually runs on the rest of the way. Never by more than the room's deadband."
+          help="Closes a room's vent a little before its target when the room usually runs on the rest of the way. Never by more than half the room's deadband."
         >
           <select
             className="form-control"

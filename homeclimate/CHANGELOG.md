@@ -2,7 +2,7 @@
 
 ## 0.5.20
 
-- Smart Learning: **Stop Early to Avoid Overshoot**. Closes a room's vent a little before its target when the room is known to run on the rest of the way. Learned per room from recent closes, never more than the room's deadband. Off, Watch Only or On.
+- Smart Learning: **Stop Early to Avoid Overshoot**. Closes a room's vent a little before its target when the room is known to run on the rest of the way. Learned per room from recent closes, never more than half the room's deadband. Off, Watch Only or On.
 - Smart Learning: a **Chart** for each room, showing yesterday's measured temperature against what the room's model predicted an hour before.
 - Smart Learning: **When Rooms Are Used**. A strip per room of when it is occupied through the week, with **Make This a Schedule** to turn its regular hours into schedule blocks.
 - Every dialog now closes on Escape, keeps Tab inside it, and puts focus back where it was.

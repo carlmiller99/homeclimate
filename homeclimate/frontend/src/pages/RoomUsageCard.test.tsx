@@ -129,9 +129,8 @@ describe("Smart Learning → When Rooms Are Used", () => {
     );
   });
 
-  it("says why a block could not be added, and lets you try again", async () => {
+  it("says why a block could not be added, and does not add the others twice", async () => {
     vi.mocked(api.getRooms).mockResolvedValue([]);
-    vi.mocked(api.createSchedule).mockRejectedValueOnce(new Error("Overlaps another block"));
     show();
     const bunk = await screen.findByRole("group", { name: "Bunk Room" });
     fireEvent.click(within(bunk).getByRole("button", { name: /Make Bunk Room/ }));
@@ -139,11 +138,35 @@ describe("Smart Learning → When Rooms Are Used", () => {
     const temp = within(bunk).getByLabelText("Temperature (°F)");
     expect(temp).toHaveValue(null);
     fireEvent.change(temp, { target: { value: "70" } });
+    // The first block goes in; the second is refused.
+    vi.mocked(api.createSchedule)
+      .mockResolvedValueOnce({} as api.Schedule)
+      .mockRejectedValueOnce(new Error("Overlaps another block"));
     fireEvent.click(within(bunk).getByRole("button", { name: "Add 2 Blocks" }));
-    expect(await within(bunk).findByText("Overlaps another block")).toBeInTheDocument();
+    expect(
+      await within(bunk).findByText(
+        "Overlaps another block. Change that block under Schedules, then try again."
+      )
+    ).toBeInTheDocument();
+    // Only the refused one is left to add.
     vi.mocked(api.createSchedule).mockRejectedValueOnce("x");
-    fireEvent.click(within(bunk).getByRole("button", { name: "Add 2 Blocks" }));
-    expect(await within(bunk).findByText("Could not add the schedule")).toBeInTheDocument();
+    fireEvent.click(within(bunk).getByRole("button", { name: "Add 1 Block" }));
+    expect(
+      await within(bunk).findByText(
+        "Could not add the schedule. Change that block under Schedules, then try again."
+      )
+    ).toBeInTheDocument();
+    fireEvent.click(within(bunk).getByRole("button", { name: "Add 1 Block" }));
+    expect(
+      await within(bunk).findByText("Added. Change them under Schedules.")
+    ).toBeInTheDocument();
+    expect(api.createSchedule).toHaveBeenCalledTimes(4);
+    expect(vi.mocked(api.createSchedule).mock.calls.map((c) => c[1].start_time)).toEqual([
+      "07:00",
+      "22:00",
+      "22:00",
+      "22:00",
+    ]);
   });
 
   it("says so with nothing to show, when it cannot load, and ignores late answers", async () => {

@@ -81,7 +81,10 @@ export interface Hindcast {
 export const getHindcast = (roomId: string) =>
   api<Hindcast>(`/api/learning/rooms/${encodeURIComponent(roomId)}/hindcast`);
 
-/** "Stops early by 0.7°F when heating and 0.4°F when cooling", or "" with nothing learned. */
+/**
+ * "Stops early by up to 0.7°F when heating and 0.4°F when cooling", or "" with
+ * nothing learned. "Up to": half the room's deadband is the most that is used.
+ */
 export function describeStopEarly(
   learned: LearningRoom["stop_early"],
   delta: (f: number) => number,
@@ -90,7 +93,7 @@ export function describeStopEarly(
   const parts = (["heating", "cooling"] as const)
     .filter((mode) => (learned?.[mode]?.lead ?? 0) > 0)
     .map((mode) => `${delta(learned![mode]!.lead)}${unitLabel} when ${mode}`);
-  return parts.length ? `Stops early by ${parts.join(" and ")}` : "";
+  return parts.length ? `Stops early by up to ${parts.join(" and ")}` : "";
 }
 
 export interface Learning {

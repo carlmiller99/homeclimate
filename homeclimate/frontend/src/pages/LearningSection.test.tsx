@@ -321,7 +321,7 @@ describe("Smart Learning section", () => {
     expect(level).toHaveValue("0");
     const den = screen.getByRole("listitem", { name: `${ROOM.name} model` });
     expect(
-      within(den).getByText("Stops early by 0.7°F when heating and 0.4°F when cooling.")
+      within(den).getByText("Stops early by up to 0.7°F when heating and 0.4°F when cooling.")
     ).toBeInTheDocument();
     const loft = screen.getByRole("listitem", { name: "Loft model" });
     expect(within(loft).queryByText(/^Stops early/)).not.toBeInTheDocument();
@@ -351,7 +351,7 @@ describe("Smart Learning section", () => {
     const c = buildUnitContext("C");
     expect(
       la.describeStopEarly({ cooling: { lead: 0.9, runs: 5 } }, c.toDisplayDelta, c.unitLabel)
-    ).toBe("Stops early by 0.5°C when cooling");
+    ).toBe("Stops early by up to 0.5°C when cooling");
     expect(la.describeStopEarly(null, c.toDisplayDelta, c.unitLabel)).toBe("");
     expect(la.describeStopEarly(undefined, c.toDisplayDelta, c.unitLabel)).toBe("");
   });

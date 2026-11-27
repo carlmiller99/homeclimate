@@ -171,12 +171,14 @@ How far a room runs on is learned per room, separately for heating and cooling, 
 
 - At least five closes are needed for a mode before anything is used.
 - The amount used is cautious: the run-on the room reached in three closes out of four.
-- It is never more than the room's deadband, so a room that does not run on stays inside its comfort band and does not call again. It is never more than 1.5 °F (0.8 °C).
+- It is never more than half the room's deadband, and never more than 1.5 °F (0.8 °C). The other half is kept as slack, so a room closed early can dip a little without being opened again or calling for a new run.
+- A room is closed early once in a run. If it drifts back and is opened again, it is taken all the way to its target.
+- The run-on is measured from the room's temperature at the moment of the close, and only until the room is next heated or cooled.
 - A room must have moved at least that far in the current run before it is closed early.
 - Closes with a door or window open, or a fire lit, are not counted.
 - Safety cycles are never cut short, and nothing is closed early during Vacation Mode.
 
-Each room's line under **What Each Room Has Taught** says what it has learned, for example "Stops early by 0.7 °F when heating". A room's own temperature offset (Smart Control → Rooms) still applies on top; with Stop Early on, most rooms should not need one.
+Each room's line under **What Each Room Has Taught** says what it has learned, for example "Stops early by up to 0.7 °F when heating" ("up to", because half the deadband is the most that is used). A room's own temperature offset (Smart Control → Rooms) still applies on top; with Stop Early on, most rooms should not need one.
 
 `stop_early_level` in `PUT /api/learning/settings` (0, 1 or 2). `GET /api/learning` gives each room's `stop_early`.
 
@@ -192,7 +194,7 @@ The dashed line has gaps where the model cannot speak: a door or window open, a 
 
 For each room with an occupancy sensor and at least 14 days of readings: a strip for each day of the week, an hour to a cell, darker where the room was in use more often over the last 30 days.
 
-Where a room has regular hours (in use at least 60 % of the time in that hour, in at least two separate weeks), they are listed as blocks, and **Make This a Schedule** adds them to the room's schedule at a temperature you confirm. It starts from the room's occupied temperature. The new blocks are named "Usual hours"; change or remove them under Schedules. They are not compared with blocks the room already has.
+Where a room has regular hours (in use at least 60 % of the time in that hour, in at least two separate weeks), they are listed as blocks, and **Make This a Schedule** adds them to the room's schedule at a temperature you confirm. It starts from the room's occupied temperature. The new blocks are named "Usual hours"; change or remove them under Schedules. A block that overlaps one the room already has is refused: the others are still added, and the card says which to change.
 
 ## Suggestions
 
