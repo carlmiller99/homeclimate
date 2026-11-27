@@ -27,7 +27,7 @@ It stops when the room is back at its target, when the two rooms are within 0.75
 - **A room paused by an open door or window counts for nothing**, either as the reason or as the room to mix with. A paused zone does not run the fan at all.
 - **Not while the system is off, in Vacation Mode, or while a fireplace is lit** in one of the zone's rooms.
 - **A fan somebody else turned on is left alone.** HomeClimate only turns off a fan it turned on. That one it always sets back to auto when it is done: after a restart, when its zone is deleted, and when the thermostat did not answer the first time (it keeps trying). If HomeClimate cannot read the zones at all, it hands every fan back.
-- In Developer Mode no fan is turned on; what would have run is logged once, as with Watch Only, and the test cannot be started. A fan HomeClimate had already turned on is still set back to auto when it is done.
+- In Developer Mode no fan is turned on; what would have run is logged once, as with Watch Only. A fan HomeClimate had already turned on is still set back to auto when it is done.
 - While a thermostat is unavailable in Home Assistant, a fan HomeClimate turned on stays remembered, and is set back to auto when the thermostat returns.
 - After a restart, a fan HomeClimate had on is set back to auto if it is no longer wanted, even if somebody turned it on by hand in the meantime.
 - Rooms that are not in use are left out.
@@ -43,17 +43,12 @@ Some air handlers have a duct that brings in outside air whenever the fan runs. 
 - **Yes.** The fan only runs by itself while outside air would help the room: cooler than a room that is too warm, or warmer than one that is too cold. With no outside temperature (My Home → Outside), it does not run.
 - **No**, or **Not Sure** (the default, treated as No). The outside temperature is not considered.
 
-### Test
-
-**Test**, beside the setting, runs the fan alone for 10 minutes and compares how the zone's rooms moved with the outside temperature. It needs the zone to be idle, a room temperature, an outside temperature, and at least 10 °F (5.6 °C) between inside and outside. Only rooms with a reading at both ends are compared.
-
-The result is a hint and no more. Rooms moving 0.5 °F (0.3 °C) or more toward the outside temperature could mean an intake, but mixing between rooms and ducts that run through an attic or crawl space do the same; and an intake whose damper stayed shut shows nothing. Look at the air handler for a duct to the outside before choosing Yes. A cycle or a pause that starts during the test cuts it short, and it then says nothing.
+Look at the air handler for a duct to the outside before choosing Yes.
 
 ## API
 
-- `GET /api/fan` — each zone's level, intake setting, whether its thermostat's fan can be switched, whether HomeClimate has it running, a note on what it is doing or why not, the minutes it ran in the last hour, and the last test.
+- `GET /api/fan` — each zone's level, intake setting, whether its thermostat's fan can be switched, whether HomeClimate has it running, a note on what it is doing or why not, and the minutes it ran in the last hour.
 - `PUT /api/zones/{entity_id}` — `fan_level` (`off`, `watch`, `on`) and `air_intake` (`yes`, `no`, `unsure`).
-- `POST /api/fan/{entity_id}/test` — start the test.
 
 ## Smart Learning
 

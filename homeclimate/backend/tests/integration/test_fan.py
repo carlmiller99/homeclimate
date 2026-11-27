@@ -238,11 +238,6 @@ async def test_in_developer_mode_nothing_is_turned_on_and_a_running_fan_is_still
         "The thermostat did not accept the fan change"
     )
     assert not run.manager.running(T1)
-    # Nor can the intake test be started there.
-    conn = await client.app["scheduler"].get_db()
-    with pytest.raises(fan.FanError) as raised:
-        await run.manager.start_test(conn, fake_ha, _zone(), 40.0, NOW, dry=True)
-    assert str(raised.value) == fan.TEST_BLOCKED
 
 
 async def test_a_thermostat_that_is_away_is_not_told_to_stop_by_any_route(client, fake_ha):
@@ -295,9 +290,6 @@ async def test_a_zone_that_is_gone_has_its_fan_handed_back(client, fake_ha, monk
     run = _Run(client, fake_ha)
     conn = await client.app["scheduler"].get_db()
     await run.tick(_zone())
-    rooms = [_room("Loft", 70.0), _room("Den", 72.0)]
-    other = _zone(thermostat_entity_id="climate.other", rooms=rooms)
-    await run.manager.start_test(conn, fake_ha, other, 40.0, NOW)
 
     async def refuse(*_a, **_k):
         raise RuntimeError("unavailable")
@@ -305,14 +297,13 @@ async def test_a_zone_that_is_gone_has_its_fan_handed_back(client, fake_ha, monk
     # While the thermostat does not answer, the fans stay HomeClimate's to stop.
     monkeypatch.setattr(fake_ha, "call_service", refuse)
     await run.tick(None, NOW + timedelta(minutes=1))
-    assert run.manager.running(T1) and run.manager.running("climate.other")
-    assert not run.manager.testing("climate.other")
+    assert run.manager.running(T1)
     await run.manager.release(conn, fake_ha, NOW + timedelta(minutes=1))
     assert run.manager.running(T1)
     monkeypatch.undo()
     await run.tick(None, NOW + timedelta(minutes=2))
-    assert not run.manager.running(T1) and not run.manager.running("climate.other")
-    assert run.modes()[-2:] == ["auto", "auto"]
+    assert not run.manager.running(T1)
+    assert run.modes()[-1] == "auto"
 
 
 async def test_what_keeps_the_fan_off(client, fake_ha):
@@ -445,99 +436,6 @@ async def test_a_fan_left_on_across_a_restart_is_handed_back(client, fake_ha):
         assert not fresh.manager.running(T1)
 
 
-async def test_the_intake_test_reports_a_hint(client, fake_ha):
-    run = _Run(client, fake_ha)
-    conn = await client.app["scheduler"].get_db()
-    rooms = [_room("Loft", 70.0), _room("Den", 72.0)]
-    await run.manager.start_test(conn, fake_ha, _zone(rooms=rooms), 40.0, NOW)
-    assert run.modes() == ["on"] and run.manager.testing(T1)
-    assert await run.tick(_zone(fan_mode="on", rooms=rooms), NOW + timedelta(minutes=4)) == (
-        "Testing for an outside air intake"
-    )
-    cooler = [_room("Loft", 69.2), _room("Den", 71.4)]
-    await run.tick(_zone(fan_mode="on", rooms=cooler), NOW + timedelta(minutes=10))
-    assert run.modes() == ["on", "auto"] and not run.manager.testing(T1)
-    assert not run.manager.running(T1)
-    assert run.manager._runs[T1] == []
-    assert run.manager.minutes_used(T1, NOW + timedelta(minutes=10)) == 0
-    result = await fan.last_test(conn, T1)
-    assert (result["difference"], result["moved"], result["hint"]) == (31.0, 0.7, "possible")
-    assert result["interrupted"] is False
-    assert run.said[-1] == "Fan test finished for Main"
-
-    # A room whose sensor dropped out is left out at both ends, not read as movement.
-    await run.manager.start_test(conn, fake_ha, _zone(rooms=rooms), 40.0, NOW)
-    dropped = [_room("Loft", None), _room("Den", 71.4)]
-    await run.tick(_zone(fan_mode="on", rooms=dropped), NOW + timedelta(minutes=10))
-    assert (await fan.last_test(conn, T1))["moved"] == 0.6
-    await run.manager.start_test(conn, fake_ha, _zone(rooms=rooms), 40.0, NOW)
-    none_left = [_room("Loft", None), _room("Den", None)]
-    await run.tick(_zone(fan_mode="on", rooms=none_left), NOW + timedelta(minutes=10))
-    assert (await fan.last_test(conn, T1))["interrupted"] is True
-
-    # Rooms that did not move toward a warm outside: no sign of an intake.
-    await run.manager.start_test(conn, fake_ha, _zone(rooms=rooms), 95.0, NOW)
-    await run.tick(_zone(fan_mode="on", rooms=cooler), NOW + timedelta(minutes=10))
-    assert (await fan.last_test(conn, T1))["hint"] == "none"
-
-    # A cycle that starts ends the test, and the fan somebody had on is left on.
-    await run.manager.start_test(conn, fake_ha, _zone(rooms=rooms, fan_mode="on"), 40.0, NOW)
-    calls = len(run.modes())
-    await run.tick(
-        _zone(fan_mode="on", idle=False, cycle_mode="heating"), NOW + timedelta(minutes=2)
-    )
-    assert (await fan.last_test(conn, T1)) == {
-        "at": (NOW + timedelta(minutes=2)).isoformat(),
-        "interrupted": True,
-    }
-    assert len(run.modes()) == calls
-    assert await fan.last_test(conn, "climate.never") is None
-    await db.set_system_setting(conn, fan.TEST_SETTING + T1, "[1]")
-    assert await fan.last_test(conn, T1) is None
-
-
-async def test_a_restart_in_the_middle_of_a_test_hands_the_fan_back(client, fake_ha):
-    run = _Run(client, fake_ha)
-    conn = await client.app["scheduler"].get_db()
-    rooms = [_room("Loft", 70.0), _room("Den", 72.0)]
-    await run.manager.start_test(conn, fake_ha, _zone(rooms=rooms, level="off"), 40.0, NOW)
-    assert json.loads(await db.get_system_setting(conn, fan.RUNNING_SETTING, "")) == [T1]
-    restarted = _Run(client, fake_ha)
-    await restarted.tick(_zone(rooms=rooms, level="off", fan_mode="on"), NOW + timedelta(minutes=1))
-    assert restarted.modes() == ["on", "auto"]
-
-
-async def test_when_the_intake_test_cannot_run(client, fake_ha, monkeypatch):
-    manager = fan.Manager()
-    conn = await client.app["scheduler"].get_db()
-    rooms = [_room("Loft", 70.0), _room("Den", 72.0)]
-    for zone, outside, message in (
-        (None, 40.0, fan.ZONE_UNKNOWN),
-        (_zone(supported=False), 40.0, fan.NO_FAN_SETTING),
-        (_zone(blocked="The system is off"), 40.0, fan.TEST_BLOCKED),
-        (_zone(idle=False), 40.0, fan.TEST_BUSY),
-        (_zone(rooms=rooms), None, fan.TEST_NO_OUTSIDE),
-        (_zone(rooms=[_room("Loft", None)]), 40.0, fan.TEST_NO_OUTSIDE),
-        (_zone(rooms=rooms), 65.0, fan.TEST_TOO_CLOSE),
-    ):
-        with pytest.raises(fan.FanError) as raised:
-            await manager.start_test(conn, fake_ha, zone, outside, NOW)
-        assert str(raised.value) == message
-
-    async def refuse(*_a, **_k):
-        raise RuntimeError("not supported")
-
-    monkeypatch.setattr(fake_ha, "call_service", refuse)
-    with pytest.raises(fan.FanError) as raised:
-        await manager.start_test(conn, fake_ha, _zone(rooms=rooms), 40.0, NOW)
-    assert str(raised.value) == fan.FAN_FAILED
-    monkeypatch.undo()
-    await manager.start_test(conn, fake_ha, _zone(rooms=rooms), 40.0, NOW)
-    with pytest.raises(fan.FanError) as raised:
-        await manager.start_test(conn, fake_ha, _zone(rooms=rooms), 40.0, NOW)
-    assert str(raised.value) == fan.TEST_RUNNING
-
-
 OUTDOOR = "sensor.outdoor"
 FAN_ATTRS = {
     "current_temperature": 71,
@@ -600,7 +498,9 @@ async def test_the_scheduler_runs_the_fan_for_a_held_zone(client, fake_ha, home,
     got = await _fan(client)
     assert (got["level"], got["air_intake"], got["supported"]) == ("on", "no", True)
     assert got["running"] and got["note"].startswith("Running: Loft is 3.0°F past its target")
-    assert (got["testing"], got["test"]) == (False, None)
+    # The intake test is gone: nothing about it is reported, and its route is not there.
+    assert "testing" not in got and "test" not in got
+    assert (await client.post(f"/api/fan/{T1}/test")).status in (404, 405)
     # Vacation Mode stops it.
     fake_ha.seed_state(T1, "heat", {**FAN_ATTRS, "fan_mode": "on"})
     client.app["scheduler"]._vacation_mode = True
@@ -677,25 +577,6 @@ async def test_the_fan_settings_are_checked(client, home):
         assert resp.status == 400, body
 
 
-async def test_the_intake_test_through_the_api(client, fake_ha, home, tick):
-    resp = await client.post("/api/fan/climate.nope/test")
-    assert (resp.status, (await resp.json())["error"]) == (404, fan.ZONE_UNKNOWN)
-    fake_ha.seed_state(OUTDOOR, "68", {"unit_of_measurement": "°F"})
-    resp = await client.post(f"/api/fan/{T1}/test")
-    assert (resp.status, (await resp.json())["error"]) == (400, fan.TEST_TOO_CLOSE)
-    fake_ha.seed_state(OUTDOOR, "40", {"unit_of_measurement": "°F"})
-    resp = await client.post(f"/api/fan/{T1}/test")
-    assert resp.status == 200, await resp.text()
-    body = await resp.json()
-    assert body["test_minutes"] == 10 and body["zones"][0]["testing"] is True
-    assert fake_ha.calls_for("set_fan_mode")[-1].data == {"entity_id": T1, "fan_mode": "on"}
-    # While it runs, the ordinary fan rules are not applied to the zone.
-    await client.put(f"/api/zones/{T1}", json={"fan_level": "on"})
-    await tick()
-    assert (await _fan(client))["note"] == "Testing for an outside air intake"
-    assert len(fake_ha.calls_for("set_fan_mode")) == 1
-
-
 async def test_a_failure_in_the_fan_never_stops_the_tick(client, home, tick, monkeypatch, caplog):
     async def _boom():
         raise RuntimeError("database is locked")
@@ -711,14 +592,3 @@ async def test_a_failure_in_the_fan_never_stops_the_tick(client, home, tick, mon
     monkeypatch.setattr(scheduler.fans, "release", _boom_too)
     await tick()
     assert "Could not hand the fans back to their thermostats" in caplog.text
-
-
-async def test_a_thermostat_that_refuses_the_test_is_a_gateway_error(
-    client, fake_ha, home, monkeypatch
-):
-    async def refuse(*_a, **_k):
-        raise RuntimeError("not supported")
-
-    monkeypatch.setattr(fake_ha, "call_service", refuse)
-    resp = await client.post(f"/api/fan/{T1}/test")
-    assert (resp.status, (await resp.json())["error"]) == (502, fan.FAN_FAILED)

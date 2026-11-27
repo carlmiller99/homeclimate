@@ -20,12 +20,10 @@ const UP: fanApi.FanZone = {
   air_intake: "unsure",
   supported: true,
   running: false,
-  testing: false,
   note: "",
   minutes_last_hour: 0,
-  test: null,
 };
-const fan = (...zones: fanApi.FanZone[]): fanApi.Fan => ({ zones, test_minutes: 10 });
+const fan = (...zones: fanApi.FanZone[]): fanApi.Fan => ({ zones });
 
 beforeEach(() => {
   vi.clearAllMocks();

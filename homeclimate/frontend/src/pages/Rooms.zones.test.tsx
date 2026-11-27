@@ -220,10 +220,10 @@ describe("Rooms grouped by building and zone", () => {
     fireEvent.click(within(panel).getByRole("button", { name: "Edit Zone" }));
     // One dialog for the zone; its thermostat's settings are the second tab.
     const edit = await screen.findByRole("dialog", { name: "Edit zone Upstairs" });
-    fireEvent.click(within(edit).getByRole("tab", { name: "Thermostat" }));
-
-    // The thermostat's own Delete button is left out here: the dialog has one.
-    expect(within(panel).queryByRole("button", { name: "Delete Zone" })).toBeNull();
+    // Delete is at the foot of the Equipment tab; the thermostat's tab has none of its own.
+    expect(
+      within(edit).getAllByRole("button", { name: /^Delete Zone/, hidden: true })
+    ).toHaveLength(1);
     fireEvent.click(within(edit).getByRole("button", { name: "Delete Zone Upstairs" }));
     const dialog = await screen.findByTestId("confirm-dialog");
     expect(dialog).toHaveTextContent('Delete the zone "Upstairs" and all of its rooms?');

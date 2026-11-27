@@ -226,7 +226,7 @@ describe("Thermostats — card failure paths", () => {
     render(<Thermostats />);
     await cardsSettled();
 
-    const nameInput = screen.getByLabelText(/Friendly name/i, {
+    const nameInput = screen.getByLabelText(/^Name/, {
       selector: "#thermo-climate\\.test-name",
     });
     fireEvent.change(nameInput, { target: { value: "   " } });
@@ -253,7 +253,7 @@ describe("Thermostats — card failure paths", () => {
     render(<Thermostats />);
     await cardsSettled();
 
-    const card = cardOf(await screen.findByLabelText(/^Total vent count$/));
+    const card = cardOf(await screen.findByLabelText(/^Number of Vents/));
     fireEvent.click(within(card).getByText("Save Changes"));
 
     expect(await screen.findByText("min_setpoint out of range")).toBeInTheDocument();
@@ -265,7 +265,7 @@ describe("Thermostats — card failure paths", () => {
     render(<Thermostats />);
     await cardsSettled();
 
-    const card = cardOf(await screen.findByLabelText(/^Total vent count$/));
+    const card = cardOf(await screen.findByLabelText(/^Number of Vents/));
     fireEvent.click(within(card).getByText("Save Changes"));
 
     expect(await screen.findByText("Save failed")).toBeInTheDocument();
@@ -311,7 +311,7 @@ describe("Thermostats — the Saved! badge", () => {
     render(<Thermostats />);
     await cardsSettled();
 
-    const card = cardOf(await screen.findByLabelText(/^Total vent count$/));
+    const card = cardOf(await screen.findByLabelText(/^Number of Vents/));
     fireEvent.click(within(card).getByText("Save Changes"));
     await within(card).findByText("Saved!");
 
@@ -356,7 +356,7 @@ describe("Thermostats — a legacy config with null columns", () => {
     );
 
     // Booleans and enums fall back to their defaults.
-    const overflow = screen.getByLabelText(/Redirect surplus air to other rooms/i);
+    const overflow = screen.getByLabelText(/^Send spare air to other rooms/);
     expect(overflow).toBeChecked();
     expect(overflow).toBeDisabled(); // min-runtime hold is null → treated as 0
 
@@ -365,7 +365,7 @@ describe("Thermostats — a legacy config with null columns", () => {
     expect(document.getElementById("thermo-climate.test-fraction")).toHaveValue("0.333");
 
     // Drift correction falls back to 0 (= disabled).
-    expect(screen.getByLabelText(/Drift correction interval/i)).toHaveValue(0);
+    expect(screen.getByLabelText(/^Re-check vents and thermostat every/)).toHaveValue(0);
   });
 
   it("accepts an edit on each fallback field and posts a real value", async () => {
@@ -373,7 +373,7 @@ describe("Thermostats — a legacy config with null columns", () => {
     await cardsSettled("(unnamed)");
 
     fireEvent.change(
-      screen.getByLabelText(/Friendly name/i, {
+      screen.getByLabelText(/^Name/, {
         selector: "#thermo-climate\\.test-name",
       }),
       { target: { value: "Legacy HVAC" } }
@@ -384,15 +384,15 @@ describe("Thermostats — a legacy config with null columns", () => {
     fireEvent.change(document.getElementById("thermo-climate.test-total-vents")!, {
       target: { value: "9" },
     });
-    fireEvent.change(screen.getByLabelText(/Min cycle runtime/i), { target: { value: "10" } });
+    fireEvent.change(screen.getByLabelText(/^Run at least/), { target: { value: "10" } });
     fireEvent.change(document.getElementById("thermo-climate.test-fraction")!, {
       target: { value: "0.5" },
     });
-    fireEvent.change(screen.getByLabelText(/Drift correction interval/i), {
+    fireEvent.change(screen.getByLabelText(/^Re-check vents and thermostat every/), {
       target: { value: "30" },
     });
 
-    const card = cardOf(screen.getByLabelText(/^Total vent count$/));
+    const card = cardOf(screen.getByLabelText(/^Number of Vents/));
     fireEvent.click(within(card).getByText("Save Changes"));
 
     await waitFor(() =>
@@ -420,12 +420,12 @@ describe("Thermostats — a legacy config with null columns", () => {
     fireEvent.change(field, { target: { value: "" } });
 
     fireEvent.change(
-      screen.getByLabelText(/Friendly name/i, {
+      screen.getByLabelText(/^Name/, {
         selector: "#thermo-climate\\.test-name",
       }),
       { target: { value: "Legacy HVAC" } }
     );
-    const card = cardOf(screen.getByLabelText(/^Total vent count$/));
+    const card = cardOf(screen.getByLabelText(/^Number of Vents/));
     fireEvent.click(within(card).getByText("Save Changes"));
 
     await waitFor(() =>
@@ -446,7 +446,7 @@ describe("Thermostats — numeric coercion", () => {
     render(<Thermostats />);
     await cardsSettled();
 
-    const maxClosed = screen.getByLabelText(/Max vent closed/i);
+    const maxClosed = screen.getByLabelText(/^Reopen a closed vent after/);
     fireEvent.change(maxClosed, { target: { value: "" } });
 
     fireEvent.click(within(cardOf(maxClosed)).getByText("Save Changes"));
@@ -468,7 +468,7 @@ describe("Thermostats — numeric coercion", () => {
     await cardsSettled();
 
     // A stored lockout initialises the field (the non-null derive branch).
-    const lockout = screen.getByLabelText(/Cooling lockout/i);
+    const lockout = screen.getByLabelText(/^No cooling when outside is below/);
     expect(lockout).toHaveValue(55);
 
     // 0 is falsy but a real setting — it must not be coerced away.
@@ -486,7 +486,7 @@ describe("Thermostats — numeric coercion", () => {
     render(<Thermostats />);
     await cardsSettled();
 
-    const totalVents = screen.getByLabelText(/^Total vent count$/);
+    const totalVents = screen.getByLabelText(/^Number of Vents/);
     fireEvent.change(totalVents, { target: { value: "0" } });
     expect(totalVents).toHaveValue(1);
 
@@ -505,7 +505,7 @@ describe("Thermostats — numeric coercion", () => {
     await cardsSettled();
 
     // cycle_timeout_hours = 2 → the ceiling is 120 min, and the hint says so.
-    const drift = screen.getByLabelText(/Drift correction interval/i);
+    const drift = screen.getByLabelText(/^Re-check vents and thermostat every/);
     expect(drift).toHaveAttribute("max", "120");
 
     fireEvent.change(drift, { target: { value: "9999" } });

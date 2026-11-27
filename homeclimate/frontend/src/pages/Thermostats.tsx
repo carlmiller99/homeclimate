@@ -1,5 +1,5 @@
 import EntityName, { entityName } from "../components/EntityName";
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import {
   getThermostats,
   getRooms,
@@ -24,85 +24,84 @@ import { onStateChanged } from "../stateEvents";
 // Safety settings fields (numerical config)
 // ---------------------------------------------------------------------------
 
-const SAFETY_FIELDS: {
+/** The numeric settings under Advanced Options, in the groups they are shown in. */
+const ADVANCED_FIELDS: {
   key: keyof ThermostatConfig;
   label: string;
   help: string;
   step: string;
   min: string;
-  kind: "absolute_temp" | "delta_temp" | "other";
+  kind: "delta_temp" | "other";
+  unit?: string;
+  group: "comfort" | "protection" | "airflow" | "safeguards";
 }[] = [
   {
-    key: "min_setpoint",
-    label: "Min setpoint",
-    help: "Never set thermostat below this temperature",
-    step: "0.5",
-    min: "0",
-    kind: "absolute_temp",
-  },
-  {
-    key: "max_setpoint",
-    label: "Max setpoint",
-    help: "Never set thermostat above this temperature",
-    step: "0.5",
-    min: "0",
-    kind: "absolute_temp",
-  },
-  {
     key: "deadband",
-    label: "Deadband",
-    help: "±tolerance to consider a room 'at target'. 0 = exact match.",
+    label: "Room counts as at target within",
+    help: "How close to its target a room has to be. 0 means an exact match.",
     step: "0.1",
     min: "0",
     kind: "delta_temp",
+    group: "comfort",
   },
   {
     key: "overshoot_delta",
-    label: "Overshoot delta",
-    help: "How far past target to set the thermostat to keep the HVAC running",
+    label: "Run past the target by",
+    help: "How far past the target the thermostat is set, to keep the equipment running.",
     step: "0.5",
     min: "0",
     kind: "delta_temp",
-  },
-  {
-    key: "max_vent_closed_min",
-    label: "Max vent closed (min)",
-    help: "Reopen vents after this many minutes. 0 = disabled.",
-    step: "1",
-    min: "0",
-    kind: "other",
-  },
-  {
-    key: "cycle_timeout_hours",
-    label: "Cycle timeout (hours)",
-    help: "Abort a stuck cycle after this many hours",
-    step: "0.5",
-    min: "0.5",
-    kind: "other",
+    group: "comfort",
   },
   {
     key: "min_cycle_runtime_min",
-    label: "Min cycle runtime (min)",
-    help: "Once heating or cooling starts, it runs at least this long, which protects the equipment. 10 minutes is usual; 0 turns this off.",
+    label: "Run at least",
+    help: "Once heating or cooling starts it runs at least this long, which protects the equipment. 0 turns this off.",
     step: "1",
     min: "0",
     kind: "other",
+    unit: "min",
+    group: "protection",
   },
   {
     key: "min_cycle_offtime_min",
-    label: "Min compressor off-time (min)",
-    help: "After heating or cooling stops, it waits at least this long before starting again. 5 minutes is usual; 0 turns this off.",
+    label: "Rest between runs at least",
+    help: "After heating or cooling stops it waits at least this long before starting again. 0 turns this off.",
     step: "1",
     min: "0",
     kind: "other",
+    unit: "min",
+    group: "protection",
+  },
+  {
+    key: "max_vent_closed_min",
+    label: "Reopen a closed vent after",
+    help: "A vent closed this long is opened again. 0 turns this off.",
+    step: "1",
+    min: "0",
+    kind: "other",
+    unit: "min",
+    group: "airflow",
+  },
+  {
+    key: "cycle_timeout_hours",
+    label: "End a run that lasts longer than",
+    help: "A run still going after this long is stopped.",
+    step: "0.5",
+    min: "0.5",
+    kind: "other",
+    unit: "hr",
+    group: "safeguards",
   },
   {
     key: "unavailable_abort_after_min",
-    label: "Abort when thermostat unavailable (min)",
-    help: "If the thermostat stops answering for this long during a run, the run is ended and every vent is opened. 0 turns this off.",
+    label: "End a run if the thermostat goes quiet for",
+    help: "The run is ended and every vent is opened. 0 turns this off.",
     step: "1",
     min: "0",
     kind: "other",
+    unit: "min",
+    group: "safeguards",
   },
 ];
 
@@ -114,13 +113,6 @@ const SAFETY_FIELDS: {
 // the inputs, the validation and the backend cannot drift apart silently.
 const WELCOME_HOME_DEFAULT_LEAD_MIN = 60;
 const WELCOME_HOME_DEFAULT_HOURS = 1;
-const WELCOME_HOME_FIELD_STYLE: CSSProperties = {
-  flex: "1 1 140px",
-  display: "flex",
-  flexDirection: "column",
-  justifyContent: "flex-end",
-};
-
 /** The same rules as the API's write boundary, so Save fails fast and clearly. */
 function welcomeHomeError(form: Partial<ThermostatConfig>): string {
   const lead = form.welcome_home_lead_min ?? WELCOME_HOME_DEFAULT_LEAD_MIN;
@@ -351,11 +343,14 @@ export function ThermostatCard({
   onSuspendEco,
   zoneHasRoomOptIn = false,
   embedded = false,
+  onClose,
 }: {
   config: ThermostatConfig;
   /** Shown inside My Home's Edit Zone dialog, which names the zone itself:
    *  no card frame and no title of its own. */
   embedded?: boolean;
+  /** Embedded: the dialog's way out, beside Save. */
+  onClose?: () => void;
   onDeleted: () => void;
   onSaved?: (updated: ThermostatConfig) => void;
   onSuspendEco?: () => void;
@@ -486,6 +481,33 @@ export function ThermostatCard({
     }
   };
 
+  const advancedRows = (group: (typeof ADVANCED_FIELDS)[number]["group"]) =>
+    ADVANCED_FIELDS.filter((f) => f.group === group).map(
+      ({ key, label, help, step, min, kind, unit }) => (
+        <div className="advanced-row" key={key}>
+          <label htmlFor={`thermo-${config.thermostat_entity_id}-${key}`} title={help}>
+            {label}
+          </label>
+          <span className="minutes-field">
+            {/* Temperatures in `form` are already in display units; the backend converts. */}
+            <input
+              id={`thermo-${config.thermostat_entity_id}-${key}`}
+              className="form-control minutes-input"
+              type="number"
+              step={step}
+              min={min}
+              value={(form[key] as number) ?? ""}
+              onChange={(e) => {
+                const v = parseFloat(e.target.value) || 0;
+                setForm((f) => ({ ...f, [key]: v }));
+              }}
+            />
+            <span className="minutes-unit">{kind === "delta_temp" ? unitLabel : unit}</span>
+          </span>
+        </div>
+      )
+    );
+
   return (
     <div className={embedded ? "thermostat-embedded" : "card"} style={{ marginBottom: "1rem" }}>
       {/* Header */}
@@ -531,209 +553,33 @@ export function ThermostatCard({
         </div>
       )}
 
-      {/* Identity fields — auto-fit so the pair stacks on narrow phones
-          instead of squeezing side-by-side (#458). */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(min(220px, 100%), 1fr))",
-          gap: "1rem",
-          marginBottom: "1rem",
-        }}
-      >
-        <div className="form-group" style={{ marginBottom: 0 }}>
-          <label className="form-label" htmlFor={`thermo-${config.thermostat_entity_id}-name`}>
-            Friendly name *
+      <div className="sheet-rows">
+        <div className="sheet-row">
+          <label className="sheet-row-text" htmlFor={`thermo-${config.thermostat_entity_id}-name`}>
+            <strong>Name</strong>
           </label>
           <input
             id={`thermo-${config.thermostat_entity_id}-name`}
-            className="form-control"
+            className="form-control sheet-name"
             value={form.name}
             onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-            placeholder="e.g. Upstairs HVAC"
+            placeholder="e.g. Upstairs"
           />
         </div>
-        <div className="form-group" style={{ marginBottom: 0 }}>
+        <div className="sheet-row">
           <label
-            className="form-label"
-            htmlFor={`thermo-${config.thermostat_entity_id}-default_temp`}
-          >
-            Default presence temp ({unitLabel})
-          </label>
-          <input
-            id={`thermo-${config.thermostat_entity_id}-default_temp`}
-            className="form-control"
-            type="number"
-            step="0.5"
-            value={form.default_temp ?? ""}
-            placeholder={`e.g. ${Math.round(toDisplay(72))}`}
-            onChange={(e) =>
-              setForm((f) => ({
-                ...f,
-                default_temp: e.target.value ? parseFloat(e.target.value) : null,
-              }))
-            }
-          />
-          <div className="form-hint">
-            Target temperature when a room in this zone is activated by presence and has no
-            room-level presence temp set. Rooms can override this individually.
-          </div>
-        </div>
-      </div>
-
-      <hr className="divider" />
-
-      {/* Safety settings */}
-      <div
-        className="text-sm"
-        style={{ fontWeight: 600, color: "var(--gray-700)", marginBottom: ".75rem" }}
-      >
-        Safety &amp; cycle settings
-      </div>
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
-          gap: "1rem",
-        }}
-      >
-        {SAFETY_FIELDS.map(({ key, label, help, step, min, kind }) => {
-          // Temp fields in `form` are already in display units (see useState
-          // above), so render directly. Backend converts on save.
-          const displayVal = form[key] as number;
-          const fieldLabel =
-            kind === "absolute_temp" || kind === "delta_temp" ? `${label} (${unitLabel})` : label;
-          return (
-            <div className="form-group" key={key} style={{ marginBottom: 0 }}>
-              <label
-                className="form-label"
-                htmlFor={`thermo-${config.thermostat_entity_id}-${key}`}
-              >
-                {fieldLabel}
-              </label>
-              <input
-                id={`thermo-${config.thermostat_entity_id}-${key}`}
-                className="form-control"
-                type="number"
-                step={step}
-                min={min}
-                value={displayVal ?? ""}
-                onChange={(e) => {
-                  const v = parseFloat(e.target.value) || 0;
-                  setForm((f) => ({ ...f, [key]: v }));
-                }}
-              />
-              <div className="form-hint">{help}</div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Overflow conditioning during the minimum-runtime hold (Issue #237).
-          Boolean — rendered outside the SAFETY_FIELDS loop, which only
-          handles numeric inputs. Only meaningful when min_cycle_runtime_min
-          > 0; the helper text says so. Disabled in vacation mode regardless. */}
-      <div className="form-group" style={{ maxWidth: 480, marginTop: "1rem" }}>
-        <label
-          htmlFor={`thermo-${config.thermostat_entity_id}-overflow`}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: ".5rem",
-            cursor: "pointer",
-          }}
-        >
-          <input
-            id={`thermo-${config.thermostat_entity_id}-overflow`}
-            type="checkbox"
-            checked={form.overflow_during_min_runtime ?? true}
-            disabled={(form.min_cycle_runtime_min ?? 0) <= 0}
-            onChange={(e) =>
-              setForm((f) => ({ ...f, overflow_during_min_runtime: e.target.checked }))
-            }
-          />
-          <span>Redirect surplus air to other rooms during the minimum-runtime hold</span>
-        </label>
-        <div className="form-hint">
-          If rooms reach their target before the equipment may stop, the extra air goes to other
-          rooms. See the{" "}
-          <a
-            href="https://github.com/carlmiller99/homeclimate/blob/main/docs/overflow-conditioning.md"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            overflow conditioning docs
-          </a>{" "}
-          for how rooms are chosen.
-        </div>
-      </div>
-
-      {/* Outdoor-temperature cooling lockout (Issue #209). Nullable (blank =
-          disabled), so it is rendered outside the SAFETY_FIELDS loop. */}
-      <div className="form-group" style={{ maxWidth: 280, marginTop: "1rem" }}>
-        <label
-          className="form-label"
-          htmlFor={`thermo-${config.thermostat_entity_id}-cooling-lockout`}
-        >
-          Cooling lockout — pause AC below ({unitLabel})
-        </label>
-        <input
-          id={`thermo-${config.thermostat_entity_id}-cooling-lockout`}
-          className="form-control"
-          type="number"
-          step="0.5"
-          placeholder="Disabled"
-          value={form.cooling_lockout_below_f ?? ""}
-          onChange={(e) => {
-            const raw = e.target.value;
-            setForm((f) => ({
-              ...f,
-              cooling_lockout_below_f: raw === "" ? null : parseFloat(raw) || 0,
-            }));
-          }}
-        />
-        <div className="form-hint">
-          Cooling does not run when it is colder than this outside. About 55°F (13°C) is usual, and
-          it needs an outside sensor (My Home, Outside).
-        </div>
-      </div>
-
-      {/* Airflow floor / dead-head protection (Issue #213). Replaces the
-          legacy ``min_open_vents`` count with a fraction of total registers
-          (smart + passive). */}
-      <hr className="divider" />
-      <div
-        className="text-sm"
-        style={{ fontWeight: 600, color: "var(--gray-700)", marginBottom: ".75rem" }}
-      >
-        Airflow floor — dead-head protection
-      </div>
-      <div className="form-hint" style={{ marginBottom: "1rem" }}>
-        Closing too many vents at once can damage the equipment. HomeClimate keeps this share of the
-        zone&apos;s vents open.
-      </div>
-
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
-          gap: "1rem",
-        }}
-      >
-        <div className="form-group" style={{ marginBottom: 0 }}>
-          <label
-            className="form-label"
+            className="sheet-row-text"
             htmlFor={`thermo-${config.thermostat_entity_id}-total-vents`}
           >
-            Total vent count
+            <strong>Number of Vents</strong>
+            <p className="rule-help">Every register in this zone, smart or not.</p>
           </label>
           <input
             id={`thermo-${config.thermostat_entity_id}-total-vents`}
-            className="form-control"
+            className="form-control minutes-input"
             type="number"
             min="1"
             step="1"
-            placeholder="e.g. 12"
             value={form.total_vents_count ?? ""}
             onChange={(e) => {
               const raw = e.target.value;
@@ -743,212 +589,301 @@ export function ThermostatCard({
               }));
             }}
           />
-          <div className="form-hint">
-            <strong>Every register on this thermostat — smart vents AND passive ones.</strong>{" "}
-            Passive registers are always open and reduce how many of the smart vents have to stay
-            open.
-          </div>
         </div>
-
-        <div className="form-group" style={{ marginBottom: 0 }}>
+        <div className="sheet-row">
+          <div className="sheet-row-text">
+            <strong>Temperature Limits</strong>
+            <p className="rule-help">The thermostat is never set outside these.</p>
+          </div>
+          <span className="minutes-field">
+            {(["min_setpoint", "max_setpoint"] as const).map((key) => (
+              <Fragment key={key}>
+                {key === "max_setpoint" && <span className="minutes-unit">to</span>}
+                <input
+                  id={`thermo-${config.thermostat_entity_id}-${key}`}
+                  className="form-control minutes-input"
+                  type="number"
+                  step="0.5"
+                  min="0"
+                  aria-label={`${key === "min_setpoint" ? "Lowest" : "Highest"} temperature (${unitLabel})`}
+                  value={form[key] ?? ""}
+                  onChange={(e) => {
+                    const v = parseFloat(e.target.value) || 0;
+                    setForm((f) => ({ ...f, [key]: v }));
+                  }}
+                />
+              </Fragment>
+            ))}
+            <span className="minutes-unit">{unitLabel}</span>
+          </span>
+        </div>
+        <div className="sheet-row">
           <label
-            htmlFor={`thermo-${config.thermostat_entity_id}-bypass-damper`}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: ".5rem",
-              cursor: "pointer",
-              marginTop: "1.5rem",
-            }}
+            className="sheet-row-text"
+            htmlFor={`thermo-${config.thermostat_entity_id}-default_temp`}
           >
-            <input
-              id={`thermo-${config.thermostat_entity_id}-bypass-damper`}
-              type="checkbox"
-              checked={form.has_bypass_damper}
-              onChange={(e) => setForm((f) => ({ ...f, has_bypass_damper: e.target.checked }))}
-            />
-            <span>I have a bypass damper</span>
+            <strong>Occupied Temperature</strong>
+            <p className="rule-help">
+              Used when someone is in a room that has no temperature of its own.
+            </p>
           </label>
-          <div className="form-hint">
-            A bypass damper lets extra air escape when vents close. Ticking this turns off the limit
-            on closed vents.
+          <span className="minutes-field">
+            <input
+              id={`thermo-${config.thermostat_entity_id}-default_temp`}
+              className="form-control minutes-input"
+              type="number"
+              step="0.5"
+              value={form.default_temp ?? ""}
+              placeholder={String(Math.round(toDisplay(72)))}
+              onChange={(e) =>
+                setForm((f) => ({
+                  ...f,
+                  default_temp: e.target.value ? parseFloat(e.target.value) : null,
+                }))
+              }
+            />
+            <span className="minutes-unit">{unitLabel}</span>
+          </span>
+        </div>
+      </div>
+
+      <details className="advanced-box">
+        <summary>
+          <strong>Advanced Options</strong>
+          <span>You don&rsquo;t need to change these unless you want to.</span>
+        </summary>
+        <div className="advanced-groups">
+          <div>
+            <span className="advanced-group-title">Comfort</span>
+            {advancedRows("comfort")}
+          </div>
+          <div>
+            <span className="advanced-group-title">Equipment Protection</span>
+            {advancedRows("protection")}
+            {/* Overflow conditioning during the minimum-runtime hold (Issue
+                #237): only meaningful with a minimum run time. */}
+            <label
+              className="advanced-row"
+              htmlFor={`thermo-${config.thermostat_entity_id}-overflow`}
+            >
+              <span title="If rooms reach their target before the equipment may stop, the extra air goes to other rooms.">
+                Send spare air to other rooms
+              </span>
+              <input
+                id={`thermo-${config.thermostat_entity_id}-overflow`}
+                className="switch"
+                type="checkbox"
+                role="switch"
+                checked={form.overflow_during_min_runtime ?? true}
+                disabled={(form.min_cycle_runtime_min ?? 0) <= 0}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, overflow_during_min_runtime: e.target.checked }))
+                }
+              />
+            </label>
+          </div>
+          <div>
+            <span className="advanced-group-title">Airflow</span>
+            {/* Airflow floor / dead-head protection (Issue #213). */}
+            <div className="advanced-row">
+              <label
+                htmlFor={`thermo-${config.thermostat_entity_id}-fraction`}
+                title="Closing too many vents at once can damage the equipment."
+              >
+                Keep this share of vents open
+              </label>
+              <span className="minutes-field">
+                <input
+                  id={`thermo-${config.thermostat_entity_id}-fraction`}
+                  className="advanced-range"
+                  type="range"
+                  min={0.1}
+                  max={1}
+                  step={0.05}
+                  value={form.min_open_vents_fraction ?? 0.333}
+                  disabled={form.has_bypass_damper}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, min_open_vents_fraction: parseFloat(e.target.value) }))
+                  }
+                />
+                <strong>{`${Math.round((form.min_open_vents_fraction ?? 0.333) * 100)}%`}</strong>
+              </span>
+            </div>
+            <label
+              className="advanced-row"
+              htmlFor={`thermo-${config.thermostat_entity_id}-bypass-damper`}
+            >
+              <span title="A bypass damper lets extra air escape when vents close, so the share above is not enforced.">
+                Bypass damper installed
+              </span>
+              <input
+                id={`thermo-${config.thermostat_entity_id}-bypass-damper`}
+                className="switch"
+                type="checkbox"
+                role="switch"
+                checked={form.has_bypass_damper}
+                onChange={(e) => setForm((f) => ({ ...f, has_bypass_damper: e.target.checked }))}
+              />
+            </label>
+            {advancedRows("airflow")}
+          </div>
+          <div>
+            <span className="advanced-group-title">Safeguards</span>
+            {/* Outdoor-temperature cooling lockout (Issue #209). Blank is off. */}
+            <div className="advanced-row">
+              <label
+                htmlFor={`thermo-${config.thermostat_entity_id}-cooling-lockout`}
+                title="Cooling does not run when it is colder than this outside. It needs an outside sensor (My Home, Outside)."
+              >
+                No cooling when outside is below
+              </label>
+              <span className="minutes-field">
+                <input
+                  id={`thermo-${config.thermostat_entity_id}-cooling-lockout`}
+                  className="form-control minutes-input"
+                  type="number"
+                  step="0.5"
+                  placeholder="Off"
+                  value={form.cooling_lockout_below_f ?? ""}
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    setForm((f) => ({
+                      ...f,
+                      cooling_lockout_below_f: raw === "" ? null : parseFloat(raw) || 0,
+                    }));
+                  }}
+                />
+                <span className="minutes-unit">{unitLabel}</span>
+              </span>
+            </div>
+            {advancedRows("safeguards")}
+            {/* Capped by the longest run, so it is not one of the plain rows. */}
+            <div className="advanced-row">
+              <label
+                htmlFor={`thermo-${config.thermostat_entity_id}-drift`}
+                title="How often HomeClimate checks that vents and the thermostat are still set the way it left them. 0 turns this off."
+              >
+                Re-check vents and thermostat every
+              </label>
+              <span className="minutes-field">
+                <input
+                  id={`thermo-${config.thermostat_entity_id}-drift`}
+                  className="form-control minutes-input"
+                  type="number"
+                  step="1"
+                  min="0"
+                  max={Math.floor(form.cycle_timeout_hours * 60)}
+                  value={form.reconciliation_interval_min ?? 0}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value) || 0;
+                    const maxVal = Math.floor(form.cycle_timeout_hours * 60);
+                    setForm((f) => ({ ...f, reconciliation_interval_min: Math.min(val, maxVal) }));
+                  }}
+                />
+                <span className="minutes-unit">min</span>
+              </span>
+            </div>
+          </div>
+          <div>
+            <span className="advanced-group-title">While You Are Away</span>
+            <label
+              className="advanced-row"
+              htmlFor={`thermo-${config.thermostat_entity_id}-vacation-safety`}
+            >
+              <span
+                title={`On vacation a room that gets colder than ${form.min_setpoint}${unitLabel} or warmer than ${form.max_setpoint}${unitLabel} gets heating or cooling.`}
+              >
+                Keep each room inside the limits
+              </span>
+              <input
+                id={`thermo-${config.thermostat_entity_id}-vacation-safety`}
+                className="switch"
+                type="checkbox"
+                role="switch"
+                checked={form.vacation_safety_cycles ?? true}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, vacation_safety_cycles: e.target.checked }))
+                }
+              />
+            </label>
+            {/* Welcome home before a vacation return (Issue #728). */}
+            <div data-testid="welcome-home-group">
+              <label
+                className="advanced-row"
+                htmlFor={`thermo-${config.thermostat_entity_id}-welcome-home`}
+              >
+                <span title="Before you get back, each room is brought to its occupied temperature, so the house is comfortable when you walk in.">
+                  Get the house ready before I return
+                </span>
+                <input
+                  id={`thermo-${config.thermostat_entity_id}-welcome-home`}
+                  className="switch"
+                  type="checkbox"
+                  role="switch"
+                  checked={form.welcome_home_enabled ?? true}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, welcome_home_enabled: e.target.checked }))
+                  }
+                />
+              </label>
+              <div className="advanced-row">
+                <label htmlFor={`thermo-${config.thermostat_entity_id}-welcome-lead`}>
+                  Start this long before I return
+                </label>
+                <span className="minutes-field">
+                  <input
+                    id={`thermo-${config.thermostat_entity_id}-welcome-lead`}
+                    className="form-control minutes-input"
+                    type="number"
+                    min={0}
+                    max={240}
+                    step={5}
+                    value={form.welcome_home_lead_min ?? WELCOME_HOME_DEFAULT_LEAD_MIN}
+                    disabled={!(form.welcome_home_enabled ?? true)}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, welcome_home_lead_min: parseFloat(e.target.value) }))
+                    }
+                  />
+                  <span className="minutes-unit">min</span>
+                </span>
+              </div>
+              <div className="advanced-row">
+                <label htmlFor={`thermo-${config.thermostat_entity_id}-welcome-hours`}>
+                  Keep rooms occupied for
+                </label>
+                <span className="minutes-field">
+                  <input
+                    id={`thermo-${config.thermostat_entity_id}-welcome-hours`}
+                    className="form-control minutes-input"
+                    type="number"
+                    min={0.25}
+                    max={12}
+                    step={0.25}
+                    value={form.welcome_home_hours ?? WELCOME_HOME_DEFAULT_HOURS}
+                    disabled={!(form.welcome_home_enabled ?? true)}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, welcome_home_hours: parseFloat(e.target.value) }))
+                    }
+                  />
+                  <span className="minutes-unit">hr</span>
+                </span>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
+      </details>
 
-      <div className="form-group" style={{ marginTop: "1rem", marginBottom: 0 }}>
-        <label className="form-label" htmlFor={`thermo-${config.thermostat_entity_id}-fraction`}>
-          Minimum open fraction:{" "}
-          <strong>{Math.round((form.min_open_vents_fraction ?? 0.333) * 100)}%</strong> of total
-          vents
-        </label>
-        <input
-          id={`thermo-${config.thermostat_entity_id}-fraction`}
-          type="range"
-          min={0.1}
-          max={1}
-          step={0.05}
-          value={form.min_open_vents_fraction ?? 0.333}
-          disabled={form.has_bypass_damper}
-          onChange={(e) =>
-            setForm((f) => ({ ...f, min_open_vents_fraction: parseFloat(e.target.value) }))
-          }
-          style={{ width: "100%", maxWidth: 320 }}
-        />
-        <div className="form-hint">
-          {form.has_bypass_damper ? (
-            <em>Not enforced — your bypass damper handles pressure relief.</em>
-          ) : (
-            <>
-              Default 33% (one third). Raise it for tighter safety, lower it if your duct system can
-              tolerate more closed vents.
-            </>
-          )}
-        </div>
-      </div>
-
-      <hr className="divider" />
-
-      {/* Drift correction — rendered separately because max depends on cycle_timeout_hours */}
-      <div
-        className="text-sm"
-        style={{ fontWeight: 600, color: "var(--gray-700)", marginBottom: ".75rem" }}
-      >
-        Drift correction
-      </div>
-      <div className="form-group" style={{ maxWidth: 280 }}>
-        <label className="form-label" htmlFor={`thermo-${config.thermostat_entity_id}-drift`}>
-          Drift correction interval (min)
-        </label>
-        <input
-          id={`thermo-${config.thermostat_entity_id}-drift`}
-          className="form-control"
-          type="number"
-          step="1"
-          min="0"
-          max={Math.floor(form.cycle_timeout_hours * 60)}
-          value={form.reconciliation_interval_min ?? 0}
-          onChange={(e) => {
-            const val = parseInt(e.target.value) || 0;
-            const maxVal = Math.floor(form.cycle_timeout_hours * 60);
-            setForm((f) => ({ ...f, reconciliation_interval_min: Math.min(val, maxVal) }));
-          }}
-        />
-        <div className="form-hint">
-          How often HomeClimate checks that vents and the thermostat are still set the way it left
-          them. Use <strong>0</strong> to turn this off.
-        </div>
-      </div>
-
-      <hr className="divider" />
-
-      {/* Vacation */}
-      <div
-        className="text-sm"
-        style={{ fontWeight: 600, color: "var(--gray-700)", marginBottom: ".75rem" }}
-      >
-        While you are away
-      </div>
-      <div className="form-hint" style={{ marginBottom: ".75rem" }}>
-        On vacation this zone is kept between {form.min_setpoint}
-        {unitLabel} and {form.max_setpoint}
-        {unitLabel}. HomeClimate heats when it falls below and cools when it rises above.
-      </div>
-
-      <div className="form-group" style={{ maxWidth: 400 }}>
-        <label
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: ".5rem",
-            cursor: "pointer",
-          }}
-        >
-          <input
-            id={`thermo-${config.thermostat_entity_id}-vacation-safety`}
-            type="checkbox"
-            checked={form.vacation_safety_cycles ?? true}
-            onChange={(e) => setForm((f) => ({ ...f, vacation_safety_cycles: e.target.checked }))}
-          />
-          <span>Run per-room safety cycles during vacation</span>
-        </label>
-        <div className="form-hint">
-          While you are away, a room that gets colder than {form.min_setpoint}
-          {unitLabel} or warmer than {form.max_setpoint}
-          {unitLabel} gets heating or cooling for that room.
-        </div>
-      </div>
-
-      {/* Welcome home before a vacation return (Issue #728). */}
-      <div className="form-group" style={{ maxWidth: 400 }} data-testid="welcome-home-group">
-        <div className="form-label">Welcome home</div>
-        <label
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: ".5rem",
-            cursor: "pointer",
-          }}
-        >
-          <input
-            id={`thermo-${config.thermostat_entity_id}-welcome-home`}
-            type="checkbox"
-            checked={form.welcome_home_enabled ?? true}
-            onChange={(e) => setForm((f) => ({ ...f, welcome_home_enabled: e.target.checked }))}
-          />
-          <span>Get the house ready before I return from vacation</span>
-        </label>
-        {/* Each label is a bottom-justified column, so when one caption wraps
-            to two lines the two inputs still line up. */}
-        <div style={{ display: "flex", gap: ".75rem", marginTop: ".5rem", flexWrap: "wrap" }}>
-          <label style={WELCOME_HOME_FIELD_STYLE}>
-            <span className="form-hint" style={{ display: "block" }}>
-              Start (minutes before return)
-            </span>
-            <input
-              id={`thermo-${config.thermostat_entity_id}-welcome-lead`}
-              className="form-control"
-              type="number"
-              min={0}
-              max={240}
-              step={5}
-              value={form.welcome_home_lead_min ?? WELCOME_HOME_DEFAULT_LEAD_MIN}
-              disabled={!(form.welcome_home_enabled ?? true)}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, welcome_home_lead_min: parseFloat(e.target.value) }))
-              }
-            />
-          </label>
-          <label style={WELCOME_HOME_FIELD_STYLE}>
-            <span className="form-hint" style={{ display: "block" }}>
-              Keep rooms occupied for (hours)
-            </span>
-            <input
-              id={`thermo-${config.thermostat_entity_id}-welcome-hours`}
-              className="form-control"
-              type="number"
-              min={0.25}
-              max={12}
-              step={0.25}
-              value={form.welcome_home_hours ?? WELCOME_HOME_DEFAULT_HOURS}
-              disabled={!(form.welcome_home_enabled ?? true)}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, welcome_home_hours: parseFloat(e.target.value) }))
-              }
-            />
-          </label>
-        </div>
-        <div className="form-hint">
-          Before you get back, each room is brought to its occupied temperature for this long, so
-          the house is comfortable when you walk in.
-        </div>
-      </div>
-
-      <div style={{ marginTop: "1.25rem", display: "flex", alignItems: "center", gap: ".75rem" }}>
+      <div className="zone-editor-actions">
+        {saved && <span className="badge badge-green">Saved!</span>}
+        <span className="spacer" />
+        {onClose && (
+          <button type="button" className="btn btn-secondary" onClick={onClose}>
+            Close
+          </button>
+        )}
         <button className="btn btn-primary" onClick={save} disabled={saving}>
           {saving ? "Saving…" : "Save Changes"}
         </button>
-        {saved && <span className="badge badge-green">Saved!</span>}
       </div>
 
       {confirmRemove && (

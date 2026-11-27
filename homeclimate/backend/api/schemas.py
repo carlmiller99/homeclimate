@@ -930,18 +930,6 @@ class ShadesSchema(Schema):
     shades = fields.List(fields.Nested(ShadeSchema))
 
 
-class FanTestSchema(Schema):
-    at = fields.Str()
-    interrupted = fields.Bool(metadata={"description": "A cycle or a pause cut the test short"})
-    difference = fields.Float(
-        metadata={"description": "°F between inside and outside at the start"}
-    )
-    moved = fields.Float(
-        metadata={"description": "°F the zone moved toward the outside temperature"}
-    )
-    hint = fields.Str(metadata={"description": "possible | none. A hint, not a finding"})
-
-
 class FanZoneSchema(Schema):
     thermostat_entity_id = fields.Str()
     name = fields.Str()
@@ -949,15 +937,12 @@ class FanZoneSchema(Schema):
     air_intake = fields.Str(metadata={"description": "yes | no | unsure"})
     supported = fields.Bool(metadata={"description": "The thermostat has an on/auto fan setting"})
     running = fields.Bool(metadata={"description": "HomeClimate has the fan on now"})
-    testing = fields.Bool()
     note = fields.Str(metadata={"description": "What the fan is doing, or why it is not running"})
     minutes_last_hour = fields.Int()
-    test = fields.Nested(FanTestSchema, allow_none=True)
 
 
 class FanSchema(Schema):
     zones = fields.List(fields.Nested(FanZoneSchema))
-    test_minutes = fields.Int()
 
 
 class BuildingModeWriteSchema(Schema):

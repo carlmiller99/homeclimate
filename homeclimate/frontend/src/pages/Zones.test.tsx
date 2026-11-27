@@ -300,15 +300,18 @@ describe("Zones page", () => {
     fireEvent.click(within(editor).getByRole("button", { name: "Confirmed" }));
     expect(within(editor).queryByText(HEAT_KIT_WARNING)).toBeNull();
 
-    fireEvent.change(within(editor).getByLabelText("Compressor Stages"), {
-      target: { value: "2" },
-    });
+    fireEvent.click(
+      within(within(editor).getByRole("radiogroup", { name: "Compressor Stages" })).getByRole(
+        "radio",
+        { name: "2" }
+      )
+    );
     fireEvent.change(within(editor).getByLabelText("Auxiliary Heat"), {
       target: { value: "none" },
     });
     fireEvent.change(within(editor).getByLabelText("Building"), { target: { value: "b2" } });
     fireEvent.click(within(editor).getByRole("button", { name: "pick Not set" }));
-    expect(within(editor).getByText("climate.wing_cloud")).toBeInTheDocument();
+    expect(within(editor).getByTitle("climate.wing_cloud")).toBeInTheDocument();
     fireEvent.click(within(editor).getByRole("button", { name: "Clear" }));
     fireEvent.click(within(editor).getByRole("button", { name: "pick Not set" }));
 
@@ -495,6 +498,11 @@ describe("Zones page", () => {
         thermostat_entity_id: "climate.wing_cloud",
         name: "Shop",
         total_vents_count: 8,
+        // A new zone starts with sensible limits and the usual equipment protection.
+        min_setpoint: 65,
+        max_setpoint: 77,
+        min_cycle_runtime_min: 10,
+        min_cycle_offtime_min: 5,
       })
     );
     // No room is made with it: rooms are added inside the zone afterwards.
