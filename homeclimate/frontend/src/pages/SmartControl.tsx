@@ -1,3 +1,4 @@
+import EntityName from "../components/EntityName";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 import { getRooms, type Room } from "../api";
@@ -245,8 +246,9 @@ function DoorsWindows() {
           return (
             <div className="sensor-zone" key={z.thermostat_entity_id}>
               <div className="sensor-zone-head">
-                <span className="sensor-zone-name">{z.name || z.thermostat_entity_id}</span>
-                <span className="sensor-zone-meta">{z.thermostat_entity_id}</span>
+                <span className="sensor-zone-name" title={z.thermostat_entity_id}>
+                  {z.name || <EntityName id={z.thermostat_entity_id} />}
+                </span>
                 <button
                   type="button"
                   className="link-button"

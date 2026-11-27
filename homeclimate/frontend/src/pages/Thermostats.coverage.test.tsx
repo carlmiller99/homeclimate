@@ -120,11 +120,11 @@ describe("Thermostats — registration modal", () => {
   it("lets the chosen entity be cleared again, which re-arms the entity refusal", async () => {
     await openModal();
     await pickHallway();
-    expect(screen.getByText("climate.hallway")).toBeInTheDocument();
+    expect(screen.getByTitle("climate.hallway")).toBeInTheDocument();
 
     // The ✓ chip's × button un-picks the entity.
     fireEvent.click(screen.getByRole("button", { name: "×" }));
-    expect(screen.queryByText("climate.hallway")).toBeNull();
+    expect(screen.queryByTitle("climate.hallway")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Register" }));
     expect(await screen.findByText("Select a thermostat entity")).toBeInTheDocument();

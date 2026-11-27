@@ -1,3 +1,4 @@
+import EntityName, { entityName } from "../components/EntityName";
 import { useEffect, useState } from "react";
 import { getRooms, type Room } from "../api";
 import { Frozen } from "../ci";
@@ -97,7 +98,7 @@ function FireplaceCard({
       <div className="fireplace-head">
         <div>
           <div className="sensor-title">{f.name}</div>
-          <div className="shade-why">{f.entity_id}</div>
+          <EntityName id={f.entity_id} className="shade-why" />
         </div>
         <span className={`fireplace-state fireplace-${ignored ? "out" : f.state}`} role="status">
           {ignored ? "Ignored" : f.signal_lost ? "Signal Lost While Lit" : STATE_LABELS[f.state]}
@@ -132,12 +133,12 @@ function FireplaceCard({
       )}
       {!ignored && f.signal_lost && (
         <p className="fireplace-note">
-          {`${f.entity_id} stopped reporting while the fire was lit, so HomeClimate is treating it as still lit.`}
+          {`${entityName(f.entity_id)} stopped reporting while the fire was lit, so HomeClimate is treating it as still lit.`}
         </p>
       )}
       {!ignored && f.state === "unknown" && (
         <p className="fireplace-note">
-          {`${f.entity_id} is not reporting, so HomeClimate can't tell whether the fire is lit.`}
+          {`${entityName(f.entity_id)} is not reporting, so HomeClimate can't tell whether the fire is lit.`}
         </p>
       )}
       <div className="fireplace-fields">
@@ -202,7 +203,7 @@ function FireplaceCard({
           <div className="field-stack">
             <span className="field-label">On While the Fire Is Lit</span>
             <div className="picked-entity">
-              <span>{f.entity_id}</span>
+              <EntityName id={f.entity_id} />
             </div>
             <EntityPicker
               domain={SIGNAL_DOMAINS}

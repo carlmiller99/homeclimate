@@ -10,6 +10,8 @@
    consume tokens (never hex literals) for surfaces, text, and borders. */
 :root {
   --blue: #2b6ca3;
+  --occupied: #1fae62;
+  --open: #d83a2c;
   --blue-light: #e5eff7;
   --green: #2f7d5b;
   --green-light: #e3f0e9;
@@ -67,6 +69,8 @@
 
 /* Dark palette. Keep this block and the media-query copy below IDENTICAL. */
 :root[data-theme="dark"] {
+  --occupied: #3ddc84;
+  --open: #ff5f52;
   --blue-light: #18324a;
   --green-light: #16302a;
   --red-light: #3a1e1c;
@@ -114,6 +118,8 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
+    --occupied: #3ddc84;
+    --open: #ff5f52;
     --blue-light: #18324a;
     --green-light: #16302a;
     --red-light: #3a1e1c;
@@ -1780,7 +1786,57 @@ tr:hover td {
   background: var(--gray-400);
 }
 .device-dot-on {
-  background: var(--green);
+  background: var(--occupied);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--occupied) 20%, transparent),
+    0 0 9px color-mix(in srgb, var(--occupied) 80%, transparent);
+}
+.device-dot-open {
+  background: var(--open);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--open) 18%, transparent);
+}
+/* My Home → Outside: the house's outside temperature and the sensors behind it. */
+.outside-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1.25rem 2.5rem;
+  margin-bottom: 1.5rem;
+}
+.outside-now {
+  display: flex;
+  flex-direction: column;
+}
+.outside-temp {
+  font-size: 3rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+}
+.outside-sensors {
+  flex: 1 1 26rem;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+}
+.outside-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 44px;
+  padding: 0 0.35rem 0 0.9rem;
+  border-radius: 999px;
+  background: var(--gray-100);
+  font-weight: 600;
+}
+.outside-chip .icon-button {
+  margin-left: 0;
+}
+.outside-add {
+  flex: 1 1 18rem;
+  max-width: 26rem;
 }
 /* A small pencil beside a name: opens that thing for editing. */
 .icon-button {

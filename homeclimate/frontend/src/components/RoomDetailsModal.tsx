@@ -1,3 +1,4 @@
+import EntityName from "./EntityName";
 import { useState } from "react";
 import { clearPresenceHoldover, type Room, type ZoneStatus } from "../api";
 import { useUnit } from "../contexts";
@@ -190,7 +191,7 @@ export default function RoomDetailsModal({
             <ul className="room-details-sensors">
               {vents.map(([eid, state]) => (
                 <li key={eid}>
-                  <code>{eid}</code>
+                  <EntityName id={eid} />
                   <span>
                     <span className={`vent-dot ${state}`} /> {state === "open" ? "Open" : "Closed"}
                   </span>
@@ -211,7 +212,7 @@ export default function RoomDetailsModal({
             <ul className="room-details-sensors">
               {readings.map((r) => (
                 <li key={r.entity_id}>
-                  <code>{r.entity_id}</code>
+                  <EntityName id={r.entity_id} />
                   <span>
                     {r.stale
                       ? "Not reporting, left out of the average"

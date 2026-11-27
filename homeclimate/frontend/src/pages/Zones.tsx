@@ -1,3 +1,4 @@
+import EntityName, { prettyEntity } from "../components/EntityName";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import AirIntakeField from "../components/AirIntakeField";
@@ -413,7 +414,7 @@ function EditZoneDialog({
         <div className="edit-zone-head">
           <div>
             <div className="modal-title">{`Edit ${name}`}</div>
-            <div className="zone-entity">{zone.thermostat_entity_id}</div>
+            <EntityName id={zone.thermostat_entity_id} className="zone-entity" />
           </div>
           <span className="edit-zone-actions">
             <button
@@ -462,16 +463,6 @@ function EditZoneDialog({
       </div>
     </div>
   );
-}
-
-/** "climate.north_wing" as "North Wing", when Home Assistant gives no name. */
-function prettyEntity(id: string): string {
-  return id
-    .slice(id.lastIndexOf(".") + 1)
-    .split("_")
-    .filter(Boolean)
-    .map((w) => w[0].toUpperCase() + w.slice(1))
-    .join(" ");
 }
 
 function BuildingHeader({

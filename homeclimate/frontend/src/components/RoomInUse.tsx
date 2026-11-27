@@ -1,3 +1,4 @@
+import EntityName from "./EntityName";
 import { useState } from "react";
 import { type Room } from "../api";
 import {
@@ -135,7 +136,7 @@ export default function RoomInUse({
             <div className="field-stack">
               <span className="field-label">Calendar</span>
               <span className="picked-entity">
-                <span>{calendar.entity_id}</span>
+                <EntityName id={calendar.entity_id} />
               </span>
             </div>
             <label className="field-stack">

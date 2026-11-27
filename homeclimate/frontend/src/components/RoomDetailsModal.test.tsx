@@ -69,9 +69,9 @@ describe("Room details", () => {
     expect(dialog).toHaveTextContent("Asking for heating or cooling now.");
     expect(screen.getByText("Follows Upstairs: 71 to 72°F")).toBeInTheDocument();
     const sensors = screen.getByRole("region", { name: "Sensors" });
-    expect(sensors).toHaveTextContent("sensor.game_168.4°F");
-    expect(sensors).toHaveTextContent("sensor.game_2Not reporting, left out of the average");
-    expect(sensors).toHaveTextContent("sensor.game_3No reading");
+    expect(sensors).toHaveTextContent("Game 168.4°F");
+    expect(sensors).toHaveTextContent("Game 2Not reporting, left out of the average");
+    expect(sensors).toHaveTextContent("Game 3No reading");
   });
 
   it("shows readings in the house's unit", () => {
@@ -107,8 +107,8 @@ describe("Room details", () => {
     expect(screen.getByRole("dialog")).toHaveTextContent("Asking for 71.0°F.");
     const vents = screen.getByRole("region", { name: "Vents" });
     expect(vents).toHaveTextContent("1 of 2 open");
-    expect(vents).toHaveTextContent("cover.game_a Open");
-    expect(vents).toHaveTextContent("cover.game_b Closed");
+    expect(vents).toHaveTextContent("Game A Open");
+    expect(vents).toHaveTextContent("Game B Closed");
     // Nobody was seen here, so there is no occupancy to clear.
     expect(screen.queryByRole("region", { name: "Occupancy" })).toBeNull();
   });

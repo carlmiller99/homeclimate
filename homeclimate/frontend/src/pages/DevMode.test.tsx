@@ -211,7 +211,7 @@ describe("DevMode Page", () => {
         <DevMode />
       </DevModeContext.Provider>
     );
-    expect(await screen.findByText("climate.main")).toBeInTheDocument();
+    expect(await screen.findByTitle("climate.main")).toBeInTheDocument();
     expect(screen.getByText("cooling")).toBeInTheDocument();
     // vent pills
     expect(screen.getByText("open")).toBeInTheDocument();

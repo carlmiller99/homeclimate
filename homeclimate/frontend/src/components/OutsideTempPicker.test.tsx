@@ -14,6 +14,12 @@ function renderPicker(unit: "F" | "C" = "F", onChange?: (id: string | null) => v
   );
 }
 
+const pickNew = async (name: string) => {
+  fireEvent.click(screen.getByRole("button", { name: "Add Sensor" }));
+  fireEvent.focus(screen.getByRole("textbox"));
+  fireEvent.mouseDown(await screen.findByText(name));
+};
+
 describe("OutsideTempPicker", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -29,9 +35,11 @@ describe("OutsideTempPicker", () => {
     });
     const onChange = vi.fn();
     renderPicker("F", onChange);
-    expect(await screen.findByText(/sensor\.outdoor/)).toBeInTheDocument();
-    // EntityState-style value is °F; fmtTemp renders it with the unit label.
-    expect(screen.getByText(/50\.0°F/)).toBeInTheDocument();
+    // By its friendly name; the entity ID only on hover.
+    const chip = await screen.findByTitle("sensor.outdoor");
+    expect(chip).toHaveTextContent("Outdoor50.0°F");
+    expect(screen.queryByText(/sensor\.outdoor/)).not.toBeInTheDocument();
+    expect(screen.getByText("From 1 sensor")).toBeInTheDocument();
     await waitFor(() => expect(onChange).toHaveBeenCalledWith("sensor.outdoor"));
   });
 
@@ -41,7 +49,7 @@ describe("OutsideTempPicker", () => {
       current_value: 50, // °F from the backend — display should be 10°C
     });
     renderPicker("C");
-    expect(await screen.findByText(/10\.0°C/)).toBeInTheDocument();
+    expect(await screen.findByTitle("sensor.outdoor")).toHaveTextContent("10.0°C");
   });
 
   it("shows the none-configured placeholder when no entity is set", async () => {
@@ -50,7 +58,8 @@ describe("OutsideTempPicker", () => {
       current_value: null,
     });
     renderPicker();
-    expect(await screen.findByText(/None configured/)).toBeInTheDocument();
+    expect(await screen.findByText("No sensor yet. Eco Mode needs one.")).toBeInTheDocument();
+    expect(screen.getByText("—")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Remove/ })).not.toBeInTheDocument();
   });
 
@@ -65,15 +74,16 @@ describe("OutsideTempPicker", () => {
     });
     const onChange = vi.fn();
     renderPicker("F", onChange);
-    await screen.findByText(/None configured/);
-
-    fireEvent.focus(screen.getByRole("textbox"));
-    fireEvent.mouseDown(await screen.findByText("Outdoor Sensor"));
+    await screen.findByText(/^No sensor yet/);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Add Sensor" })).toBeEnabled());
+    await pickNew("Outdoor Sensor");
 
     await waitFor(() =>
       expect(api.setOutsideTempEntities).toHaveBeenCalledWith(["sensor.outdoor"])
     );
-    expect(await screen.findByText(/sensor\.outdoor/)).toBeInTheDocument();
+    expect(await screen.findByTitle("sensor.outdoor")).toBeInTheDocument();
+    // The search box goes away again once something is picked.
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
     expect(onChange).toHaveBeenLastCalledWith("sensor.outdoor");
   });
 
@@ -89,9 +99,9 @@ describe("OutsideTempPicker", () => {
     const onChange = vi.fn();
     renderPicker("F", onChange);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Remove sensor.outdoor" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Remove Outdoor" }));
     await waitFor(() => expect(api.setOutsideTempEntities).toHaveBeenCalledWith([]));
-    expect(await screen.findByText(/None configured/)).toBeInTheDocument();
+    expect(await screen.findByText(/^No sensor yet/)).toBeInTheDocument();
     expect(onChange).toHaveBeenLastCalledWith(null);
   });
 
@@ -109,9 +119,9 @@ describe("OutsideTempPicker", () => {
     vi.mocked(api.setOutsideTempEntities).mockRejectedValue(new Error("save exploded"));
     renderPicker();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Remove sensor.outdoor" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Remove Outdoor" }));
     expect(await screen.findByText("save exploded")).toBeInTheDocument();
-    expect(screen.getByText(/sensor\.outdoor/)).toBeInTheDocument();
+    expect(screen.getByTitle("sensor.outdoor")).toBeInTheDocument();
   });
 
   it("after a failed load, waits for Try Again before it will add a sensor (#497)", async () => {
@@ -125,10 +135,8 @@ describe("OutsideTempPicker", () => {
     renderPicker();
     expect(await screen.findByText("boom on load")).toBeInTheDocument();
 
-    // The list on the server is unknown, so a pick now must not replace it.
-    fireEvent.focus(screen.getByRole("textbox"));
-    fireEvent.mouseDown(await screen.findByText("Outdoor Sensor"));
-    expect(api.setOutsideTempEntities).not.toHaveBeenCalled();
+    // The list on the server is unknown, so nothing can be added to it yet.
+    expect(screen.getByRole("button", { name: "Add Sensor" })).toBeDisabled();
 
     vi.mocked(api.getOutsideTempEntity).mockResolvedValue({
       entity_id: "sensor.north",
@@ -137,16 +145,16 @@ describe("OutsideTempPicker", () => {
       values: { "sensor.north": 90 },
     });
     fireEvent.click(screen.getByRole("button", { name: "Try Again" }));
-    expect(await screen.findByText("sensor.north · 90.0°F")).toBeInTheDocument();
+    expect(await screen.findByTitle("sensor.north")).toHaveTextContent("North90.0°F");
     expect(screen.queryByText("boom on load")).toBeNull();
     expect(screen.queryByRole("button", { name: "Try Again" })).toBeNull();
 
-    fireEvent.focus(screen.getByRole("textbox"));
-    fireEvent.mouseDown(await screen.findByText("Outdoor Sensor"));
+    await pickNew("Outdoor Sensor");
     await waitFor(() =>
       expect(api.setOutsideTempEntities).toHaveBeenCalledWith(["sensor.north", "sensor.outdoor"])
     );
-    expect(await screen.findByText("Average of 2 sensors: 94.0°F")).toBeInTheDocument();
+    expect(await screen.findByText("Average of 2 sensors")).toBeInTheDocument();
+    expect(screen.getByText("94.0°F")).toBeInTheDocument();
   });
 
   it("ignores a second pick while a save is still in flight", async () => {
@@ -167,11 +175,11 @@ describe("OutsideTempPicker", () => {
       })
     );
     renderPicker();
-    await screen.findByText(/None configured/);
-    fireEvent.focus(screen.getByRole("textbox"));
-    fireEvent.mouseDown(await screen.findByText("North Porch"));
-    fireEvent.focus(screen.getByRole("textbox"));
-    fireEvent.mouseDown(await screen.findByText("South Wall"));
+    await screen.findByText(/^No sensor yet/);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Add Sensor" })).toBeEnabled());
+    await pickNew("North Porch");
+    // Nothing more can be added until that one is saved.
+    expect(screen.getByRole("button", { name: "Add Sensor" })).toBeDisabled();
     expect(api.setOutsideTempEntities).toHaveBeenCalledTimes(1);
     expect(api.setOutsideTempEntities).toHaveBeenCalledWith(["sensor.north"]);
     finish({
@@ -180,7 +188,8 @@ describe("OutsideTempPicker", () => {
       current_value: 60,
       values: { "sensor.north": 60 },
     });
-    expect(await screen.findByText("sensor.north · 60.0°F")).toBeInTheDocument();
+    expect(await screen.findByTitle("sensor.north")).toHaveTextContent("North60.0°F");
+    expect(screen.getByRole("button", { name: "Add Sensor" })).toBeEnabled();
   });
 
   it("adds a second sensor and shows each reading and the average", async () => {
@@ -201,16 +210,16 @@ describe("OutsideTempPicker", () => {
       values: { "sensor.north": 60, "sensor.south": 70 },
     });
     renderPicker();
-    expect(await screen.findByText("sensor.north · 60.0°F")).toBeInTheDocument();
+    expect(await screen.findByTitle("sensor.north")).toHaveTextContent("North60.0°F");
     expect(screen.queryByText(/Average of/)).not.toBeInTheDocument();
 
-    fireEvent.focus(screen.getByPlaceholderText(/Add another sensor/));
-    fireEvent.mouseDown(await screen.findByText("South Wall"));
+    await pickNew("South Wall");
     await waitFor(() =>
       expect(api.setOutsideTempEntities).toHaveBeenCalledWith(["sensor.north", "sensor.south"])
     );
-    expect(await screen.findByText("sensor.south · 70.0°F")).toBeInTheDocument();
-    expect(screen.getByText("Average of 2 sensors: 65.0°F")).toBeInTheDocument();
+    expect(await screen.findByTitle("sensor.south")).toHaveTextContent("South70.0°F");
+    expect(screen.getByText("Average of 2 sensors")).toBeInTheDocument();
+    expect(screen.getByText("65.0°F")).toBeInTheDocument();
   });
 
   it("does not save a sensor that is already in the list", async () => {
@@ -221,9 +230,8 @@ describe("OutsideTempPicker", () => {
       values: { "sensor.outdoor": 50 },
     });
     renderPicker();
-    await screen.findByText("sensor.outdoor · 50.0°F");
-    fireEvent.focus(screen.getByRole("textbox"));
-    fireEvent.mouseDown(await screen.findByText("Outdoor Sensor"));
+    await screen.findByTitle("sensor.outdoor");
+    await pickNew("Outdoor Sensor");
     expect(api.setOutsideTempEntities).not.toHaveBeenCalled();
   });
 
@@ -235,10 +243,11 @@ describe("OutsideTempPicker", () => {
       values: { "sensor.north": null },
     });
     renderPicker();
-    expect(await screen.findByText("sensor.north · no reading")).toBeInTheDocument();
+    expect(await screen.findByTitle("sensor.north")).toHaveTextContent("NorthNo reading");
     // A sensor the backend sent no reading for at all reads the same way.
-    expect(screen.getByText("sensor.south · no reading")).toBeInTheDocument();
-    expect(screen.getByText("Average of 2 sensors: no reading right now")).toBeInTheDocument();
+    expect(screen.getByTitle("sensor.south")).toHaveTextContent("SouthNo reading");
+    expect(screen.getByText("Average of 2 sensors")).toBeInTheDocument();
+    expect(screen.getByText("—")).toBeInTheDocument();
   });
 
   it("removes one sensor of several and keeps the rest", async () => {
@@ -256,7 +265,7 @@ describe("OutsideTempPicker", () => {
     });
     const onChange = vi.fn();
     renderPicker("F", onChange);
-    fireEvent.click(await screen.findByRole("button", { name: "Remove sensor.north" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Remove North" }));
     await waitFor(() => expect(api.setOutsideTempEntities).toHaveBeenCalledWith(["sensor.south"]));
     expect(onChange).toHaveBeenLastCalledWith("sensor.south");
     await waitFor(() => expect(screen.queryByText(/Average of/)).not.toBeInTheDocument());

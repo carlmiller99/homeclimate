@@ -448,7 +448,7 @@ describe("MetricsCharts", () => {
   it("renders the vent timeline table and note", async () => {
     renderWithUnit(<VentTimelineChart entityId={entityId} range={range} />);
     expect(await screen.findByText(/Vent timeline/i)).toBeInTheDocument();
-    expect(await screen.findByText("cover.living")).toBeInTheDocument();
+    expect(await screen.findByTitle("cover.living")).toBeInTheDocument();
     expect(screen.getByText(/most recent 200 events/i)).toBeInTheDocument();
   });
 

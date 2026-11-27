@@ -85,7 +85,7 @@ describe("Whether a room is in use", () => {
     await waitFor(() =>
       expect(ha.setRoomCalendar).toHaveBeenCalledWith("bunk", { entity_id: "calendar.guests" })
     );
-    expect(await screen.findByText("calendar.guests")).toBeInTheDocument();
+    expect(await screen.findByTitle("calendar.guests")).toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent("Not in use now");
     expect(screen.getByLabelText("Only Events Containing")).toHaveValue("Stay");
     expect(screen.getByLabelText("Minutes ahead for Bunk Room")).toHaveValue(120);

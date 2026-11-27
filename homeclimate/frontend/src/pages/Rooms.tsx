@@ -1,3 +1,5 @@
+import EntityName, { entityName, prettyEntity } from "../components/EntityName";
+import { PencilIcon } from "../components/icons";
 import { useEffect, useState } from "react";
 import {
   deleteContactSensor,
@@ -766,9 +768,8 @@ function DoorsWindowsEditor({
         <ul className="entity-list">
           {contacts.map((c) => (
             <li key={c.entity_id} className="entity-row">
-              <span className="entity-row-name">
+              <span className="entity-row-name" title={c.entity_id}>
                 {c.name}
-                <span className="font-mono text-sm text-muted"> {c.entity_id}</span>
               </span>
               <label className="sensor-scope">
                 Pauses
@@ -866,7 +867,7 @@ function EntitySection({
         <div className="tag-list">
           {items.map((id) => (
             <span key={id} className="tag">
-              <span className="font-mono">{id}</span>
+              <EntityName id={id} />
               <button className="tag-remove" title="Remove" onClick={() => onRemove(id)}>
                 ×
               </button>
@@ -988,7 +989,7 @@ function VentRow({ vent, onChanged }: { vent: RoomVent; onChanged: () => Promise
   return (
     <tr style={{ borderBottom: "1px solid var(--border, #eee)", verticalAlign: "top" }}>
       <td data-label="Entity" style={{ padding: ".5rem" }}>
-        <span className="font-mono text-sm">{vent.entity_id}</span>
+        <EntityName id={vent.entity_id} />
       </td>
       <td data-label="Control method" className="td-stack" style={{ padding: ".5rem" }}>
         <select
@@ -1040,7 +1041,7 @@ function VentRow({ vent, onChanged }: { vent: RoomVent; onChanged: () => Promise
       {confirmRemove && (
         <ConfirmDialog
           title="Remove vent?"
-          message={`Remove vent "${vent.entity_id}" from this room?`}
+          message={`Remove vent "${entityName(vent.entity_id)}" from this room?`}
           confirmLabel="Remove"
           onConfirm={async () => {
             setConfirmRemove(false);
@@ -1283,7 +1284,7 @@ function DeviceSection({
     tone?: string;
     tag?: string;
     /** Shown as a coloured dot before the name in place of the value's words. */
-    dot?: "on" | "off";
+    dot?: "on" | "off" | "open";
   }[];
   onOpen: () => void;
 }) {
@@ -1337,7 +1338,7 @@ export function withoutRoom(name: string, room: string): string {
 
 function friendly(state: EntityState | null | undefined, id: string): string {
   const name = state?.attributes?.friendly_name;
-  return typeof name === "string" && name ? name : id;
+  return typeof name === "string" && name ? name : prettyEntity(id);
 }
 
 /** A room's hardware: one box per kind of device, each opening that kind. */
@@ -1393,6 +1394,9 @@ function RoomCard({
     value: c.state === "open" ? "Open" : c.state === "closed" ? "Closed" : "Offline",
     tag: c.pauses === "zone" ? "Zone" : undefined,
     tone: c.state === "open" ? "open" : undefined,
+    // Red for open, grey for closed; one that is not reporting says so in words.
+    dot:
+      c.state === "open" ? ("open" as const) : c.state === "closed" ? ("off" as const) : undefined,
   }));
   const occupancy = presenceIds.map((id) => {
     const st = states[id]?.state;
@@ -1409,12 +1413,25 @@ function RoomCard({
   return (
     <div className="card room-card">
       <div className="room-card-head">
-        <h3 className="card-title room-card-title">{room.name}</h3>
+        <h3 className="card-title room-card-title">
+          {room.name}
+          <button
+            type="button"
+            className="icon-button"
+            aria-label={`Edit ${room.name}`}
+            title="Rename, move or delete this room"
+            onClick={onEdit}
+          >
+            <PencilIcon />
+          </button>
+        </h3>
         {staleSensors.length > 0 && (
           <span
             className="badge badge-orange"
             data-testid={`stale-badge-${room.id}`}
-            title={staleSensors.map((s) => `${s.entity_id} — ${formatStaleAge(s)}`).join("\n")}
+            title={staleSensors
+              .map((s) => `${entityName(s.entity_id)} — ${formatStaleAge(s)}`)
+              .join("\n")}
           >
             {staleSensors.length} stale sensor{staleSensors.length === 1 ? "" : "s"}
           </span>
@@ -1462,11 +1479,6 @@ function RoomCard({
           }))}
           onOpen={() => onOpen("shades")}
         />
-      </div>
-      <div className="room-card-actions">
-        <button className="btn btn-secondary btn-sm" onClick={onEdit}>
-          Room Settings
-        </button>
       </div>
     </div>
   );
@@ -1616,7 +1628,7 @@ export default function MyHome() {
             <span className="group-header-rule" />
           </div>
           <p className="field-help">
-            Open Room Settings and choose a zone for each of these rooms.
+            Use the pencil by each room&rsquo;s name to choose its zone.
           </p>
           <div className="card-grid">{loose.map(card)}</div>
         </section>

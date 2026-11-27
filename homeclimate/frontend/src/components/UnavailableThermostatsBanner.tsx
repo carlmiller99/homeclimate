@@ -1,3 +1,4 @@
+import EntityName from "./EntityName";
 import { useEffect, useState } from "react";
 import Notice from "./Notice";
 import { getThermostatHealth, type ThermostatHealth, type UnavailableThermostat } from "../api";
@@ -45,8 +46,9 @@ export default function UnavailableThermostatsBanner() {
         <ul>
           {health.thermostats.map((t) => (
             <li key={t.thermostat_entity_id}>
-              <strong>{t.name || t.thermostat_entity_id}</strong>{" "}
-              <code>{t.thermostat_entity_id}</code>{" "}
+              <strong title={t.thermostat_entity_id}>
+                {t.name || <EntityName id={t.thermostat_entity_id} />}
+              </strong>{" "}
               <span className="text-muted">({describe(t)})</span>
             </li>
           ))}

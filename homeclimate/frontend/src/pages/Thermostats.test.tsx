@@ -87,7 +87,7 @@ describe("Thermostats Page", () => {
   it("renders thermostat list", async () => {
     render(<Thermostats />);
     expect(await screen.findByText("Main HVAC")).toBeInTheDocument();
-    expect(screen.getByText("climate.test")).toBeInTheDocument();
+    expect(screen.getByTitle("climate.test")).toBeInTheDocument();
   });
 
   it("validates friendly name in registration", async () => {
@@ -299,13 +299,13 @@ describe("Thermostats Page", () => {
     // A real refetch returns structurally identical data behind fresh identities.
     vi.mocked(api.getThermostats).mockResolvedValue([{ ...mockThermostats[0] }]);
 
-    const spareCard = screen.getByText("climate.spare").closest(".card") as HTMLElement;
+    const spareCard = screen.getByTitle("climate.spare").closest(".card") as HTMLElement;
     fireEvent.click(within(spareCard).getByRole("button", { name: "Delete Zone" }));
     const dialog = await screen.findByTestId("confirm-dialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete Zone" }));
 
     await waitFor(() => expect(api.deleteThermostat).toHaveBeenCalledWith("climate.spare", true));
-    await waitFor(() => expect(screen.queryByText("climate.spare")).toBeNull());
+    await waitFor(() => expect(screen.queryByTitle("climate.spare")).toBeNull());
 
     // Settle React fully before asserting. The old reset was queued in a passive
     // effect, which lands a host task AFTER the refetch's DOM update — reading
@@ -653,7 +653,7 @@ describe("Thermostats Page", () => {
 
   it("renders the house-wide outside temperature sensor picker", async () => {
     render(<Thermostats />);
-    expect(await screen.findByText("Outside temperature sensors")).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "Outside" })).toBeInTheDocument();
   });
 
   it("saves the outside temperature sensor selection", async () => {
@@ -666,7 +666,10 @@ describe("Thermostats Page", () => {
     });
     render(<Thermostats />);
 
-    const searchInput = await screen.findByPlaceholderText(/Search sensor \/ weather entities/i);
+    const addSensor = await screen.findByRole("button", { name: "Add Sensor" });
+    await waitFor(() => expect(addSensor).toBeEnabled());
+    fireEvent.click(addSensor);
+    const searchInput = screen.getByPlaceholderText("Search sensors and weather…");
     fireEvent.focus(searchInput);
     fireEvent.change(searchInput, { target: { value: "outdoor" } });
 

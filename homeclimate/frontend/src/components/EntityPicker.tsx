@@ -1,3 +1,4 @@
+import { prettyEntity } from "./EntityName";
 import { useEffect, useRef, useState } from "react";
 import { getHAEntities, type HAEntity, type RoomDeviceKind } from "../api";
 
@@ -78,12 +79,12 @@ export default function EntityPicker({
                 setOpen(false);
               }}
             >
-              <div>{e.friendly_name}</div>
-              <div className="entity-id">
-                {e.area_name
-                  ? `${e.entity_id} · ${e.in_room_area ? "in this room's area" : e.area_name}`
-                  : e.entity_id}
-              </div>
+              <div title={e.entity_id}>{e.friendly_name || prettyEntity(e.entity_id)}</div>
+              {e.area_name && (
+                <div className="entity-id">
+                  {e.in_room_area ? "In this room's area" : e.area_name}
+                </div>
+              )}
             </div>
           ))}
         </div>

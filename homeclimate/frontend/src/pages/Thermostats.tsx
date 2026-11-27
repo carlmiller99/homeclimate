@@ -1,3 +1,4 @@
+import EntityName from "../components/EntityName";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import {
   getThermostats,
@@ -193,7 +194,7 @@ export function AddThermostatModal({
           <EntityPicker domain="climate" placeholder="Search thermostats…" onSelect={setEntityId} />
           {entityId && (
             <div className="tag" style={{ marginTop: ".4rem" }}>
-              ✓ <span className="font-mono">{entityId}</span>
+              ✓ <EntityName id={entityId} />
               <button className="tag-remove" onClick={() => setEntityId("")}>
                 ×
               </button>
@@ -496,9 +497,7 @@ export function ThermostatCard({
             <div className="card-title" style={{ marginBottom: ".15rem" }}>
               {form.name || <span className="text-muted">(unnamed)</span>}
             </div>
-            <div className="font-mono text-muted" style={{ fontSize: ".78rem" }}>
-              {config.thermostat_entity_id}
-            </div>
+            <EntityName id={config.thermostat_entity_id} className="text-muted text-sm" />
           </div>
         )}
         <div style={{ display: "flex", gap: ".5rem", flexWrap: "wrap" }}>

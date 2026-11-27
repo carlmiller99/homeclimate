@@ -1,3 +1,4 @@
+import EntityName from "../components/EntityName";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTimeZone, useUnit } from "../contexts";
@@ -344,8 +345,8 @@ function LogRow({ log }: { log: CycleLog }) {
         <td className="font-mono" data-label="ID" style={{ fontSize: ".75rem" }}>
           {log.id.slice(0, 8)}…
         </td>
-        <td className="font-mono" data-label="Thermostat" style={{ fontSize: ".8rem" }}>
-          {log.thermostat_entity_id}
+        <td data-label="Thermostat">
+          <EntityName id={log.thermostat_entity_id} />
         </td>
         <td data-label="Mode">
           <span className={`badge badge-${log.mode === "cooling" ? "blue" : "orange"}`}>
@@ -659,8 +660,8 @@ function CycleExpanded({
                 <span className="font-mono text-muted">
                   <TimeOrDash iso={ev.timestamp} />
                 </span>
-                <span style={{ minWidth: "min(160px, 45vw)" }} className="font-mono">
-                  {ev.entity_id}
+                <span style={{ minWidth: "min(160px, 45vw)" }}>
+                  <EntityName id={ev.entity_id} />
                 </span>
                 <span className="badge badge-gray">{ev.action}</span>
                 {ev.reason && <span className="text-muted">{ev.reason}</span>}
