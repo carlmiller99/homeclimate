@@ -1,5 +1,5 @@
 import RoomInUse from "../components/RoomInUse";
-import { getHouse, type House } from "../houseApi";
+import { calendarFor, getHouse, switchesFor, type House } from "../houseApi";
 import { useEffect, useState } from "react";
 import {
   getRooms,
@@ -9,11 +9,16 @@ import {
   deleteSchedule,
   copySchedule,
   getOverrides,
+  getThermostats,
   type Room,
   type RoomOverrideHold,
   type Schedule,
   type ScheduleCopyResult,
+  type ThermostatConfig,
 } from "../api";
+import OccupiedTargets from "../components/OccupiedTargets";
+import { entityName } from "../entityNames";
+import { RoomSettings } from "./Rooms";
 import { useUnit } from "../contexts";
 import { Frozen } from "../ci";
 import ConfirmDialog from "../components/ConfirmDialog";
@@ -552,12 +557,17 @@ function CopyModal({
 function RoomSchedules({
   room,
   allRooms,
+  thermostats,
   hold,
   house,
   onHouse,
+  onRoomSaved,
 }: {
   room: Room;
   allRooms: Room[];
+  thermostats: ThermostatConfig[];
+  /** The room was changed here: its own temperatures or its fine tuning. */
+  onRoomSaved: (saved: Room) => void;
   /** Null when the home's layout could not be read: no In Use control. */
   house: House | null;
   onHouse: (h: House) => void;
@@ -569,6 +579,7 @@ function RoomSchedules({
   const { fmtTemp, toDisplayDelta, unitLabel } = useUnit();
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [expanded, setExpanded] = useState(false);
+  const [tuning, setTuning] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [editSchedule, setEditSchedule] = useState<Schedule | null>(null);
   const [copySource, setCopySource] = useState<Schedule | null>(null);
@@ -618,34 +629,48 @@ function RoomSchedules({
   const activeCount = schedules.filter((s) => s.enabled).length;
   const inactiveCount = schedules.length - activeCount;
 
+  const zone = thermostats.find((t) => t.thermostat_entity_id === room.thermostat_entity_id);
+  const zoneName = zone?.name || entityName(room.thermostat_entity_id);
+  const inUse = house
+    ? calendarFor(house, room.id)
+      ? "On a calendar"
+      : switchesFor(house, room.id).in_use
+        ? "Always in use"
+        : "Never in use"
+    : "";
+  const blocks =
+    schedules.length === 0
+      ? "No blocks"
+      : `${activeCount} ${activeCount === 1 ? "block" : "blocks"}${inactiveCount ? `, ${inactiveCount} off` : ""}`;
+
   return (
-    <div className="card" style={{ marginBottom: "1rem" }}>
-      <div
-        className="flex-between"
-        style={{ cursor: "pointer" }}
+    <div className="card room-plan">
+      <button
+        type="button"
+        className="room-plan-head"
+        aria-expanded={expanded}
         onClick={() => setExpanded((e) => !e)}
       >
-        <div>
-          <div className="card-title" style={{ marginBottom: 0 }}>
-            {room.name}
-          </div>
-          <div className="card-subtitle font-mono" style={{ marginBottom: 0 }}>
-            {room.thermostat_entity_id}
-          </div>
-        </div>
-        <div className="flex gap-sm">
-          <span className="badge badge-green">{activeCount} active</span>
-          {inactiveCount > 0 && (
-            <span className="badge badge-orange">{inactiveCount} inactive</span>
-          )}
-          <span>{expanded ? "▲" : "▼"}</span>
-        </div>
-      </div>
-
-      {house && <RoomInUse room={room} house={house} onHouse={onHouse} />}
+        <span>
+          <strong className="room-plan-name">{room.name}</strong>
+          <span className="rule-help" title={room.thermostat_entity_id}>
+            {zoneName}
+          </span>
+        </span>
+        <span className="room-plan-summary">
+          {inUse && <span>{inUse}</span>}
+          <span>{blocks}</span>
+        </span>
+      </button>
 
       {expanded && (
-        <div style={{ marginTop: "1rem" }}>
+        <div className="room-plan-body">
+          {house && <RoomInUse room={room} house={house} onHouse={onHouse} />}
+          <OccupiedTargets room={room} onSaved={onRoomSaved} />
+          <div>
+            <h4 className="room-details-title">Schedule</h4>
+            <WeekStrip schedules={schedules} />
+          </div>
           {actionError && (
             <div className="badge badge-red" style={{ marginBottom: "1rem" }}>
               {actionError}
@@ -703,7 +728,7 @@ function RoomSchedules({
             </div>
           )}
           {schedules.length === 0 ? (
-            <p className="text-muted text-sm">No schedules. Add one below.</p>
+            <p className="text-muted text-sm">No blocks yet.</p>
           ) : (
             <div className="table-wrap">
               <table className="table-cards">
@@ -845,10 +870,28 @@ function RoomSchedules({
                 setShowModal(true);
               }}
             >
-              + Add schedule block
+              Add Block
             </button>
           </div>
+          <button type="button" className="advanced-open" onClick={() => setTuning(true)}>
+            <strong>Fine Tuning</strong>
+            <span>{tuningSummary(room, toDisplayDelta, unitLabel)}</span>
+          </button>
         </div>
+      )}
+
+      {tuning && (
+        <RoomSettings
+          room={room}
+          part="tuning"
+          rooms={allRooms}
+          thermostats={thermostats}
+          onCancel={() => setTuning(false)}
+          onSaved={(saved) => {
+            setTuning(false);
+            onRoomSaved(saved);
+          }}
+        />
       )}
 
       {showModal && (
@@ -892,6 +935,71 @@ function RoomSchedules({
   );
 }
 
+/** What a room has changed from its zone's settings, in a few words. */
+function tuningSummary(room: Room, delta: (f: number) => number, unitLabel: string): string {
+  const parts: string[] = [];
+  if (room.temp_offset) parts.push(`offset ${delta(room.temp_offset)}${unitLabel}`);
+  if (room.deadband_override != null)
+    parts.push(`own deadband ${delta(room.deadband_override)}${unitLabel}`);
+  if (room.ambient_suppression_enabled) parts.push("waits on the weather");
+  if (room.eco_mode_enabled != null) parts.push(room.eco_mode_enabled ? "Eco on" : "Eco off");
+  return parts.length ? parts.join(", ") : "Uses its zone's settings";
+}
+
+const hourOf = (t: string) => Number(t.slice(0, 2)) + Number(t.slice(3, 5)) / 60;
+
+/** A room's week at a glance: a bar per day, filled where a block is on. */
+function WeekStrip({ schedules }: { schedules: Schedule[] }) {
+  const on = schedules.filter((s) => s.enabled);
+  // Each day's stretches as [start hour, end hour]; a block past midnight
+  // carries into the next day.
+  const days: [number, number][][] = DAYS.map(() => []);
+  for (const s of on) {
+    const start = hourOf(s.start_time);
+    const end = hourOf(s.end_time);
+    for (const d of s.days_of_week) {
+      if (end > start) days[d].push([start, end]);
+      else {
+        days[d].push([start, 24]);
+        if (end > 0) days[(d + 1) % 7].push([0, end]);
+      }
+    }
+  }
+  return (
+    <div
+      className="week-strip"
+      role="img"
+      aria-label={
+        on.length === 0
+          ? "No blocks are on"
+          : `${on.length} ${on.length === 1 ? "block" : "blocks"} across the week`
+      }
+    >
+      {DAYS.map((day, d) => (
+        <div className="week-strip-day" key={day}>
+          <span>{day}</span>
+          <div className="week-strip-bar">
+            {days[d].map(([from, to], i) => (
+              <i
+                key={i}
+                style={{ left: `${(from / 24) * 100}%`, width: `${((to - from) / 24) * 100}%` }}
+              />
+            ))}
+          </div>
+        </div>
+      ))}
+      <div className="week-strip-axis">
+        <span>12 AM</span>
+        <span>6 AM</span>
+        <span>Noon</span>
+        <span>6 PM</span>
+        <span>12 AM</span>
+      </div>
+    </div>
+  );
+}
+
+/** Smart Control → Rooms: when each room is in use and what temperature it gets. */
 export default function Schedules() {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [loading, setLoading] = useState(true);
@@ -899,6 +1007,7 @@ export default function Schedules() {
   // every room card and the shared hold modal.
   const [holds, setHolds] = useState<Record<string, RoomOverrideHold>>({});
   const [house, setHouse] = useState<House | null>(null);
+  const [thermostats, setThermostats] = useState<ThermostatConfig[]>([]);
 
   const refreshHolds = async () => {
     try {
@@ -915,6 +1024,14 @@ export default function Schedules() {
       setLoading(false);
     });
     refreshHolds();
+    // Zone names, and what fine tuning starts from. Supplementary.
+    void (async () => {
+      try {
+        setThermostats((await getThermostats()) ?? []);
+      } catch {
+        setThermostats([]);
+      }
+    })();
     // Whether each room is in use. Supplementary: the time blocks still show
     // without it.
     void (async () => {
@@ -937,10 +1054,10 @@ export default function Schedules() {
     <div>
       <div className="page-header">
         <div>
-          <div className="page-title">Schedules</div>
+          <div className="page-title">Rooms</div>
           <div className="page-subtitle">
-            Two questions per room: is it in use, and while it is, what temperature at what time? A
-            room that is not in use asks for no heating or cooling.
+            When each room is in use, and what temperature it gets. A room that is not in use asks
+            for no heating or cooling.
           </div>
         </div>
       </div>
@@ -959,6 +1076,10 @@ export default function Schedules() {
             key={r.id}
             room={r}
             allRooms={rooms}
+            thermostats={thermostats}
+            onRoomSaved={(saved) =>
+              setRooms((all) => all.map((x) => (x.id === saved.id ? { ...x, ...saved } : x)))
+            }
             hold={holds[r.id]}
             house={house}
             onHouse={setHouse}

@@ -5,7 +5,9 @@ import {
   type OutsideTempEntitySetting,
 } from "../api";
 import { useUnit } from "../contexts";
+import { useEntityName } from "../entityNames";
 import EntityPicker from "./EntityPicker";
+import { CrossIcon } from "./icons";
 
 /** The sensors in a setting, whichever shape the backend sent. */
 function sensorsOf(setting: OutsideTempEntitySetting | null): string[] {
@@ -35,6 +37,7 @@ export default function OutsideTempPicker({
   const [current, setCurrent] = useState<OutsideTempEntitySetting | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [adding, setAdding] = useState(false);
 
   const refresh = async () => {
     try {
@@ -84,79 +87,93 @@ export default function OutsideTempPicker({
     return sensors.length === 1 && current ? current.current_value : null;
   };
 
+  const average = current?.current_value;
   return (
-    <div className="card" style={{ marginBottom: "1rem" }}>
-      <div className="card-title">Outside temperature sensors</div>
-      <div className="text-sm text-muted" style={{ marginBottom: "1rem" }}>
-        The temperature outside, from one sensor or the average of several. Eco Mode and the limit
-        on cooling in cold weather <strong>need</strong> it.
+    <section className="card outside-card" aria-label="Outside">
+      <div className="outside-now">
+        <span className="outside-temp">
+          {average === null || average === undefined ? "—" : fmtTemp(average)}
+        </span>
+        <span className="rule-help">
+          {sensors.length === 0
+            ? "No sensor yet. Eco Mode needs one."
+            : sensors.length === 1
+              ? "From 1 sensor"
+              : `Average of ${sensors.length} sensors`}
+        </span>
       </div>
-
-      {error && (
-        <div className="badge badge-red" style={{ marginBottom: ".75rem" }}>
-          {error}
-        </div>
-      )}
-
-      {current === null && error && (
-        <button
-          className="btn btn-secondary"
-          style={{ marginBottom: ".75rem" }}
-          onClick={() => void refresh()}
-          type="button"
-        >
-          Try Again
-        </button>
-      )}
-
-      <div style={{ maxWidth: 420, marginBottom: ".75rem" }}>
-        <EntityPicker
-          domain={["sensor", "weather"]}
-          placeholder={
-            sensors.length > 0
-              ? "Add another sensor / weather entity…"
-              : "Search sensor / weather entities…"
-          }
-          onSelect={add}
-        />
+      <div className="outside-sensors">
+        {sensors.map((entityId) => (
+          <OutsideSensor
+            key={entityId}
+            entityId={entityId}
+            reading={readingOf(entityId)}
+            disabled={saving}
+            onRemove={() => void save(sensors.filter((s) => s !== entityId))}
+          />
+        ))}
+        {adding ? (
+          <div className="outside-add">
+            <EntityPicker
+              domain={["sensor", "weather"]}
+              placeholder="Search sensors and weather…"
+              onSelect={(id) => {
+                add(id);
+                setAdding(false);
+              }}
+            />
+            <button className="link-button" type="button" onClick={() => setAdding(false)}>
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <button
+            className="btn btn-secondary"
+            type="button"
+            disabled={!ready}
+            onClick={() => setAdding(true)}
+          >
+            Add Sensor
+          </button>
+        )}
+        {error && <span className="badge badge-red">{error}</span>}
+        {current === null && error && (
+          <button className="btn btn-secondary" onClick={() => void refresh()} type="button">
+            Try Again
+          </button>
+        )}
       </div>
+    </section>
+  );
+}
 
-      {sensors.length === 0 ? (
-        <span className="text-sm text-muted">— None configured —</span>
-      ) : (
-        <div style={{ display: "flex", gap: ".5rem", alignItems: "center", flexWrap: "wrap" }}>
-          {sensors.map((entityId) => {
-            const reading = readingOf(entityId);
-            return (
-              <span
-                key={entityId}
-                style={{ display: "inline-flex", gap: ".35rem", alignItems: "center" }}
-              >
-                <span className="badge badge-blue">
-                  {`${entityId} · ${reading === null ? "no reading" : fmtTemp(reading)}`}
-                </span>
-                <button
-                  className="btn btn-secondary btn-sm"
-                  aria-label={`Remove ${entityId}`}
-                  onClick={() => void save(sensors.filter((s) => s !== entityId))}
-                  disabled={saving}
-                  type="button"
-                >
-                  Remove
-                </button>
-              </span>
-            );
-          })}
-        </div>
-      )}
-
-      {sensors.length > 1 && (
-        <div className="form-hint" style={{ marginTop: ".6rem" }}>
-          {current?.current_value === null || current?.current_value === undefined
-            ? `Average of ${sensors.length} sensors: no reading right now`
-            : `Average of ${sensors.length} sensors: ${fmtTemp(current.current_value)}`}
-        </div>
-      )}
-    </div>
+/** One outside sensor: its friendly name, its own reading, and a way to remove it. */
+function OutsideSensor({
+  entityId,
+  reading,
+  disabled,
+  onRemove,
+}: {
+  entityId: string;
+  reading: number | null;
+  disabled: boolean;
+  onRemove: () => void;
+}) {
+  const { fmtTemp } = useUnit();
+  const name = useEntityName(entityId);
+  return (
+    <span className="outside-chip" title={entityId}>
+      {name}
+      <strong>{reading === null ? "No reading" : fmtTemp(reading)}</strong>
+      <button
+        className="icon-button"
+        aria-label={`Remove ${name}`}
+        onClick={onRemove}
+        disabled={disabled}
+        type="button"
+      >
+        <CrossIcon />
+      </button>
+    </span>
   );
 }

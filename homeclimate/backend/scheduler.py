@@ -1849,21 +1849,6 @@ class Scheduler:
             except Exception:
                 log.exception("Could not hand the fans back to their thermostats")
 
-    async def start_fan_test(self, thermostat_entity_id: str) -> None:
-        """Run a zone's fan for a while to look for an outside air intake."""
-        zone = next(
-            (z for z in await self.fan_zones() if z.thermostat_entity_id == thermostat_entity_id),
-            None,
-        )
-        await self._fan.start_test(
-            self._db_conn,
-            self._ha,
-            zone,
-            await outside.read(self._db_conn, self._ha),
-            datetime.now(UTC),
-            dry=self._dev_mode,
-        )
-
     async def _run_shades(self) -> None:
         """Move shades for the sun, after the engines have settled their modes."""
         try:

@@ -59,7 +59,7 @@ const dayButtons = () =>
 /** Expand the room card and open the "New Schedule" modal. */
 const openNewBlock = async () => {
   fireEvent.click(await screen.findByText("Living Room"));
-  fireEvent.click(await screen.findByText("+ Add schedule block"));
+  fireEvent.click(await screen.findByText("Add Block"));
   // Move off the 22:00–07:00 default so the seeded block is not an overlap.
   fireEvent.change(screen.getByLabelText(/Start time/i), { target: { value: "10:00" } });
   fireEvent.change(screen.getByLabelText(/End time/i), { target: { value: "12:00" } });
@@ -97,7 +97,7 @@ describe("Schedules — day picker", () => {
     fireEvent.click(dayButtons()[0]);
     expect(screen.getByText("Mon, Tue, Wed, Thu, Fri, Sat")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByText("Save"));
+    fireEvent.click(screen.getAllByText("Save").slice(-1)[0]);
     await waitFor(() =>
       expect(api.createSchedule).toHaveBeenCalledWith(
         "room-1",
@@ -113,7 +113,7 @@ describe("Schedules — day picker", () => {
     [0, 1, 2, 3, 4].forEach((i) => fireEvent.click(dayButtons()[i]));
     expect(screen.getByText("None selected")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByText("Save"));
+    fireEvent.click(screen.getAllByText("Save").slice(-1)[0]);
     expect(await screen.findByText("Select at least one day")).toBeInTheDocument();
     expect(api.createSchedule).not.toHaveBeenCalled();
   });
@@ -125,7 +125,7 @@ describe("Schedules — modal validation refusals", () => {
     await openNewBlock();
 
     fireEvent.change(screen.getByLabelText(/Target temperature/i), { target: { value: "" } });
-    fireEvent.click(screen.getByText("Save"));
+    fireEvent.click(screen.getAllByText("Save").slice(-1)[0]);
 
     expect(await screen.findByText("Temperature required")).toBeInTheDocument();
     expect(api.createSchedule).not.toHaveBeenCalled();
@@ -137,7 +137,7 @@ describe("Schedules — modal validation refusals", () => {
 
     fireEvent.click(screen.getByLabelText("Auto-disable at"));
     expect(screen.getByLabelText("Auto-disable date and time")).toHaveValue("");
-    fireEvent.click(screen.getByText("Save"));
+    fireEvent.click(screen.getAllByText("Save").slice(-1)[0]);
 
     expect(
       await screen.findByText("Pick an auto-disable date and time, or choose Never expire")
@@ -148,7 +148,7 @@ describe("Schedules — modal validation refusals", () => {
     // the datetime input disappears with it.
     fireEvent.click(screen.getByLabelText("Never expire"));
     expect(screen.queryByLabelText("Auto-disable date and time")).toBeNull();
-    fireEvent.click(screen.getByText("Save"));
+    fireEvent.click(screen.getAllByText("Save").slice(-1)[0]);
 
     await waitFor(() =>
       expect(api.createSchedule).toHaveBeenCalledWith(
@@ -177,7 +177,7 @@ describe("Schedules — expiry round-trip (#359)", () => {
     expect(screen.getByLabelText("Auto-disable date and time")).toHaveValue("2026-07-01T22:00");
 
     // …and re-saving carries the same instant straight back.
-    fireEvent.click(screen.getByText("Save"));
+    fireEvent.click(screen.getAllByText("Save").slice(-1)[0]);
     await waitFor(() =>
       expect(api.updateSchedule).toHaveBeenCalledWith(
         "room-1",
@@ -199,20 +199,20 @@ describe("Schedules — save failures surface the backend message", () => {
     vi.mocked(api.createSchedule).mockRejectedValue(new Error("Room is not configured"));
     render(<Schedules />);
     await openNewBlock();
-    fireEvent.click(screen.getByText("Save"));
+    fireEvent.click(screen.getAllByText("Save").slice(-1)[0]);
 
     expect(await screen.findByText("Room is not configured")).toBeInTheDocument();
     // The modal stays open so the user can correct and retry.
     expect(screen.getByText("New Schedule")).toBeInTheDocument();
     // …and the Save button is re-enabled by the finally block.
-    expect(screen.getByText("Save")).not.toBeDisabled();
+    expect(screen.getAllByText("Save").slice(-1)[0]).not.toBeDisabled();
   });
 
   it("falls back to a generic message when the rejection is not an Error", async () => {
     vi.mocked(api.createSchedule).mockRejectedValue("socket hang up");
     render(<Schedules />);
     await openNewBlock();
-    fireEvent.click(screen.getByText("Save"));
+    fireEvent.click(screen.getAllByText("Save").slice(-1)[0]);
 
     expect(await screen.findByText("Save failed")).toBeInTheDocument();
   });

@@ -1,3 +1,4 @@
+import EntityName from "./EntityName";
 import { useState } from "react";
 import { type Room } from "../api";
 import {
@@ -22,7 +23,7 @@ const MODES: [Mode, string][] = [
 ];
 
 /**
- * Smart Control → Schedules, top of a room's card: whether the room is in
+ * Smart Control → Rooms, in a room's card: whether the room is in
  * use. Always, never, or while a Home Assistant calendar has an event on. A
  * room that is not in use asks for no heating or cooling, and its time
  * blocks and occupancy sensors are ignored.
@@ -135,7 +136,7 @@ export default function RoomInUse({
             <div className="field-stack">
               <span className="field-label">Calendar</span>
               <span className="picked-entity">
-                <span>{calendar.entity_id}</span>
+                <EntityName id={calendar.entity_id} />
               </span>
             </div>
             <label className="field-stack">

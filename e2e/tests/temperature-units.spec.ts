@@ -2,6 +2,7 @@ import { test, expect } from "./fixtures";
 import {
   gotoMyHome,
   openOccupied,
+  openRoomPlan,
   openRoomTuning,
   openZoneEditor,
   saveOccupied,
@@ -68,9 +69,9 @@ const AMBIENT_DEADBAND = isCelsius ? "3" : "3";
 // Eco Mode (Issue #404). Outdoor thresholds / full-drift temps are absolute;
 // max-drift and hysteresis are deltas. Every value round-trips cleanly through
 // the backend's 2dp °F storage. Keyed by the field-name suffix used in the
-// input ids so both the thermostat and room round-trips share one map. The
-// numeric fields are editable without turning Eco on (only the toggle needs an
-// outside sensor), so these round-trips do not configure one.
+// input ids so both the thermostat and room round-trips share one map. A
+// zone's Eco settings show only while Eco is on, which needs an outside
+// sensor: the zone round-trip configures one and turns Eco on first.
 const ECO_VALUES: Record<string, string> = {
   eco_cooling_outdoor_threshold: isCelsius ? "31" : "88",
   eco_cooling_full_drift_temp: isCelsius ? "39" : "102",
@@ -277,42 +278,92 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
   }) => {
     // @covers: eco_cooling_outdoor_threshold, eco_cooling_full_drift_temp, eco_cooling_max_drift, eco_heating_outdoor_threshold, eco_heating_full_drift_temp, eco_heating_max_drift, eco_hysteresis_band
     // Eco Mode is tuned per zone in Smart Control.
-    const openEco = async () => {
-      await page.goto("/smart-control?section=eco-mode");
-      await page.waitForLoadState("networkidle");
-      await page.locator(idSel("eco_hysteresis_band")).waitFor();
-    };
     // Fill each field via its unique input id, save, reload, and assert the
     // values survived the °C↔°F round-trip unchanged. [id="…"] rather than
     // `#…` because the entity id embeds a dot.
     const idSel = (suffix: string) => `[id="eco-${TC_ID}-${suffix}"]`;
-    await openEco();
-    const card = page
-      .locator(idSel("eco_hysteresis_band"))
-      .locator("xpath=ancestor::*[contains(@class,'card')][1]");
-
-    for (const [key, value] of Object.entries(ECO_VALUES)) {
-      await page.locator(idSel(key)).fill(value);
-    }
-
-    const putResponse = page.waitForResponse(
-      (r) =>
-        r.url().includes(`/api/thermostats/${TC_ID}`) &&
-        r.request().method() === "PUT",
+    const priorOutside = await (
+      await page.request.get("/api/settings/outside-temp-entity")
+    ).json();
+    const outside = await page.request.put(
+      "/api/settings/outside-temp-entity",
+      {
+        data: { entity_id: "sensor.outdoor_temperature" },
+      },
     );
-    await card.getByRole("button", { name: "Save" }).click();
-    const response = await putResponse;
-    const responseText = await response.text();
-    expect(
-      response.status(),
-      `PUT /api/thermostats/${TC_ID} failed: ${responseText}`,
-    ).toBeLessThan(400);
+    test.skip(
+      !outside.ok(),
+      "requires an outside temperature sensor (HA-backed stack)",
+    );
+    const ecoOn = await page.request.put(`/api/thermostats/${TC_ID}`, {
+      data: { eco_mode_enabled: true },
+    });
+    expect(ecoOn.status(), await ecoOn.text()).toBeLessThan(400);
+    const openEco = async () => {
+      await page.goto("/smart-control?section=eco-mode");
+      await page.waitForLoadState("networkidle");
+      await page.locator(idSel("eco_hysteresis_band")).waitFor({
+        state: "attached",
+      });
+    };
+    // The four main settings are sliders, which cannot be typed into: set
+    // the value the way a drag does, so React hears about it.
+    const setField = async (key: string, value: string) => {
+      const field = page.locator(idSel(key));
+      if ((await field.getAttribute("type")) !== "range") {
+        await field.fill(value);
+        return;
+      }
+      await field.evaluate((el, v) => {
+        const input = el as HTMLInputElement;
+        Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype,
+          "value",
+        )!.set!.call(input, v);
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+      }, value);
+    };
+    try {
+      await openEco();
+      const card = page
+        .locator(idSel("eco_hysteresis_band"))
+        .locator("xpath=ancestor::*[contains(@class,'card')][1]");
 
-    await openEco();
+      // The rest are under Advanced Options, closed until asked for.
+      await card.locator("details.advanced-box > summary").click();
+      for (const [key, value] of Object.entries(ECO_VALUES)) {
+        await setField(key, value);
+      }
 
-    for (const [key, value] of Object.entries(ECO_VALUES)) {
-      const readBack = parseFloat(await page.locator(idSel(key)).inputValue());
-      expect(readBack, `eco field ${key}`).toBeCloseTo(parseFloat(value), 1);
+      const putResponse = page.waitForResponse(
+        (r) =>
+          r.url().includes(`/api/thermostats/${TC_ID}`) &&
+          r.request().method() === "PUT",
+      );
+      await card.getByRole("button", { name: "Save" }).click();
+      const response = await putResponse;
+      const responseText = await response.text();
+      expect(
+        response.status(),
+        `PUT /api/thermostats/${TC_ID} failed: ${responseText}`,
+      ).toBeLessThan(400);
+
+      await openEco();
+
+      for (const [key, value] of Object.entries(ECO_VALUES)) {
+        const readBack = parseFloat(
+          await page.locator(idSel(key)).inputValue(),
+        );
+        expect(readBack, `eco field ${key}`).toBeCloseTo(parseFloat(value), 1);
+      }
+    } finally {
+      await page.request.put(`/api/thermostats/${TC_ID}`, {
+        data: { eco_mode_enabled: false },
+      });
+      await page.request.put("/api/settings/outside-temp-entity", {
+        data: { entity_id: priorOutside?.entity_id ?? null },
+      });
     }
   });
 
@@ -347,22 +398,12 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
     page,
   }) => {
     // @covers: target_temp, deadband_override
-    await page.goto("/schedules");
-    await page.waitForSelector(".loading", {
-      state: "detached",
-      timeout: 15_000,
-    });
-    await page.waitForLoadState("networkidle");
-
-    // Room cards on /schedules are collapsed by default — click the room's
-    // title row to expand it, then the "+ Add schedule block" button appears.
-    const livingRoomCard = page
-      .locator(".card")
-      .filter({ hasText: "Living Room" })
-      .first();
-    await livingRoomCard.getByText("Living Room").click();
-
-    await livingRoomCard.getByText("+ Add schedule block").click();
+    // A room's time blocks are in its card in Smart Control → Rooms, which
+    // is closed until opened.
+    const livingRoomCard = await openRoomPlan(page, "Living Room");
+    await livingRoomCard
+      .getByRole("button", { name: "Add Block", exact: true })
+      .click();
 
     const modal = page.locator(".modal");
     await modal.waitFor({ state: "visible", timeout: 10_000 });
@@ -389,18 +430,7 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
     // typed. The schedules table renders the target via fmtTemp(°F) which
     // re-derives the display unit from storage; if the backend stored the
     // wrong value the rendered number would be off.
-    await page.reload();
-    await page.waitForSelector(".loading", {
-      state: "detached",
-      timeout: 15_000,
-    });
-    await page.waitForLoadState("networkidle");
-
-    const livingRoomCardReloaded = page
-      .locator(".card")
-      .filter({ hasText: "Living Room" })
-      .first();
-    await livingRoomCardReloaded.getByText("Living Room").click();
+    const livingRoomCardReloaded = await openRoomPlan(page, "Living Room");
 
     const newBlockRow = livingRoomCardReloaded
       .locator("tr")
@@ -441,16 +471,8 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
     const HEAT = isCelsius ? "20" : "68";
     const COOL = isCelsius ? "24" : "76";
 
-    await page.goto("/schedules");
-    await page.waitForSelector(".loading", {
-      state: "detached",
-      timeout: 15_000,
-    });
-    await page.waitForLoadState("networkidle");
-    const card = () =>
-      page.locator(".card").filter({ hasText: "Living Room" }).first();
-    await card().getByText("Living Room").click();
-    await card().getByText("+ Add schedule block").click();
+    let plan = await openRoomPlan(page, "Living Room");
+    await plan.getByRole("button", { name: "Add Block", exact: true }).click();
     const modal = page.locator(".modal");
     await modal.waitFor({ state: "visible", timeout: 10_000 });
     // 05:00-06:00 is clear of the seeded blocks and of the block the test above adds.
@@ -461,14 +483,8 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
     await modal.getByRole("button", { name: /^Save$/ }).click();
     await modal.waitFor({ state: "detached", timeout: 5_000 });
 
-    await page.reload();
-    await page.waitForSelector(".loading", {
-      state: "detached",
-      timeout: 15_000,
-    });
-    await page.waitForLoadState("networkidle");
-    await card().getByText("Living Room").click();
-    const row = card().locator("tr").filter({ hasText: "05:00" });
+    plan = await openRoomPlan(page, "Living Room");
+    const row = plan.locator("tr").filter({ hasText: "05:00" });
     await expect(row).toBeVisible();
     const text = await row.innerText();
     const band = text.match(
@@ -524,7 +540,9 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
       await page
         .getByRole("button", { name: "Details for Living Room", exact: true })
         .click();
-      await page.getByRole("button", { name: "Start a Hold", exact: true }).click();
+      await page
+        .getByRole("button", { name: "Start a Hold", exact: true })
+        .click();
       const modal = page.getByTestId("hold-modal");
       await modal.waitFor({ state: "visible", timeout: 10_000 });
 
@@ -689,6 +707,11 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
     });
     const building = (await made.json()).id as string;
     try {
+      // The threshold shows once the building heats or cools as one, or tries to.
+      const level = await page.request.put(`/api/building-modes/${building}`, {
+        data: { auto_level: "watch" },
+      });
+      expect(level.status(), await level.text()).toBeLessThan(400);
       await page.goto("/smart-control?section=auto-mode");
       const field = page.getByLabel(
         /^Switching threshold for Threshold Test House/,
@@ -699,12 +722,9 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
           r.url().includes(`/api/building-modes/${building}`) &&
           r.request().method() === "PUT",
       );
+      // It saves on Enter, or on leaving the field.
       await field.fill(THRESHOLD);
-      await page
-        .getByRole("button", {
-          name: "Save switching threshold for Threshold Test House",
-        })
-        .click();
+      await field.press("Enter");
       await saved;
 
       await page.reload();

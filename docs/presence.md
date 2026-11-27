@@ -7,7 +7,7 @@ Presence sensors let a room activate on demand — when someone walks in, the HV
 1. Any configured `binary_sensor.*` on the room fires (`on` state).
 2. The room enters the presence-active state and starts a **holdover timer**. The target is:
    - the **room-level presence temp** (`system_wide_temp`) if set, otherwise
-   - the **thermostat-level Default presence temp**, otherwise
+   - the **zone's Occupied Temperature**, otherwise
    - the room is logged as "skipped" and stays idle.
 3. Each additional motion event **resets** the holdover expiry. The room stays active until the timer runs out.
 4. When the timer expires, the room falls back to its next priority (schedule, or idle).

@@ -1,3 +1,4 @@
+import { entityName } from "../entityNames";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getThermostats, type ThermostatConfig } from "../api";
 import { onStateChanged } from "../stateEvents";
@@ -74,7 +75,7 @@ export default function EcoSuspendBanner() {
           {suspended.map((t, i) => (
             <span key={t.thermostat_entity_id}>
               {i > 0 && " · "}
-              <strong>{t.name || t.thermostat_entity_id}</strong> resuming{" "}
+              <strong>{t.name || entityName(t.thermostat_entity_id)}</strong> resuming{" "}
               <Time value={t.eco_suspend_until as string} />
             </span>
           ))}

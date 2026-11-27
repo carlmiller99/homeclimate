@@ -316,9 +316,7 @@ async def apply_import(
             raise ImportError_(ZONE_NOT_THERMOSTAT)
         name = zones.clean_name(row.get("name") or eid)
         if eid not in configured:
-            await db.upsert_thermostat_config(
-                conn, ThermostatConfig(thermostat_entity_id=eid, name=name)
-            )
+            await db.upsert_thermostat_config(conn, ThermostatConfig.for_new_zone(eid, name))
             configured.add(eid)
             result.zones_added += 1
             # Nobody is asked per zone here, so read what Home Assistant shows:

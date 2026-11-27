@@ -1,3 +1,4 @@
+import EntityName from "../components/EntityName";
 import { useEffect, useRef, useState } from "react";
 import ConfirmDialog from "../components/ConfirmDialog";
 import {
@@ -103,7 +104,7 @@ function ZonePanel({ zones }: { zones: ZoneStatus[] }) {
       {zones.map((zone) => (
         <div key={zone.thermostat_entity_id} className="card">
           <div className="card-title">
-            {zone.thermostat_entity_id}
+            <EntityName id={zone.thermostat_entity_id} />
             <span
               className="badge badge-gray"
               style={{ marginLeft: ".5rem", textTransform: "capitalize" }}

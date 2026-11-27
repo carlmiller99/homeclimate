@@ -1,3 +1,4 @@
+import { entityName } from "../entityNames";
 import { useEffect, useState } from "react";
 import {
   getOutsideTempEntity,
@@ -5,7 +6,7 @@ import {
   updateThermostat,
   type ThermostatConfig,
 } from "../api";
-import { EcoWorkedExample } from "../components/EcoMode";
+import { EcoChart, EcoSlider } from "../components/EcoDrift";
 import { RuleRow } from "../components/SmartControlControls";
 import { Switch } from "../components/SmartControlControls";
 import { useUnit } from "../contexts";
@@ -22,6 +23,13 @@ const EMPTY_ZONE_MIN_HOURS = 0.5;
 const EMPTY_ZONE_MAX_HOURS = 72;
 const EMPTY_ZONE_DEFAULT_HOURS = 2;
 
+/** The settings most people never touch, in plain words. */
+const ADVANCED_LABELS: Partial<Record<EcoNumericKey, string>> = {
+  eco_heating_full_drift_temp: "Cold days: full drift once outside is down to",
+  eco_cooling_full_drift_temp: "Hot days: full drift once outside is up to",
+  eco_hysteresis_band: "Keep drifting until outside comes back by",
+};
+
 const sameForm = (a: EcoForm, b: EcoForm) =>
   (Object.keys(a) as (keyof EcoForm)[]).every((k) => Object.is(a[k], b[k]));
 
@@ -34,9 +42,9 @@ function EcoZoneCard({
   hasOutsideSensor: boolean;
   onSaved: (updated: ThermostatConfig) => void;
 }) {
-  const { unitLabel, toDisplay, toDisplayDelta } = useUnit();
+  const { unitLabel, isCelsius, toDisplay, toDisplayDelta } = useUnit();
   const tid = config.thermostat_entity_id;
-  const title = config.name || tid;
+  const title = config.name || entityName(tid);
   // The form holds display units and submits them as typed; the backend converts.
   const derive = (cfg: ThermostatConfig): EcoForm => ({
     eco_mode_enabled: cfg.eco_mode_enabled ?? false,
@@ -53,7 +61,15 @@ function EcoZoneCard({
   const [form, setForm] = useState(derived);
   const [lastDerived, setLastDerived] = useState(derived);
   const [emptyOn, setEmptyOn] = useState(derived.eco_empty_zone_hours !== 0);
+  // Where each full drift was set, by what is stored or typed. A slider
+  // dragged past one takes it along, and gives it back on the way home.
+  const fullOf = (f: EcoForm) => ({
+    eco_cooling_full_drift_temp: f.eco_cooling_full_drift_temp,
+    eco_heating_full_drift_temp: f.eco_heating_full_drift_temp,
+  });
+  const [fullAt, setFullAt] = useState(fullOf(derived));
   if (!sameForm(lastDerived, derived)) {
+    setFullAt(fullOf(derived));
     // What is stored changed (a save, or the display unit): show it. A refetch
     // that returns the same values leaves an edit in progress alone.
     setLastDerived(derived);
@@ -83,6 +99,7 @@ function EcoZoneCard({
       const stored = derive(updated);
       setLastDerived(stored);
       setForm(stored);
+      setFullAt(fullOf(stored));
       setEmptyOn(stored.eco_empty_zone_hours !== 0);
       onSaved(updated);
       setSaved(true);
@@ -102,102 +119,177 @@ function EcoZoneCard({
       form.eco_empty_zone_hours <= EMPTY_ZONE_MAX_HOURS);
   // Only turning it on needs the sensor; a zone already on can still be tuned.
   const blocked = form.eco_mode_enabled && !lastDerived.eco_mode_enabled && !hasOutsideSensor;
+  const set = (patch: Partial<EcoForm>) => {
+    setSaved(false);
+    setForm((f) => ({ ...f, ...patch }));
+  };
+  const numbersOk = ECO_NUMERIC_FIELDS.every(({ key }) => Number.isFinite(form[key]));
+  // Slider ranges in the unit shown.
+  const r = isCelsius
+    ? { cold: [-29, 21], hot: [15, 49], drift: [0, 11], step: 0.5 }
+    : { cold: [-20, 70], hot: [60, 120], drift: [0, 20], step: 1 };
+  const advanced = ECO_NUMERIC_FIELDS.filter(({ key }) => key in ADVANCED_LABELS);
   return (
-    <div className="card" role="group" aria-label={title}>
+    <div className="card eco-card" role="group" aria-label={title}>
       <div className="eco-zone-head">
-        <h3 className="card-title">{title}</h3>
-        <label className="eco-zone-switch" htmlFor={`eco-${tid}-enabled`}>
-          <span>Eco Mode</span>
-          <Switch
-            id={`eco-${tid}-enabled`}
-            checked={form.eco_mode_enabled}
-            label={`Eco Mode for ${title}`}
-            disabled={saving}
-            onChange={(v) => {
-              setSaved(false);
-              setForm((f) => ({ ...f, eco_mode_enabled: v }));
-            }}
-          />
-        </label>
+        <div>
+          <h3 className="card-title">{title}</h3>
+          {!form.eco_mode_enabled && (
+            <p className="rule-help">Off. Rooms hold their targets in any weather.</p>
+          )}
+        </div>
+        <Switch
+          id={`eco-${tid}-enabled`}
+          checked={form.eco_mode_enabled}
+          label={`Eco Mode for ${title}`}
+          disabled={saving}
+          onChange={(v) => set({ eco_mode_enabled: v })}
+        />
       </div>
-      <div className="eco-grid">
-        {ECO_NUMERIC_FIELDS.map(({ key, label, help, step, kind }) => (
-          <div className="form-group" key={key}>
-            <label className="form-label" htmlFor={`eco-${tid}-${key}`}>
-              {`${label} (${unitLabel})`}
-            </label>
-            <input
-              id={`eco-${tid}-${key}`}
-              className="form-control"
-              type="number"
-              step={step}
-              value={Number.isFinite(form[key]) ? form[key] : ""}
-              disabled={saving}
-              onChange={(e) => {
-                const v = parseFloat(e.target.value);
-                setSaved(false);
-                setForm((f) => ({ ...f, [key]: v }));
-              }}
-            />
-            <div className="form-hint">
-              {kind === "absolute_temp" ? "Outdoor temperature. " : "Difference. "}
-              {help}
+      {form.eco_mode_enabled && (
+        <>
+          {numbersOk && (
+            <div className="eco-chart-box">
+              <EcoChart
+                params={{
+                  coolingThreshold: form.eco_cooling_outdoor_threshold,
+                  coolingFullDrift: form.eco_cooling_full_drift_temp,
+                  coolingMaxDrift: form.eco_cooling_max_drift,
+                  heatingThreshold: form.eco_heating_outdoor_threshold,
+                  heatingFullDrift: form.eco_heating_full_drift_temp,
+                  heatingMaxDrift: form.eco_heating_max_drift,
+                }}
+              />
+            </div>
+          )}
+          <div className="eco-sides">
+            <div className="eco-side">
+              <strong className="eco-side-title eco-side-heat">On Cold Days</strong>
+              <EcoSlider
+                id={`eco-${tid}-eco_heating_outdoor_threshold`}
+                label="Start When Outside Is Below"
+                value={form.eco_heating_outdoor_threshold}
+                min={r.cold[0]}
+                max={r.cold[1]}
+                step={r.step}
+                disabled={saving}
+                onChange={(v) =>
+                  set({
+                    eco_heating_outdoor_threshold: v,
+                    // The full drift is never reached before the drift starts.
+                    // It goes back to where it was set once there is room again.
+                    eco_heating_full_drift_temp: Math.min(fullAt.eco_heating_full_drift_temp, v),
+                  })
+                }
+              />
+              <EcoSlider
+                id={`eco-${tid}-eco_heating_max_drift`}
+                label="Let Rooms Run Cooler By Up To"
+                value={form.eco_heating_max_drift}
+                min={r.drift[0]}
+                max={r.drift[1]}
+                step={0.5}
+                disabled={saving}
+                onChange={(v) => set({ eco_heating_max_drift: v })}
+              />
+            </div>
+            <div className="eco-side">
+              <strong className="eco-side-title eco-side-cool">On Hot Days</strong>
+              <EcoSlider
+                id={`eco-${tid}-eco_cooling_outdoor_threshold`}
+                label="Start When Outside Is Above"
+                value={form.eco_cooling_outdoor_threshold}
+                min={r.hot[0]}
+                max={r.hot[1]}
+                step={r.step}
+                disabled={saving}
+                onChange={(v) =>
+                  set({
+                    eco_cooling_outdoor_threshold: v,
+                    eco_cooling_full_drift_temp: Math.max(fullAt.eco_cooling_full_drift_temp, v),
+                  })
+                }
+              />
+              <EcoSlider
+                id={`eco-${tid}-eco_cooling_max_drift`}
+                label="Let Rooms Run Warmer By Up To"
+                value={form.eco_cooling_max_drift}
+                min={r.drift[0]}
+                max={r.drift[1]}
+                step={0.5}
+                disabled={saving}
+                onChange={(v) => set({ eco_cooling_max_drift: v })}
+              />
             </div>
           </div>
-        ))}
-      </div>
-      <RuleRow
-        id={`eco-${tid}-empty`}
-        title="Let an Empty Zone Drift Further"
-        help={`With Eco Mode on, after nobody has used this zone for this long, its rooms may drift ${toDisplayDelta(EMPTY_ZONE_EXTRA_F)}${unitLabel} further. They return to their targets when someone does.`}
-        enabled={emptyOn}
-        disabled={saving}
-        onToggle={(v) => {
-          setSaved(false);
-          setEmptyOn(v);
-          setForm((f) => ({ ...f, eco_empty_zone_hours: v ? EMPTY_ZONE_DEFAULT_HOURS : 0 }));
-        }}
-      >
-        <span className="minutes-field">
-          <input
-            className="form-control minutes-input"
-            type="number"
-            min={EMPTY_ZONE_MIN_HOURS}
-            max={EMPTY_ZONE_MAX_HOURS}
-            step={0.5}
-            aria-label={`Hours before ${title} drifts further`}
-            disabled={saving || !emptyOn}
-            value={
-              emptyOn && Number.isFinite(form.eco_empty_zone_hours) ? form.eco_empty_zone_hours : ""
-            }
-            onChange={(e) => {
-              const v = parseFloat(e.target.value);
-              setSaved(false);
-              setForm((f) => ({ ...f, eco_empty_zone_hours: v }));
+          <RuleRow
+            id={`eco-${tid}-empty`}
+            title="Let an Empty Zone Drift Further"
+            help={`After nobody has used the zone this long, rooms may drift ${toDisplayDelta(EMPTY_ZONE_EXTRA_F)}${unitLabel} more.`}
+            enabled={emptyOn}
+            disabled={saving}
+            onToggle={(v) => {
+              setEmptyOn(v);
+              set({ eco_empty_zone_hours: v ? EMPTY_ZONE_DEFAULT_HOURS : 0 });
             }}
-          />
-          <span className="minutes-unit">hr</span>
-        </span>
-      </RuleRow>
-      <EcoWorkedExample
-        params={{
-          coolingThreshold: form.eco_cooling_outdoor_threshold,
-          coolingFullDrift: form.eco_cooling_full_drift_temp,
-          coolingMaxDrift: form.eco_cooling_max_drift,
-          heatingThreshold: form.eco_heating_outdoor_threshold,
-          heatingFullDrift: form.eco_heating_full_drift_temp,
-          heatingMaxDrift: form.eco_heating_max_drift,
-        }}
-      />
+          >
+            <span className="minutes-field">
+              <input
+                className="form-control minutes-input"
+                type="number"
+                min={EMPTY_ZONE_MIN_HOURS}
+                max={EMPTY_ZONE_MAX_HOURS}
+                step={0.5}
+                aria-label={`Hours before ${title} drifts further`}
+                disabled={saving || !emptyOn}
+                value={
+                  emptyOn && Number.isFinite(form.eco_empty_zone_hours)
+                    ? form.eco_empty_zone_hours
+                    : ""
+                }
+                onChange={(e) => set({ eco_empty_zone_hours: parseFloat(e.target.value) })}
+              />
+              <span className="minutes-unit">hr</span>
+            </span>
+          </RuleRow>
+          <details className="advanced-box">
+            <summary>
+              <strong>Advanced Options</strong>
+              <span>You don&rsquo;t need to change these unless you want to.</span>
+            </summary>
+            <div className="advanced-rows">
+              {advanced.map(({ key, step }) => (
+                <label className="advanced-row" key={key} htmlFor={`eco-${tid}-${key}`}>
+                  <span>{ADVANCED_LABELS[key]}</span>
+                  <span className="minutes-field">
+                    <input
+                      id={`eco-${tid}-${key}`}
+                      className="form-control minutes-input"
+                      type="number"
+                      step={step}
+                      value={Number.isFinite(form[key]) ? form[key] : ""}
+                      disabled={saving}
+                      onChange={(e) => {
+                        const v = parseFloat(e.target.value);
+                        set({ [key]: v });
+                        if (key in fullAt) setFullAt((f) => ({ ...f, [key]: v }));
+                      }}
+                    />
+                    <span className="minutes-unit">{unitLabel}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </details>
+        </>
+      )}
       {blocked && (
         <p className="form-error">
           Eco Mode needs an outside temperature sensor. Choose one in My Home, Outside, then turn
           this on.
         </p>
       )}
-      {ECO_NUMERIC_FIELDS.some(({ key }) => !Number.isFinite(form[key])) && (
-        <p className="form-error">Every field needs a number.</p>
-      )}
+      {!numbersOk && <p className="form-error">Every field needs a number.</p>}
       {!hoursOk && (
         <p className="form-error">{`Hours must be between ${EMPTY_ZONE_MIN_HOURS} and ${EMPTY_ZONE_MAX_HOURS}.`}</p>
       )}
@@ -206,13 +298,7 @@ function EcoZoneCard({
         <button
           type="button"
           className="btn btn-primary"
-          disabled={
-            saving ||
-            !dirty ||
-            blocked ||
-            !hoursOk ||
-            ECO_NUMERIC_FIELDS.some(({ key }) => !Number.isFinite(form[key]))
-          }
+          disabled={saving || !dirty || blocked || !hoursOk || !numbersOk}
           onClick={() => void save()}
         >
           {saving ? "Saving…" : "Save"}
@@ -253,8 +339,8 @@ export default function EcoSection() {
     <section className="sc-section" id="eco-mode">
       <h2 className="sc-section-title">Eco Mode</h2>
       <p className="sc-section-lead">
-        On very hot or very cold days, lets each room drift a few degrees from its target so the
-        equipment runs less.
+        On very hot or very cold days, rooms drift a few degrees from their target so the equipment
+        runs less.
       </p>
       {loadFailed && <p className="form-error">Could not load the zones.</p>}
       {!loadFailed && !zones && <p className="page-subtitle">Loading the zones…</p>}

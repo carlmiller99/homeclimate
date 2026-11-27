@@ -24,7 +24,7 @@ My Home holds the structure: buildings, zones (one thermostat each) and rooms. E
 
 ![Rooms](screenshots/02_Rooms.png)
 
-Smart Control → Schedules defines per-room time blocks (days, start/end time, target temperature). Rooms activate automatically when the current time falls inside a matching block.
+Smart Control → Rooms defines per-room time blocks (days, start/end time, target temperature). Rooms activate automatically when the current time falls inside a matching block.
 
 ![Schedules](screenshots/03_Schedules.png)
 
@@ -239,7 +239,7 @@ A zone is one thermostat and the rooms it serves. Go to **My Home**, add a build
 
 Then open **Edit Zone** to tune its Thermostat Settings:
 
-- Set a **Default presence temp** — this is the fallback temperature used when a room is activated by motion and has no room-level presence temp configured
+- Set an **Occupied Temperature** — this is the fallback temperature used when a room is activated by motion and has no room-level presence temp configured
 - Adjust safety limits if needed (min/max setpoint, deadband, overshoot delta)
 
 ### 2. Create rooms
@@ -264,7 +264,7 @@ Click a device box on any room card: each opens that kind of device for the room
 
 ### 4. Add schedules
 
-Go to **Smart Control → Schedules**, select a room, and add time blocks. Each block has:
+Go to **Smart Control → Rooms**, open a room, and add time blocks. Each block has:
 - Days of week
 - Start and end time
 - Target temperature (°F)
@@ -279,7 +279,7 @@ The **System On/Off** toggle in the top-right of every page controls whether the
 
 ## Room settings reference
 
-Where each one is set: name, zone and the thermostat-sensor choice in **My Home → Room Settings**; the presence (occupied) temperature on the **Dashboard**, in the room's details; the rest in **Smart Control → Rooms**.
+Where each one is set: name, zone and the thermostat-sensor choice in **My Home**, behind the pencil by the room's name; the presence (occupied) temperature on the **Dashboard**, in the room's details; the rest in **Smart Control → Rooms**.
 
 | Setting | Description |
 |---|---|
@@ -295,13 +295,13 @@ Where each one is set: name, zone and the thermostat-sensor choice in **My Home 
 
 | Setting | Description |
 |---|---|
-| **Default presence temp** | Fallback target °F for presence-activated rooms that have no room-level presence temp |
-| **Min / Max setpoint** | Hard clamps — the engine will never set the thermostat outside this range |
+| **Occupied Temperature** | Fallback target °F for presence-activated rooms that have no room-level presence temp |
+| **Temperature Limits** | Hard clamps — the engine will never set the thermostat outside this range |
 | **Deadband** | ±°F tolerance for "at target". 0 = exact match. 0.5 means a 70°F target is satisfied at 69.5–70.5°F |
-| **Overshoot delta** | How far past the most demanding room's target to set the thermostat to keep the HVAC running (default 2°F) |
-| **Max vent closed** | Reopen a vent after this many minutes even if the room is still at target (safety valve for systems that need airflow). 0 = disabled |
+| **Run past the target by** | How far past the most demanding room's target to set the thermostat to keep the HVAC running (default 2°F) |
+| **Reopen a closed vent after** | Reopen a vent after this many minutes even if the room is still at target (safety valve for systems that need airflow). 0 = disabled |
 | **Min open vents** | Always keep at least this many vents open across the zone. 0 = allow all closed |
-| **Cycle timeout** | Abort a cycle that has been running longer than this many hours |
+| **End a run that lasts longer than** | Abort a cycle that has been running longer than this many hours |
 
 ---
 

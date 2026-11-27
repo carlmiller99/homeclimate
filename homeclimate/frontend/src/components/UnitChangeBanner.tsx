@@ -4,7 +4,7 @@ import { getSettings, ackUnitChange, restartApp } from "../api";
 const AFFECTED_SETTINGS = [
   "Min / max setpoints (a zone's Thermostat Settings in My Home)",
   "Deadband and overshoot delta (a zone's Thermostat Settings in My Home)",
-  "Schedule target temperatures (Smart Control, Schedules)",
+  "Schedule target temperatures (Smart Control, Rooms)",
   "Occupied temperatures (a room's details on the Dashboard)",
   "Temperature offsets (Smart Control, Rooms)",
 ];

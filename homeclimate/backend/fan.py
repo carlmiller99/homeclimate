@@ -31,9 +31,6 @@ One that somebody else turned on is left alone. One that HomeClimate turned
 on is always set back to ``auto``, whatever Home Assistant last reported, and
 is remembered until the thermostat has taken that.
 
-``Manager.start_test`` runs the fan for ``TEST_LENGTH`` to see whether the
-zone's rooms move toward the outside temperature. It is a hint and no more:
-mixing, and ducts in an attic or crawl space, move temperatures too.
 Temperatures are °F.
 """
 
@@ -50,7 +47,6 @@ from typing import Any
 import aiosqlite
 
 from . import db
-from .user_errors import UserError, fixed
 
 log = logging.getLogger(__name__)
 
@@ -64,32 +60,8 @@ KEEP_SPREAD_F = 0.75
 CAP = timedelta(minutes=30)
 WINDOW = timedelta(hours=1)
 AFTER_RUN = timedelta(minutes=15)
-TEST_LENGTH = timedelta(minutes=10)
-TEST_MIN_DIFFERENCE_F = 10.0
-TEST_MOVED_F = 0.5
 # The zones whose fan HomeClimate turned on, so a restart can turn them back.
 RUNNING_SETTING = "fan_running"
-TEST_SETTING = "fan_test:"
-
-
-class FanError(UserError):
-    """A request the caller can fix; the message is one of the constants below."""
-
-
-ZONE_UNKNOWN = fixed("That zone was not found, or has no rooms yet")
-NO_FAN_SETTING = fixed("This thermostat has no fan setting HomeClimate can switch")
-TEST_BUSY = fixed("Wait until the zone is idle and its fan has stopped, then try again")
-TEST_BLOCKED = fixed(
-    "The fan cannot be tested while the system is off or paused, or in Developer Mode"
-)
-TEST_NO_OUTSIDE = fixed(
-    "The test needs an outside temperature and a room temperature for this zone"
-)
-TEST_TOO_CLOSE = fixed(
-    "Inside and outside are too close to tell. Try when they are at least 10 °F (5.6 °C) apart"
-)
-TEST_RUNNING = fixed("A test is already running for this zone")
-FAN_FAILED = fixed("The thermostat did not accept the fan change")
 
 
 @dataclass(frozen=True)
@@ -206,15 +178,6 @@ class ZoneInput:
 
 
 @dataclass
-class _Test:
-    started: datetime
-    # Each room's reading at the start, so only rooms read at both ends count.
-    start: dict[str, float]
-    outside: float
-    turned_on: bool
-
-
-@dataclass
 class Manager:
     """Decides, once a minute, whether each zone's fan should be running."""
 
@@ -227,7 +190,6 @@ class Manager:
     _met: set[str] = field(default_factory=set)
     _notes: dict[str, str] = field(default_factory=dict)
     _watched: set[str] = field(default_factory=set)
-    _tests: dict[str, _Test] = field(default_factory=dict)
     _loaded: bool = False
 
     async def _load(self, conn: aiosqlite.Connection, now: datetime) -> None:
@@ -250,9 +212,6 @@ class Manager:
 
     def running(self, thermostat_entity_id: str) -> bool:
         return thermostat_entity_id in self._ours
-
-    def testing(self, thermostat_entity_id: str) -> bool:
-        return thermostat_entity_id in self._tests
 
     def note(self, thermostat_entity_id: str) -> str:
         return self._notes.get(thermostat_entity_id, "")
@@ -335,7 +294,6 @@ class Manager:
                 self._ours.discard(tid)
                 self._for.pop(tid, None)
                 self._runs.setdefault(tid, []).append((self._since.pop(tid, now), now))
-        self._tests.clear()
         await self._remember(conn)
 
     async def tick(
@@ -362,8 +320,6 @@ class Manager:
                 self._for.pop(gone, None)
                 self._since.pop(gone, None)
                 await self._remember(conn)
-        for gone in set(self._tests) - seen:
-            del self._tests[gone]
         for zone in zones:
             try:
                 await self._tick_zone(conn, ha, zone, outside, now, say, open_vents, unit, dry)
@@ -389,9 +345,6 @@ class Manager:
             # may have ended just before it, and nothing here remembers.
             self._met.add(tid)
             self._ran_at[tid] = now
-        if tid in self._tests:
-            await self._tick_test(conn, ha, zone, now, say)
-            return
         why_not = self._why_not(zone, now)
         want = None
         if why_not is None:
@@ -440,93 +393,3 @@ class Manager:
         await self._remember(conn)
         await open_vents([want.room_id, *want.helpers])
         await say(f"Fan running for {zone.name}: {what}", details)
-
-    async def start_test(
-        self,
-        conn: aiosqlite.Connection,
-        ha: Any,
-        zone: ZoneInput | None,
-        outside: float | None,
-        now: datetime,
-        *,
-        dry: bool = False,
-    ) -> None:
-        if zone is None:
-            raise FanError(ZONE_UNKNOWN)
-        tid = zone.thermostat_entity_id
-        if tid in self._tests:
-            raise FanError(TEST_RUNNING)
-        if not zone.supported:
-            raise FanError(NO_FAN_SETTING)
-        if zone.blocked or dry:
-            raise FanError(TEST_BLOCKED)
-        await self._load(conn, now)
-        if not zone.idle or tid in self._ours:
-            raise FanError(TEST_BUSY)
-        start = {r.room_id: r.temp for r in zone.rooms if r.temp is not None}
-        if not start or outside is None:
-            raise FanError(TEST_NO_OUTSIDE)
-        inside = sum(start.values()) / len(start)
-        if abs(inside - outside) < TEST_MIN_DIFFERENCE_F:
-            raise FanError(TEST_TOO_CLOSE)
-        turned_on = zone.fan_mode != "on"
-        if turned_on:
-            if not await self._set(ha, tid, "on"):
-                raise FanError(FAN_FAILED)
-            # Remembered like any fan HomeClimate turned on, so a restart in
-            # the middle of the test hands it back.
-            self._ours.add(tid)
-            # Timed like any run, so a fan that cannot be handed back at the
-            # end is still under the hourly limit.
-            self._since[tid] = now
-            await self._remember(conn)
-        self._tests[tid] = _Test(now, start, outside, turned_on)
-
-    async def _tick_test(
-        self,
-        conn: aiosqlite.Connection,
-        ha: Any,
-        zone: ZoneInput,
-        now: datetime,
-        say: Callable[[str, dict], Awaitable[None]],
-    ) -> None:
-        tid = zone.thermostat_entity_id
-        test = self._tests[tid]
-        # Only rooms read at both ends: one whose sensor dropped out would
-        # otherwise look like the zone moving.
-        ends = {r.room_id: r.temp for r in zone.rooms if r.temp is not None}
-        both = sorted(set(test.start) & set(ends))
-        interrupted = not zone.idle or bool(zone.blocked) or not both
-        if not interrupted and timedelta(0) <= now - test.started < TEST_LENGTH:
-            self._notes[tid] = "Testing for an outside air intake"
-            return
-        del self._tests[tid]
-        if test.turned_on and await self._stop(conn, ha, zone, now):
-            # Handed back: a test is asked for, so it is not counted against
-            # the hourly limit.
-            self._runs[tid].pop()
-        result: dict[str, Any] = {"at": now.isoformat(), "interrupted": interrupted}
-        if not interrupted:
-            began = sum(test.start[r] for r in both) / len(both)
-            ended = sum(ends[r] for r in both) / len(both)
-            toward = 1.0 if test.outside > began else -1.0
-            moved = round((ended - began) * toward, 2)
-            result.update(
-                difference=round(abs(began - test.outside), 1),
-                moved=moved,
-                hint="possible" if moved >= TEST_MOVED_F else "none",
-            )
-        await db.set_system_setting(conn, TEST_SETTING + tid, json.dumps(result))
-        self._notes[tid] = ""
-        await say(f"Fan test finished for {zone.name}", {"thermostat": tid, **result})
-
-
-async def last_test(conn: aiosqlite.Connection, thermostat_entity_id: str) -> dict | None:
-    """The last intake test's result for a zone, or None if it never ran."""
-    try:
-        found = json.loads(
-            await db.get_system_setting(conn, TEST_SETTING + thermostat_entity_id, "")
-        )
-    except ValueError:
-        return None
-    return found if isinstance(found, dict) else None

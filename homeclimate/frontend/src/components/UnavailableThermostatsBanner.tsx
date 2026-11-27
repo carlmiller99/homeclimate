@@ -1,3 +1,5 @@
+import EntityName from "./EntityName";
+import { entityName } from "../entityNames";
 import { useEffect, useState } from "react";
 import Notice from "./Notice";
 import { getThermostatHealth, type ThermostatHealth, type UnavailableThermostat } from "../api";
@@ -45,8 +47,9 @@ export default function UnavailableThermostatsBanner() {
         <ul>
           {health.thermostats.map((t) => (
             <li key={t.thermostat_entity_id}>
-              <strong>{t.name || t.thermostat_entity_id}</strong>{" "}
-              <code>{t.thermostat_entity_id}</code>{" "}
+              <strong title={t.thermostat_entity_id}>
+                {t.name || <EntityName id={t.thermostat_entity_id} />}
+              </strong>{" "}
               <span className="text-muted">({describe(t)})</span>
             </li>
           ))}
@@ -54,7 +57,7 @@ export default function UnavailableThermostatsBanner() {
       }
       testId="unavailable-thermostats-banner"
     >
-      {`${health.thermostats.map((t) => t.name || t.thermostat_entity_id).join(", ")}: ${n === 1 ? "its zone is" : "their zones are"} not being controlled until ${n === 1 ? "it is" : "they are"} back. Check the thermostat's power and connection, or the integration that provides it.`}
+      {`${health.thermostats.map((t) => t.name || entityName(t.thermostat_entity_id)).join(", ")}: ${n === 1 ? "its zone is" : "their zones are"} not being controlled until ${n === 1 ? "it is" : "they are"} back. Check the thermostat's power and connection, or the integration that provides it.`}
     </Notice>
   );
 }

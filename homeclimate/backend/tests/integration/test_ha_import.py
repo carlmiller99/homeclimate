@@ -157,6 +157,15 @@ async def test_import_is_additive_and_remembers_skips(client, fake_ha):
         "rooms_updated": 0,
         "entities_added": 5,
     }
+    # A zone that comes in this way starts with limits most houses want and
+    # the usual equipment protection, so nobody has to find those settings.
+    for zone in await (await client.get("/api/thermostats")).json():
+        assert (
+            zone["min_setpoint"],
+            zone["max_setpoint"],
+            zone["min_cycle_runtime_min"],
+            zone["min_cycle_offtime_min"],
+        ) == (65.0, 77.0, 10, 5)
     contacts = (await (await client.get("/api/smart-control")).json())["sensors"]
     assert [(c["entity_id"], c["room_id"] is not None) for c in contacts] == [
         ("binary_sensor.mud_door", True)

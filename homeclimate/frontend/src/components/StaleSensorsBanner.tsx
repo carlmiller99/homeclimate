@@ -1,3 +1,4 @@
+import EntityName from "./EntityName";
 import { useEffect, useState } from "react";
 import { getSensorHealth, type SensorHealth } from "../api";
 import { Frozen } from "../ci";
@@ -48,7 +49,7 @@ export default function StaleSensorsBanner() {
               {room.stale_sensors.map((s, i) => (
                 <span key={s.entity_id}>
                   {i > 0 && ", "}
-                  <code>{s.entity_id}</code>{" "}
+                  <EntityName id={s.entity_id} />{" "}
                   <span className="text-muted">
                     (<Frozen>{formatAge(s)}</Frozen>)
                   </span>

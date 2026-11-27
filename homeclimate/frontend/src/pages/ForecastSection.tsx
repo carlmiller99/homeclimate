@@ -1,3 +1,4 @@
+import EntityName from "../components/EntityName";
 import { useEffect, useState } from "react";
 import { Frozen } from "../ci";
 import EntityPicker from "../components/EntityPicker";
@@ -97,7 +98,7 @@ export default function ForecastSection() {
           <div className="rule-value">
             {s.weather_entity ? (
               <div className="picked-entity">
-                <span>{s.weather_entity}</span>
+                <EntityName id={s.weather_entity} />
                 <button
                   type="button"
                   className="link-button"
@@ -110,7 +111,7 @@ export default function ForecastSection() {
             ) : (
               <>
                 {data.shared_with_shades && (
-                  <span className="picked-entity">{data.weather_entity}</span>
+                  <EntityName id={data.weather_entity} className="picked-entity" />
                 )}
                 <EntityPicker
                   domain="weather"

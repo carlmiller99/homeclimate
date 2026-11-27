@@ -87,7 +87,7 @@ describe("Thermostats Page", () => {
   it("renders thermostat list", async () => {
     render(<Thermostats />);
     expect(await screen.findByText("Main HVAC")).toBeInTheDocument();
-    expect(screen.getByText("climate.test")).toBeInTheDocument();
+    expect(screen.getByTitle("climate.test")).toBeInTheDocument();
   });
 
   it("validates friendly name in registration", async () => {
@@ -169,7 +169,7 @@ describe("Thermostats Page", () => {
     render(<Thermostats />);
     await cardsSettled();
 
-    const totalVentsInput = await screen.findByLabelText(/^Total vent count$/);
+    const totalVentsInput = await screen.findByLabelText(/^Number of Vents/);
     expect(totalVentsInput).toBeInTheDocument();
 
     const fractionSlider = document.getElementById(
@@ -184,8 +184,8 @@ describe("Thermostats Page", () => {
     fireEvent.click(bypassCheckbox);
     expect(fractionSlider.disabled).toBe(true);
 
-    // The hint text changes to explain why the slider isn't enforced.
-    expect(screen.getByText(/bypass damper handles pressure relief/i)).toBeInTheDocument();
+    // Hovering the switch says why the share is not enforced then.
+    expect(screen.getByTitle(/^A bypass damper lets extra air escape/)).toBeInTheDocument();
   });
 
   it("saves the airflow-floor fields together (Issue #213)", async () => {
@@ -193,7 +193,7 @@ describe("Thermostats Page", () => {
     render(<Thermostats />);
     await cardsSettled();
 
-    const totalVentsInput = await screen.findByLabelText(/^Total vent count$/);
+    const totalVentsInput = await screen.findByLabelText(/^Number of Vents/);
     fireEvent.change(totalVentsInput, { target: { value: "12" } });
 
     const fractionSlider = document.getElementById(
@@ -251,9 +251,12 @@ describe("Thermostats Page", () => {
     // The form adopted the server's echo, which is what `onSaved` exists for:
     // a later re-derive must come from the just-saved values, never the stale
     // page-load config that would silently regress the DB on re-save (#293).
-    await waitFor(() => expect(screen.getByLabelText(/Min setpoint/i)).toHaveDisplayValue("61"), {
-      timeout: 5000,
-    });
+    await waitFor(
+      () => expect(screen.getByLabelText(/^Lowest temperature/)).toHaveDisplayValue("61"),
+      {
+        timeout: 5000,
+      }
+    );
 
     // Simulate App re-rendering with fresh unit-context identities (the #293
     // trigger — e.g. toggling System/Dev). The form must still show the
@@ -290,7 +293,7 @@ describe("Thermostats Page", () => {
     render(<Thermostats />);
     await cardsSettled();
 
-    const nameInput = screen.getByLabelText(/Friendly name/i, {
+    const nameInput = screen.getByLabelText(/^Name/, {
       selector: "#thermo-climate\\.test-name",
     }) as HTMLInputElement;
     fireEvent.change(nameInput, { target: { value: "Edited, not yet saved" } });
@@ -299,13 +302,13 @@ describe("Thermostats Page", () => {
     // A real refetch returns structurally identical data behind fresh identities.
     vi.mocked(api.getThermostats).mockResolvedValue([{ ...mockThermostats[0] }]);
 
-    const spareCard = screen.getByText("climate.spare").closest(".card") as HTMLElement;
+    const spareCard = screen.getByTitle("climate.spare").closest(".card") as HTMLElement;
     fireEvent.click(within(spareCard).getByRole("button", { name: "Delete Zone" }));
     const dialog = await screen.findByTestId("confirm-dialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete Zone" }));
 
     await waitFor(() => expect(api.deleteThermostat).toHaveBeenCalledWith("climate.spare", true));
-    await waitFor(() => expect(screen.queryByText("climate.spare")).toBeNull());
+    await waitFor(() => expect(screen.queryByTitle("climate.spare")).toBeNull());
 
     // Settle React fully before asserting. The old reset was queued in a passive
     // effect, which lands a host task AFTER the refetch's DOM update — reading
@@ -343,7 +346,7 @@ describe("Thermostats Page", () => {
     render(<Thermostats />);
     await cardsSettled();
 
-    const nameInput = screen.getByLabelText(/Friendly name/i, {
+    const nameInput = screen.getByLabelText(/^Name/, {
       selector: "#thermo-climate\\.test-name",
     }) as HTMLInputElement;
     fireEvent.change(nameInput, { target: { value: "Edited, not yet saved" } });
@@ -378,7 +381,7 @@ describe("Thermostats Page", () => {
     const { unmount } = render(<Thermostats />);
     await cardsSettled();
 
-    const nameInput = screen.getByLabelText(/Friendly name/i, {
+    const nameInput = screen.getByLabelText(/^Name/, {
       selector: "#thermo-climate\\.test-name",
     }) as HTMLInputElement;
     fireEvent.change(nameInput, { target: { value: "Edited, not yet saved" } });
@@ -415,7 +418,7 @@ describe("Thermostats Page", () => {
     );
     await cardsSettled();
 
-    const minF = screen.getByLabelText(/Min setpoint \(°F\)/i) as HTMLInputElement;
+    const minF = screen.getByLabelText("Lowest temperature (°F)") as HTMLInputElement;
     fireEvent.change(minF, { target: { value: "62" } });
     expect(minF.value).toBe("62");
 
@@ -429,7 +432,7 @@ describe("Thermostats Page", () => {
     // pass that can be scheduled a tick later when the suite runs under load.
     // The assertion itself is unchanged — it must still reach 15.6.
     await waitFor(() => {
-      const minC = screen.getByLabelText(/Min setpoint \(°C\)/i) as HTMLInputElement;
+      const minC = screen.getByLabelText("Lowest temperature (°C)") as HTMLInputElement;
       // toDisplay(60) = 15.6 °C — the stored value, not the typed 62.
       expect(parseFloat(minC.value)).toBeCloseTo(15.6, 1);
     });
@@ -457,7 +460,7 @@ describe("Thermostats Page", () => {
     );
     await cardsSettled();
 
-    const minF = screen.getByLabelText(/Min setpoint \(°F\)/i) as HTMLInputElement;
+    const minF = screen.getByLabelText("Lowest temperature (°F)") as HTMLInputElement;
     expect(minF.value).toBe("60");
     fireEvent.change(minF, { target: { value: "62" } });
     expect(minF.value).toBe("62");
@@ -473,7 +476,7 @@ describe("Thermostats Page", () => {
     // Converged on the re-derived value — not looping ("Too many re-renders"),
     // not stuck on the typed 62, not stale at 60 under a °C label.
     await waitFor(() => {
-      const minC = screen.getByLabelText(/Min setpoint \(°C\)/i) as HTMLInputElement;
+      const minC = screen.getByLabelText("Lowest temperature (°C)") as HTMLInputElement;
       expect(parseFloat(minC.value)).toBeCloseTo(15.6, 1);
     });
   });
@@ -503,7 +506,7 @@ describe("Thermostats Page", () => {
     render(<Thermostats />);
     await cardsSettled();
 
-    const nameInput = await screen.findByLabelText(/Friendly name/i, {
+    const nameInput = await screen.findByLabelText(/^Name/, {
       selector: "#thermo-climate\\.test-name",
     });
     fireEvent.change(nameInput, { target: { value: "Updated Name" } });
@@ -526,8 +529,8 @@ describe("Thermostats Page", () => {
     render(<Thermostats />);
     await cardsSettled();
 
-    const runtimeInput = await screen.findByLabelText(/Min cycle runtime/i);
-    const offtimeInput = await screen.findByLabelText(/Min compressor off-time/i);
+    const runtimeInput = await screen.findByLabelText(/^Run at least/);
+    const offtimeInput = await screen.findByLabelText(/^Rest between runs at least/);
     fireEvent.change(runtimeInput, { target: { value: "10" } });
     fireEvent.change(offtimeInput, { target: { value: "5" } });
 
@@ -551,13 +554,13 @@ describe("Thermostats Page", () => {
     await cardsSettled();
 
     const input = (await screen.findByLabelText(
-      /Abort when thermostat unavailable/i
+      /^End a run if the thermostat goes quiet for/
     )) as HTMLInputElement;
     // Initializes from the config value, no unit conversion (it's minutes).
     expect(input.value).toBe("5");
     // The helper text explains the consequence, including the 0 = never case.
-    expect(screen.getByText(/the run is ended and every vent is opened/i)).toBeInTheDocument();
-    expect(screen.getAllByText(/0 turns this off/i).length).toBeGreaterThan(0);
+    expect(screen.getByTitle(/^The run is ended and every vent is opened/)).toBeInTheDocument();
+    expect(screen.getAllByTitle(/0 turns this off/).length).toBeGreaterThan(0);
 
     fireEvent.change(input, { target: { value: "12" } });
     const card = input.closest(".card") as HTMLElement;
@@ -576,7 +579,7 @@ describe("Thermostats Page", () => {
     // to hook into (no hold ever happens), so it is disabled with a hint.
     render(<Thermostats />);
     const overflowToggle = (await screen.findByLabelText(
-      /Redirect surplus air to other rooms/i
+      /^Send spare air to other rooms/
     )) as HTMLInputElement;
     expect(overflowToggle).toBeDisabled();
   });
@@ -587,11 +590,11 @@ describe("Thermostats Page", () => {
     await cardsSettled();
 
     // First, give the min-runtime hold a non-zero value so the toggle is enabled.
-    const runtimeInput = await screen.findByLabelText(/Min cycle runtime/i);
+    const runtimeInput = await screen.findByLabelText(/^Run at least/);
     fireEvent.change(runtimeInput, { target: { value: "10" } });
 
     const overflowToggle = (await screen.findByLabelText(
-      /Redirect surplus air to other rooms/i
+      /^Send spare air to other rooms/
     )) as HTMLInputElement;
     expect(overflowToggle).not.toBeDisabled();
     expect(overflowToggle.checked).toBe(true); // default true from mock
@@ -617,7 +620,7 @@ describe("Thermostats Page", () => {
     render(<Thermostats />);
     await cardsSettled();
 
-    const lockoutInput = await screen.findByLabelText(/Cooling lockout/i);
+    const lockoutInput = await screen.findByLabelText(/^No cooling when outside is below/);
     fireEvent.change(lockoutInput, { target: { value: "55" } });
 
     const card = lockoutInput.closest(".card") as HTMLElement;
@@ -636,7 +639,7 @@ describe("Thermostats Page", () => {
     render(<Thermostats />);
     await cardsSettled();
 
-    const lockoutInput = await screen.findByLabelText(/Cooling lockout/i);
+    const lockoutInput = await screen.findByLabelText(/^No cooling when outside is below/);
     fireEvent.change(lockoutInput, { target: { value: "55" } });
     fireEvent.change(lockoutInput, { target: { value: "" } });
 
@@ -653,7 +656,7 @@ describe("Thermostats Page", () => {
 
   it("renders the house-wide outside temperature sensor picker", async () => {
     render(<Thermostats />);
-    expect(await screen.findByText("Outside temperature sensors")).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "Outside" })).toBeInTheDocument();
   });
 
   it("saves the outside temperature sensor selection", async () => {
@@ -666,7 +669,10 @@ describe("Thermostats Page", () => {
     });
     render(<Thermostats />);
 
-    const searchInput = await screen.findByPlaceholderText(/Search sensor \/ weather entities/i);
+    const addSensor = await screen.findByRole("button", { name: "Add Sensor" });
+    await waitFor(() => expect(addSensor).toBeEnabled());
+    fireEvent.click(addSensor);
+    const searchInput = screen.getByPlaceholderText("Search sensors and weather…");
     fireEvent.focus(searchInput);
     fireEvent.change(searchInput, { target: { value: "outdoor" } });
 
@@ -682,8 +688,8 @@ describe("Thermostats Page", () => {
     render(<Thermostats />);
     await cardsSettled();
 
-    const minInput = await screen.findByLabelText(/Min setpoint/i);
-    const maxInput = await screen.findByLabelText(/Max setpoint/i);
+    const minInput = await screen.findByLabelText(/^Lowest temperature/);
+    const maxInput = await screen.findByLabelText(/^Highest temperature/);
 
     fireEvent.change(minInput, { target: { value: "85" } });
     fireEvent.change(maxInput, { target: { value: "80" } });
@@ -713,17 +719,22 @@ describe("Thermostats Page — while you are away", () => {
 
   it("says how the zone is held while the house is away", async () => {
     render(<Thermostats />);
-    expect(await screen.findByText(/On vacation this zone is kept between/)).toBeInTheDocument();
+    expect(
+      (
+        await screen.findAllByTitle(
+          /^On vacation a room that gets colder than \d+°F or warmer than/
+        )
+      ).length
+    ).toBeGreaterThan(0);
     expect(screen.queryByLabelText(/Vacation HVAC mode/i)).not.toBeInTheDocument();
   });
 
   it("offers per-room safety cycles and posts the toggle (#626)", async () => {
     vi.mocked(api.updateThermostat).mockResolvedValue({} as api.ThermostatConfig);
     render(<Thermostats />);
-    const toggle = await screen.findByLabelText(/Run per-room safety cycles during vacation/i);
+    const toggle = await screen.findByLabelText(/^Keep each room inside the limits/);
     expect(toggle).toBeChecked();
     expect(toggle).toBeEnabled();
-    expect(screen.getByText(/gets heating or cooling for that room/)).toBeVisible();
 
     fireEvent.click(toggle);
     const card = toggle.closest(".card") as HTMLElement;
@@ -761,14 +772,14 @@ describe("Thermostats Page — Celsius mode", () => {
     await screen.findByText("Main HVAC");
 
     // Absolute temp fields should have (°C) appended
-    expect(screen.getByLabelText(/Min setpoint \(°C\)/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/Max setpoint \(°C\)/i)).toBeInTheDocument();
+    expect(screen.getByLabelText("Lowest temperature (°C)")).toBeInTheDocument();
+    expect(screen.getByLabelText("Highest temperature (°C)")).toBeInTheDocument();
     // Delta temp fields should also have (°C)
-    expect(screen.getByLabelText(/Deadband \(°C\)/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/Overshoot delta \(°C\)/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Room counts as at target within/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Run past the target by/)).toBeInTheDocument();
     // Non-temp field should NOT have (°C). Total vent count is one of the
     // new airflow-floor fields (#213) — a unit-less integer.
-    expect(screen.getByLabelText(/Total vent count$/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Number of Vents/)).toBeInTheDocument();
     expect(screen.queryByLabelText(/Total vent count \(°C\)/i)).toBeNull();
   });
 
@@ -777,7 +788,7 @@ describe("Thermostats Page — Celsius mode", () => {
     await screen.findByText("Main HVAC");
 
     // min_setpoint=60°F → toDisplay(60) = (60-32)*5/9 = 15.6°C
-    const minInput = screen.getByLabelText(/Min setpoint \(°C\)/i) as HTMLInputElement;
+    const minInput = screen.getByLabelText("Lowest temperature (°C)") as HTMLInputElement;
     expect(parseFloat(minInput.value)).toBeCloseTo(15.6, 1);
   });
 
@@ -786,14 +797,14 @@ describe("Thermostats Page — Celsius mode", () => {
     renderInCelsius();
     await cardsSettled();
 
-    const nameInput = await screen.findByLabelText(/Friendly name/i, {
+    const nameInput = await screen.findByLabelText(/^Name/, {
       selector: "#thermo-climate\\.test-name",
     });
 
     // The frontend MUST send the display-unit value as-is — the backend's
     // _to_f converts °C → °F on the write boundary. Sending pre-converted
     // °F here would cause double conversion (#231).
-    const minInput = screen.getByLabelText(/Min setpoint \(°C\)/i) as HTMLInputElement;
+    const minInput = screen.getByLabelText("Lowest temperature (°C)") as HTMLInputElement;
     fireEvent.change(minInput, { target: { value: "16" } });
     // Fail at the line where the damage happens. A form reset that lands inside
     // fireEvent's act() would revert this to the initial 15.6, and without this
@@ -816,13 +827,13 @@ describe("Thermostats Page — Celsius mode", () => {
     renderInCelsius();
     await cardsSettled();
 
-    const nameInput = await screen.findByLabelText(/Friendly name/i, {
+    const nameInput = await screen.findByLabelText(/^Name/, {
       selector: "#thermo-climate\\.test-name",
     });
 
     // Backend _delta_to_f handles °C delta → °F delta. Frontend stays out
     // of conversion to avoid the double-conversion bug (#231).
-    const deadbandInput = screen.getByLabelText(/Deadband \(°C\)/i);
+    const deadbandInput = screen.getByLabelText(/^Room counts as at target within/);
     fireEvent.change(deadbandInput, { target: { value: "1" } });
     // Fail where the damage happens, not later as a confusing POST body (#597).
     expect(deadbandInput).toHaveDisplayValue("1");
@@ -847,20 +858,24 @@ describe("Thermostats Page — Celsius mode", () => {
     renderInCelsius();
     await cardsSettled();
 
-    const nameInput = await screen.findByLabelText(/Friendly name/i, {
+    const nameInput = await screen.findByLabelText(/^Name/, {
       selector: "#thermo-climate\\.test-name",
     });
 
-    fireEvent.change(screen.getByLabelText(/Min setpoint \(°C\)/i), { target: { value: "16" } });
-    fireEvent.change(screen.getByLabelText(/Max setpoint \(°C\)/i), { target: { value: "27" } });
-    fireEvent.change(screen.getByLabelText(/Deadband \(°C\)/i), { target: { value: "0.3" } });
-    fireEvent.change(screen.getByLabelText(/Overshoot delta \(°C\)/i), {
+    fireEvent.change(screen.getByLabelText("Lowest temperature (°C)"), { target: { value: "16" } });
+    fireEvent.change(screen.getByLabelText("Highest temperature (°C)"), {
+      target: { value: "27" },
+    });
+    fireEvent.change(screen.getByLabelText(/^Room counts as at target within/), {
+      target: { value: "0.3" },
+    });
+    fireEvent.change(screen.getByLabelText(/^Run past the target by/), {
       target: { value: "0.3" },
     });
     // Fail at the line where the damage happens: a form reset landing inside
     // fireEvent's act() would revert these to the initial derived values, and
     // that used to surface only as a confusing POST body (#597).
-    expect(screen.getByLabelText(/Min setpoint \(°C\)/i)).toHaveDisplayValue("16");
+    expect(screen.getByLabelText("Lowest temperature (°C)")).toHaveDisplayValue("16");
 
     const card = nameInput.closest(".card") as HTMLElement;
     fireEvent.click(within(card).getByText("Save Changes"));
@@ -886,7 +901,7 @@ describe("Thermostats Page — Celsius mode", () => {
     renderInCelsius();
     await cardsSettled();
 
-    const nameInput = await screen.findByLabelText(/Friendly name/i, {
+    const nameInput = await screen.findByLabelText(/^Name/, {
       selector: "#thermo-climate\\.test-name",
     });
     expect(screen.queryByLabelText(/Cooling.*outdoor threshold/i)).not.toBeInTheDocument();
@@ -1253,29 +1268,18 @@ describe("Thermostats Page — welcome home (#728)", () => {
     await cardsSettled();
     const g = group();
     expect(within(g).getByLabelText(/Get the house ready/i)).toBeChecked();
-    expect(within(g).getByLabelText(/minutes before return/i)).toHaveValue(60);
+    expect(within(g).getByLabelText(/^Start this long before I return/)).toHaveValue(60);
     expect(within(g).getByLabelText(/Keep rooms occupied for/i)).toHaveValue(1);
-    expect(g).toHaveTextContent(/each room is brought to its occupied temperature for this long/);
-  });
-
-  it("bottom-aligns both timing fields so their inputs line up when one caption wraps", async () => {
-    render(<Thermostats />);
-    await cardsSettled();
-    for (const name of [/minutes before return/i, /Keep rooms occupied for/i]) {
-      const field = within(group()).getByLabelText(name).closest("label") as HTMLElement;
-      expect(field).toHaveStyle({
-        display: "flex",
-        flexDirection: "column",
-        justifyContent: "flex-end",
-      });
-    }
+    expect(
+      within(g).getByTitle(/each room is brought to its occupied temperature/)
+    ).toBeInTheDocument();
   });
 
   it("disables the timing inputs when welcome home is off, and saves the toggle", async () => {
     render(<Thermostats />);
     await cardsSettled();
     fireEvent.click(within(group()).getByLabelText(/Get the house ready/i));
-    expect(within(group()).getByLabelText(/minutes before return/i)).toBeDisabled();
+    expect(within(group()).getByLabelText(/^Start this long before I return/)).toBeDisabled();
     expect(within(group()).getByLabelText(/Keep rooms occupied for/i)).toBeDisabled();
     save();
     await waitFor(() =>
@@ -1297,8 +1301,8 @@ describe("Thermostats Page — welcome home (#728)", () => {
     ]);
     render(<Thermostats />);
     await cardsSettled();
-    expect(within(group()).getByLabelText(/minutes before return/i)).toHaveValue(30);
-    fireEvent.change(within(group()).getByLabelText(/minutes before return/i), {
+    expect(within(group()).getByLabelText(/^Start this long before I return/)).toHaveValue(30);
+    fireEvent.change(within(group()).getByLabelText(/^Start this long before I return/), {
       target: { value: "90" },
     });
     fireEvent.change(within(group()).getByLabelText(/Keep rooms occupied for/i), {
@@ -1319,12 +1323,12 @@ describe("Thermostats Page — welcome home (#728)", () => {
 
   it.each([
     [
-      "minutes before return",
+      "Start this long before I return",
       "250",
       "Welcome home start must be a whole number of minutes from 0 to 240",
     ],
     [
-      "minutes before return",
+      "Start this long before I return",
       "12.5",
       "Welcome home start must be a whole number of minutes from 0 to 240",
     ],

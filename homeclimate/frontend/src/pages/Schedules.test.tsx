@@ -69,11 +69,157 @@ describe("Schedules Page", () => {
       ],
     });
     render(<Schedules />);
-    const group = await screen.findByRole("radiogroup", { name: "Living Room is in use" });
-    expect(group).toBeInTheDocument();
-    expect(screen.getByRole("radio", { name: "Never" })).toBeChecked();
-    // It is there without opening the room's time blocks.
-    expect(screen.queryByText(/Add schedule/i)).toBeNull();
+    // Closed, the card says it in a word; opened, it is the first thing asked.
+    const head = await screen.findByRole("button", { name: /^Living Room/ });
+    await waitFor(() => expect(head).toHaveTextContent("Never in use"));
+    expect(screen.queryByRole("radiogroup")).toBeNull();
+    fireEvent.click(head);
+    expect(head).toHaveAttribute("aria-expanded", "true");
+    const group = screen.getByRole("radiogroup", { name: "Living Room is in use" });
+    expect(within(group).getByRole("radio", { name: "Never" })).toBeChecked();
+    // The room's own temperatures and its time blocks are in the same card.
+    expect(screen.getByRole("region", { name: "When occupied" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add Block" })).toBeInTheDocument();
+  });
+
+  it("says in a word how each room's use is decided, and keeps a saved temperature", async () => {
+    const loft = { ...mockRooms[0], id: "room-2", name: "Loft" };
+    vi.mocked(api.getRooms).mockResolvedValue([mockRooms[0], loft]);
+    vi.mocked(api.api).mockResolvedValue({
+      rooms: [
+        {
+          room_id: mockRooms[0].id,
+          in_use: true,
+          use_schedules: true,
+          use_presence: true,
+          calendar: { entity_id: "calendar.guests", match_text: "", lead_min: 0 },
+        },
+        {
+          room_id: "room-2",
+          in_use: true,
+          use_schedules: true,
+          use_presence: true,
+          calendar: null,
+        },
+      ],
+    });
+    vi.mocked(api.updateRoom).mockImplementation(
+      async (_id, patch) => ({ ...mockRooms[0], ...patch }) as api.Room
+    );
+    render(<Schedules />);
+    const first = await screen.findByRole("button", { name: /^Living Room/ });
+    await waitFor(() => expect(first).toHaveTextContent("On a calendar"));
+    expect(screen.getByRole("button", { name: /^Loft/ })).toHaveTextContent("Always in use");
+    // The room's own occupied temperature is set here, and the card keeps it.
+    fireEvent.click(first);
+    const occupied = screen.getByRole("region", { name: "When occupied" });
+    const temp = within(occupied).getAllByRole("spinbutton")[0];
+    fireEvent.change(temp, { target: { value: "71" } });
+    fireEvent.click(within(occupied).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(api.updateRoom).toHaveBeenCalled());
+    expect(await within(occupied).findByText("Saved")).toBeInTheDocument();
+    expect(temp).toHaveValue(71);
+  });
+
+  it("lists the rooms when the zones cannot be read, naming each by its thermostat", async () => {
+    vi.mocked(api.getThermostats).mockRejectedValue(new Error("down"));
+    render(<Schedules />);
+    const head = await screen.findByRole("button", { name: /^Living Room/ });
+    expect(within(head).getByTitle(mockRooms[0].thermostat_entity_id)).toBeInTheDocument();
+  });
+
+  it("names each room's zone, and opens its fine tuning from the card", async () => {
+    vi.mocked(api.getThermostats).mockResolvedValue([
+      { thermostat_entity_id: mockRooms[0].thermostat_entity_id, name: "North Wing" },
+    ] as api.ThermostatConfig[]);
+    vi.mocked(api.updateRoom).mockImplementation(
+      async (_id, patch) => ({ ...mockRooms[0], ...patch }) as api.Room
+    );
+    vi.mocked(api.getOutsideTempEntity).mockResolvedValue({
+      entity_id: null,
+      current_value: null,
+    });
+    render(<Schedules />);
+    const head = await screen.findByRole("button", { name: /^Living Room/ });
+    // By the zone's name; the thermostat's entity ID is on hover only.
+    expect(await within(head).findByText("North Wing")).toHaveAttribute(
+      "title",
+      mockRooms[0].thermostat_entity_id
+    );
+    fireEvent.click(head);
+    const tuning = screen.getByRole("button", { name: /^Fine Tuning/ });
+    expect(tuning).toHaveTextContent("Uses its zone's settings");
+    fireEvent.click(tuning);
+    const dialog = await screen.findByRole("dialog", { name: "Living Room heating and cooling" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    // Saved there, the card shows it at once.
+    fireEvent.click(tuning);
+    const again = await screen.findByRole("dialog", { name: "Living Room heating and cooling" });
+    fireEvent.change(within(again).getByLabelText(/Temperature offset/i), {
+      target: { value: "1.5" },
+    });
+    fireEvent.click(within(again).getByRole("button", { name: /^Save/ }));
+    await waitFor(() => expect(api.updateRoom).toHaveBeenCalled());
+    await waitFor(() => expect(tuning).toHaveTextContent("offset 1.5°F"));
+  });
+
+  it("says what a room changed from its zone, in a few words", async () => {
+    vi.mocked(api.getRooms).mockResolvedValue([
+      {
+        ...mockRooms[0],
+        temp_offset: -1,
+        deadband_override: 2,
+        ambient_suppression_enabled: true,
+        eco_mode_enabled: false,
+      },
+      { ...mockRooms[0], id: "r-eco", name: "Sun Room", eco_mode_enabled: true },
+    ] as api.Room[]);
+    render(<Schedules />);
+    fireEvent.click(await screen.findByRole("button", { name: /^Living Room/ }));
+    expect(screen.getByRole("button", { name: /^Fine Tuning/ })).toHaveTextContent(
+      "offset -1°F, own deadband 2°F, waits on the weather, Eco off"
+    );
+    fireEvent.click(screen.getByRole("button", { name: /^Sun Room/ }));
+    expect(screen.getAllByRole("button", { name: /^Fine Tuning/ })[1]).toHaveTextContent("Eco on");
+  });
+
+  it("draws the week, carrying a block past midnight into the next day", async () => {
+    vi.mocked(api.getRooms).mockResolvedValue([mockRooms[0]]);
+    vi.mocked(api.getSchedules).mockResolvedValue([
+      { ...mockSchedules[0], id: "day", days_of_week: [0], start_time: "06:00", end_time: "12:00" },
+      {
+        ...mockSchedules[0],
+        id: "night",
+        days_of_week: [6],
+        start_time: "22:00",
+        end_time: "02:00",
+      },
+      {
+        ...mockSchedules[0],
+        id: "late",
+        days_of_week: [1],
+        start_time: "18:00",
+        end_time: "00:00",
+      },
+      { ...mockSchedules[0], id: "off", days_of_week: [3], enabled: false },
+    ] as api.Schedule[]);
+    render(<Schedules />);
+    const head = await screen.findByRole("button", { name: /^Living Room/ });
+    await waitFor(() => expect(head).toHaveTextContent("3 blocks, 1 off"));
+    fireEvent.click(head);
+    const strip = screen.getByRole("img", { name: "3 blocks across the week" });
+    const bars = (day: number) =>
+      [...strip.querySelectorAll(".week-strip-day")[day].querySelectorAll("i")].map(
+        (b) => `${parseFloat(b.style.left).toFixed(1)} ${parseFloat(b.style.width).toFixed(1)}`
+      );
+    // Monday: 6 to noon, and the first two hours left over from Sunday night.
+    expect(bars(0)).toEqual(["25.0 25.0", "0.0 8.3"]);
+    expect(bars(6)).toEqual(["91.7 8.3"]);
+    // Up to midnight exactly leaves nothing for the next day; a block that is off draws nothing.
+    expect(bars(1)).toEqual(["75.0 25.0"]);
+    expect(bars(2)).toEqual([]);
+    expect(bars(3)).toEqual([]);
   });
 
   it("still lists the time blocks when the home's layout cannot be read", async () => {
@@ -90,11 +236,11 @@ describe("Schedules Page", () => {
     fireEvent.click(await screen.findByText("Living Room"));
 
     // Click Add
-    fireEvent.click(await screen.findByText("+ Add schedule block"));
+    fireEvent.click(await screen.findByText("Add Block"));
 
     // Set overlapping time (default in modal is 22:00-07:00, same as mock)
     // Click Save
-    fireEvent.click(screen.getByText("Save"));
+    fireEvent.click(screen.getAllByText("Save").slice(-1)[0]);
 
     expect(await screen.findByText(/Overlaps with existing block/)).toBeInTheDocument();
   });
@@ -113,7 +259,7 @@ describe("Schedules Page", () => {
 
     render(<Schedules />);
     fireEvent.click(await screen.findByText("Living Room"));
-    fireEvent.click(await screen.findByText("+ Add schedule block"));
+    fireEvent.click(await screen.findByText("Add Block"));
 
     const startInput = screen.getByLabelText(/Start time/i);
     const endInput = screen.getByLabelText(/End time/i);
@@ -121,7 +267,7 @@ describe("Schedules Page", () => {
     fireEvent.change(startInput, { target: { value: "10:00" } });
     fireEvent.change(endInput, { target: { value: "12:00" } });
 
-    fireEvent.click(screen.getByText("Save"));
+    fireEvent.click(screen.getAllByText("Save").slice(-1)[0]);
 
     // Assert the whole payload, not just that the call happened: a bare
     // toHaveBeenCalled() passed with any of the times, days or target wired
@@ -161,7 +307,7 @@ describe("Schedules Page", () => {
     const tempInput = screen.getByLabelText(/Target temperature/i);
     fireEvent.change(tempInput, { target: { value: "70" } });
 
-    fireEvent.click(screen.getByText("Save"));
+    fireEvent.click(screen.getAllByText("Save").slice(-1)[0]);
 
     // The edited target must reach the PUT, addressed at the block being
     // edited — a bare toHaveBeenCalled() passed even if the typed 70 never
@@ -232,7 +378,7 @@ describe("Schedules Page — Celsius mode", () => {
   it("shows temperature label in °C", async () => {
     renderInCelsius();
     fireEvent.click(await screen.findByText("Living Room"));
-    fireEvent.click(await screen.findByText("+ Add schedule block"));
+    fireEvent.click(await screen.findByText("Add Block"));
     expect(screen.getByText("Target temperature (°C)")).toBeInTheDocument();
   });
 
@@ -246,11 +392,11 @@ describe("Schedules Page — Celsius mode", () => {
   it("shows validation error bounds in °C", async () => {
     renderInCelsius();
     fireEvent.click(await screen.findByText("Living Room"));
-    fireEvent.click(await screen.findByText("+ Add schedule block"));
+    fireEvent.click(await screen.findByText("Add Block"));
 
     const tempInput = screen.getByLabelText(/Target temperature/i);
     fireEvent.change(tempInput, { target: { value: "0" } }); // 0°C < 4.4°C lower bound
-    fireEvent.click(screen.getByText("Save"));
+    fireEvent.click(screen.getAllByText("Save").slice(-1)[0]);
 
     // 4.5, not 4.4: toDisplay(40) rounds to 4.4 °C, which converts back to
     // 39.92 °F and the backend refuses it. The form must advertise a minimum
@@ -272,14 +418,14 @@ describe("Schedules Page — Celsius mode", () => {
 
     renderInCelsius();
     fireEvent.click(await screen.findByText("Living Room"));
-    fireEvent.click(await screen.findByText("+ Add schedule block"));
+    fireEvent.click(await screen.findByText("Add Block"));
 
     fireEvent.change(screen.getByLabelText(/Start time/i), { target: { value: "10:00" } });
     fireEvent.change(screen.getByLabelText(/End time/i), { target: { value: "12:00" } });
     // Frontend sends display value as-is; backend's _to_f converts °C → °F.
     fireEvent.change(screen.getByLabelText(/Target temperature/i), { target: { value: "22" } });
 
-    fireEvent.click(screen.getByText("Save"));
+    fireEvent.click(screen.getAllByText("Save").slice(-1)[0]);
 
     await waitFor(() => {
       expect(api.createSchedule).toHaveBeenCalledWith(
@@ -306,8 +452,10 @@ describe("Schedules Page — lifecycle (#359)", () => {
       { ...mockSchedules[0], id: "b", enabled: false, start_time: "08:00", end_time: "09:00" },
     ]);
     render(<Schedules />);
-    expect(await screen.findByText("1 active")).toBeInTheDocument();
-    expect(await screen.findByText("1 inactive")).toBeInTheDocument();
+    const head = await screen.findByRole("button", { name: /^Living Room/ });
+    await waitFor(() => expect(head).toHaveTextContent("1 block, 1 off"));
+    fireEvent.click(head);
+    expect(screen.getByRole("img", { name: "1 block across the week" })).toBeInTheDocument();
   });
 
   it("disabling a block sends enabled:false", async () => {
@@ -339,14 +487,14 @@ describe("Schedules Page — lifecycle (#359)", () => {
     });
     render(<Schedules />);
     fireEvent.click(await screen.findByText("Living Room"));
-    fireEvent.click(await screen.findByText("+ Add schedule block"));
+    fireEvent.click(await screen.findByText("Add Block"));
     fireEvent.change(screen.getByLabelText(/Start time/i), { target: { value: "10:00" } });
     fireEvent.change(screen.getByLabelText(/End time/i), { target: { value: "12:00" } });
     fireEvent.click(screen.getByLabelText("Auto-disable at"));
     fireEvent.change(screen.getByLabelText("Auto-disable date and time"), {
       target: { value: "2030-01-01T08:00" },
     });
-    fireEvent.click(screen.getByText("Save"));
+    fireEvent.click(screen.getAllByText("Save").slice(-1)[0]);
     await waitFor(() => {
       expect(api.createSchedule).toHaveBeenCalledWith(
         "room-1",
@@ -359,10 +507,10 @@ describe("Schedules Page — lifecycle (#359)", () => {
     vi.mocked(api.createSchedule).mockResolvedValue({ ...mockSchedules[0], id: "new" });
     render(<Schedules />);
     fireEvent.click(await screen.findByText("Living Room"));
-    fireEvent.click(await screen.findByText("+ Add schedule block"));
+    fireEvent.click(await screen.findByText("Add Block"));
     fireEvent.change(screen.getByLabelText(/Start time/i), { target: { value: "10:00" } });
     fireEvent.change(screen.getByLabelText(/End time/i), { target: { value: "12:00" } });
-    fireEvent.click(screen.getByText("Save"));
+    fireEvent.click(screen.getAllByText("Save").slice(-1)[0]);
     await waitFor(() => {
       expect(api.createSchedule).toHaveBeenCalledWith(
         "room-1",
@@ -378,9 +526,9 @@ describe("Schedules Page — lifecycle (#359)", () => {
     vi.mocked(api.createSchedule).mockResolvedValue({ ...mockSchedules[0], id: "new" });
     render(<Schedules />);
     fireEvent.click(await screen.findByText("Living Room"));
-    fireEvent.click(await screen.findByText("+ Add schedule block"));
+    fireEvent.click(await screen.findByText("Add Block"));
     // Modal defaults to 22:00–07:00 Mon–Fri, same as the parked block.
-    fireEvent.click(screen.getByText("Save"));
+    fireEvent.click(screen.getAllByText("Save").slice(-1)[0]);
     await waitFor(() => {
       expect(api.createSchedule).toHaveBeenCalled();
     });
@@ -435,7 +583,7 @@ const createdSchedule: api.Schedule = {
 /** Open the "New schedule" modal with valid times already filled in. */
 const openNewBlock = async () => {
   fireEvent.click(await screen.findByText("Living Room"));
-  fireEvent.click(await screen.findByText("+ Add schedule block"));
+  fireEvent.click(await screen.findByText("Add Block"));
   fireEvent.change(screen.getByLabelText(/Start time/i), { target: { value: "10:00" } });
   fireEvent.change(screen.getByLabelText(/End time/i), { target: { value: "12:00" } });
 };
@@ -492,7 +640,7 @@ describe("Schedules Page — per-schedule deadband override (#517)", () => {
   it("sends deadband_override:null when left on the room's normal deadband", async () => {
     render(<Schedules />);
     await openNewBlock();
-    fireEvent.click(screen.getByText("Save"));
+    fireEvent.click(screen.getAllByText("Save").slice(-1)[0]);
 
     await waitFor(() => {
       expect(api.createSchedule).toHaveBeenCalledWith(
@@ -506,7 +654,7 @@ describe("Schedules Page — per-schedule deadband override (#517)", () => {
     render(<Schedules />);
     await openNewBlock();
     expect(screen.getByLabelText(/Target temperature/i)).toBeInTheDocument();
-    fireEvent.click(screen.getByText("Save"));
+    fireEvent.click(screen.getAllByText("Save").slice(-1)[0]);
     await waitFor(() => expect(api.createSchedule).toHaveBeenCalled());
     expect(vi.mocked(api.createSchedule).mock.calls[0][1]).not.toHaveProperty("cool_to");
   });
@@ -514,9 +662,11 @@ describe("Schedules Page — per-schedule deadband override (#517)", () => {
   it("sends the typed Cool To, and calls the target Heat To", async () => {
     render(<Schedules />);
     await openNewBlock();
-    fireEvent.change(screen.getByLabelText(/Cool To/i), { target: { value: "76" } });
+    fireEvent.change(screen.getAllByLabelText(/Cool To/i).slice(-1)[0], {
+      target: { value: "76" },
+    });
     expect(screen.getByLabelText(/^Heat To/i)).toBeInTheDocument();
-    fireEvent.click(screen.getByText("Save"));
+    fireEvent.click(screen.getAllByText("Save").slice(-1)[0]);
     await waitFor(() => {
       expect(api.createSchedule).toHaveBeenCalledWith(
         "room-1",
@@ -532,9 +682,9 @@ describe("Schedules Page — per-schedule deadband override (#517)", () => {
     fireEvent.click(await screen.findByText("Living Room"));
     expect(await screen.findByText(/°F to 76\.0°F/)).toBeInTheDocument();
     fireEvent.click(await screen.findByText("Edit"));
-    expect(screen.getByLabelText(/Cool To/i)).toHaveValue(76);
-    fireEvent.change(screen.getByLabelText(/Cool To/i), { target: { value: "" } });
-    fireEvent.click(screen.getByText("Save"));
+    expect(screen.getAllByLabelText(/Cool To/i).slice(-1)[0]).toHaveValue(76);
+    fireEvent.change(screen.getAllByLabelText(/Cool To/i).slice(-1)[0], { target: { value: "" } });
+    fireEvent.click(screen.getAllByText("Save").slice(-1)[0]);
     await waitFor(() => {
       expect(api.updateSchedule).toHaveBeenCalledWith(
         "room-1",
@@ -549,7 +699,7 @@ describe("Schedules Page — per-schedule deadband override (#517)", () => {
     await openNewBlock();
     fireEvent.click(customRadio());
     fireEvent.change(bandInput(), { target: { value: "4" } });
-    fireEvent.click(screen.getByText("Save"));
+    fireEvent.click(screen.getAllByText("Save").slice(-1)[0]);
 
     await waitFor(() => {
       expect(api.createSchedule).toHaveBeenCalledWith(
@@ -566,7 +716,7 @@ describe("Schedules Page — per-schedule deadband override (#517)", () => {
     fireEvent.click(await screen.findByText("Edit"));
 
     fireEvent.click(inheritRadio());
-    fireEvent.click(screen.getByText("Save"));
+    fireEvent.click(screen.getAllByText("Save").slice(-1)[0]);
 
     await waitFor(() => {
       expect(api.updateSchedule).toHaveBeenCalledWith(
@@ -587,7 +737,7 @@ describe("Schedules Page — per-schedule deadband override (#517)", () => {
     await openNewBlock();
     fireEvent.click(customRadio());
     fireEvent.change(bandInput(), { target: { value } });
-    fireEvent.click(screen.getByText("Save"));
+    fireEvent.click(screen.getAllByText("Save").slice(-1)[0]);
 
     expect(await screen.findByText(/Deadband must be between/i)).toBeInTheDocument();
     expect(api.createSchedule).not.toHaveBeenCalled();
@@ -601,7 +751,7 @@ describe("Schedules Page — per-schedule deadband override (#517)", () => {
     await openNewBlock();
     fireEvent.click(customRadio());
     fireEvent.change(bandInput(), { target: { value } });
-    fireEvent.click(screen.getByText("Save"));
+    fireEvent.click(screen.getAllByText("Save").slice(-1)[0]);
 
     await waitFor(() => {
       expect(api.createSchedule).toHaveBeenCalledWith(
@@ -619,7 +769,7 @@ describe("Schedules Page — per-schedule deadband override (#517)", () => {
     vi.mocked(api.getRooms).mockResolvedValue([{ ...mockRooms[0], deadband_override: 3 }]);
     render(<Schedules />);
     fireEvent.click(await screen.findByText("Living Room"));
-    fireEvent.click(await screen.findByText("+ Add schedule block"));
+    fireEvent.click(await screen.findByText("Add Block"));
 
     // Inherit mode names the value that stays in force.
     expect(screen.getByText(/keeps its usual deadband/i)).toBeInTheDocument();
@@ -658,7 +808,7 @@ describe("Schedules Page — per-schedule deadband override (#517)", () => {
     render(<Schedules />);
     fireEvent.click(await screen.findByText("Living Room"));
     fireEvent.click(await screen.findByText("Edit"));
-    fireEvent.click(screen.getByText("Save"));
+    fireEvent.click(screen.getAllByText("Save").slice(-1)[0]);
 
     await waitFor(() => {
       expect(api.updateSchedule).toHaveBeenCalledWith(
@@ -723,7 +873,7 @@ describe("Schedules Page — deadband override in Celsius mode (#517)", () => {
     await openNewBlock();
     fireEvent.click(customRadio());
     fireEvent.change(bandInput(), { target: { value: "2" } });
-    fireEvent.click(screen.getByText("Save"));
+    fireEvent.click(screen.getAllByText("Save").slice(-1)[0]);
 
     await waitFor(() => {
       expect(api.createSchedule).toHaveBeenCalledWith(
@@ -739,7 +889,7 @@ describe("Schedules Page — deadband override in Celsius mode (#517)", () => {
     await openNewBlock();
     fireEvent.click(customRadio());
     fireEvent.change(bandInput(), { target: { value: "6" } });
-    fireEvent.click(screen.getByText("Save"));
+    fireEvent.click(screen.getAllByText("Save").slice(-1)[0]);
 
     expect(await screen.findByText(/Deadband must be between/i)).toBeInTheDocument();
     expect(api.createSchedule).not.toHaveBeenCalled();
@@ -762,7 +912,7 @@ describe("Schedules Page — deadband override in Celsius mode (#517)", () => {
 
     // An edit to an unrelated field still saves.
     fireEvent.change(screen.getByLabelText(/Target temperature/i), { target: { value: "19" } });
-    fireEvent.click(screen.getByText("Save"));
+    fireEvent.click(screen.getAllByText("Save").slice(-1)[0]);
 
     await waitFor(() => {
       expect(api.updateSchedule).toHaveBeenCalledWith(
@@ -789,7 +939,7 @@ describe("Schedules Page — deadband override in Celsius mode (#517)", () => {
     await openNewBlock();
     fireEvent.click(customRadio());
     fireEvent.change(bandInput(), { target: { value: "5.56" } });
-    fireEvent.click(screen.getByText("Save"));
+    fireEvent.click(screen.getAllByText("Save").slice(-1)[0]);
 
     expect(await screen.findByText(/Deadband must be between/i)).toBeInTheDocument();
     expect(api.createSchedule).not.toHaveBeenCalled();
@@ -800,7 +950,7 @@ describe("Schedules Page — deadband override in Celsius mode (#517)", () => {
     await openNewBlock();
     fireEvent.click(customRadio());
     fireEvent.change(bandInput(), { target: { value: "5.55" } });
-    fireEvent.click(screen.getByText("Save"));
+    fireEvent.click(screen.getAllByText("Save").slice(-1)[0]);
 
     await waitFor(() => {
       expect(api.createSchedule).toHaveBeenCalledWith(
@@ -857,7 +1007,7 @@ describe("Schedules Page — schedule display name (#520)", () => {
     render(<Schedules />);
     await openNewBlock();
     fireEvent.change(nameInput(), { target: { value: "  Guest stay  " } });
-    fireEvent.click(screen.getByText("Save"));
+    fireEvent.click(screen.getAllByText("Save").slice(-1)[0]);
 
     await waitFor(() => {
       expect(api.createSchedule).toHaveBeenCalledWith(
@@ -870,7 +1020,7 @@ describe("Schedules Page — schedule display name (#520)", () => {
   it("sends name:null when the field is left blank", async () => {
     render(<Schedules />);
     await openNewBlock();
-    fireEvent.click(screen.getByText("Save"));
+    fireEvent.click(screen.getAllByText("Save").slice(-1)[0]);
 
     await waitFor(() => {
       expect(api.createSchedule).toHaveBeenCalledWith(
@@ -884,7 +1034,7 @@ describe("Schedules Page — schedule display name (#520)", () => {
     render(<Schedules />);
     await openNewBlock();
     fireEvent.change(nameInput(), { target: { value: "   " } });
-    fireEvent.click(screen.getByText("Save"));
+    fireEvent.click(screen.getAllByText("Save").slice(-1)[0]);
 
     await waitFor(() => {
       expect(api.createSchedule).toHaveBeenCalledWith(
@@ -900,7 +1050,7 @@ describe("Schedules Page — schedule display name (#520)", () => {
     fireEvent.click(await screen.findByText("Living Room"));
     fireEvent.click(await screen.findByText("Edit"));
     fireEvent.change(nameInput(), { target: { value: "" } });
-    fireEvent.click(screen.getByText("Save"));
+    fireEvent.click(screen.getAllByText("Save").slice(-1)[0]);
 
     await waitFor(() => {
       expect(api.updateSchedule).toHaveBeenCalledWith(
@@ -1049,7 +1199,7 @@ describe("Schedules Page — temporary holds (#576)", () => {
     render(<Schedules />);
     fireEvent.click(await screen.findByText("Living Room"));
 
-    await screen.findByText(/Add schedule block/);
+    await screen.findByText(/^Add Block$/);
     expect(screen.queryByTestId("hold-card-room-1")).not.toBeInTheDocument();
     expect(screen.queryByText(/Set temporary hold/)).not.toBeInTheDocument();
     expect(screen.queryByTestId("hold-modal")).not.toBeInTheDocument();

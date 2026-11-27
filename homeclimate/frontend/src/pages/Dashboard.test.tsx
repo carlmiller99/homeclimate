@@ -509,7 +509,7 @@ describe("Dashboard Page", () => {
     const banner = await screen.findByTestId("stale-sensors-banner");
     expect(banner).toHaveTextContent("1 sensor not reporting");
     expect(banner).toHaveTextContent("Bedroom");
-    expect(banner).toHaveTextContent("sensor.bedroom_temp");
+    expect(within(banner).getByTitle("sensor.bedroom_temp")).toHaveTextContent("Bedroom Temp");
     expect(banner).toHaveTextContent("1.5 h ago");
   });
 
@@ -548,7 +548,7 @@ describe("Dashboard Page", () => {
     const banner = await screen.findByTestId("unavailable-thermostats-banner");
     expect(banner).toHaveTextContent("1 thermostat unavailable in Home Assistant");
     expect(banner).toHaveTextContent("Main HVAC");
-    expect(banner).toHaveTextContent("climate.test");
+    expect(within(banner).getByTitle("climate.test")).toBeInTheDocument();
     expect(banner).toHaveTextContent("unavailable for 2 min");
     // With a cycle in flight, the banner says what the engine will do about it.
     expect(banner).toHaveTextContent("aborts after 5 min");

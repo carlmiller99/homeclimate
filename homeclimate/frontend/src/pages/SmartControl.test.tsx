@@ -23,7 +23,6 @@ vi.mock("./SuggestionsCard", () => ({ default: () => <p>suggestions card</p> }))
 vi.mock("./ZoneBalanceSection", () => ({ default: () => <p>zone balance section</p> }));
 vi.mock("./FanSection", () => ({ default: () => <p>fan section</p> }));
 vi.mock("./PeakSection", () => ({ default: () => <p>peak section</p> }));
-vi.mock("./RoomsSection", () => ({ default: () => <p>rooms section</p> }));
 vi.mock("./FireplaceSection", () => ({ default: () => <p>fireplace section</p> }));
 vi.mock("./ShadesSection", () => ({
   default: ({ rooms }: { rooms: { name: string }[] }) => (
@@ -146,20 +145,22 @@ async function ready() {
 }
 
 describe("Smart Control", () => {
-  it("opens on Schedules, with the other sections in the side menu", () => {
+  it("opens on Rooms, with the other sections in the side menu", () => {
     renderAt("/smart-control");
     expect(screen.getByText("schedules page")).toBeInTheDocument();
     const nav = screen.getByRole("navigation", { name: "Smart Control sections" });
-    const schedules = within(nav).getByRole("link", { name: "Schedules" });
+    // Schedules and Rooms are one section now, and it is called Rooms.
+    expect(within(nav).queryByRole("link", { name: "Schedules" })).toBeNull();
+    const schedules = within(nav).getByRole("link", { name: "Rooms" });
     expect(schedules).toHaveAttribute("aria-current", "page");
-    expect(schedules).toHaveAttribute("href", "/smart-control?section=schedules");
+    expect(schedules).toHaveAttribute("href", "/smart-control?section=rooms");
     const doors = within(nav).getByRole("link", { name: "Doors & Windows" });
     expect(doors).not.toHaveAttribute("aria-current");
     expect(doors).toHaveAttribute("href", "/smart-control?section=doors-windows");
     // Nothing is waiting to be built: every section is a link.
     expect(sc.PLANNED_SECTIONS).toEqual([]);
     expect(within(nav).queryByText("Planned")).toBeNull();
-    expect(within(nav).getAllByRole("link")).toHaveLength(11);
+    expect(within(nav).getAllByRole("link")).toHaveLength(10);
     expect(sc.getSmartControl).not.toHaveBeenCalled();
   });
 
@@ -170,7 +171,7 @@ describe("Smart Control", () => {
 
   it("opens the Rooms section", () => {
     renderAt("/smart-control?section=rooms");
-    expect(screen.getByText("rooms section")).toBeInTheDocument();
+    expect(screen.getByText("schedules page")).toBeInTheDocument();
   });
 
   it("opens the Fan section", () => {
@@ -188,10 +189,10 @@ describe("Smart Control", () => {
     expect(screen.getByText("eco section")).toBeInTheDocument();
   });
 
-  it("falls back to Schedules for an unknown section", () => {
-    renderAt("/smart-control?section=nope");
+  it("falls back to Rooms for an unknown section, and for the old Schedules link", () => {
+    renderAt("/smart-control?section=schedules");
     expect(screen.getByText("schedules page")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Schedules" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Rooms" })).toHaveAttribute("aria-current", "page");
   });
 
   it("opens Fireplace from the side menu", () => {
@@ -229,7 +230,7 @@ describe("Smart Control", () => {
     expect(
       screen.getByText(/Add door and window sensors to rooms\s+in My Home/)
     ).toBeInTheDocument();
-    expect(screen.getByText("climate.north")).toBeInTheDocument();
+    expect(screen.getByTitle("climate.north")).toBeInTheDocument();
     expect(screen.getAllByText("Uses Defaults")).toHaveLength(3);
     // Sensors themselves are edited in My Home, not here.
     expect(screen.queryByText("Front Door")).toBeNull();
@@ -413,9 +414,9 @@ describe("Smart Control", () => {
     );
     renderAt(DOORS);
     expect(await screen.findByText("Zone Pause Off (Override)")).toBeInTheDocument();
-    expect(screen.getAllByText("climate.empty")).toHaveLength(2);
+    expect(screen.getAllByText("Empty")).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "Zone Pause Off (Override)" }));
-    expect(screen.getByLabelText("Pause Zone for climate.empty")).not.toBeChecked();
+    expect(screen.getByLabelText("Pause Zone for Empty")).not.toBeChecked();
   });
 
   it("ignores a load that finishes after unmount", async () => {

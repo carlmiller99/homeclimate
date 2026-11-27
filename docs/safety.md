@@ -10,8 +10,8 @@ Rapidly stopping and restarting a compressor — *short-cycling* — is one of t
 
 | Setting | Default | What it does |
 |---|---|---|
-| **Min cycle runtime** | 0 (disabled) | Once a cycle starts, it is held open at least this many minutes before it may complete normally. Recommended **10 min**. |
-| **Min compressor off-time** | 0 (disabled) | After a cycle ends, a new one may not start for this many minutes. Recommended **5 min** — the industry-standard anti-short-cycle delay that lets refrigerant pressures equalize. |
+| **Run at least** | 10 min for a zone added in My Home or from Home Assistant; 0 (off) through the API | Once a cycle starts, it is held open at least this many minutes before it may complete normally. Recommended **10 min**. |
+| **Rest between runs at least** | 5 min for a zone added in My Home or from Home Assistant; 0 (off) through the API | After a cycle ends, a new one may not start for this many minutes. Recommended **5 min** — the industry-standard anti-short-cycle delay that lets refrigerant pressures equalize. |
 
 ### How the minimum-runtime hold works
 
@@ -54,7 +54,7 @@ Running a standard AC compressor when it is cold outside risks liquid refrigeran
 
 | Setting | Default | What it does |
 |---|---|---|
-| **Cooling lockout — pause AC below** | blank (disabled) | When set, the engine will not start a cooling cycle while the outdoor temperature is below this value. Recommended around **55 °F** for a conventional AC. Leave blank to disable. |
+| **No cooling when outside is below** | blank (disabled) | When set, the engine will not start a cooling cycle while the outdoor temperature is below this value. Recommended around **55 °F** for a conventional AC. Leave blank to disable. |
 
 When a cooling cycle is suppressed, the thermostat is left idle and a warning is written to the event log explaining why, so the decision is auditable.
 
@@ -99,9 +99,9 @@ Configured per thermostat on the **Thermostats** page:
 
 | Field | Default | Role |
 |---|---|---|
-| **Total vent count** | — (required at registration) | Total registers on the thermostat — **smart vents AND passive ones, not only smart vents**. Passive registers are always open and reduce how many of the smart vents have to stay open. |
+| **Number of Vents** | — (required at registration) | Total registers on the thermostat — **smart vents AND passive ones, not only smart vents**. Passive registers are always open and reduce how many of the smart vents have to stay open. |
 | **I have a bypass damper** | unchecked | A bypass damper is a mechanical relief valve that opens when duct static pressure exceeds a setpoint. When ticked, the airflow floor is not enforced — the damper handles pressure relief. Most residential systems do *not* have one. |
-| **Minimum open fraction** | **1/3 (0.333)** | Share of total registers that must stay open. Slider 0.1 – 1.0 with the live percentage shown next to it. Disabled when the bypass-damper box is ticked. |
+| **Keep this share of vents open** | **1/3 (0.333)** | Share of total registers that must stay open. Slider 0.1 – 1.0 with the live percentage shown next to it. Disabled when **Bypass damper installed** is on. |
 
 ### How the engine uses it
 
@@ -137,6 +137,6 @@ Thermostats registered before this safety shipped have `total_vents_count = null
 A few longer-standing limits on the [Thermostat settings](./thermostat-settings.md) page also protect equipment:
 
 - **Min / max setpoint** — hard clamps; HomeClimate never commands the thermostat outside this range. During [vacation mode](./vacation-mode.md) this pair also becomes the whole-house hold band, and a room whose own sensor leaves it starts a safety cycle just as it would outside vacation.
-- **Max vent closed** — force-reopen a vent after this long, a safety valve for systems that need airflow.
-- **Cycle timeout** — abort a cycle that runs too long (stuck equipment, unreachable sensors).
+- **Reopen a closed vent after** — force-reopen a vent after this long, a safety valve for systems that need airflow.
+- **End a run that lasts longer than** — abort a cycle that runs too long (stuck equipment, unreachable sensors).
 - **Abort when thermostat unavailable (min)** (Issue #267) — while the climate entity is unavailable in Home Assistant, the engine skips its tick, which suspends every other per-tick safety monitor above (cycle timeout, max-vent-closed watchdog, reconciliation) even though the physical HVAC may keep running at the last commanded setpoint. Once the entity has been unavailable this long, a running cycle is aborted and all zone vents are re-opened. Shorter outages are tolerated and the cycle resumes untouched. Recommended **5 min**. `0` = never abort (not recommended).

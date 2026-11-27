@@ -1,3 +1,5 @@
+import EntityName from "../components/EntityName";
+import { entityName } from "../entityNames";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 import { getRooms, type Room } from "../api";
@@ -29,7 +31,6 @@ import PeakSection from "./PeakSection";
 import ForecastSection from "./ForecastSection";
 import LearningSection from "./LearningSection";
 import ShadesSection from "./ShadesSection";
-import RoomsSection from "./RoomsSection";
 
 type Minutes = "zone_pause_min" | "room_pause_min" | "resume_min";
 
@@ -116,7 +117,7 @@ function OverrideEditor({
 
   return (
     <div className="override-editor">
-      {row("zone", zone.thermostat_entity_id, zone.name || zone.thermostat_entity_id)}
+      {row("zone", zone.thermostat_entity_id, zone.name || entityName(zone.thermostat_entity_id))}
       {rooms.map((r) => row("room", r.id, r.name))}
       {err && <p className="form-error">{err}</p>}
     </div>
@@ -245,8 +246,9 @@ function DoorsWindows() {
           return (
             <div className="sensor-zone" key={z.thermostat_entity_id}>
               <div className="sensor-zone-head">
-                <span className="sensor-zone-name">{z.name || z.thermostat_entity_id}</span>
-                <span className="sensor-zone-meta">{z.thermostat_entity_id}</span>
+                <span className="sensor-zone-name" title={z.thermostat_entity_id}>
+                  {z.name || <EntityName id={z.thermostat_entity_id} />}
+                </span>
                 <button
                   type="button"
                   className="link-button"
@@ -311,8 +313,6 @@ export default function SmartControl() {
         <FanSection />
       ) : section === "peak-hours" ? (
         <PeakSection />
-      ) : section === "rooms" ? (
-        <RoomsSection />
       ) : (
         <div className="embedded-page">
           <Schedules />

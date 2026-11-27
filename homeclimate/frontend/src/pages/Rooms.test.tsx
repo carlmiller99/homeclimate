@@ -3,7 +3,7 @@ import { ecoThermostatDefaults, ecoRoomDefaults } from "../testFixtures";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import Rooms from "./Rooms";
-import RoomsSection from "./RoomsSection";
+import RoomsSection from "../test/TuningHarness";
 import * as api from "../api";
 import * as zonesApi from "../zonesApi";
 import * as sc from "../smartControlApi";
@@ -339,7 +339,7 @@ describe("Rooms Page", () => {
       </SystemContext.Provider>
     );
 
-    const editBtn = await screen.findByRole("button", { name: /Settings/i });
+    const editBtn = await screen.findByRole("button", { name: "Edit Living Room" });
     fireEvent.click(editBtn);
 
     const nameInput = screen.getByLabelText(/Room name/i);
@@ -366,7 +366,7 @@ describe("Rooms Page", () => {
     await screen.findByText("Living Room");
     expect(screen.queryByRole("button", { name: /Delete Room/i })).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Room Settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit Living Room" }));
     fireEvent.click(await screen.findByRole("button", { name: "Delete Room" }));
     const dialog = await screen.findByTestId("confirm-dialog");
     expect(within(dialog).getByText(/Living Room/)).toBeInTheDocument();
@@ -381,7 +381,7 @@ describe("Rooms Page", () => {
 
   it("does not delete a room when the confirmation dialog is cancelled", async () => {
     renderPage();
-    fireEvent.click(await screen.findByRole("button", { name: "Room Settings" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Living Room" }));
     fireEvent.click(await screen.findByRole("button", { name: "Delete Room" }));
     const dialog = await screen.findByTestId("confirm-dialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
@@ -397,7 +397,7 @@ describe("Rooms Page", () => {
       )
     );
     renderPage();
-    fireEvent.click(await screen.findByRole("button", { name: "Room Settings" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Living Room" }));
     fireEvent.click(await screen.findByRole("button", { name: "Delete Room" }));
     fireEvent.click(
       within(await screen.findByTestId("confirm-dialog")).getByRole("button", { name: "Delete" })
@@ -469,7 +469,7 @@ describe("Rooms Page", () => {
     // Remove vent — requires confirmation naming the entity
     fireEvent.click(within(devices).getAllByTitle("Remove")[0]);
     dialog = await screen.findByTestId("confirm-dialog");
-    expect(within(dialog).getByText(/cover\.vent/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/"Vent"/)).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "Remove" }));
     await waitFor(() => {
       expect(api.removeVent).toHaveBeenCalledWith("room-1", "cover.vent");
@@ -606,7 +606,7 @@ describe("Rooms Page", () => {
   it("edits a room's name, sensor choice and notes in My Home", async () => {
     vi.mocked(api.updateRoom).mockResolvedValue(mockRooms[0]);
     renderPage();
-    fireEvent.click(await screen.findByRole("button", { name: "Room Settings" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Living Room" }));
     // How the room is heated and cooled is in Smart Control, not here.
     expect(screen.queryByLabelText(/Presence holdover/i)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/Temperature offset/i)).not.toBeInTheDocument();
@@ -720,7 +720,7 @@ describe("Rooms Page", () => {
       </SystemContext.Provider>
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: /Settings/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Living Room" }));
     fireEvent.click(await screen.findByRole("button", { name: /Cancel/i }));
 
     await waitFor(() => {

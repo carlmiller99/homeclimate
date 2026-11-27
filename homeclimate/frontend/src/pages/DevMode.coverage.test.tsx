@@ -100,14 +100,14 @@ describe("DevMode — uncovered branches", () => {
     ]);
 
     renderDevMode();
-    await screen.findByText("climate.a", { exact: false });
+    await screen.findByTitle("climate.a");
 
-    const cardA = screen.getByText(/climate\.a/).closest(".card") as HTMLElement;
+    const cardA = screen.getByText(/^A$/).closest(".card") as HTMLElement;
     expect(within(cardA).getByText("heat")).toBeInTheDocument();
     // Both temperature slots dash out when the thermostat reports nothing.
     expect(cardA).toHaveTextContent("Current: — · Setpoint: —");
 
-    const cardB = screen.getByText(/climate\.b/).closest(".card") as HTMLElement;
+    const cardB = screen.getByTitle("climate.b").closest(".card") as HTMLElement;
     expect(within(cardB).getByText("—")).toBeInTheDocument();
     expect(cardB).toHaveTextContent("Current: 70.0°F · Setpoint: 68.0°F");
   });

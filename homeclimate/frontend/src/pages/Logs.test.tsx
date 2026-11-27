@@ -100,7 +100,7 @@ describe("Logs Page", () => {
 
     // Switch to Cycle History
     fireEvent.click(screen.getByText("Cycle History"));
-    expect(await screen.findByText(/climate\.test/i)).toBeInTheDocument();
+    expect(await screen.findByTitle("climate.test")).toBeInTheDocument();
 
     // Switch to Retention
     fireEvent.click(screen.getByText("Retention"));
@@ -371,7 +371,7 @@ describe("Logs Page", () => {
     render(<Logs />);
 
     fireEvent.click(screen.getByText("Cycle History"));
-    const row = await screen.findByText(/climate\.test/i);
+    const row = await screen.findByTitle("climate.test");
     fireEvent.click(row);
 
     await waitFor(() => {
@@ -380,7 +380,7 @@ describe("Logs Page", () => {
     // Detail sections render
     expect(await screen.findByText(/Vent activity/i)).toBeInTheDocument();
     expect(screen.getByText(/Setpoint history/i)).toBeInTheDocument();
-    expect(screen.getByText("cover.living")).toBeInTheDocument();
+    expect(screen.getByTitle("cover.living")).toBeInTheDocument();
   });
 
   it("labels a safety-protection room in the cycle detail (Issue #367)", async () => {
@@ -397,7 +397,7 @@ describe("Logs Page", () => {
     render(<Logs />);
 
     fireEvent.click(screen.getByText("Cycle History"));
-    fireEvent.click(await screen.findByText(/climate\.test/i));
+    fireEvent.click(await screen.findByTitle("climate.test"));
 
     expect(await screen.findByText(/safety protection/i)).toBeInTheDocument();
   });
@@ -416,7 +416,7 @@ describe("Logs Page", () => {
     render(<Logs />);
 
     fireEvent.click(screen.getByText("Cycle History"));
-    fireEvent.click(await screen.findByText(/climate\.test/i));
+    fireEvent.click(await screen.findByTitle("climate.test"));
 
     expect(await screen.findByText(/early cooling/i)).toBeInTheDocument();
   });
@@ -435,7 +435,7 @@ describe("Logs Page", () => {
     render(<Logs />);
 
     fireEvent.click(screen.getByText("Cycle History"));
-    fireEvent.click(await screen.findByText(/climate\.test/i));
+    fireEvent.click(await screen.findByTitle("climate.test"));
 
     expect(await screen.findByText(/getting ready for a usual arrival/i)).toBeInTheDocument();
   });
@@ -454,7 +454,7 @@ describe("Logs Page", () => {
     render(<Logs />);
 
     fireEvent.click(screen.getByText("Cycle History"));
-    fireEvent.click(await screen.findByText(/climate\.test/i));
+    fireEvent.click(await screen.findByTitle("climate.test"));
 
     expect(await screen.findByText(/banking for peak hours/i)).toBeInTheDocument();
   });
@@ -473,7 +473,7 @@ describe("Logs Page", () => {
     render(<Logs />);
 
     fireEvent.click(screen.getByText("Cycle History"));
-    fireEvent.click(await screen.findByText(/climate\.test/i));
+    fireEvent.click(await screen.findByTitle("climate.test"));
 
     expect(await screen.findByText(/zone balance/i)).toBeInTheDocument();
   });
@@ -492,7 +492,7 @@ describe("Logs Page", () => {
     render(<Logs />);
 
     fireEvent.click(screen.getByText("Cycle History"));
-    fireEvent.click(await screen.findByText(/climate\.test/i));
+    fireEvent.click(await screen.findByTitle("climate.test"));
 
     expect(await screen.findByText(/^targets$/i)).toBeInTheDocument();
   });
@@ -503,7 +503,7 @@ describe("Logs Page", () => {
     render(<Logs />);
 
     fireEvent.click(screen.getByText("Cycle History"));
-    fireEvent.click(await screen.findByText(/climate\.test/i));
+    fireEvent.click(await screen.findByTitle("climate.test"));
 
     const chartBtn = await screen.findByRole("button", { name: "View chart" });
     fireEvent.click(chartBtn);
@@ -526,7 +526,7 @@ describe("Logs Page", () => {
     render(<Logs />);
 
     fireEvent.click(screen.getByText("Cycle History"));
-    fireEvent.click(await screen.findByText(/climate\.test/i));
+    fireEvent.click(await screen.findByTitle("climate.test"));
     fireEvent.click(await screen.findByRole("button", { name: "View chart" }));
 
     expect(await screen.findByText(/No temperature samples recorded/i)).toBeInTheDocument();
@@ -535,7 +535,7 @@ describe("Logs Page", () => {
   it("switches the cycle-history time window to a preset", async () => {
     render(<Logs />);
     fireEvent.click(screen.getByText("Cycle History"));
-    await screen.findByText(/climate\.test/i);
+    await screen.findByTitle("climate.test");
 
     vi.mocked(api.getLogs).mockClear();
     const before = Date.now();
@@ -557,7 +557,7 @@ describe("Logs Page", () => {
   it("reveals custom date inputs when the custom window is selected", async () => {
     render(<Logs />);
     fireEvent.click(screen.getByText("Cycle History"));
-    await screen.findByText(/climate\.test/i);
+    await screen.findByTitle("climate.test");
 
     fireEvent.click(screen.getByRole("button", { name: "Custom" }));
     const dateInputs = document.querySelectorAll('input[type="datetime-local"]');
@@ -636,7 +636,7 @@ describe("Logs Page", () => {
     expect(badge).toHaveTextContent("overflow");
     expect(badge).toHaveClass("badge-purple");
 
-    fireEvent.click(await screen.findByText(/climate\.test/i));
+    fireEvent.click(await screen.findByTitle("climate.test"));
 
     // The dedicated overflow section renders with the redirected room + tier.
     expect(await screen.findByText(/Overflow rooms/i)).toBeInTheDocument();
@@ -667,7 +667,7 @@ describe("Logs Page", () => {
     expect(await screen.findByText("Eco Mode")).toBeInTheDocument();
 
     // Expand → the per-room Target cell shows requested → relaxed effective.
-    fireEvent.click(await screen.findByText(/climate\.test/i));
+    fireEvent.click(await screen.findByTitle("climate.test"));
     const cell = await screen.findByTitle(/Eco Mode relaxed this room's target/i);
     expect(cell).toHaveTextContent("72.0°F → 🌿 74.0°F");
   });
@@ -687,7 +687,7 @@ describe("Logs Page", () => {
     render(<Logs />);
 
     fireEvent.click(screen.getByText("Cycle History"));
-    fireEvent.click(await screen.findByText(/climate\.test/i));
+    fireEvent.click(await screen.findByTitle("climate.test"));
 
     const card = await screen.findByTitle(/Outdoor temperature at cycle start/i);
     // Eco-active cycles flag the card with the leaf so the connection to the
@@ -701,7 +701,7 @@ describe("Logs Page", () => {
     render(<Logs />);
 
     fireEvent.click(screen.getByText("Cycle History"));
-    fireEvent.click(await screen.findByText(/climate\.test/i));
+    fireEvent.click(await screen.findByTitle("climate.test"));
 
     const card = await screen.findByTitle(/Outdoor temperature at cycle start/i);
     expect(card).toHaveTextContent("Outside temp");
@@ -714,7 +714,7 @@ describe("Logs Page", () => {
     render(<Logs />);
 
     fireEvent.click(screen.getByText("Cycle History"));
-    fireEvent.click(await screen.findByText(/climate\.test/i));
+    fireEvent.click(await screen.findByTitle("climate.test"));
 
     expect(await screen.findByText(/Vent activity/i)).toBeInTheDocument();
     expect(screen.queryByText(/Overflow rooms/i)).not.toBeInTheDocument();

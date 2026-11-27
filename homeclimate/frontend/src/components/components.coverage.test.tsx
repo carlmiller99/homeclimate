@@ -100,8 +100,8 @@ describe("AirflowConfigBanner — unnamed thermostats fall back to the entity id
     ]);
     render(<AirflowConfigBanner />);
     const banner = await screen.findByTestId("airflow-config-banner");
-    expect(banner).toHaveTextContent("climate.solo");
-    expect(banner).toHaveTextContent(/climate\.solo keeps one vent open/);
+    expect(banner).toHaveTextContent("Solo");
+    expect(banner).toHaveTextContent(/Solo keeps one vent open/);
   });
 
   it("names each unnamed thermostat by entity id in the multi-thermostat list", async () => {
@@ -113,7 +113,7 @@ describe("AirflowConfigBanner — unnamed thermostats fall back to the entity id
     const banner = await screen.findByTestId("airflow-config-banner");
     expect(banner).toHaveTextContent(/2 zones need a vent count/);
     const items = banner.querySelectorAll("li");
-    expect(Array.from(items).map((li) => li.textContent)).toEqual(["climate.one", "climate.two"]);
+    expect(Array.from(items).map((li) => li.textContent)).toEqual(["One", "Two"]);
   });
 });
 
@@ -176,8 +176,8 @@ describe("EcoSuspendBanner — unnamed thermostat", () => {
     ]);
     render(<EcoSuspendBanner />);
     const banner = await screen.findByTestId("eco-suspend-banner");
-    expect(banner).toHaveTextContent("climate.nameless");
-    expect(screen.getByText("climate.nameless").tagName).toBe("STRONG");
+    expect(banner).toHaveTextContent("Nameless");
+    expect(screen.getByText("Nameless").tagName).toBe("STRONG");
   });
 });
 
@@ -192,7 +192,7 @@ describe("EcoSuspendModal — fallbacks and non-Error failures", () => {
         onChanged={() => {}}
       />
     );
-    expect(screen.getByRole("option", { name: /climate\.nameless/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /Nameless/ })).toBeInTheDocument();
   });
 
   it("echoes an unparseable eco_suspend_until verbatim instead of 'Invalid Date'", () => {
@@ -394,11 +394,11 @@ describe("OutsideTempPicker — non-Error failures", () => {
     });
     vi.mocked(api.setOutsideTempEntities).mockRejectedValue(NOT_AN_ERROR);
     renderPicker();
-    fireEvent.click(await screen.findByRole("button", { name: "Remove sensor.outdoor" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Remove Outdoor" }));
     expect(await screen.findByText("Save failed")).toBeInTheDocument();
     // The previously configured entity is still shown — a failed save must not
     // look like a successful clear.
-    expect(screen.getByText(/sensor\.outdoor/)).toBeInTheDocument();
+    expect(screen.getByTitle("sensor.outdoor")).toBeInTheDocument();
   });
 });
 

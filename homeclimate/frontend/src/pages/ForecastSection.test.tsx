@@ -250,7 +250,7 @@ describe("Forecasts section", () => {
     );
     show();
     expect(await screen.findByText(/Using the weather source set for Shades/)).toBeInTheDocument();
-    expect(screen.getByText("weather.home")).toBeInTheDocument();
+    expect(screen.getByTitle("weather.home")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "pick weather" })).toBeInTheDocument();
   });
 

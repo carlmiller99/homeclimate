@@ -37,7 +37,8 @@ describe("EntityPicker", () => {
     await waitFor(() => expect(api.getHAEntities).toHaveBeenCalled());
     fireEvent.focus(screen.getByRole("textbox"));
     expect(await screen.findByText("Hallway Temperature")).toBeInTheDocument();
-    expect(screen.getByText("sensor.attic_temp")).toBeInTheDocument();
+    expect(screen.getByTitle("sensor.attic_temp")).toBeInTheDocument();
+    expect(screen.queryByText(/sensor\./)).not.toBeInTheDocument();
   });
 
   // The filter ORs two clauses (entity_id, friendly_name), so a query that
@@ -161,13 +162,24 @@ describe("EntityPicker", () => {
     // The backend's order is kept: the room's own area leads, though "attic" sorts first.
     const names = (await screen.findAllByText(/Temperature$/)).map((n) => n.textContent);
     expect(names).toEqual(["Den Temperature", "Attic Temperature", "Loose Temperature"]);
-    expect(screen.getByText("sensor.den_temp · in this room's area")).toBeInTheDocument();
-    expect(screen.getByText("sensor.attic_temp · Attic")).toBeInTheDocument();
-    // An entity in no area shows just its id.
-    expect(screen.getByText("sensor.loose_temp")).toBeInTheDocument();
+    expect(screen.getByTitle("sensor.den_temp").nextElementSibling).toHaveTextContent(
+      "In this room's area"
+    );
+    expect(screen.getByTitle("sensor.attic_temp").nextElementSibling).toHaveTextContent("Attic");
+    // An entity in no area shows just its name.
+    expect(screen.getByTitle("sensor.loose_temp").nextElementSibling).toBeNull();
     // The area can be searched for, too.
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "attic" } });
     expect(screen.queryByText("Den Temperature")).toBeNull();
     expect(screen.getByText("Attic Temperature")).toBeInTheDocument();
+  });
+
+  it("shows an entity with no name by its ID, tidied", async () => {
+    vi.mocked(api.getHAEntities).mockResolvedValue([
+      { entity_id: "sensor.back_porch", state: "50", friendly_name: "" },
+    ]);
+    render(<EntityPicker domain="sensor" onSelect={vi.fn()} />);
+    fireEvent.focus(screen.getByRole("textbox"));
+    expect(await screen.findByText("Back Porch")).toHaveAttribute("title", "sensor.back_porch");
   });
 });

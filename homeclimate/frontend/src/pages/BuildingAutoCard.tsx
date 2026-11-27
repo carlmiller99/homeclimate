@@ -4,24 +4,24 @@ import {
   SWITCHING_LABELS,
   THRESHOLD_MAX_F,
   THRESHOLD_MIN_F,
-  describeBuilding,
   getBuildingModes,
   setBuildingMode,
   type AutoLevel,
   type BuildingMode,
   type Switching,
 } from "../buildingModeApi";
+import Segmented from "../components/Segmented";
 
 const LEVEL_LABELS: Record<AutoLevel, string> = {
-  off: "Lets Each Zone Decide",
-  watch: "Lets Each Zone Decide, and Logs What It Would Do",
+  off: "Each Zone Decides",
+  watch: "Try It First",
   on: "Heats or Cools as One",
 };
 
 const LEVEL_HELP: Record<AutoLevel, string> = {
   off: "Each zone heats or cools whenever its own rooms need it. Two zones can be heating and cooling at the same time.",
   watch:
-    "Zones still decide for themselves, but the log shows what the building would have done as one. A way to try it first.",
+    "Zones still decide for themselves, but the log shows what the building would have done as one.",
   on: "The whole building is either heating or cooling. A zone that wants the other one waits until the building switches.",
 };
 
@@ -40,7 +40,8 @@ type Patch = Parameters<typeof setBuildingMode>[1];
 /**
  * How far past its target a room must be before Auto considers changing sides.
  * Holds display-unit text; the backend converts on write (#231). Re-derived
- * during render, keyed on the stored content (pitfall 9).
+ * during render, keyed on the stored content (pitfall 9). Saves on blur or
+ * Enter; anything outside the limits goes back to what is stored.
  */
 function ThresholdField({
   building,
@@ -64,9 +65,13 @@ function ThresholdField({
   const high = displayBound(THRESHOLD_MAX_F, "max", "delta");
   const value = text.trim() === "" ? NaN : Number(text);
   const valid = Number.isFinite(value) && value >= low && value <= high;
+  const commit = () => {
+    if (!valid) setText(stored);
+    else if (text !== stored) onSave({ switch_threshold: value });
+  };
   return (
-    <label className="field-stack">
-      {`A Room Must Be This Far Past Its Target First (${unitLabel})`}
+    <div className="field-stack">
+      <span className="field-label">Once a Room Is Past Its Target By</span>
       <span className="threshold-row">
         <input
           className="form-control house-band-input"
@@ -76,26 +81,19 @@ function ThresholdField({
           min={low}
           max={high}
           aria-label={`Switching threshold for ${building.name} (${unitLabel})`}
+          title={`Between ${low} and ${high}${unitLabel}.`}
           value={text}
           disabled={busy}
           onChange={(e) => setText(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") commit();
+          }}
         />
-        <button
-          type="button"
-          className="btn btn-primary"
-          aria-label={`Save switching threshold for ${building.name}`}
-          disabled={busy || !valid || text === stored}
-          onClick={() => onSave({ switch_threshold: value })}
-        >
-          Save
-        </button>
+        <span className="minutes-unit">{unitLabel}</span>
       </span>
-      <span className="form-hint">
-        {valid || text === stored
-          ? "With a building that is heating and a cooling target of 72, a room has to reach 72 plus this much before the building thinks about switching to cooling."
-          : `Between ${low} and ${high}${unitLabel}.`}
-      </span>
-    </label>
+      {!valid && <span className="form-error">{`Between ${low} and ${high}${unitLabel}.`}</span>}
+    </div>
   );
 }
 
@@ -133,11 +131,10 @@ export default function BuildingAutoCard() {
   };
 
   return (
-    <div className="card">
-      <h3 className="card-title">Auto Mode</h3>
-      <p className="page-subtitle">
-        What a building does when its mode on the Dashboard is Auto. A building set to Heat Only,
-        Cool Only or Off does not use this page.
+    <section className="sc-section" id="auto-mode">
+      <h2 className="sc-section-title">Auto Mode</h2>
+      <p className="sc-section-lead">
+        What a building does when its mode on the Dashboard is Auto.
       </p>
       {loadFailed && <p className="form-error">Could not load the buildings.</p>}
       {!loadFailed && !buildings && <p className="page-subtitle">Loading the buildings…</p>}
@@ -145,81 +142,52 @@ export default function BuildingAutoCard() {
         <p className="page-subtitle">Add a building in My Home and put zones in it to use this.</p>
       )}
       {buildings?.map((b) => (
-        <div key={b.building_id} className="calendar-row" role="group" aria-label={b.name}>
-          <div className="calendar-room">
-            <span className="sensor-title">{b.name}</span>
-            <span className="shade-why">{describeBuilding(b)}</span>
-          </div>
-          <div className="auto-fields">
-            <label className="field-stack">
-              In Auto, This Building
-              <select
-                className="form-control"
-                aria-label={`In Auto, ${b.name}`}
-                value={b.auto_level}
-                disabled={busy}
-                onChange={(e) =>
-                  void change(b.building_id, { auto_level: e.target.value as AutoLevel })
-                }
-              >
-                {(Object.keys(LEVEL_LABELS) as AutoLevel[]).map((l) => (
-                  <option key={l} value={l} title={LEVEL_HELP[l]}>
-                    {LEVEL_LABELS[l]}
-                  </option>
-                ))}
-              </select>
-              <span className="form-hint">{LEVEL_HELP[b.auto_level]}</span>
-              {b.mode !== "auto" && (
-                <span className="form-hint">
-                  This building is not set to Auto on the Dashboard, so none of this is in use.
-                </span>
-              )}
-            </label>
-            <label className="field-stack">
-              It May Switch Between Heating and Cooling
-              <select
-                className="form-control"
-                aria-label={`How often ${b.name} may switch`}
-                value={b.switching}
-                disabled={busy || b.auto_level === "off"}
-                onChange={(e) =>
-                  void change(b.building_id, { switching: e.target.value as Switching })
-                }
-              >
-                {(Object.keys(SWITCHING_LABELS) as Switching[]).map((s) => (
-                  <option key={s} value={s} title={SWITCHING_HELP[s]}>
-                    {SWITCHING_LABELS[s]}
-                  </option>
-                ))}
-              </select>
-              <span className="form-hint">
-                {b.auto_level === "off"
-                  ? "Only used when the building heats or cools as one."
-                  : SWITCHING_HELP[b.switching]}
-              </span>
-            </label>
-            <ThresholdField
-              building={b}
-              busy={busy}
-              onSave={(patch) => void change(b.building_id, patch)}
+        <div role="group" key={b.building_id} className="card auto-card" aria-label={b.name}>
+          <div className="auto-head">
+            <h4 className="sensor-title">{b.name}</h4>
+            <Segmented
+              label={`In Auto, ${b.name}`}
+              value={b.auto_level}
+              disabled={busy}
+              options={(Object.keys(LEVEL_LABELS) as AutoLevel[]).map((l) => ({
+                value: l,
+                label: LEVEL_LABELS[l],
+              }))}
+              onChange={(l) => void change(b.building_id, { auto_level: l })}
             />
           </div>
+          <p className="rule-help">
+            {b.mode === "auto"
+              ? LEVEL_HELP[b.auto_level]
+              : "Not set to Auto on the Dashboard, so none of this is in use."}
+          </p>
+          {b.auto_level !== "off" && (
+            <div className="auto-fields">
+              <div className="field-stack">
+                <span className="field-label">It May Switch Between Heating and Cooling</span>
+                <Segmented
+                  label={`How often ${b.name} may switch`}
+                  value={b.switching}
+                  disabled={busy}
+                  options={(Object.keys(SWITCHING_LABELS) as Switching[]).map((s) => ({
+                    value: s,
+                    label: SWITCHING_LABELS[s],
+                    title: SWITCHING_HELP[s],
+                  }))}
+                  onChange={(s) => void change(b.building_id, { switching: s })}
+                />
+                <span className="rule-help">{SWITCHING_HELP[b.switching]}</span>
+              </div>
+              <ThresholdField
+                building={b}
+                busy={busy}
+                onSave={(patch) => void change(b.building_id, patch)}
+              />
+            </div>
+          )}
         </div>
       ))}
-      {buildings && buildings.length > 0 && (
-        <details className="targets-more">
-          <summary>How often it may switch: what each choice means</summary>
-          <dl className="choice-list">
-            {(Object.keys(SWITCHING_LABELS) as Switching[]).map((s) => (
-              <div key={s}>
-                <dt>{SWITCHING_LABELS[s]}</dt>
-                <dd>{SWITCHING_HELP[s]}</dd>
-              </div>
-            ))}
-          </dl>
-        </details>
-      )}
       {err && <p className="form-error">{err}</p>}
-    </div>
+    </section>
   );
 }

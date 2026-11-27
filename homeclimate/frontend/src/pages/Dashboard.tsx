@@ -1,3 +1,4 @@
+import { entityName } from "../entityNames";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import {
   getStatus,
@@ -695,7 +696,7 @@ export default function Dashboard() {
   const zoneLevel = (z: ZoneProfile, parent?: TargetLevel): TargetLevel => ({
     scope: "zone",
     id: z.thermostat_entity_id,
-    name: z.name || z.thermostat_entity_id,
+    name: z.name || entityName(z.thermostat_entity_id),
     parent,
   });
   /** The rooms of a building's zones, for a hold started from its header. */

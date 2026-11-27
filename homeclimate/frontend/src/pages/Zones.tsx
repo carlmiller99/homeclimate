@@ -1,8 +1,11 @@
+import EntityName from "../components/EntityName";
+import { entityName, prettyEntity, useEntityName } from "../entityNames";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import AirIntakeField from "../components/AirIntakeField";
 import ConfirmDialog from "../components/ConfirmDialog";
 import OutsideTempPicker from "../components/OutsideTempPicker";
+import Segmented from "../components/Segmented";
 import EntityPicker from "../components/EntityPicker";
 import {
   createThermostat,
@@ -118,11 +121,13 @@ function ZoneEditor({
   buildings,
   onSaved,
   onCancel,
+  onDelete,
 }: {
   zone: ZoneProfile;
   buildings: Building[];
   onSaved: (z: ZoneProfile) => void;
   onCancel: () => void;
+  onDelete: () => void;
 }) {
   const { toDisplay, toDisplayDelta, unitLabel } = useUnit();
   // Form state holds DISPLAY units; the backend converts on write (#231).
@@ -166,74 +171,61 @@ function ZoneEditor({
   const setSystem = (t: SystemType) => setForm((f) => ({ ...f, system_type: t }));
 
   return (
-    <section className="zone-editor" aria-label={`Edit ${zone.name || zone.thermostat_entity_id}`}>
-      <div className="zone-editor-head">
-        <label className="field-inline">
-          Building
-          <select
-            className="form-control"
-            value={form.building_id ?? ""}
-            onChange={(e) => setForm((f) => ({ ...f, building_id: e.target.value || null }))}
-          >
-            <option value="">Unassigned</option>
-            {buildings.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.name}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-
+    <section
+      className="zone-editor"
+      aria-label={`Edit ${zone.name || entityName(zone.thermostat_entity_id)}`}
+    >
       <div className="zone-editor-body">
-        <h3 className="zone-section-title">Equipment</h3>
-        <div className="zone-fields">
-          <div>
-            <div id={`st-${zone.thermostat_entity_id}`} className="field-label">
-              System Type
-            </div>
-            <div
-              role="radiogroup"
-              aria-labelledby={`st-${zone.thermostat_entity_id}`}
-              className="segmented"
-            >
-              <button
-                type="button"
-                role="radio"
-                aria-checked={!hp}
-                className="segmented-option"
-                onClick={() => setSystem("conventional")}
-              >
-                Conventional
-              </button>
-              <button
-                type="button"
-                role="radio"
-                aria-checked={hp}
-                className="segmented-option"
-                onClick={() => setSystem("heat_pump")}
-              >
-                Heat Pump
-              </button>
-            </div>
-          </div>
-          <label className="field-stack">
-            Compressor Stages
+        <div className="sheet-rows">
+          <div className="sheet-row">
+            <label className="sheet-row-text" htmlFor={`bld-${zone.thermostat_entity_id}`}>
+              <strong>Building</strong>
+            </label>
             <select
+              id={`bld-${zone.thermostat_entity_id}`}
               className="form-control"
-              value={form.compressor_stages}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, compressor_stages: Number(e.target.value) }))
-              }
+              value={form.building_id ?? ""}
+              onChange={(e) => setForm((f) => ({ ...f, building_id: e.target.value || null }))}
             >
-              <option value={1}>1 Stage</option>
-              <option value={2}>2 Stage</option>
-              <option value={3}>3 Stage</option>
+              <option value="">Unassigned</option>
+              {buildings.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                </option>
+              ))}
             </select>
-          </label>
-          <label className="field-stack">
-            {hp ? "Auxiliary Heat" : "Heat"}
+          </div>
+          <div className="sheet-row">
+            <div className="sheet-row-text">
+              <strong>System Type</strong>
+            </div>
+            <Segmented
+              label="System Type"
+              value={form.system_type}
+              options={[
+                { value: "conventional", label: "Conventional" },
+                { value: "heat_pump", label: "Heat Pump" },
+              ]}
+              onChange={setSystem}
+            />
+          </div>
+          <div className="sheet-row">
+            <div className="sheet-row-text">
+              <strong>Compressor Stages</strong>
+            </div>
+            <Segmented
+              label="Compressor Stages"
+              value={String(form.compressor_stages)}
+              options={["1", "2", "3"].map((n) => ({ value: n, label: n }))}
+              onChange={(n) => setForm((f) => ({ ...f, compressor_stages: Number(n) }))}
+            />
+          </div>
+          <div className="sheet-row">
+            <label className="sheet-row-text" htmlFor={`heat-${zone.thermostat_entity_id}`}>
+              <strong>{hp ? "Auxiliary Heat" : "Heat"}</strong>
+            </label>
             <select
+              id={`heat-${zone.thermostat_entity_id}`}
               className="form-control"
               value={form.backup_heat}
               onChange={(e) =>
@@ -246,12 +238,15 @@ function ZoneEditor({
                 </option>
               ))}
             </select>
-          </label>
-          <div className="field-stack">
-            <span>Equipment Running Source</span>
+          </div>
+          <div className="sheet-row">
+            <div className="sheet-row-text">
+              <strong>Backup Heat Sensor</strong>
+              <p className="rule-help">Optional. Lets HomeClimate see when backup heat runs.</p>
+            </div>
             {form.equipment_running_entity ? (
               <div className="entity-chip-row">
-                <span className="entity-chip">{form.equipment_running_entity}</span>
+                <EntityName id={form.equipment_running_entity} className="entity-chip" />
                 <button
                   type="button"
                   className="btn btn-secondary btn-sm"
@@ -261,18 +256,29 @@ function ZoneEditor({
                 </button>
               </div>
             ) : (
-              <EntityPicker
-                domain={["climate", "sensor"]}
-                placeholder="Not set"
-                onSelect={(id) => setForm((f) => ({ ...f, equipment_running_entity: id }))}
-              />
+              <div className="sheet-picker">
+                <EntityPicker
+                  domain={["climate", "sensor"]}
+                  placeholder="Not set"
+                  onSelect={(id) => setForm((f) => ({ ...f, equipment_running_entity: id }))}
+                />
+              </div>
             )}
           </div>
+          <div className="sheet-row">
+            <div className="sheet-row-text">
+              <strong>Outside Air Intake</strong>
+              <p className="rule-help">
+                Does a duct bring outside air in when the fan runs? Not Sure counts as No.
+              </p>
+            </div>
+            <AirIntakeField
+              zoneName={zone.name || entityName(zone.thermostat_entity_id)}
+              value={form.air_intake}
+              onChange={(air_intake) => setForm((f) => ({ ...f, air_intake }))}
+            />
+          </div>
         </div>
-        <p className="field-help">
-          An ecobee cloud thermostat or a strip-heat power sensor lets HomeClimate see when backup
-          heat runs.
-        </p>
 
         {needsKitCheck && (
           <div className="note-box notice-heat" role="note">
@@ -352,13 +358,6 @@ function ZoneEditor({
           </>
         )}
 
-        <AirIntakeField
-          entityId={zone.thermostat_entity_id}
-          zoneName={zone.name || zone.thermostat_entity_id}
-          value={form.air_intake}
-          onChange={(air_intake) => setForm((f) => ({ ...f, air_intake }))}
-        />
-
         {err && <p className="form-error">{err}</p>}
         <div className="zone-editor-actions">
           {saved && (
@@ -366,8 +365,16 @@ function ZoneEditor({
               Zone saved.
             </span>
           )}
+          <button
+            type="button"
+            className="link-button link-danger"
+            aria-label={`Delete Zone ${zone.name || entityName(zone.thermostat_entity_id)}`}
+            onClick={onDelete}
+          >
+            Delete Zone
+          </button>
           <span className="spacer" />
-          {/* Saving keeps the zone open: the thermostat settings below save
+          {/* Saving keeps the zone open: the thermostat settings save
               separately, and closing here would drop edits made to them. */}
           <button type="button" className="btn btn-secondary" onClick={onCancel}>
             Close
@@ -391,17 +398,14 @@ function EditZoneDialog({
   zone,
   equipment,
   thermostat,
-  onClose,
-  onDelete,
 }: {
   zone: ZoneProfile;
-  onDelete: () => void;
   equipment: ReactNode;
   thermostat: ReactNode;
-  onClose: () => void;
 }) {
   const [tab, setTab] = useState<"equipment" | "thermostat">("equipment");
-  const name = zone.name || zone.thermostat_entity_id;
+  const thermostatName = useEntityName(zone.thermostat_entity_id);
+  const name = zone.name || entityName(zone.thermostat_entity_id);
   return (
     <div
       className="modal-backdrop"
@@ -412,45 +416,34 @@ function EditZoneDialog({
       <div className="modal edit-zone">
         <div className="edit-zone-head">
           <div>
-            <div className="modal-title">{`Edit ${name}`}</div>
-            <div className="zone-entity">{zone.thermostat_entity_id}</div>
+            <div className="modal-title">{name}</div>
+            <div className="zone-entity" title={zone.thermostat_entity_id}>
+              {`Thermostat: ${thermostatName}`}
+            </div>
           </div>
-          <span className="edit-zone-actions">
-            <button
-              type="button"
-              className="link-button"
-              aria-label={`Delete Zone ${name}`}
-              onClick={onDelete}
-            >
-              Delete Zone
-            </button>
-            <button type="button" className="btn btn-secondary" onClick={onClose}>
-              Close
-            </button>
-          </span>
+          {thermostat && (
+            <div className="segmented" role="tablist" aria-label="Zone settings">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={tab === "equipment"}
+                className="segmented-option"
+                onClick={() => setTab("equipment")}
+              >
+                Equipment
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={tab === "thermostat"}
+                className="segmented-option"
+                onClick={() => setTab("thermostat")}
+              >
+                Thermostat
+              </button>
+            </div>
+          )}
         </div>
-        {thermostat && (
-          <div className="segmented" role="tablist" aria-label="Zone settings">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={tab === "equipment"}
-              className="segmented-option"
-              onClick={() => setTab("equipment")}
-            >
-              Equipment
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={tab === "thermostat"}
-              className="segmented-option"
-              onClick={() => setTab("thermostat")}
-            >
-              Thermostat
-            </button>
-          </div>
-        )}
         <div role="tabpanel" aria-label="Equipment" hidden={tab !== "equipment"}>
           {equipment}
         </div>
@@ -462,16 +455,6 @@ function EditZoneDialog({
       </div>
     </div>
   );
-}
-
-/** "climate.north_wing" as "North Wing", when Home Assistant gives no name. */
-function prettyEntity(id: string): string {
-  return id
-    .slice(id.lastIndexOf(".") + 1)
-    .split("_")
-    .filter(Boolean)
-    .map((w) => w[0].toUpperCase() + w.slice(1))
-    .join(" ");
 }
 
 function BuildingHeader({
@@ -595,6 +578,9 @@ const LOOKS_LIKE_HEAT_PUMP: Record<"aux" | "plain", string> = {
  * room. The kind of system is asked for, never assumed: a heat pump left on
  * the conventional settings gets none of its protection.
  */
+/** What a newly added zone starts with (`models.NEW_ZONE_*` on the backend). */
+const NEW_ZONE = { minSetpointF: 65, maxSetpointF: 77, minRuntimeMin: 10, minOfftimeMin: 5 };
+
 function AddZone({
   building,
   taken,
@@ -609,6 +595,7 @@ function AddZone({
   onAdded: (warning?: string) => void;
   onCancel: () => void;
 }) {
+  const { toDisplay } = useUnit();
   const [thermostat, setThermostat] = useState("");
   const [name, setName] = useState("");
   const [vents, setVents] = useState("");
@@ -648,6 +635,12 @@ function AddZone({
         thermostat_entity_id: thermostat,
         name: name.trim(),
         total_vents_count: ventCount,
+        // What a new zone starts with, so nobody has to find these to be
+        // safe. Temperatures go as shown; the backend converts (#231).
+        min_setpoint: toDisplay(NEW_ZONE.minSetpointF),
+        max_setpoint: toDisplay(NEW_ZONE.maxSetpointF),
+        min_cycle_runtime_min: NEW_ZONE.minRuntimeMin,
+        min_cycle_offtime_min: NEW_ZONE.minOfftimeMin,
       });
       try {
         await updateZone(thermostat, {
@@ -681,7 +674,7 @@ function AddZone({
           <span className="field-label">Thermostat</span>
           {thermostat ? (
             <div className="picked-entity">
-              <span>{thermostat}</span>
+              <EntityName id={thermostat} />
               <button type="button" className="link-button" onClick={() => setThermostat("")}>
                 Change
               </button>
@@ -971,7 +964,7 @@ export default function Zones({
       {deleting && (
         <ConfirmDialog
           title="Delete zone?"
-          message={`Delete the zone "${deleting.name || deleting.thermostat_entity_id}" and all of its rooms? HomeClimate stops controlling its thermostat. This cannot be undone.`}
+          message={`Delete the zone "${deleting.name || entityName(deleting.thermostat_entity_id)}" and all of its rooms? HomeClimate stops controlling its thermostat. This cannot be undone.`}
           confirmLabel="Delete Zone"
           onCancel={() => setDeleting(null)}
           onConfirm={() => void deleteZone(deleting)}
@@ -1021,12 +1014,12 @@ export default function Zones({
               <section
                 key={z.thermostat_entity_id}
                 className="zone-panel"
-                aria-label={z.name || z.thermostat_entity_id}
+                aria-label={z.name || entityName(z.thermostat_entity_id)}
               >
                 <div className="zone-row zone-panel-head">
                   <div className="zone-row-title">
                     <div className="zone-name">
-                      {z.name || z.thermostat_entity_id}
+                      {z.name || entityName(z.thermostat_entity_id)}
                       <button
                         type="button"
                         className="icon-button"
@@ -1065,7 +1058,7 @@ export default function Zones({
                     <button
                       type="button"
                       className="pill pill-heat pill-button"
-                      aria-label={`${z.name || z.thermostat_entity_id} looks like a heat pump. Check its system type`}
+                      aria-label={`${z.name || entityName(z.thermostat_entity_id)} looks like a heat pump. Check its system type`}
                       onClick={() => setEditing(z.thermostat_entity_id)}
                     >
                       Looks Like a Heat Pump: Check System Type
@@ -1075,13 +1068,12 @@ export default function Zones({
                 {editing === z.thermostat_entity_id && (
                   <EditZoneDialog
                     zone={z}
-                    onClose={() => setEditing(null)}
-                    onDelete={() => setDeleting(z)}
                     equipment={
                       <ZoneEditor
                         zone={z}
                         buildings={buildings}
                         onCancel={() => setEditing(null)}
+                        onDelete={() => setDeleting(z)}
                         onSaved={(saved) => {
                           setZones(
                             zoneList.map((x) =>
@@ -1095,6 +1087,7 @@ export default function Zones({
                       config && (
                         <ThermostatCard
                           embedded
+                          onClose={() => setEditing(null)}
                           config={config}
                           onDeleted={() => {
                             setEditing(null);

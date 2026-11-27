@@ -203,6 +203,13 @@ class Schedule:
         return self.name or self.id
 
 
+# What a newly added zone starts with (°F and minutes).
+NEW_ZONE_MIN_SETPOINT_F = 65.0
+NEW_ZONE_MAX_SETPOINT_F = 77.0
+NEW_ZONE_MIN_RUNTIME_MIN = 10
+NEW_ZONE_MIN_OFFTIME_MIN = 5
+
+
 @dataclass
 class ThermostatConfig:
     thermostat_entity_id: str  # PK — HA climate entity
@@ -310,6 +317,24 @@ class ThermostatConfig:
     # scheduler when serializing. ISO-8601 UTC string; None = not suspended.
     # Ignored on POST/PUT — use the dedicated /eco-suspend endpoints.
     eco_suspend_until: str | None = None
+
+    @classmethod
+    def for_new_zone(cls, thermostat_entity_id: str, name: str = "") -> ThermostatConfig:
+        """What a zone starts with when it is first added.
+
+        The field defaults above are what an unregistered thermostat reads as,
+        and what zones added before these were chosen still hold. A new zone
+        gets limits most houses want and the usual equipment protection, so
+        nobody has to find those settings to be safe.
+        """
+        return cls(
+            thermostat_entity_id=thermostat_entity_id,
+            name=name,
+            min_setpoint=NEW_ZONE_MIN_SETPOINT_F,
+            max_setpoint=NEW_ZONE_MAX_SETPOINT_F,
+            min_cycle_runtime_min=NEW_ZONE_MIN_RUNTIME_MIN,
+            min_cycle_offtime_min=NEW_ZONE_MIN_OFFTIME_MIN,
+        )
 
 
 @dataclass

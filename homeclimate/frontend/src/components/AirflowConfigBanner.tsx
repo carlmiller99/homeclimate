@@ -1,3 +1,4 @@
+import { entityName } from "../entityNames";
 import { useEffect, useState } from "react";
 import { getThermostats, type ThermostatConfig } from "../api";
 import Notice from "./Notice";
@@ -38,7 +39,7 @@ export default function AirflowConfigBanner() {
   if (unconfigured.length === 0) return null;
 
   const n = unconfigured.length;
-  const names = unconfigured.map((tc) => tc.name || tc.thermostat_entity_id);
+  const names = unconfigured.map((tc) => tc.name || entityName(tc.thermostat_entity_id));
   return (
     <Notice
       title={`${n} zone${n === 1 ? " needs" : "s need"} a vent count`}

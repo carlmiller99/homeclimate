@@ -209,9 +209,16 @@ async function setupViaUI(): Promise<void> {
         const input = dialog.locator(`input[placeholder*="${placeholder}"]`);
         await input.fill(entity.split("_")[1]); // "living"|"bedroom"|etc.
         await page.waitForSelector(".entity-dropdown", { timeout: 20_000 });
-        await page.locator(".entity-option").filter({ hasText: entity }).click();
+        // Options show the friendly name; the entity ID is each one's tooltip.
+        await page
+          .locator(".entity-option")
+          .filter({ has: page.locator(`[title="${entity}"]`) })
+          .click();
         // The room is re-read after the add; the entity then shows in the dialog.
-        await dialog.getByText(entity).first().waitFor({ state: "visible", timeout: 15_000 });
+        await dialog
+          .locator(`[title="${entity}"]`)
+          .first()
+          .waitFor({ state: "visible", timeout: 15_000 });
         await dialog.getByRole("button", { name: "Close", exact: true }).click();
         await dialog.waitFor({ state: "detached", timeout: 10_000 });
       };

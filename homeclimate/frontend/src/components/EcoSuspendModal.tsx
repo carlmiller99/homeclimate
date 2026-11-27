@@ -1,3 +1,4 @@
+import { entityName } from "../entityNames";
 import { useMemo, useState } from "react";
 import { setEcoSuspend, clearEcoSuspend, type ThermostatConfig } from "../api";
 import { notifyStateChanged } from "../stateEvents";
@@ -17,7 +18,7 @@ interface Props {
 }
 
 function thermostatLabel(tc: ThermostatConfig): string {
-  return tc.name || tc.thermostat_entity_id;
+  return tc.name || entityName(tc.thermostat_entity_id);
 }
 
 /**

@@ -10,6 +10,8 @@
    consume tokens (never hex literals) for surfaces, text, and borders. */
 :root {
   --blue: #2b6ca3;
+  --occupied: #1fae62;
+  --open: #d83a2c;
   --blue-light: #e5eff7;
   --green: #2f7d5b;
   --green-light: #e3f0e9;
@@ -67,6 +69,8 @@
 
 /* Dark palette. Keep this block and the media-query copy below IDENTICAL. */
 :root[data-theme="dark"] {
+  --occupied: #3ddc84;
+  --open: #ff5f52;
   --blue-light: #18324a;
   --green-light: #16302a;
   --red-light: #3a1e1c;
@@ -114,6 +118,8 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
+    --occupied: #3ddc84;
+    --open: #ff5f52;
     --blue-light: #18324a;
     --green-light: #16302a;
     --red-light: #3a1e1c;
@@ -1780,7 +1786,57 @@ tr:hover td {
   background: var(--gray-400);
 }
 .device-dot-on {
-  background: var(--green);
+  background: var(--occupied);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--occupied) 20%, transparent),
+    0 0 9px color-mix(in srgb, var(--occupied) 80%, transparent);
+}
+.device-dot-open {
+  background: var(--open);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--open) 18%, transparent);
+}
+/* My Home → Outside: the house's outside temperature and the sensors behind it. */
+.outside-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1.25rem 2.5rem;
+  margin-bottom: 1.5rem;
+}
+.outside-now {
+  display: flex;
+  flex-direction: column;
+}
+.outside-temp {
+  font-size: 3rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+}
+.outside-sensors {
+  flex: 1 1 26rem;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+}
+.outside-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 44px;
+  padding: 0 0.35rem 0 0.9rem;
+  border-radius: 999px;
+  background: var(--gray-100);
+  font-weight: 600;
+}
+.outside-chip .icon-button {
+  margin-left: 0;
+}
+.outside-add {
+  flex: 1 1 18rem;
+  max-width: 26rem;
 }
 /* A small pencil beside a name: opens that thing for editing. */
 .icon-button {
@@ -3352,31 +3408,49 @@ button.sc-nav-item {
 }
 
 /* Smart Control → Auto Mode */
+.section-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+.auto-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.auto-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.auto-head .sensor-title {
+  margin: 0;
+  font-size: 1.15rem;
+}
 .auto-fields {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
-  gap: 0.85rem 1.5rem;
-  align-items: start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem 2.5rem;
+  align-items: flex-start;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+.auto-fields .rule-help {
+  max-width: 46ch;
+}
+.segmented {
+  flex-wrap: wrap;
+}
+.segmented-option:disabled {
+  cursor: default;
+  opacity: 0.6;
 }
 .threshold-row {
   display: flex;
   gap: 0.5rem;
   align-items: center;
-}
-.choice-list {
-  margin: 0.25rem 0 0;
-  display: grid;
-  gap: 0.5rem;
-  font-size: 0.875rem;
-}
-.choice-list dt {
-  font-weight: 600;
-  color: var(--gray-900);
-}
-.choice-list dd {
-  margin: 0;
-  color: var(--gray-600);
-  max-width: 70ch;
 }
 
 /* Dashboard → building mode */
@@ -3400,31 +3474,329 @@ button.sc-nav-item {
 }
 
 /* Smart Control → Eco Mode */
+.eco-card {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
 .eco-zone-head {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 1rem;
-  margin-bottom: 0.75rem;
 }
 .eco-zone-head .card-title {
   margin: 0;
 }
-.eco-zone-switch {
+.eco-chart-box {
+  background: var(--gray-100);
+  border-radius: 14px;
+  padding: 0.75rem 1rem;
+}
+.eco-chart {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 11rem;
+}
+.eco-chart-zero {
+  stroke: var(--border);
+  stroke-dasharray: 3 5;
+}
+.eco-chart-line {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 3;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.eco-chart-text {
+  font-size: 13px;
+  fill: var(--gray-600);
+}
+circle.eco-chart-heat,
+text.eco-chart-heat {
+  fill: var(--state-heating);
+}
+circle.eco-chart-cool,
+text.eco-chart-cool {
+  fill: var(--state-cooling);
+}
+text.eco-chart-heat,
+text.eco-chart-cool {
+  font-weight: 700;
+}
+@media (max-width: 640px) {
+  /* The picture is drawn small here, so its words are drawn larger. */
+  .eco-chart-text {
+    font-size: 21px;
+  }
+}
+.eco-sides {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.25rem 2.75rem;
+}
+.eco-side {
+  flex: 1 1 18rem;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+.eco-side-title::before {
+  content: "";
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 0.5rem;
+}
+.eco-side-heat::before {
+  background: var(--state-heating);
+}
+.eco-side-cool::before {
+  background: var(--state-cooling);
+}
+.eco-slider-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+.eco-slider-head strong {
+  font-size: 1.1rem;
+}
+.eco-slider input[type="range"] {
+  width: 100%;
+  height: 28px;
+  margin: 0;
+  accent-color: var(--ink);
+}
+/* Smart Control → Rooms: one card per room, opened to change it. */
+.room-plan {
+  padding: 0 1.4rem;
+  margin-bottom: 1rem;
+}
+.room-plan-head {
+  width: 100%;
+  min-height: 68px;
+  padding: 0.6rem 1.75rem 0.6rem 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem 1rem;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  position: relative;
+}
+.room-plan-head::after {
+  content: "";
+  position: absolute;
+  right: 0.25rem;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--gray-600);
+  border-bottom: 2px solid var(--gray-600);
+  transform: translateY(-70%) rotate(-45deg);
+}
+.room-plan-head[aria-expanded="true"]::after {
+  transform: translateY(-70%) rotate(45deg);
+}
+.room-plan-head:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+.room-plan-name {
+  display: block;
+  font-size: 1.1rem;
+}
+.room-plan-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1.1rem;
+  font-size: 0.9rem;
+  color: var(--gray-600);
+}
+.room-plan-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+  padding-bottom: 1.25rem;
+}
+.week-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  max-width: 36rem;
+}
+.week-strip-day {
   display: flex;
   align-items: center;
   gap: 0.6rem;
-  font-weight: 600;
+  font-size: 0.8rem;
+  color: var(--gray-600);
+}
+.week-strip-day > span {
+  flex: 0 0 2.1rem;
+}
+.week-strip-bar {
+  flex: 1;
+  height: 12px;
+  border-radius: 4px;
+  background: var(--gray-100);
+  position: relative;
+  overflow: hidden;
+}
+.week-strip-bar i {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--ink);
+  border-radius: 4px;
+}
+.week-strip-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-left: 2.7rem;
+  font-size: 0.75rem;
+  color: var(--gray-600);
+}
+.advanced-open {
+  width: 100%;
+  min-height: 56px;
+  padding: 0.5rem 1.1rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.75rem;
+  border: 0;
+  border-radius: 14px;
+  background: var(--gray-100);
+  color: inherit;
+  font: inherit;
+  text-align: left;
   cursor: pointer;
 }
-.eco-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
-  gap: 1rem;
-  margin-bottom: 0.75rem;
+.advanced-open span {
+  font-size: 0.875rem;
+  color: var(--gray-600);
 }
-.eco-grid .form-group {
-  margin-bottom: 0;
+.edit-zone-head {
+  flex-wrap: wrap;
+}
+.edit-zone-head .segmented {
+  flex-wrap: nowrap;
+}
+.advanced-box + .zone-editor-actions {
+  margin-top: 1rem;
+}
+/* A sheet's settings: a name on the left, its control on the right. */
+.sheet-rows {
+  margin-bottom: 1rem;
+}
+.sheet-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem 1.25rem;
+  padding: 0.85rem 0;
+  border-top: 1px solid var(--border);
+}
+.sheet-row:first-child {
+  border-top: 0;
+}
+.sheet-row-text {
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+.sheet-row-text .rule-help {
+  max-width: 52ch;
+  font-weight: 400;
+}
+.sheet-row > select.form-control,
+.sheet-row > .sheet-name {
+  width: auto;
+  min-width: 12rem;
+}
+.sheet-picker {
+  flex: 0 1 18rem;
+}
+.link-danger {
+  color: var(--red-text);
+}
+.advanced-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(21rem, 100%), 1fr));
+  gap: 0 2.25rem;
+  padding-bottom: 0.75rem;
+}
+.advanced-range {
+  width: 8.5rem;
+  accent-color: var(--ink);
+}
+/* A collapsed box of settings most people never touch. */
+.advanced-box {
+  background: var(--gray-100);
+  border-radius: 14px;
+  padding: 0 1.1rem;
+}
+.advanced-box > summary {
+  list-style: none;
+  cursor: pointer;
+  min-height: 56px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 0.5rem 1.75rem 0.5rem 0;
+  position: relative;
+}
+.advanced-box > summary::-webkit-details-marker {
+  display: none;
+}
+.advanced-box > summary::after {
+  content: "";
+  position: absolute;
+  right: 0.25rem;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--gray-600);
+  border-bottom: 2px solid var(--gray-600);
+  transform: translateY(-70%) rotate(-45deg);
+}
+.advanced-box[open] > summary::after {
+  transform: translateY(-70%) rotate(45deg);
+}
+.advanced-box > summary span {
+  font-size: 0.875rem;
+  color: var(--gray-600);
+}
+.advanced-rows {
+  padding-bottom: 0.75rem;
+}
+.advanced-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  min-height: 52px;
+  border-top: 1px solid var(--border);
+}
+.advanced-group-title {
+  display: block;
+  padding: 0.9rem 0 0.35rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--gray-600);
 }
 .eco-zone-actions {
   display: flex;

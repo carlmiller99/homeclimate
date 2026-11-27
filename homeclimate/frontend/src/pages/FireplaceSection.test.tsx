@@ -135,7 +135,7 @@ describe("Fireplace section", () => {
     expect(within(cooling).queryByText(/not calling/)).toBeNull();
     expect(
       within(screen.getByRole("group", { name: "Porch" })).getByText(
-        "switch.relay is not reporting, so HomeClimate can't tell whether the fire is lit."
+        "Relay is not reporting, so HomeClimate can't tell whether the fire is lit."
       )
     ).toBeInTheDocument();
     const lost = screen.getByRole("group", { name: "Stove" });
@@ -144,7 +144,7 @@ describe("Fireplace section", () => {
     );
     expect(
       within(lost).getByText(
-        "switch.relay stopped reporting while the fire was lit, so HomeClimate is treating it as still lit."
+        "Relay stopped reporting while the fire was lit, so HomeClimate is treating it as still lit."
       )
     ).toBeInTheDocument();
     // A fireplace that is off is not described as lit or broken.

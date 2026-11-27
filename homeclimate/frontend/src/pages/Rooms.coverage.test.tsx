@@ -11,7 +11,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, within, act } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import Rooms from "./Rooms";
-import RoomsSection from "./RoomsSection";
+import RoomsSection from "../test/TuningHarness";
 import * as api from "../api";
 import * as zonesApi from "../zonesApi";
 import * as sc from "../smartControlApi";
@@ -472,10 +472,10 @@ describe("Room device dialogs", () => {
     await waitFor(() => expect(api.addVent).toHaveBeenCalledWith("room-1", "cover.new_vent"));
     // The refresh landed: the vent table now lists the entity.
     expect(
-      await within(screen.getByRole("dialog")).findByText("cover.new_vent")
+      await within(screen.getByRole("dialog")).findByTitle("cover.new_vent")
     ).toBeInTheDocument();
     // The card behind the dialog follows.
-    expect(screen.getAllByText("cover.new_vent")).toHaveLength(2);
+    expect(screen.getAllByTitle("cover.new_vent")).toHaveLength(2);
     expect(screen.queryByText(/No vents added yet/i)).not.toBeInTheDocument();
   });
 
@@ -547,7 +547,7 @@ describe("Room card — devices", () => {
     expect(titles).toEqual([...KINDS, "Shades"].map((k) => `${k} in Living Room`));
     // The card edits hardware only: each box opens its own kind of device.
     expect(screen.queryByRole("button", { name: "Edit Devices" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Room Settings" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit Living Room" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Hold/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /Clear presence/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /Delete Room/ })).toBeNull();
@@ -585,10 +585,10 @@ describe("Room card — devices", () => {
     await screen.findByText("Living Room");
     await waitFor(() => expect(api.getEntityStates).toHaveBeenCalled());
 
-    // No state arrived → the entity id as the name and an ellipsis as the value.
-    expect(devices("Smart Vents")).toEqual([["cover.vent", "…"]]);
-    expect(devices("Temperature Sensors")).toEqual([["sensor.temp", "…"]]);
-    expect(devices("Occupancy Sensors")).toEqual([["binary_sensor.motion", "…"]]);
+    // No state arrived → the entity id, tidied, as the name and an ellipsis as the value.
+    expect(devices("Smart Vents")).toEqual([["Vent", "…"]]);
+    expect(devices("Temperature Sensors")).toEqual([["Temp", "…"]]);
+    expect(devices("Occupancy Sensors")).toEqual([["Motion", "…"]]);
   });
 
   it("renders every vent-position flavour", async () => {
@@ -621,14 +621,14 @@ describe("Room card — devices", () => {
     await waitFor(() =>
       // "cover.wide" reads Open from its position even though its state string
       // says closed — the position attribute wins over the state fallback. A
-      // blank or non-text friendly name falls back to the entity id.
+      // blank or non-text friendly name falls back to the entity id, tidied.
       expect(devices("Smart Vents")).toEqual([
         ["Wide Vent", "Open"],
-        ["cover.tilt", "Closed"],
-        ["cover.half", "55%"],
-        ["cover.plain", "Open"],
-        ["cover.shut", "Closed"],
-        ["cover.weird", "unavailable"],
+        ["Tilt", "Closed"],
+        ["Half", "55%"],
+        ["Plain", "Open"],
+        ["Shut", "Closed"],
+        ["Weird", "unavailable"],
       ])
     );
     expect(section("Smart Vents").querySelector(".device-count")).toHaveTextContent("6");
@@ -666,8 +666,8 @@ describe("Room card — devices", () => {
     await waitFor(() =>
       expect(devices("Temperature Sensors")).toEqual([
         ["Sofa", "20.0°C"],
-        ["sensor.old", "Stale"],
-        ["sensor.quiet", "…"],
+        ["Old", "Stale"],
+        ["Quiet", "…"],
       ])
     );
     expect(within(section("Temperature Sensors")).getByText("Stale")).toHaveClass("device-warn");
@@ -691,15 +691,18 @@ describe("Room card — devices", () => {
 
     await waitFor(() =>
       expect(devices("Doors & Windows")).toEqual([
-        ["Patio Door", "OpenZone"],
-        ["Bay Window", "Closed"],
+        // Open is a red dot and closed a grey one; the word is still there to be read out.
+        ["Patio Door: Open", "Zone"],
+        ["Bay Window: Closed", ""],
         ["Side Door", "Offline"],
       ])
     );
     const doors = section("Doors & Windows");
+    expect(doors.querySelectorAll(".device-dot-open")).toHaveLength(1);
+    expect(doors.querySelectorAll(".device-dot-off")).toHaveLength(1);
     expect(within(doors).getByText("Zone")).toHaveClass("device-tag");
     expect(doors.querySelectorAll(".device-tag")).toHaveLength(1);
-    expect(doors.querySelector(".device-open")).toHaveTextContent("Open");
+    expect(doors.querySelector(".device-open")).toHaveTextContent("Zone");
     expect(doors.querySelectorAll(".device-open")).toHaveLength(1);
     expect(screen.queryByText("Garage Door")).toBeNull();
   });
@@ -737,9 +740,9 @@ describe("Room card — devices", () => {
       expect(devices("Occupancy Sensors")).toEqual([
         // Occupied and clear are a green or grey dot; the word is still there to be read out.
         ["Desk: Occupied", ""],
-        ["binary_sensor.sofa: Clear", ""],
-        ["binary_sensor.lost", "Offline"],
-        ["binary_sensor.late", "…"],
+        ["Sofa: Clear", ""],
+        ["Lost", "Offline"],
+        ["Late", "…"],
       ])
     );
     const occupancy = section("Occupancy Sensors");
@@ -764,7 +767,7 @@ describe("Room card — devices", () => {
 
     const badge = await screen.findByTestId("stale-badge-room-1");
     expect(badge.textContent).toBe("1 stale sensor");
-    expect(badge.getAttribute("title")).toBe("sensor.one — 1.5 h ago");
+    expect(badge.getAttribute("title")).toBe("One — 1.5 h ago");
   });
 
   it("pluralises the stale badge and formats every staleness age", async () => {
@@ -791,10 +794,10 @@ describe("Room card — devices", () => {
     // toHaveTextContent("… stale sensor") and leave the plural unpinned.
     expect(badge.textContent).toBe("4 stale sensors");
     const title = badge.getAttribute("title") ?? "";
-    expect(title).toContain("sensor.never — never seen by HA");
-    expect(title).toContain("sensor.null_age — never seen by HA");
-    expect(title).toContain("sensor.minutes — 2 min ago");
-    expect(title).toContain("sensor.days — 2 d ago");
+    expect(title).toContain("Never — never seen by HA");
+    expect(title).toContain("Null Age — never seen by HA");
+    expect(title).toContain("Minutes — 2 min ago");
+    expect(title).toContain("Days — 2 d ago");
   });
 
   it("shows no stale badge when sensor health cannot be read", async () => {
@@ -1044,7 +1047,7 @@ describe("My Home — page edge cases", () => {
     expect(within(group).getByText("Attic")).toBeInTheDocument();
     expect(within(group).queryByText("Living Room")).toBeNull();
     expect(
-      within(group).getByText("Open Room Settings and choose a zone for each of these rooms.")
+      within(group).getByText("Use the pencil by each room’s name to choose its zone.")
     ).toBeInTheDocument();
     // The zoned room sits inside its zone's panel.
     expect(
@@ -1068,7 +1071,7 @@ describe("My Home — page edge cases", () => {
     );
 
     renderPage();
-    fireEvent.click(await screen.findByRole("button", { name: /Settings/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Living Room" }));
     await screen.findByTestId("room-settings");
 
     fireEvent.click(screen.getByRole("button", { name: /^Cancel$/ }));
@@ -1084,7 +1087,7 @@ describe("My Home — page edge cases", () => {
       entity_id: "sensor.outdoor",
       current_value: 80,
     });
-    fireEvent.click(screen.getByRole("button", { name: /Settings/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit Living Room" }));
     expect(await screen.findByTestId("room-settings")).toBeInTheDocument();
   });
 });
@@ -1116,10 +1119,10 @@ describe("Room device dialogs — refresh after a mutation", () => {
     await waitFor(() => expect(api.addSensor).toHaveBeenCalledWith("room-1", "sensor.new_temp"));
     // Only a real refetch can put the server's sensor into the tag list.
     expect(
-      await within(screen.getByRole("dialog")).findByText("sensor.new_temp")
+      await within(screen.getByRole("dialog")).findByTitle("sensor.new_temp")
     ).toBeInTheDocument();
     // The card behind the dialog follows.
-    expect(screen.getAllByText("sensor.new_temp")).toHaveLength(2);
+    expect(screen.getAllByTitle("sensor.new_temp")).toHaveLength(2);
     expect(screen.queryByText("No sensors added yet — search above to add one.")).toBeNull();
   });
 });

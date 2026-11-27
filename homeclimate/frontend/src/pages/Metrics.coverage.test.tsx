@@ -422,7 +422,7 @@ describe("thermostat labelling", () => {
     ]);
     render(<Metrics />);
     const select = await screen.findByDisplayValue(/All thermostats/i);
-    expect(await screen.findByRole("option", { name: "climate.unnamed" })).toBeInTheDocument();
+    expect(await screen.findByRole("option", { name: "Unnamed" })).toBeInTheDocument();
 
     fireEvent.change(select, { target: { value: "climate.unnamed" } });
     expect(await screen.findByText(/Showing climate\.unnamed for/)).toBeInTheDocument();

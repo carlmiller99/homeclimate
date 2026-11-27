@@ -17,7 +17,6 @@ from .. import (
     coasting,
     db,
     equipment_hint,
-    fan,
     fireplace,
     forecast,
     forecast_bias,
@@ -725,7 +724,6 @@ async def update_building_mode(request: web.Request) -> web.Response:
 
 
 async def _fan_snapshot(request: web.Request) -> dict:
-    conn = await get_conn(request)
     scheduler = request.app["scheduler"]
     fans = scheduler.fans
     now = datetime.now(tz.UTC)
@@ -738,43 +736,18 @@ async def _fan_snapshot(request: web.Request) -> dict:
                 "air_intake": z.air_intake,
                 "supported": z.supported,
                 "running": fans.running(z.thermostat_entity_id),
-                "testing": fans.testing(z.thermostat_entity_id),
                 "note": fans.note(z.thermostat_entity_id),
                 "minutes_last_hour": fans.minutes_used(z.thermostat_entity_id, now),
-                "test": await fan.last_test(conn, z.thermostat_entity_id),
             }
             for z in await scheduler.fan_zones()
         ],
-        "test_minutes": int(fan.TEST_LENGTH.total_seconds() // 60),
     }
 
 
-@docs(tags=["zones"], summary="Each zone's fan: its level, what it is doing and the last test")
+@docs(tags=["zones"], summary="Each zone's fan: its level and what it is doing")
 @response_schema(schemas.FanSchema)
 @routes.get("/api/fan")
 async def get_fan(request: web.Request) -> web.Response:
-    return json_response(await _fan_snapshot(request))
-
-
-@docs(
-    tags=["zones"],
-    summary="Run a zone's fan for a few minutes to look for an outside air intake",
-    description=(
-        "Runs the fan alone and compares how the zone's rooms move with the outside"
-        " temperature. The result is a hint: mixing and ducts move temperatures too."
-    ),
-)
-@response_schema(schemas.FanSchema)
-@routes.post("/api/fan/{entity_id:[^/]+}/test")
-async def test_fan(request: web.Request) -> web.Response:
-    entity_id = request.match_info["entity_id"]
-    try:
-        await request.app["scheduler"].start_fan_test(entity_id)
-    except UserError as exc:
-        text = safe_text(exc)
-        status = {fan.ZONE_UNKNOWN: 404, fan.FAN_FAILED: 502}.get(text, 400)
-        return error(text, status=status)
-    await emit(request, "info", "api", "Fan test started", {"thermostat": entity_id})
     return json_response(await _fan_snapshot(request))
 
 

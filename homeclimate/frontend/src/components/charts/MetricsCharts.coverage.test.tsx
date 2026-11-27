@@ -663,7 +663,7 @@ describe("VentTimelineChart", () => {
       ],
     });
     const { container } = renderWithUnit(<VentTimelineChart entityId={entityId} range={range} />);
-    await screen.findByText("cover.a");
+    await screen.findByTitle("cover.a");
     expect(container.querySelectorAll(".text-sm.text-muted").length).toBe(1); // just the subtitle
   });
 
@@ -696,7 +696,7 @@ describe("VentTimelineChart", () => {
     renderWithUnit(<VentTimelineChart entityId={entityId} range={range} />);
     // Every column the table renders is present, so a null `cycle_ended_at`
     // does not blank or break the row.
-    expect(await screen.findByText("cover.upstairs_office_vent")).toBeInTheDocument();
+    expect(await screen.findByTitle("cover.upstairs_office_vent")).toBeInTheDocument();
     expect(screen.getByText("opened_at_start")).toBeInTheDocument();
     expect(screen.getByText("cooling")).toBeInTheDocument();
     // The "When" cell is derived from `timestamp`, never `cycle_ended_at`, so

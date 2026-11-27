@@ -163,7 +163,7 @@ describe("Rooms grouped by building and zone", () => {
     expect(within(panel).getByRole("button", { name: "Edit Zone" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Main House" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Unassigned" })).toBeInTheDocument();
-    const empty = screen.getByRole("region", { name: "climate.empty" });
+    const empty = screen.getByRole("region", { name: "Empty" });
     expect(
       within(empty).getByText(
         "This zone has no rooms. It cannot be controlled until at least one room is added."
@@ -205,11 +205,26 @@ describe("Rooms grouped by building and zone", () => {
     vi.mocked(zonesApi.getZones).mockResolvedValue([zone({})]);
     vi.mocked(api.updateRoom).mockResolvedValue(makeRoom({ name: "Lounge" }));
     renderPage();
-    fireEvent.click(await screen.findByRole("button", { name: "Room Settings" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Living Room" }));
     fireEvent.click(await screen.findByRole("button", { name: "Save Changes" }));
     await waitFor(() => expect(api.updateRoom).toHaveBeenCalled());
     await screen.findByRole("region", { name: "Upstairs" });
     await waitFor(() => expect(zonesApi.getZones).toHaveBeenCalledTimes(2));
+  });
+
+  it("closes the zone from its Thermostat tab too", async () => {
+    vi.mocked(zonesApi.getZones).mockResolvedValue([zone({})]);
+    renderPage();
+    const panel = await screen.findByRole("region", { name: "Upstairs" });
+    fireEvent.click(within(panel).getByRole("button", { name: "Edit Zone" }));
+    const edit = await screen.findByRole("dialog", { name: "Edit zone Upstairs" });
+    fireEvent.click(within(edit).getByRole("tab", { name: "Thermostat" }));
+    fireEvent.click(
+      within(within(edit).getByRole("tabpanel", { name: "Thermostat" })).getByRole("button", {
+        name: "Close",
+      })
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
   it("deletes a zone with its rooms from inside the zone, then reloads the house", async () => {
@@ -220,10 +235,10 @@ describe("Rooms grouped by building and zone", () => {
     fireEvent.click(within(panel).getByRole("button", { name: "Edit Zone" }));
     // One dialog for the zone; its thermostat's settings are the second tab.
     const edit = await screen.findByRole("dialog", { name: "Edit zone Upstairs" });
-    fireEvent.click(within(edit).getByRole("tab", { name: "Thermostat" }));
-
-    // The thermostat's own Delete button is left out here: the dialog has one.
-    expect(within(panel).queryByRole("button", { name: "Delete Zone" })).toBeNull();
+    // Delete is at the foot of the Equipment tab; the thermostat's tab has none of its own.
+    expect(
+      within(edit).getAllByRole("button", { name: /^Delete Zone/, hidden: true })
+    ).toHaveLength(1);
     fireEvent.click(within(edit).getByRole("button", { name: "Delete Zone Upstairs" }));
     const dialog = await screen.findByTestId("confirm-dialog");
     expect(dialog).toHaveTextContent('Delete the zone "Upstairs" and all of its rooms?');

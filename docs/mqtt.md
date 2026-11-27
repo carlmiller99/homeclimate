@@ -226,7 +226,7 @@ The name form is the sanitised name — lower-cased, with anything outside
 Both forms carry retained state, and a result echoes back on whichever form the
 command used. Because the sanitised name has to be unambiguous, **room names
 must be unique once sanitised** — "Office" and "office" now collide, and the
-Room Settings form will say so. On upgrade, any existing collisions are renamed
+room's form in My Home will say so. On upgrade, any existing collisions are renamed
 automatically (`"Office"` → `"Office (2)"`) and each rename is recorded in the
 event log.
 

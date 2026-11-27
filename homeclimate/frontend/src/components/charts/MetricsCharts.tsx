@@ -6,6 +6,7 @@
  * renders inside a shared <ChartContainer/>. Composed in pages/Metrics.tsx.
  */
 
+import EntityName from "../EntityName";
 import { useEffect, useMemo, useState } from "react";
 import {
   Area,
@@ -799,11 +800,10 @@ export function VentTimelineChart({ entityId, range }: Props) {
                     data-label="Vent"
                     style={{
                       padding: "4px 8px",
-                      fontFamily: "monospace",
                       overflowWrap: "anywhere",
                     }}
                   >
-                    {e.entity_id}
+                    <EntityName id={e.entity_id} />
                   </td>
                   <td data-label="Action" style={{ padding: "4px 8px" }}>
                     {e.action}

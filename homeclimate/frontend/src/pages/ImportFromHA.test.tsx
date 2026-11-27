@@ -370,7 +370,7 @@ describe("Set Up from Home Assistant", () => {
     expect(screen.getByText("Area: None")).toBeInTheDocument();
     fireEvent.change(name, { target: { value: "" } });
     const zoneSelect = screen.getByLabelText("Zone for Bunk Bath");
-    expect(within(zoneSelect).getByRole("option", { name: "climate.landing" })).toBeInTheDocument();
+    expect(within(zoneSelect).getByRole("option", { name: "Landing" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Import" }));
     await waitFor(() => expect(zonesApi.runImport).toHaveBeenCalled());
     expect(vi.mocked(zonesApi.runImport).mock.calls[0][0].zones).toEqual([

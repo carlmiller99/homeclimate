@@ -121,7 +121,7 @@ describe("Dashboard building mode", () => {
       "Heating for every zone. Waiting for heating to finish. Upstairs is waiting to start cooling."
     );
     // A zone the Dashboard has no name for is named by its entity; watched waits say "would".
-    expect(status).toHaveTextContent("climate.elsewhere would be waiting to start cooling.");
+    expect(status).toHaveTextContent("Elsewhere would be waiting to start cooling.");
   });
 
   it("changes the mode and shows the result", async () => {

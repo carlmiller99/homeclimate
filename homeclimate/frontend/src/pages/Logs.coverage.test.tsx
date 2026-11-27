@@ -95,7 +95,7 @@ function deferred<T>() {
 /** Open Cycle History and expand the single cycle row. */
 async function expandFirstCycle() {
   fireEvent.click(screen.getByRole("button", { name: "Cycle History" }));
-  fireEvent.click(await screen.findByText("climate.test"));
+  fireEvent.click(await screen.findByTitle("climate.test"));
 }
 
 describe("Logs — coverage", () => {
@@ -120,7 +120,7 @@ describe("Logs — coverage", () => {
     render(<Logs />);
     fireEvent.click(screen.getByRole("button", { name: "Cycle History" }));
 
-    const row = (await screen.findByText("climate.test")).closest("tr")!;
+    const row = (await screen.findByTitle("climate.test")).closest("tr")!;
     expect(within(row).getByText("Active")).toBeInTheDocument();
     // duration() short-circuits on a null end.
     expect(within(row).getByText("running")).toBeInTheDocument();
@@ -130,7 +130,7 @@ describe("Logs — coverage", () => {
     expect(within(row).getByText("cooling")).toHaveClass("badge-blue");
 
     // Expanded: "Ended reason" falls through null ended_reason to "running".
-    fireEvent.click(screen.getByText("climate.test"));
+    fireEvent.click(screen.getByTitle("climate.test"));
     const card = (await screen.findByText("Ended reason")).closest("div.card")!;
     expect(card).toHaveTextContent("running");
   });
@@ -159,7 +159,7 @@ describe("Logs — coverage", () => {
   it("refreshes the cycle list from the Refresh button", async () => {
     render(<Logs />);
     fireEvent.click(screen.getByRole("button", { name: "Cycle History" }));
-    await screen.findByText("climate.test");
+    await screen.findByTitle("climate.test");
 
     vi.mocked(api.getLogs).mockClear();
     vi.mocked(api.getLogs).mockResolvedValue([
@@ -167,7 +167,7 @@ describe("Logs — coverage", () => {
     ]);
     fireEvent.click(screen.getByRole("button", { name: /Refresh/ }));
 
-    expect(await screen.findByText("climate.refetched")).toBeInTheDocument();
+    expect(await screen.findByTitle("climate.refetched")).toBeInTheDocument();
   });
 
   // -------------------------------------------------------------------------
