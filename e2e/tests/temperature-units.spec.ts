@@ -278,6 +278,10 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
   }) => {
     // @covers: eco_cooling_outdoor_threshold, eco_cooling_full_drift_temp, eco_cooling_max_drift, eco_heating_outdoor_threshold, eco_heating_full_drift_temp, eco_heating_max_drift, eco_hysteresis_band
     // Eco Mode is tuned per zone in Smart Control.
+    // Fill each field via its unique input id, save, reload, and assert the
+    // values survived the °C↔°F round-trip unchanged. [id="…"] rather than
+    // `#…` because the entity id embeds a dot.
+    const idSel = (suffix: string) => `[id="eco-${TC_ID}-${suffix}"]`;
     const priorOutside = await (
       await page.request.get("/api/settings/outside-temp-entity")
     ).json();
@@ -321,10 +325,6 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
       }, value);
     };
     try {
-      // Fill each field via its unique input id, save, reload, and assert the
-      // values survived the °C↔°F round-trip unchanged. [id="…"] rather than
-      // `#…` because the entity id embeds a dot.
-      const idSel = (suffix: string) => `[id="eco-${TC_ID}-${suffix}"]`;
       await openEco();
       const card = page
         .locator(idSel("eco_hysteresis_band"))
@@ -707,6 +707,11 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
     });
     const building = (await made.json()).id as string;
     try {
+      // The threshold shows once the building heats or cools as one, or tries to.
+      const level = await page.request.put(`/api/building-modes/${building}`, {
+        data: { auto_level: "watch" },
+      });
+      expect(level.status(), await level.text()).toBeLessThan(400);
       await page.goto("/smart-control?section=auto-mode");
       const field = page.getByLabel(
         /^Switching threshold for Threshold Test House/,
@@ -717,12 +722,9 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
           r.url().includes(`/api/building-modes/${building}`) &&
           r.request().method() === "PUT",
       );
+      // It saves on Enter, or on leaving the field.
       await field.fill(THRESHOLD);
-      await page
-        .getByRole("button", {
-          name: "Save switching threshold for Threshold Test House",
-        })
-        .click();
+      await field.press("Enter");
       await saved;
 
       await page.reload();

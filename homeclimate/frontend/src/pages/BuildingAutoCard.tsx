@@ -92,6 +92,7 @@ function ThresholdField({
         />
         <span className="minutes-unit">{unitLabel}</span>
       </span>
+      {!valid && <span className="form-error">{`Between ${low} and ${high}${unitLabel}.`}</span>}
     </div>
   );
 }

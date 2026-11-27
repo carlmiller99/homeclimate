@@ -98,7 +98,9 @@ describe("Smart Control → Auto Mode", () => {
     // Leaving it as it was, or with something it cannot be, saves nothing.
     fireEvent.blur(field);
     fireEvent.change(field, { target: { value: "11" } });
+    expect(screen.getByText("Between 0 and 10°F.")).toBeInTheDocument();
     fireEvent.blur(field);
+    expect(screen.queryByText("Between 0 and 10°F.")).toBeNull();
     expect(field).toHaveValue(3);
     fireEvent.change(field, { target: { value: "" } });
     fireEvent.keyDown(field, { key: "Enter" });

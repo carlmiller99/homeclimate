@@ -82,6 +82,9 @@ describe("OutsideTempPicker", () => {
       expect(api.setOutsideTempEntities).toHaveBeenCalledWith(["sensor.outdoor"])
     );
     expect(await screen.findByTitle("sensor.outdoor")).toBeInTheDocument();
+    // Add Sensor can be backed out of.
+    fireEvent.click(screen.getByRole("button", { name: "Add Sensor" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     // The search box goes away again once something is picked.
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
     expect(onChange).toHaveBeenLastCalledWith("sensor.outdoor");

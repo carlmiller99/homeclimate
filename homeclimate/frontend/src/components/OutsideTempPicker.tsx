@@ -122,6 +122,9 @@ export default function OutsideTempPicker({
                 setAdding(false);
               }}
             />
+            <button className="link-button" type="button" onClick={() => setAdding(false)}>
+              Cancel
+            </button>
           </div>
         ) : (
           <button

@@ -9,6 +9,8 @@ const names = new Map<string, string>();
 const asked = new Set<string>();
 const listeners = new Set<() => void>();
 let queue: string[] = [];
+let retried = false;
+const RETRY_MS = 5000;
 
 /** "sensor.front_yard_temp" as "Front Yard Temp", when Home Assistant gives no name. */
 export function prettyEntity(id: string): string {
@@ -29,10 +31,17 @@ async function flush() {
       const name = st?.attributes?.friendly_name;
       if (typeof name === "string" && name) names.set(id, name);
     }
+    // One Home Assistant had nothing for yet may be asked for again.
+    ids.filter((id) => !states[id]).forEach((id) => asked.delete(id));
     listeners.forEach((l) => l());
   } catch {
-    // The entity ID, tidied, stands in; asking again later is allowed.
+    // The entity ID, tidied, stands in. Asked again once, shortly, for what
+    // is already on screen; anything shown later asks for itself.
     ids.forEach((id) => asked.delete(id));
+    if (!retried) {
+      retried = true;
+      setTimeout(() => ids.forEach(ask), RETRY_MS);
+    }
   }
 }
 
@@ -67,4 +76,5 @@ export function forgetEntityNames() {
   names.clear();
   asked.clear();
   queue = [];
+  retried = false;
 }

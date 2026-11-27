@@ -10,8 +10,8 @@ Rapidly stopping and restarting a compressor — *short-cycling* — is one of t
 
 | Setting | Default | What it does |
 |---|---|---|
-| **Run at least** | 10 min for a zone added in My Home; 0 (off) through the API | Once a cycle starts, it is held open at least this many minutes before it may complete normally. Recommended **10 min**. |
-| **Rest between runs at least** | 5 min for a zone added in My Home; 0 (off) through the API | After a cycle ends, a new one may not start for this many minutes. Recommended **5 min** — the industry-standard anti-short-cycle delay that lets refrigerant pressures equalize. |
+| **Run at least** | 10 min for a zone added in My Home or from Home Assistant; 0 (off) through the API | Once a cycle starts, it is held open at least this many minutes before it may complete normally. Recommended **10 min**. |
+| **Rest between runs at least** | 5 min for a zone added in My Home or from Home Assistant; 0 (off) through the API | After a cycle ends, a new one may not start for this many minutes. Recommended **5 min** — the industry-standard anti-short-cycle delay that lets refrigerant pressures equalize. |
 
 ### How the minimum-runtime hold works
 

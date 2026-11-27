@@ -239,7 +239,7 @@ A zone is one thermostat and the rooms it serves. Go to **My Home**, add a build
 
 Then open **Edit Zone** to tune its Thermostat Settings:
 
-- Set a **Occupied Temperature** — this is the fallback temperature used when a room is activated by motion and has no room-level presence temp configured
+- Set an **Occupied Temperature** — this is the fallback temperature used when a room is activated by motion and has no room-level presence temp configured
 - Adjust safety limits if needed (min/max setpoint, deadband, overshoot delta)
 
 ### 2. Create rooms

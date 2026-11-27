@@ -674,7 +674,7 @@ function AddZone({
           <span className="field-label">Thermostat</span>
           {thermostat ? (
             <div className="picked-entity">
-              <span>{thermostat}</span>
+              <EntityName id={thermostat} />
               <button type="button" className="link-button" onClick={() => setThermostat("")}>
                 Change
               </button>

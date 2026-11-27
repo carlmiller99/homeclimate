@@ -222,6 +222,23 @@ describe("Smart Control → Eco Mode", () => {
       eco_heating_full_drift_temp: -4,
       eco_cooling_max_drift: 6,
     });
+    // Saved there, that is where it is set now: dragging back leaves it.
+    fireEvent.change(within(c).getByLabelText("Start When Outside Is Above"), {
+      target: { value: "90" },
+    });
+    expect(within(c).getByLabelText(/^Hot days: full drift/)).toHaveDisplayValue("104");
+    // One typed under Advanced Options is where it is set from then on: a
+    // drag past it takes it along, and the drag home gives it back.
+    fireEvent.change(within(c).getByLabelText(/^Hot days: full drift/), {
+      target: { value: "95" },
+    });
+    fireEvent.change(within(c).getByLabelText("Start When Outside Is Above"), {
+      target: { value: "98" },
+    });
+    fireEvent.change(within(c).getByLabelText("Start When Outside Is Above"), {
+      target: { value: "90" },
+    });
+    expect(within(c).getByLabelText(/^Hot days: full drift/)).toHaveDisplayValue("95");
     // With no drift allowed at all the picture is a flat line, not a division by zero.
     fireEvent.change(within(c).getByLabelText("Let Rooms Run Warmer By Up To"), {
       target: { value: "0" },

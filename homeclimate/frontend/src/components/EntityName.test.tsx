@@ -55,15 +55,40 @@ describe("Friendly names for entities", () => {
     expect(entityName("sensor.other_one")).toBe("Other One");
   });
 
-  it("stands the tidied ID in when names cannot be read, and asks again later", async () => {
-    vi.mocked(api.getEntityStates).mockRejectedValueOnce(new Error("down"));
-    const first = render(<EntityName id="climate.north_wing" />);
-    expect(screen.getByText("North Wing")).toBeInTheDocument();
+  it("stands the tidied ID in when names cannot be read, and asks once more by itself", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(api.getEntityStates)
+        .mockRejectedValueOnce(new Error("down"))
+        .mockRejectedValueOnce(new Error("still down"))
+        .mockResolvedValue({ "climate.north_wing": state("Hallway") });
+      const first = render(<EntityName id="climate.north_wing" />);
+      expect(screen.getByText("North Wing")).toBeInTheDocument();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(api.getEntityStates).toHaveBeenCalledTimes(1);
+      // Asked again shortly, once, for what is still on screen.
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(api.getEntityStates).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(60000);
+      expect(api.getEntityStates).toHaveBeenCalledTimes(2);
+      // Shown again later, it asks for itself.
+      first.unmount();
+      render(<EntityName id="climate.north_wing" />);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(screen.getByText("Hallway")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("asks again for an entity Home Assistant had nothing for yet", async () => {
+    vi.mocked(api.getEntityStates).mockResolvedValueOnce({ "sensor.late": null });
+    const first = render(<EntityName id="sensor.late" />);
     await waitFor(() => expect(api.getEntityStates).toHaveBeenCalledTimes(1));
     first.unmount();
-    vi.mocked(api.getEntityStates).mockResolvedValue({ "climate.north_wing": state("Hallway") });
-    render(<EntityName id="climate.north_wing" />);
-    expect(await screen.findByText("Hallway")).toBeInTheDocument();
+    vi.mocked(api.getEntityStates).mockResolvedValue({ "sensor.late": state("Attic") });
+    render(<EntityName id="sensor.late" />);
+    expect(await screen.findByText("Attic")).toBeInTheDocument();
   });
 
   it("tidies an ID with no dot, doubled underscores or nothing in it", () => {

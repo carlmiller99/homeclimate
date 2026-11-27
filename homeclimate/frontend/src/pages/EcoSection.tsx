@@ -61,7 +61,15 @@ function EcoZoneCard({
   const [form, setForm] = useState(derived);
   const [lastDerived, setLastDerived] = useState(derived);
   const [emptyOn, setEmptyOn] = useState(derived.eco_empty_zone_hours !== 0);
+  // Where each full drift was set, by what is stored or typed. A slider
+  // dragged past one takes it along, and gives it back on the way home.
+  const fullOf = (f: EcoForm) => ({
+    eco_cooling_full_drift_temp: f.eco_cooling_full_drift_temp,
+    eco_heating_full_drift_temp: f.eco_heating_full_drift_temp,
+  });
+  const [fullAt, setFullAt] = useState(fullOf(derived));
   if (!sameForm(lastDerived, derived)) {
+    setFullAt(fullOf(derived));
     // What is stored changed (a save, or the display unit): show it. A refetch
     // that returns the same values leaves an edit in progress alone.
     setLastDerived(derived);
@@ -91,6 +99,7 @@ function EcoZoneCard({
       const stored = derive(updated);
       setLastDerived(stored);
       setForm(stored);
+      setFullAt(fullOf(stored));
       setEmptyOn(stored.eco_empty_zone_hours !== 0);
       onSaved(updated);
       setSaved(true);
@@ -117,8 +126,8 @@ function EcoZoneCard({
   const numbersOk = ECO_NUMERIC_FIELDS.every(({ key }) => Number.isFinite(form[key]));
   // Slider ranges in the unit shown.
   const r = isCelsius
-    ? { cold: [-18, 16], hot: [21, 43], drift: [0, 4.5], step: 0.5 }
-    : { cold: [-20, 60], hot: [70, 110], drift: [0, 8], step: 1 };
+    ? { cold: [-29, 21], hot: [15, 49], drift: [0, 11], step: 0.5 }
+    : { cold: [-20, 70], hot: [60, 120], drift: [0, 20], step: 1 };
   const advanced = ECO_NUMERIC_FIELDS.filter(({ key }) => key in ADVANCED_LABELS);
   return (
     <div className="card eco-card" role="group" aria-label={title}>
@@ -168,7 +177,8 @@ function EcoZoneCard({
                   set({
                     eco_heating_outdoor_threshold: v,
                     // The full drift is never reached before the drift starts.
-                    eco_heating_full_drift_temp: Math.min(form.eco_heating_full_drift_temp, v),
+                    // It goes back to where it was set once there is room again.
+                    eco_heating_full_drift_temp: Math.min(fullAt.eco_heating_full_drift_temp, v),
                   })
                 }
               />
@@ -196,7 +206,7 @@ function EcoZoneCard({
                 onChange={(v) =>
                   set({
                     eco_cooling_outdoor_threshold: v,
-                    eco_cooling_full_drift_temp: Math.max(form.eco_cooling_full_drift_temp, v),
+                    eco_cooling_full_drift_temp: Math.max(fullAt.eco_cooling_full_drift_temp, v),
                   })
                 }
               />
@@ -259,7 +269,11 @@ function EcoZoneCard({
                       step={step}
                       value={Number.isFinite(form[key]) ? form[key] : ""}
                       disabled={saving}
-                      onChange={(e) => set({ [key]: parseFloat(e.target.value) })}
+                      onChange={(e) => {
+                        const v = parseFloat(e.target.value);
+                        set({ [key]: v });
+                        if (key in fullAt) setFullAt((f) => ({ ...f, [key]: v }));
+                      }}
                     />
                     <span className="minutes-unit">{unitLabel}</span>
                   </span>

@@ -23,7 +23,7 @@ const MODES: [Mode, string][] = [
 ];
 
 /**
- * Smart Control → Schedules, top of a room's card: whether the room is in
+ * Smart Control → Rooms, in a room's card: whether the room is in
  * use. Always, never, or while a Home Assistant calendar has an event on. A
  * room that is not in use asks for no heating or cooling, and its time
  * blocks and occupancy sensors are ignored.

@@ -462,7 +462,7 @@ describe("Zones page", () => {
     expect(submit).toBeDisabled();
 
     fireEvent.click(within(form).getByRole("button", { name: "pick Search thermostats…" }));
-    expect(within(form).getByText("climate.wing_cloud")).toBeInTheDocument();
+    expect(within(form).getByTitle("climate.wing_cloud")).toBeInTheDocument();
     fireEvent.click(within(form).getByRole("button", { name: "Change" }));
     fireEvent.click(within(form).getByRole("button", { name: "pick Search thermostats…" }));
     fireEvent.change(within(form).getByLabelText("Zone Name"), { target: { value: " Shop " } });

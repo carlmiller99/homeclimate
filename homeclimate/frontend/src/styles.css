@@ -3526,6 +3526,12 @@ text.eco-chart-heat,
 text.eco-chart-cool {
   font-weight: 700;
 }
+@media (max-width: 640px) {
+  /* The picture is drawn small here, so its words are drawn larger. */
+  .eco-chart-text {
+    font-size: 21px;
+  }
+}
 .eco-sides {
   display: flex;
   flex-wrap: wrap;
@@ -3681,6 +3687,15 @@ text.eco-chart-cool {
 .advanced-open span {
   font-size: 0.875rem;
   color: var(--gray-600);
+}
+.edit-zone-head {
+  flex-wrap: wrap;
+}
+.edit-zone-head .segmented {
+  flex-wrap: nowrap;
+}
+.advanced-box + .zone-editor-actions {
+  margin-top: 1rem;
 }
 /* A sheet's settings: a name on the left, its control on the right. */
 .sheet-rows {

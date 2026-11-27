@@ -1,3 +1,4 @@
+import EntityName from "../components/EntityName";
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import { type Room } from "../api";
@@ -155,7 +156,7 @@ export default function ShadesSection({ rooms }: { rooms: Room[] }) {
           <div className="rule-value">
             {s.weather_entity ? (
               <div className="picked-entity">
-                <span>{s.weather_entity}</span>
+                <EntityName id={s.weather_entity} />
                 <button
                   type="button"
                   className="link-button"

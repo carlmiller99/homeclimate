@@ -7,7 +7,7 @@ Per-thermostat configuration controls how aggressively HomeClimate drives the HV
 | Setting | Default | What it does |
 |---|---|---|
 | **Occupied Temperature** | — | Fallback target °F for presence-activated rooms that have no room-level presence temp of their own. |
-| **Temperature Limits** | 65 to 77 °F for a zone added in My Home (60 to 85 °F through the API) | Hard clamps — HomeClimate will never ask HA to set the thermostat outside this range, even with overshoot applied. |
+| **Temperature Limits** | 65 to 77 °F for a zone added in My Home or from Home Assistant (60 to 85 °F through the API) | Hard clamps — HomeClimate will never ask HA to set the thermostat outside this range, even with overshoot applied. |
 | **Room counts as at target within** (deadband) | 0.5 °F | Tolerance for "room at target". `0.5` means a 70 °F target is satisfied at 69.5–70.5 °F. Set to `0` for exact match. A room and a schedule block can each override it — see [Deadband inheritance](#deadband-inheritance). |
 | **Run past the target by** | 2 °F | How far past the most demanding room's target HomeClimate sets the thermostat, to keep the HVAC running while easier rooms catch up. |
 | **End a run that lasts longer than** | 3 hours | A cycle running longer than this is aborted and vents are restored. Safety net for stuck equipment. |
