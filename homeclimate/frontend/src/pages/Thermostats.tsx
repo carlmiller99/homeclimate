@@ -947,7 +947,7 @@ export function ThermostatCard({
 
       <div style={{ marginTop: "1.25rem", display: "flex", alignItems: "center", gap: ".75rem" }}>
         <button className="btn btn-primary" onClick={save} disabled={saving}>
-          {saving ? "Saving…" : "Save changes"}
+          {saving ? "Saving…" : "Save Changes"}
         </button>
         {saved && <span className="badge badge-green">Saved!</span>}
       </div>

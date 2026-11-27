@@ -22,6 +22,7 @@ import FireplaceSection from "./FireplaceSection";
 import BuildingAutoCard from "./BuildingAutoCard";
 import FanSection from "./FanSection";
 import EcoSection from "./EcoSection";
+import RoomUsageCard from "./RoomUsageCard";
 import SuggestionsCard from "./SuggestionsCard";
 import ZoneBalanceSection from "./ZoneBalanceSection";
 import PeakSection from "./PeakSection";
@@ -294,6 +295,7 @@ export default function SmartControl() {
         <>
           <LearningSection />
           <SuggestionsCard />
+          <RoomUsageCard />
         </>
       ) : section === "auto-mode" ? (
         <BuildingAutoCard />

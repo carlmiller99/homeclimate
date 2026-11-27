@@ -10,6 +10,9 @@ vi.mock("../learningApi", async (orig) => ({
   updateLearningSettings: vi.fn(),
   fitLearning: vi.fn(),
 }));
+vi.mock("../components/RoomHindcast", () => ({
+  default: ({ name }: { name: string }) => <p>{`chart for ${name}`}</p>,
+}));
 
 const MODEL: la.RoomModel = {
   room_id: "r1",
@@ -51,6 +54,7 @@ function data(over: Partial<la.Learning> = {}): la.Learning {
       coast_level: 0,
       arrival_level: 0,
       early_cool_level: 0,
+      stop_early_level: 0,
     },
     coasting: { level: 0, misses_this_week: 0, misses_to_watch_only: 3, switched_back_at: null },
     samples: 3600,
@@ -228,6 +232,7 @@ describe("Smart Learning section", () => {
           coast_level: 0,
           arrival_level: 0,
           early_cool_level: 0,
+          stop_early_level: 0,
         },
       })
     );
@@ -297,6 +302,58 @@ describe("Smart Learning section", () => {
       expect(la.updateLearningSettings).toHaveBeenCalledWith({ early_start_level: 1 })
     );
     await waitFor(() => expect(level).toHaveValue("1"));
+  });
+
+  it("sets Stop Early, and says what each room has learned for it", async () => {
+    vi.mocked(la.getLearning).mockResolvedValue(
+      data({
+        rooms: [
+          {
+            ...ROOM,
+            stop_early: { heating: { lead: 0.7, runs: 9 }, cooling: { lead: 0.4, runs: 6 } },
+          },
+          { ...ROOM, room_id: "r2", name: "Loft", stop_early: { heating: { lead: 0, runs: 2 } } },
+        ],
+      })
+    );
+    render(<LearningSection />);
+    const level = await screen.findByLabelText("Stop Early to Avoid Overshoot");
+    expect(level).toHaveValue("0");
+    const den = screen.getByRole("listitem", { name: `${ROOM.name} model` });
+    expect(
+      within(den).getByText("Stops early by 0.7°F when heating and 0.4°F when cooling.")
+    ).toBeInTheDocument();
+    const loft = screen.getByRole("listitem", { name: "Loft model" });
+    expect(within(loft).queryByText(/^Stops early/)).not.toBeInTheDocument();
+    fireEvent.change(level, { target: { value: "2" } });
+    await waitFor(() =>
+      expect(la.updateLearningSettings).toHaveBeenCalledWith({ stop_early_level: 2 })
+    );
+  });
+
+  it("opens one room's chart at a time", async () => {
+    vi.mocked(la.getLearning).mockResolvedValue(
+      data({ rooms: [ROOM, { ...ROOM, room_id: "r2", name: "Loft" }] })
+    );
+    render(<LearningSection />);
+    const open = await screen.findByRole("button", { name: `Show ${ROOM.name}'s chart` });
+    expect(open).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(open);
+    expect(screen.getByText(`chart for ${ROOM.name}`)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Show Loft's chart" }));
+    expect(screen.queryByText(`chart for ${ROOM.name}`)).not.toBeInTheDocument();
+    expect(screen.getByText("chart for Loft")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Hide Loft's chart" }));
+    expect(screen.queryByText("chart for Loft")).not.toBeInTheDocument();
+  });
+
+  it("describes what Stop Early learned as a difference, in the house's unit", () => {
+    const c = buildUnitContext("C");
+    expect(
+      la.describeStopEarly({ cooling: { lead: 0.9, runs: 5 } }, c.toDisplayDelta, c.unitLabel)
+    ).toBe("Stops early by 0.5°C when cooling");
+    expect(la.describeStopEarly(null, c.toDisplayDelta, c.unitLabel)).toBe("");
+    expect(la.describeStopEarly(undefined, c.toDisplayDelta, c.unitLabel)).toBe("");
   });
 
   it("sets whether rooms may coast, and says how the week has gone", async () => {

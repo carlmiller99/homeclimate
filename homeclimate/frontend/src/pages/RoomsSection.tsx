@@ -53,6 +53,11 @@ export default function RoomsSection() {
         A room uses its zone&rsquo;s settings unless you change them here. Its temperatures are on
         the Dashboard.
       </p>
+      {failed && (
+        <p className="form-error" role="alert">
+          Could not refresh the rooms. What is shown may be out of date.
+        </p>
+      )}
       {rooms.length === 0 && <p className="sc-note">No rooms yet. Add one in My Home.</p>}
       {zoneIds.map((zid) => (
         <div className="card" key={zid} role="group" aria-label={zoneName(zid)}>
@@ -89,7 +94,7 @@ export default function RoomsSection() {
           onSaved={(saved) => {
             setOpen(null);
             // Shown at once, so opening the room again starts from what was saved.
-            setRooms((all) => (all ?? []).map((r) => (r.id === saved.id ? { ...r, ...saved } : r)));
+            setRooms(rooms.map((r) => (r.id === saved.id ? { ...r, ...saved } : r)));
             void load();
           }}
         />

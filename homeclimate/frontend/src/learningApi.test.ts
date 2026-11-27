@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fitLearning, getLearning, updateLearningSettings } from "./learningApi";
+import { fitLearning, getHindcast, getLearning, updateLearningSettings } from "./learningApi";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -14,10 +14,12 @@ describe("learningApi requests", () => {
     await getLearning();
     await updateLearningSettings({ sample_retention_days: 90 });
     await fitLearning();
+    await getHindcast("a room/1");
     expect(fetchMock.mock.calls.map(([u, i]) => [u, i?.method ?? "GET", i?.body])).toEqual([
       ["/api/learning", "GET", undefined],
       ["/api/learning/settings", "PUT", JSON.stringify({ sample_retention_days: 90 })],
       ["/api/learning/fit", "POST", undefined],
+      ["/api/learning/rooms/a%20room%2F1/hindcast", "GET", undefined],
     ]);
   });
 });

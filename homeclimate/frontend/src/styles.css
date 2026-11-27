@@ -3658,3 +3658,148 @@ button.sc-nav-item {
   font-weight: 600;
   width: 9.5rem;
 }
+
+/* Smart Learning: a room's predicted-against-measured chart */
+.hindcast {
+  margin: 0.75rem 0 0;
+  width: 100%;
+}
+.hindcast-title {
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+.hindcast-plot {
+  display: flex;
+  gap: 0.5rem;
+  align-items: stretch;
+}
+.hindcast-scale {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  color: var(--gray-600);
+  text-align: right;
+  min-width: 3rem;
+}
+.hindcast-lines {
+  flex: 1;
+  height: 160px;
+  background: var(--gray-50, rgba(127, 127, 127, 0.06));
+  border-radius: 8px;
+}
+.hindcast-lines polyline {
+  fill: none;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+  stroke-linejoin: round;
+}
+.hindcast-measured {
+  stroke: var(--ink);
+}
+.hindcast-predicted {
+  stroke: var(--orange);
+  stroke-dasharray: 5 4;
+}
+.hindcast-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-left: 3.5rem;
+  font-size: 0.75rem;
+  color: var(--gray-600);
+}
+.hindcast-legend {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8125rem;
+  color: var(--gray-600);
+  margin: 0.5rem 0 0;
+}
+.hindcast-key {
+  display: inline-block;
+  width: 1.25rem;
+  border-top: 2px solid var(--ink);
+}
+.hindcast-key-predicted {
+  border-top: 2px dashed var(--orange);
+  margin-left: 0.75rem;
+}
+/* Smart Learning: when rooms are used */
+.usage-room {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.9rem 0;
+  border-top: 1px solid var(--border);
+}
+.usage-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 40rem;
+}
+.usage-day {
+  display: grid;
+  grid-template-columns: 2.5rem repeat(24, 1fr);
+  gap: 2px;
+  align-items: center;
+}
+.usage-label {
+  font-size: 0.75rem;
+  color: var(--gray-600);
+}
+.usage-cell {
+  height: 0.75rem;
+  border-radius: 2px;
+  background: var(--ink);
+}
+.usage-hours {
+  grid-template-columns: 2.5rem repeat(4, 1fr);
+  font-size: 0.75rem;
+  color: var(--gray-600);
+}
+.usage-make {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+/* Phone: the Dashboard's head and each building's controls, one clear row each. */
+@media (max-width: 640px) {
+  .page-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+  }
+  .dash-header-actions > .btn {
+    flex: 1 1 0;
+    justify-content: center;
+    min-height: 44px;
+    white-space: nowrap;
+  }
+  .dash-building-head .targets-row,
+  .dash-building-head .house-band-fields {
+    width: 100%;
+  }
+  .dash-building-head .house-band-fields {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+    align-items: end;
+    gap: 0.5rem;
+  }
+  .dash-building-head .house-band-fields .field-stack {
+    min-width: 0;
+  }
+  .dash-building-head .house-band-input {
+    width: 100%;
+  }
+  .dash-building-hold {
+    justify-self: stretch;
+    min-height: 44px;
+  }
+  .dash-room {
+    min-height: 44px;
+  }
+}

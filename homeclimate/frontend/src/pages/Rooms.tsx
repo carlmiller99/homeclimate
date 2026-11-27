@@ -196,7 +196,7 @@ export function RoomSettings({
         return;
       }
       if (!thermostat.trim()) {
-        setError("Thermostat is required");
+        setError("Pick the zone this room is in.");
         return;
       }
     } else {
@@ -331,9 +331,6 @@ export function RoomSettings({
                 ? `${room.name} Settings`
                 : "New Room"}
           </div>
-          <button type="button" className="btn btn-secondary" onClick={onCancel}>
-            Close
-          </button>
         </div>
 
         {error && (
@@ -361,7 +358,7 @@ export function RoomSettings({
 
               <div className="form-group">
                 <label className="form-label" htmlFor="room-thermostat">
-                  Thermostat *
+                  Zone *
                 </label>
                 {thermostats.length === 0 ? (
                   <div className="form-hint" style={{ color: "var(--orange)" }}>
@@ -374,10 +371,10 @@ export function RoomSettings({
                     value={thermostat}
                     onChange={(e) => setThermostat(e.target.value)}
                   >
-                    <option value="">— select a thermostat —</option>
+                    <option value="">Choose a zone</option>
                     {thermostats.map((tc) => (
                       <option key={tc.thermostat_entity_id} value={tc.thermostat_entity_id}>
-                        {tc.name} ({tc.thermostat_entity_id})
+                        {tc.name || tc.thermostat_entity_id}
                       </option>
                     ))}
                   </select>
@@ -395,8 +392,12 @@ export function RoomSettings({
                     checked={includeThermoSensor}
                     onChange={(e) => setIncludeThermoSensor(e.target.checked)}
                   />
-                  <span>Include thermostat's built-in sensor in room temperature average</span>
+                  <span>Include the thermostat&rsquo;s own sensor</span>
                 </label>
+                <p className="field-help">
+                  Averages the thermostat&rsquo;s reading in with this room&rsquo;s sensors. Use it
+                  for the room the thermostat is in.
+                </p>
               </div>
 
               <div className="form-group" style={{ marginBottom: 0 }}>
@@ -692,7 +693,7 @@ export function RoomSettings({
             Cancel
           </button>
           <button className="btn btn-primary" onClick={save} disabled={saving}>
-            {saving ? "Saving…" : room ? "Save changes" : "Create room"}
+            {saving ? "Saving…" : room ? "Save Changes" : "Create Room"}
           </button>
         </div>
         {deleteError && <p className="form-error">{deleteError}</p>}

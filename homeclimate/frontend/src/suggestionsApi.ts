@@ -26,6 +26,8 @@ export interface RoomSuggestion {
   days: number;
   hours_a_week: number;
   blocks: SuggestedBlock[];
+  /** Seven rows, Monday first, of 24 hours: percent of readings with the room in use. */
+  usage?: number[][];
 }
 
 export interface Suggestions {

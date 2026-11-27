@@ -206,7 +206,7 @@ describe("Rooms grouped by building and zone", () => {
     vi.mocked(api.updateRoom).mockResolvedValue(makeRoom({ name: "Lounge" }));
     renderPage();
     fireEvent.click(await screen.findByRole("button", { name: "Room Settings" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Save changes" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Save Changes" }));
     await waitFor(() => expect(api.updateRoom).toHaveBeenCalled());
     await screen.findByRole("region", { name: "Upstairs" });
     await waitFor(() => expect(zonesApi.getZones).toHaveBeenCalledTimes(2));

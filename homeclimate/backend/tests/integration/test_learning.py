@@ -158,6 +158,7 @@ async def test_sampling_can_be_turned_off_and_old_samples_age_out(client, fake_h
         "coast_level": 0,
         "arrival_level": 0,
         "early_cool_level": 0,
+        "stop_early_level": 0,
     }
     await scheduler._sample_rooms()
     async with conn.execute("SELECT COUNT(*) AS n FROM room_readings") as cur:
@@ -384,6 +385,7 @@ async def test_status_reports_progress_per_room(client, fake_ha, house):
         "coast_level": 0,
         "arrival_level": 0,
         "early_cool_level": 0,
+        "stop_early_level": 0,
     }
     assert (empty["samples"], empty["collecting_since"], empty["sample_every_min"]) == (0, None, 5)
     assert empty["last_sample_at"] is None
@@ -398,6 +400,7 @@ async def test_status_reports_progress_per_room(client, fake_ha, house):
         "first_sample_at": None,
         "last_sample_at": None,
         "model": None,
+        "stop_early": None,
     }
 
     conn = await client.app["scheduler"].get_db()
@@ -467,6 +470,7 @@ async def test_settings_are_validated_with_fixed_messages(client):
         "coast_level": 0,
         "arrival_level": 0,
         "early_cool_level": 0,
+        "stop_early_level": 0,
     }
     assert (await client.put("/api/learning/settings", json=[1])).status == 400
 

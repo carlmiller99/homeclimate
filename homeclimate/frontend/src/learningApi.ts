@@ -11,6 +11,15 @@ export interface LearningSettings {
   arrival_level: 0 | 1 | 2;
   /** Cool a banded room a little before a warm afternoon: 0 off, 1 watch only, 2 on. */
   early_cool_level: 0 | 1 | 2;
+  /** Close a room's vent a little before its target, by how far it runs on: 0 off, 1 watch only, 2 on. */
+  stop_early_level: 0 | 1 | 2;
+}
+
+/** How far a room runs on after its vent closes. `lead` is a °F difference. */
+export interface StopEarlyLearned {
+  lead: number;
+  /** The closes it rests on. */
+  runs: number;
 }
 
 export const EARLY_START_LABELS = ["Off", "Watch Only", "On"] as const;
@@ -50,6 +59,38 @@ export interface LearningRoom {
   first_sample_at: string | null;
   last_sample_at: string | null;
   model: RoomModel | null;
+  /** Null before anything is learned for the room. */
+  stop_early?: { heating?: StopEarlyLearned; cooling?: StopEarlyLearned } | null;
+}
+
+/** One day of a room: what it measured, and what its model said an hour before. */
+export interface Hindcast {
+  room_id: string;
+  name: string;
+  /** House-local date. */
+  day: string;
+  start: string;
+  end: string;
+  /** °F; `predicted` is null where the model cannot say. */
+  points: { at: string; measured: number; predicted: number | null }[];
+  /** °F difference; null when nothing was predicted. */
+  typical_miss: number | null;
+  predicted_points: number;
+}
+
+export const getHindcast = (roomId: string) =>
+  api<Hindcast>(`/api/learning/rooms/${encodeURIComponent(roomId)}/hindcast`);
+
+/** "Stops early by 0.7°F when heating and 0.4°F when cooling", or "" with nothing learned. */
+export function describeStopEarly(
+  learned: LearningRoom["stop_early"],
+  delta: (f: number) => number,
+  unitLabel: string
+): string {
+  const parts = (["heating", "cooling"] as const)
+    .filter((mode) => (learned?.[mode]?.lead ?? 0) > 0)
+    .map((mode) => `${delta(learned![mode]!.lead)}${unitLabel} when ${mode}`);
+  return parts.length ? `Stops early by ${parts.join(" and ")}` : "";
 }
 
 export interface Learning {

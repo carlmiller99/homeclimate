@@ -35,6 +35,7 @@ from .. import (
     peak,
     room_model,
     solar,
+    stop_early,
     suggestions,
     tz,
     zone_balance,
@@ -322,6 +323,13 @@ class CycleEngine:
         # restart counts the zone as just used, so it never widens early.
         self._zone_asked_at: datetime | None = None
         self._empty_drift: bool = False
+        # Stop Early to Avoid Overshoot (Smart Learning): the level, each
+        # room's learned lead and the zone's deadband, read once a tick, and
+        # the (cycle, room) pairs already written to the log.
+        self._stop_early_level: str = "off"
+        self._stop_early_table: dict[str, dict[str, Any]] = {}
+        self._stop_early_deadband: float = 0.0
+        self._stop_early_said: set[tuple[str, str]] = set()
         self._lock = asyncio.Lock()
 
         # Last setpoint value successfully sent to HA; used by reconciliation to
@@ -860,6 +868,7 @@ class CycleEngine:
         )
         await self._heat_pump_strips_expected(conn)
         await self._empty_zone_drift(conn, new_active, tick_now, in_vacation)
+        await self._read_stop_early(conn, in_vacation)
         if not in_vacation:
             new_active = await self._ahead_of_schedule(conn, new_active, tick_now)
         # Door and window pausing (Smart Control): an open door or window
@@ -1391,6 +1400,30 @@ class CycleEngine:
                     outside_temp_f,
                     hvac_mode,
                 )
+
+    async def _read_stop_early(self, conn: aiosqlite.Connection, in_vacation: bool) -> None:
+        """Stop Early to Avoid Overshoot: what applies this tick. Off during a trip."""
+        level = stop_early.LEVELS[(await learning.get_settings(conn))["stop_early_level"]]
+        if in_vacation or level == "off":
+            self._stop_early_level, self._stop_early_table = "off", {}
+            return
+        self._stop_early_level = level
+        self._stop_early_table = await stop_early.load(conn)
+        self._stop_early_deadband = (await self._load_tc(conn)).deadband
+
+    def _stops_early(self, ar: ActiveRoom, rcs: RoomCycleState, avg: float, mode: str) -> bool:
+        """Whether this room is close enough to its target to be closed now.
+
+        It will run on the rest of the way (``backend/stop_early.py``). Never
+        for a safety room, and never by more than the room's own deadband.
+        """
+        if self._stop_early_level == "off" or ar.source == "safety":
+            return False
+        band = _effective_deadband(ar.room, self._stop_early_deadband, ar.deadband_override)
+        lead = stop_early.lead(self._stop_early_table, ar.room.id, mode, band)
+        offset = ar.room.temp_offset
+        started = None if rcs.temp_at_start is None else rcs.temp_at_start + offset
+        return stop_early.stops_now(lead, mode, avg + offset, rcs.target_temp, started)
 
     async def _empty_zone_drift(
         self,
@@ -2264,6 +2297,29 @@ class CycleEngine:
             # closes 3°F before the actual target, and it drifts to target).
             effective_avg = avg + ar.room.temp_offset
             at_target = _is_at_target(effective_avg, rcs.target_temp, hvac_mode)
+            # Stop Early to Avoid Overshoot: close a little before the target
+            # when the room is known to run on to it. Watch Only just says so.
+            early = (
+                not at_target
+                and rcs.vent_closed_at is None
+                and self._stops_early(ar, rcs, avg, hvac_mode)
+            )
+            if early:
+                on = self._stop_early_level == "on"
+                said = (rcs.cycle_id, room_id)
+                if self._logger and said not in self._stop_early_said:
+                    self._stop_early_said = {
+                        s for s in self._stop_early_said if s[0] == rcs.cycle_id
+                    } | {said}
+                    short = abs(rcs.target_temp - effective_avg)
+                    await self._logger.log(
+                        "info",
+                        "engine",
+                        f"Stop Early: {ar.room.name} {'closed' if on else 'would have closed'}"
+                        f" {short:.1f}°F before its target; it usually runs on the rest",
+                        {"room_id": room_id, "room_name": ar.room.name, "short_f": round(short, 2)},
+                    )
+                at_target = on
 
             if rcs.vent_closed_at is not None:
                 # Room already served this cycle (its vent is closed). #86: a
@@ -6672,7 +6728,10 @@ class CycleEngine:
         if state.vent_closed_at is not None:
             band = _effective_deadband(ar.room, tc.deadband, ar.deadband_override)
             return not _drifted_past_deadband(temp, state.target_temp, mode, band)
-        return mode in ("heating", "cooling") and _is_at_target(temp, state.target_temp, mode)
+        return mode in ("heating", "cooling") and (
+            _is_at_target(temp, state.target_temp, mode)
+            or (self._stop_early_level == "on" and self._stops_early(ar, state, avg, mode))
+        )
 
     def _optional_rooms_yield(
         self, active: dict[str, ActiveRoom], tc: ThermostatConfig, side: str | None = None
@@ -7715,7 +7774,9 @@ class CycleEngine:
             avg = self._get_avg_temp(ar.room)
             if avg is None:
                 continue
-            if not _is_at_target(avg + ar.room.temp_offset, rcs.target_temp, hvac_mode):
+            if not _is_at_target(avg + ar.room.temp_offset, rcs.target_temp, hvac_mode) and not (
+                self._stop_early_level == "on" and self._stops_early(ar, rcs, avg, hvac_mode)
+            ):
                 return False
         return True
 

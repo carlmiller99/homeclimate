@@ -44,6 +44,9 @@ SETTINGS: dict[str, tuple[str, Any, int, int]] = {
     # Cool a banded room a little before a warm afternoon (``early_cooling``):
     # 0 off, 1 watch only, 2 on.
     "early_cool_level": ("int", 0, 0, 2),
+    # Close a room's vent a little before its target, by how far it is known
+    # to run on (``stop_early``): 0 off, 1 watch only, 2 on.
+    "stop_early_level": ("int", 0, 0, 2),
 }
 EARLY_START_LEVELS = ("off", "watch", "on")
 # When coasting last switched itself back to Watch Only (``coasting.record_miss``).
@@ -63,6 +66,7 @@ _SETTING_MESSAGES = {
     "coast_level": fixed("coast_level must be 0 (off), 1 (watch only) or 2 (on)"),
     "arrival_level": fixed("arrival_level must be 0 (off), 1 (watch only) or 2 (on)"),
     "early_cool_level": fixed("early_cool_level must be 0 (off), 1 (watch only) or 2 (on)"),
+    "stop_early_level": fixed("stop_early_level must be 0 (off), 1 (watch only) or 2 (on)"),
 }
 
 

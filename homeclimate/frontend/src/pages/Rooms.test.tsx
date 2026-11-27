@@ -238,7 +238,7 @@ describe("Rooms Page", () => {
     );
     fireEvent.click(await screen.findByText("Add Room"));
     await screen.findByText("New Room", { selector: ".page-title" });
-    fireEvent.change(screen.getByRole("combobox", { name: /Thermostat/i }), {
+    fireEvent.change(screen.getByRole("combobox", { name: /^Zone/ }), {
       target: { value: "climate.test" },
     });
   };
@@ -312,7 +312,7 @@ describe("Rooms Page", () => {
     const nameInput = screen.getByLabelText(/Room name/i);
     fireEvent.change(nameInput, { target: { value: "New Room" } });
 
-    const thermoSelect = screen.getByRole("combobox", { name: /Thermostat/i });
+    const thermoSelect = screen.getByRole("combobox", { name: /^Zone/ });
     fireEvent.change(thermoSelect, { target: { value: "climate.test" } });
 
     const createBtn = screen.getByRole("button", { name: /Create room/i });
@@ -421,7 +421,7 @@ describe("Rooms Page", () => {
   it("offers no Delete Room button while creating a room", async () => {
     renderPage();
     fireEvent.click(await screen.findByRole("button", { name: /^Add Room to / }));
-    expect(await screen.findByRole("button", { name: "Create room" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Create Room" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Delete Room" })).toBeNull();
   });
 
@@ -613,7 +613,7 @@ describe("Rooms Page", () => {
     expect(screen.queryByLabelText(/Presence-triggered temperature/i)).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText(/Room name/i), { target: { value: "Renamed" } });
-    fireEvent.click(screen.getByLabelText(/Include thermostat's built-in sensor/i));
+    fireEvent.click(screen.getByLabelText(/Include the thermostat.s own sensor/i));
     fireEvent.change(screen.getByLabelText(/Notes/i), { target: { value: "hello" } });
     fireEvent.click(screen.getByRole("button", { name: /Save changes/i }));
 

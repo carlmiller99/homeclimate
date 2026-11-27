@@ -163,14 +163,46 @@ Like the other conveniences it gives way to any room that asks for itself, never
 
 What to expect: cooling starts earlier, and the room is held slightly cooler through the warm-up, so this can use a little more cooling overall in exchange for doing it at a better time. Watch Only shows how often it would act before you decide.
 
+## Stop Early to Avoid Overshoot
+
+A room keeps moving after its vent closes: the ducts are still warm or cold, and a closed vent leaks while the equipment runs for other rooms. **Stop Early** closes a room's vent a little before its target and lets the room run on the rest of the way. Off, Watch Only, or On; Watch Only writes "would have closed" to the Live Feed and changes nothing.
+
+How far a room runs on is learned per room, separately for heating and cooling, from what its temperature did in the half hour after each close over the last 21 days. It is worked out each night with the room models.
+
+- At least five closes are needed for a mode before anything is used.
+- The amount used is cautious: the run-on the room reached in three closes out of four.
+- It is never more than the room's deadband, so a room that does not run on stays inside its comfort band and does not call again. It is never more than 1.5 °F (0.8 °C).
+- A room must have moved at least that far in the current run before it is closed early.
+- Closes with a door or window open, or a fire lit, are not counted.
+- Safety cycles are never cut short, and nothing is closed early during Vacation Mode.
+
+Each room's line under **What Each Room Has Taught** says what it has learned, for example "Stops early by 0.7 °F when heating". A room's own temperature offset (Smart Control → Rooms) still applies on top; with Stop Early on, most rooms should not need one.
+
+`stop_early_level` in `PUT /api/learning/settings` (0, 1 or 2). `GET /api/learning` gives each room's `stop_early`.
+
+## A room's chart: predicted against measured
+
+**Chart** on a room's line draws yesterday for that room: the solid line is what its sensors measured, the dashed line is what the room's model said an hour before, given the weather, the sun and how the equipment ran in between. Lines that stay together mean the model can be trusted to time a warm-up; lines that drift apart mean it cannot yet. The typical miss is shown under the chart.
+
+The dashed line has gaps where the model cannot speak: a door or window open, a fire lit, strip heat running, or readings missing.
+
+`GET /api/learning/rooms/{room_id}/hindcast` (optional `?day=YYYY-MM-DD`, a house-local day) returns the points.
+
+## When Rooms Are Used
+
+For each room with an occupancy sensor and at least 14 days of readings: a strip for each day of the week, an hour to a cell, darker where the room was in use more often over the last 30 days.
+
+Where a room has regular hours (in use at least 60 % of the time in that hour, in at least two separate weeks), they are listed as blocks, and **Make This a Schedule** adds them to the room's schedule at a temperature you confirm. It starts from the room's occupied temperature. The new blocks are named "Usual hours"; change or remove them under Schedules. They are not compared with blocks the room already has.
+
 ## Suggestions
 
 Below the section, **Suggestions** gives advice from what has been recorded. It changes nothing: each suggestion says what it rests on and where to make the change if you agree. Nothing is suggested until there are 14 days of history, and it looks back 30 days.
 
 - **A wider deadband**, per zone. When a zone ran eight or more times a day and half of its runs were under 8 minutes, a deadband 0.5 °F (0.3 °C) wider is suggested, never past 2 °F (1.1 °C). Fewer, longer runs are easier on the equipment and hold rooms nearly as closely. Runs that were cut off (the thermostat away, a door opened, the system switched off) are not counted. A zone whose rooms all have a deadband of their own gets no such advice, since the zone's would change nothing; a minimum run time is the other way to lengthen runs.
-- **When a room is usually in use**, per room with occupancy sensors. Each hour of the week in which the room was occupied at least 60 % of the time, and occupied in at least two separate weeks, joined into blocks with matching days grouped. These are the blocks a schedule for the room might have; add them under Schedules if they look right. They are not compared with the schedules the room already has. An evening that runs past midnight comes out as two blocks. Occupancy is read as the sensor stands every five minutes, so this works best with presence sensors that stay on while someone is there, not motion sensors that clear in seconds.
 
-`GET /api/learning/suggestions` returns the same.
+A room's usual hours are in **When Rooms Are Used**, above.
+
+`GET /api/learning/suggestions` returns both, with each room's `usage` (seven rows of 24 hours, percent in use).
 
 ### API
 

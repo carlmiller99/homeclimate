@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.20
+
+- Smart Learning: **Stop Early to Avoid Overshoot**. Closes a room's vent a little before its target when the room is known to run on the rest of the way. Learned per room from recent closes, never more than the room's deadband. Off, Watch Only or On.
+- Smart Learning: a **Chart** for each room, showing yesterday's measured temperature against what the room's model predicted an hour before.
+- Smart Learning: **When Rooms Are Used**. A strip per room of when it is occupied through the week, with **Make This a Schedule** to turn its regular hours into schedule blocks.
+- Every dialog now closes on Escape, keeps Tab inside it, and puts focus back where it was.
+- My Home → Room Settings tidied: Zone instead of Thermostat, one way out, clearer wording.
+- The Dashboard fits a phone better: the header and each building's controls line up in rows.
+- Smart Control → Rooms says so when it could not refresh its list.
+- Removed the old screenshot test files, which no longer matched the screens.
+
 ## 0.5.19
 
 - Vacation Mode: the **Range** hold is gone. HomeClimate always decides when to heat and cool while you are away, and never hands that to the thermostat's own heat-and-cool mode. A thermostat that was set to Range now holds like every other, and the **Test auto mode** button is gone with it. To let a thermostat run the house by itself, turn HomeClimate off. A zone that was on Range now also gets per-room safety cycles while you are away, unless that is switched off in its Thermostat Settings.

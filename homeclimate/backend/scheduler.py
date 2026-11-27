@@ -37,6 +37,7 @@ from . import (
     room_model,
     shades,
     solar,
+    stop_early,
     tz,
     zone_balance,
     zones,
@@ -1673,6 +1674,8 @@ class Scheduler:
         """Fit every room's model, letting a failure through to the caller."""
         await solar.remember_location(self._db_conn, self._ha)
         models = await room_model.fit_all(self._db_conn, now=datetime.now(UTC))
+        # Stop Early to Avoid Overshoot reads the same history on the same beat.
+        await stop_early.learn(self._db_conn, now=datetime.now(UTC))
         fitted = sum(1 for m in models if m.fitted_at is not None)
         if self._event_logger is not None:
             await self._event_logger.log(

@@ -23,6 +23,7 @@ from .. import (
     forecast_bias,
     ha_import,
     heat_pump,
+    hindcast,
     house,
     learning,
     notify,
@@ -30,6 +31,8 @@ from .. import (
     peak,
     room_model,
     shades,
+    solar,
+    stop_early,
     suggestions,
     today,
     tz,
@@ -456,9 +459,12 @@ async def _learning_snapshot(request: web.Request) -> dict:
         **await learning.status(conn, now=datetime.now(tz.UTC)),
     }
     models = await room_model.load(conn)
+    leads = await stop_early.load(conn)
     for room in snap["rooms"]:
         found = models.get(room["room_id"])
         room["model"] = room_model.describe(found) if found is not None else None
+        # How far the room runs on after its vent closes, per mode (°F differences).
+        room["stop_early"] = leads.get(room["room_id"])
     now = datetime.now(tz.UTC)
     snap["coasting"] = coasting.describe(
         snap["settings"]["coast_level"],
@@ -466,6 +472,55 @@ async def _learning_snapshot(request: web.Request) -> dict:
         await coasting.demoted_at(conn, now=now),
     )
     return snap
+
+
+HINDCAST_DAY_INVALID = "day must be a date like 2026-01-31"
+HINDCAST_ROOM_UNKNOWN = "Room not found"
+
+
+@docs(
+    tags=["learning"],
+    summary="One day of a room: measured temperature against the model's one-hour-ahead guess",
+)
+@query_params(
+    [
+        {
+            "name": "day",
+            "schema": {"type": "string", "format": "date"},
+            "description": "House-local day. Defaults to yesterday.",
+        }
+    ]
+)
+@response_schema(schemas.HindcastSchema)
+@routes.get("/api/learning/rooms/{room_id}/hindcast")
+async def get_room_hindcast(request: web.Request) -> web.Response:
+    conn = await get_conn(request)
+    room = await db.get_room(conn, request.match_info["room_id"])
+    if room is None:
+        return error(HINDCAST_ROOM_UNKNOWN, status=404)
+    raw = request.query.get("day")
+    try:
+        day = date.fromisoformat(raw) if raw else tz.today_local() - timedelta(days=1)
+    except ValueError:
+        return error(HINDCAST_DAY_INVALID)
+    zone = tz.get_timezone()
+    start = datetime.combine(day, time.min, tzinfo=zone).astimezone(tz.UTC)
+    end = datetime.combine(day + timedelta(days=1), time.min, tzinfo=zone).astimezone(tz.UTC)
+    samples = [
+        s
+        for s in await learning.load(conn, room_id=room.id, since=hindcast.lookback(start))
+        if s.ts < end
+    ]
+    model = (await room_model.load(conn)).get(room.id)
+    sun_at = (await solar.for_rooms(conn)).get(room.id)
+    return json_response(
+        {
+            "room_id": room.id,
+            "name": room.name,
+            "day": day.isoformat(),
+            **hindcast.build(model, samples, start=start, end=end, sun_at=sun_at),
+        }
+    )
 
 
 @docs(

@@ -1257,6 +1257,12 @@ class LearningSettingsSchema(Schema):
             "0 off, 1 watch only, 2 on"
         }
     )
+    stop_early_level = fields.Int(
+        metadata={
+            "description": "Close a room's vent a little before its target, by how far it "
+            "runs on: 0 off, 1 watch only, 2 on"
+        }
+    )
 
 
 class NotifySettingsSchema(Schema):
@@ -1320,6 +1326,35 @@ class LearningRoomSchema(Schema):
     first_sample_at = fields.Str(allow_none=True)
     last_sample_at = fields.Str(allow_none=True)
     model = fields.Nested(RoomModelSchema, allow_none=True)
+    stop_early = fields.Dict(
+        allow_none=True,
+        metadata={
+            "description": "Per mode (heating, cooling): lead, a °F difference the room is "
+            "closed early by, and runs, the closes it rests on. Null before any is learned."
+        },
+    )
+
+
+class HindcastPointSchema(Schema):
+    at = fields.Str(metadata={"description": "UTC instant"})
+    measured = fields.Float(metadata={"description": "°F"})
+    predicted = fields.Float(
+        allow_none=True,
+        metadata={"description": "°F, from the reading an hour earlier; null where it cannot say"},
+    )
+
+
+class HindcastSchema(Schema):
+    room_id = fields.Str()
+    name = fields.Str()
+    day = fields.Str(metadata={"description": "House-local date"})
+    start = fields.Str()
+    end = fields.Str()
+    points = fields.List(fields.Nested(HindcastPointSchema))
+    typical_miss = fields.Float(
+        allow_none=True, metadata={"description": "°F difference, mean over the day"}
+    )
+    predicted_points = fields.Int()
 
 
 class SuggestionBlockSchema(Schema):
@@ -1346,6 +1381,12 @@ class RoomSuggestionSchema(Schema):
     days = fields.Int()
     hours_a_week = fields.Int()
     blocks = fields.List(fields.Nested(SuggestionBlockSchema))
+    usage = fields.List(
+        fields.List(fields.Int()),
+        metadata={
+            "description": "Seven rows (Monday first) of 24 hours: percent of readings in use"
+        },
+    )
 
 
 class SuggestionsSchema(Schema):

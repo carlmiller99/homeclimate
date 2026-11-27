@@ -105,11 +105,14 @@ describe("Smart Control → Rooms", () => {
     fireEvent.change(screen.getByLabelText(/Temperature offset/i), { target: { value: "2" } });
     // The reload after the save fails: the list stays, showing what was saved.
     vi.mocked(api.getRooms).mockRejectedValue(new Error("offline"));
-    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save Changes" }));
     expect(await screen.findByText("offset 2°F")).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     await waitFor(() => expect(api.getRooms).toHaveBeenCalledTimes(2));
     expect(screen.queryByText("Could not load the rooms.")).not.toBeInTheDocument();
+    expect(
+      await screen.findByText("Could not refresh the rooms. What is shown may be out of date.")
+    ).toBeInTheDocument();
     // Opening it again starts from what was saved.
     fireEvent.click(screen.getByRole("button", { name: "Change Bunk Room" }));
     expect(screen.getByLabelText(/Temperature offset/i)).toHaveValue(2);
