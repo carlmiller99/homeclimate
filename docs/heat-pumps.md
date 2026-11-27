@@ -38,6 +38,6 @@ Floors never loosen a stricter thermostat setting, and the stored thermostat set
 
 ## Seeing auxiliary heat
 
-Set **Equipment Running Source** on the zone to an ecobee cloud thermostat (its `equipment_running` attribute) or to a power sensor on the strip-heat circuit (on above 500 W). Each episode is logged under **Logs → engine** with its length, and the zone shows **Auxiliary Heat Running** while it lasts.
+Set **Backup Heat Sensor** on the zone to an ecobee cloud thermostat (its `equipment_running` attribute) or to a power sensor on the strip-heat circuit (on above 500 W). Each episode is logged under **Logs → engine** with its length, and the zone shows **Auxiliary Heat Running** while it lasts.
 
 If Auxiliary Heat is set to electric strips and the heater kit has not been confirmed, the zone editor asks you to confirm one is installed.

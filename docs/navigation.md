@@ -35,16 +35,15 @@ One page for the whole structure: buildings, the zones in each building, and the
 - **Edit Zone** opens the zone's equipment (system type, heat pump protection) and its **Thermostat Settings** (setpoint limits, deadband, safety and vacation settings).
 - Everything can be deleted. **Delete Zone** is in each zone's header (and under Edit Zone) and removes the zone's rooms with it. A zone's last room can be deleted or moved, leaving the zone empty. Deleting a building keeps its zones and rooms and moves them to Unassigned; the building's mode and zone balance settings go with it.
 - Each **room card** lists its hardware in five boxes: Smart Vents, Temperature Sensors, Doors & Windows, Occupancy Sensors, and Shades. Click a box to add, change or remove that kind of device; each search lists only the right kind of device and leads with those in the Home Assistant area named like the room. A temperature sensor is any sensor measured in °F or °C; a vent is any cover that is not a shade, door, gate or window. Occupancy and door/window sensors go by their Home Assistant device class, so if one is missing from a search, set its **Show as** type on the entity in Home Assistant. **Room Settings** holds the room's name, zone, notes and the **Delete Room** button. How the room is heated and cooled is in **Smart Control → Rooms**, and its temperatures are on the **Dashboard**.
-- **Outside**, above the buildings: the outside temperature sensors (one, or several that are averaged).
-- A pencil beside a building's or a zone's name opens it for editing, renaming or deleting. **Add Room** and **Add Zone** are tiles at the end of the list they add to. **Room Settings** opens as a dialog.
+- **Outside**, above the buildings: the outside temperature now and the sensors behind it (one, or several that are averaged). **Add Sensor** adds another.
+- A pencil beside a building's or a zone's name opens it for editing, renaming or deleting. **Add Room** and **Add Zone** are tiles at the end of the list they add to. The pencil beside a room's name opens its name, zone and notes, and Delete Room. Sensors and devices are shown by the name Home Assistant gives them; hover for the entity ID.
 - **Set Up from Home Assistant** builds buildings, zones and rooms from your Home Assistant areas.
 
 ## Smart Control
 
 A side menu of sections:
 
-- **Schedules** — one card per room, answering two questions: whether the room is in use (always, never, or while a Home Assistant calendar event is on), and its temperature by time of day while it is. See [Schedules](./schedules.md) and [House band](./house-band.md).
-- **Rooms** — how one room is heated and cooled where it differs from its zone: occupancy holdover, temperature offset, deadband, waiting on the weather, its own Eco Mode. See [Rooms & zones](./rooms-and-zones.md).
+- **Rooms** — one card per room. Open it for whether the room is in use (always, never, or while a Home Assistant calendar event is on), its occupied temperature, its time blocks through the week, and **Fine Tuning**: occupancy holdover, temperature offset, deadband, waiting on the weather, its own Eco Mode. See [Schedules](./schedules.md), [House band](./house-band.md) and [Rooms & zones](./rooms-and-zones.md).
 - **Doors & Windows** — how long a door or window can stay open before its room or zone pauses, per-zone and per-room overrides, and **Shades**. The sensors themselves are added to rooms in My Home. See [Doors & windows](./doors-and-windows.md) and [Shades](./shades.md).
 - **Smart Learning** — records how each room heats and cools, and shows how much each room has collected. See [Smart Learning](./smart-learning.md).
 - **Auto Mode** — what a building does when its Dashboard mode is Auto: let each zone decide or heat and cool as one, how often it may switch, and how far past its target a room must be first. See [Building mode](./building-mode.md).
@@ -70,4 +69,4 @@ The gear menu at the top right keeps the System On/Off switch, the theme, the AP
 
 ## Old links
 
-Bookmarks to the old pages still work: `/rooms`, `/zones` and `/thermostats` open My Home, `/schedules` opens Smart Control, and `/logs` and `/dev` open their Settings sections.
+Bookmarks to the old pages still work: `/rooms`, `/zones` and `/thermostats` open My Home, `/schedules` opens Smart Control → Rooms, and `/logs` and `/dev` open their Settings sections.

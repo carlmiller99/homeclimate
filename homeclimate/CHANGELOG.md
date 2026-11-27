@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.22
+
+- Sensors and devices are shown by the name Home Assistant gives them everywhere. The entity ID is on hover.
+- My Home → **Outside** is one line: the temperature now, the sensors behind it, and **Add Sensor**.
+- Room cards: a pencil by the name replaces the Room Settings button. Doors and windows show a red dot when open and a gray one when closed; occupied is a brighter green.
+- Edit Zone → **Equipment** is a short list of plain choices. The outside air **Test** is gone.
+- Edit Zone → **Thermostat** shows the name, number of vents, temperature limits and occupied temperature. Everything else is under **Advanced Options**.
+- A zone added from My Home or from Home Assistant starts with limits of 65 to 77°F, runs of at least 10 minutes and 5 minutes between runs. Zones you already have are not changed.
+- Smart Control: **Schedules** and **Rooms** are one section, **Rooms**. Each room's card holds whether it is in use, its occupied temperature, its week of time blocks, and Fine Tuning.
+- Smart Control → **Auto Mode**: one card per building, with the choices as buttons.
+- Smart Control → **Eco Mode**: sliders and a picture of the drift. A zone with Eco off is one line.
+
 ## 0.5.21
 
 - Smart Learning shows how early Stop Early actually closes each room (never more than half its deadband), and says nothing while Stop Early is off.

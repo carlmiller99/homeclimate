@@ -38,7 +38,7 @@ Versions before 0.5.17 had one Heat To and Cool To for the whole house. On the f
 
 A schedule block, a temporary hold and a room's occupancy target each hold one temperature by default. Give any of them a **Cool To** and that temperature becomes its **Heat To**: the room is kept between the two, exactly as it is with its targets, for as long as that block, hold or occupancy is what the room follows.
 
-- **Schedule block**: Smart Control → Schedules → add or edit a block → Cool To.
+- **Schedule block**: Smart Control → Rooms → the room → add or edit a block → Cool To.
 - **Hold**: the Dashboard's hold dialog → Cool To.
 - **Occupancy target**: Dashboard → the room → When Occupied → Cool To, beside the temperature.
 
@@ -78,7 +78,7 @@ All three are on for every room until changed.
 
 ### Room In Use from a calendar
 
-Under **Smart Control → Schedules**, on the room's card, choose **When a Calendar Says So** and a room's In Use can follow a Home Assistant calendar instead of being set by hand, for rooms that are only lived in some of the time.
+Under **Smart Control → Rooms**, in the room's card, choose **When a Calendar Says So** and a room's In Use can follow a Home Assistant calendar instead of being set by hand, for rooms that are only lived in some of the time.
 
 - The room is in use while an event is on, and from **Get Ready Ahead** (2 hours by default, up to 24) before one starts, so it is at temperature on arrival. The lead is a fixed time; on a heat pump zone in cold weather, allow more.
 - **Only Events Containing** limits it to events whose title contains that text; leave it empty for any event. Every event in the window is looked at, so an unrelated event at the same time does not hide the one that matters.
