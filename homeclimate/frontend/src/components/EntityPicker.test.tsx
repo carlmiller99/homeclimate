@@ -173,4 +173,13 @@ describe("EntityPicker", () => {
     expect(screen.queryByText("Den Temperature")).toBeNull();
     expect(screen.getByText("Attic Temperature")).toBeInTheDocument();
   });
+
+  it("shows an entity with no name by its ID, tidied", async () => {
+    vi.mocked(api.getHAEntities).mockResolvedValue([
+      { entity_id: "sensor.back_porch", state: "50", friendly_name: "" },
+    ]);
+    render(<EntityPicker domain="sensor" onSelect={vi.fn()} />);
+    fireEvent.focus(screen.getByRole("textbox"));
+    expect(await screen.findByText("Back Porch")).toHaveAttribute("title", "sensor.back_porch");
+  });
 });

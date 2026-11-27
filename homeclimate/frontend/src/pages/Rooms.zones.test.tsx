@@ -212,6 +212,21 @@ describe("Rooms grouped by building and zone", () => {
     await waitFor(() => expect(zonesApi.getZones).toHaveBeenCalledTimes(2));
   });
 
+  it("closes the zone from its Thermostat tab too", async () => {
+    vi.mocked(zonesApi.getZones).mockResolvedValue([zone({})]);
+    renderPage();
+    const panel = await screen.findByRole("region", { name: "Upstairs" });
+    fireEvent.click(within(panel).getByRole("button", { name: "Edit Zone" }));
+    const edit = await screen.findByRole("dialog", { name: "Edit zone Upstairs" });
+    fireEvent.click(within(edit).getByRole("tab", { name: "Thermostat" }));
+    fireEvent.click(
+      within(within(edit).getByRole("tabpanel", { name: "Thermostat" })).getByRole("button", {
+        name: "Close",
+      })
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
   it("deletes a zone with its rooms from inside the zone, then reloads the house", async () => {
     vi.mocked(zonesApi.getZones).mockResolvedValue([zone({})]);
     vi.mocked(api.deleteThermostat).mockResolvedValue({ deleted: "climate.test" });

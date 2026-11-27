@@ -442,6 +442,24 @@ describe("Thermostats — a legacy config with null columns", () => {
 // ---------------------------------------------------------------------------
 
 describe("Thermostats — numeric coercion", () => {
+  it("takes the two limits as typed, and a blanked one as 0", async () => {
+    render(<Thermostats />);
+    await cardsSettled();
+    const low = screen.getByLabelText("Lowest temperature (°F)");
+    const high = screen.getByLabelText("Highest temperature (°F)");
+    fireEvent.change(low, { target: { value: "" } });
+    expect(low).toHaveValue(0);
+    fireEvent.change(low, { target: { value: "66" } });
+    fireEvent.change(high, { target: { value: "78" } });
+    fireEvent.click(within(cardOf(low)).getByText("Save Changes"));
+    await waitFor(() =>
+      expect(api.updateThermostat).toHaveBeenCalledWith(
+        "climate.test",
+        expect.objectContaining({ min_setpoint: 66, max_setpoint: 78 })
+      )
+    );
+  });
+
   it("coerces a blanked safety field to 0 rather than NaN", async () => {
     render(<Thermostats />);
     await cardsSettled();

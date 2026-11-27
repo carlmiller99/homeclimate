@@ -82,6 +82,45 @@ describe("Schedules Page", () => {
     expect(screen.getByRole("button", { name: "Add Block" })).toBeInTheDocument();
   });
 
+  it("says in a word how each room's use is decided, and keeps a saved temperature", async () => {
+    const loft = { ...mockRooms[0], id: "room-2", name: "Loft" };
+    vi.mocked(api.getRooms).mockResolvedValue([mockRooms[0], loft]);
+    vi.mocked(api.api).mockResolvedValue({
+      rooms: [
+        {
+          room_id: mockRooms[0].id,
+          in_use: true,
+          use_schedules: true,
+          use_presence: true,
+          calendar: { entity_id: "calendar.guests", match_text: "", lead_min: 0 },
+        },
+        {
+          room_id: "room-2",
+          in_use: true,
+          use_schedules: true,
+          use_presence: true,
+          calendar: null,
+        },
+      ],
+    });
+    vi.mocked(api.updateRoom).mockImplementation(
+      async (_id, patch) => ({ ...mockRooms[0], ...patch }) as api.Room
+    );
+    render(<Schedules />);
+    const first = await screen.findByRole("button", { name: /^Living Room/ });
+    await waitFor(() => expect(first).toHaveTextContent("On a calendar"));
+    expect(screen.getByRole("button", { name: /^Loft/ })).toHaveTextContent("Always in use");
+    // The room's own occupied temperature is set here, and the card keeps it.
+    fireEvent.click(first);
+    const occupied = screen.getByRole("region", { name: "When occupied" });
+    const temp = within(occupied).getAllByRole("spinbutton")[0];
+    fireEvent.change(temp, { target: { value: "71" } });
+    fireEvent.click(within(occupied).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(api.updateRoom).toHaveBeenCalled());
+    expect(await within(occupied).findByText("Saved")).toBeInTheDocument();
+    expect(temp).toHaveValue(71);
+  });
+
   it("lists the rooms when the zones cannot be read, naming each by its thermostat", async () => {
     vi.mocked(api.getThermostats).mockRejectedValue(new Error("down"));
     render(<Schedules />);
