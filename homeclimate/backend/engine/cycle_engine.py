@@ -2435,7 +2435,9 @@ class CycleEngine:
                         effective_avg,
                         offset_note,
                     )
-                    if self._logger:
+                    # An early close has already said what happened, and the
+                    # room has not reached its target yet.
+                    if self._logger and not early:
                         await self._logger.log(
                             "info",
                             "engine",

@@ -71,8 +71,11 @@ function MakeSchedule({
     }
     setSaving(true);
     setError("");
-    try {
-      for (const b of left) {
+    // Each block is tried: one that is refused does not stop the rest.
+    const done: string[] = [];
+    let why = "";
+    for (const b of left) {
+      try {
         // The temperature is sent as typed; the backend converts it.
         await createSchedule(suggestion.room_id, {
           days_of_week: b.days,
@@ -83,14 +86,19 @@ function MakeSchedule({
           expires_at: null,
           name: "Usual hours",
         });
-        setAdded((done) => [...done, `${b.days.join("")}-${b.start}`]);
+        done.push(`${b.days.join("")}-${b.start}`);
+      } catch (e) {
+        why = e instanceof Error ? e.message.replace(/\.$/, "") : "Could not add it";
       }
-      onDone();
-    } catch (e) {
-      const why = e instanceof Error ? e.message : "Could not add the schedule";
-      setError(`${why}. Change that block under Schedules, then try again.`);
-      setSaving(false);
     }
+    const missed = left.length - done.length;
+    if (missed === 0) {
+      onDone();
+      return;
+    }
+    setAdded((all) => [...all, ...done]);
+    setError(`${missed === 1 ? "1 block was" : `${missed} blocks were`} not added: ${why}.`);
+    setSaving(false);
   };
 
   return (

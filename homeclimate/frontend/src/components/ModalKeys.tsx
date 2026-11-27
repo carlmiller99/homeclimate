@@ -33,6 +33,13 @@ export default function ModalKeys() {
       const at = e.target;
       if (at instanceof Element && !at.closest(".modal-backdrop")) outside = at;
     };
+    // Focus dropped to nothing outside a dialog (a click on something that
+    // takes no focus): there is then nowhere to go back to.
+    const onBlur = (e: FocusEvent) => {
+      const at = e.target;
+      if (!e.relatedTarget && at instanceof Element && !at.closest(".modal-backdrop"))
+        outside = null;
+    };
 
     const settle = () => {
       const top = topDialog();
@@ -46,7 +53,8 @@ export default function ModalKeys() {
         return;
       }
       seen = null;
-      if (outside instanceof HTMLElement && document.contains(outside)) outside.focus();
+      if (outside instanceof HTMLElement && document.contains(outside))
+        outside.focus({ preventScroll: true });
     };
 
     const onKey = (e: KeyboardEvent) => {
@@ -86,11 +94,13 @@ export default function ModalKeys() {
     watch.observe(document.body, { childList: true, subtree: true });
     document.addEventListener("keydown", onKey);
     document.addEventListener("focusin", onFocus);
+    document.addEventListener("focusout", onBlur);
     settle();
     return () => {
       watch.disconnect();
       document.removeEventListener("keydown", onKey);
       document.removeEventListener("focusin", onFocus);
+      document.removeEventListener("focusout", onBlur);
     };
   }, []);
   return null;

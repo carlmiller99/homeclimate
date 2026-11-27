@@ -194,7 +194,7 @@ The dashed line has gaps where the model cannot speak: a door or window open, a 
 
 For each room with an occupancy sensor and at least 14 days of readings: a strip for each day of the week, an hour to a cell, darker where the room was in use more often over the last 30 days.
 
-Where a room has regular hours (in use at least 60 % of the time in that hour, in at least two separate weeks), they are listed as blocks, and **Make This a Schedule** adds them to the room's schedule at a temperature you confirm. It starts from the room's occupied temperature. The new blocks are named "Usual hours"; change or remove them under Schedules. A block that overlaps one the room already has is refused: the others are still added, and the card says which to change.
+Where a room has regular hours (in use at least 60 % of the time in that hour, in at least two separate weeks), they are listed as blocks, and **Make This a Schedule** adds them to the room's schedule at a temperature you confirm. It starts from the room's occupied temperature. The new blocks are named "Usual hours"; change or remove them under Schedules. A block that overlaps one the room already has is refused: the others are still added, and the card says how many were not and why.
 
 ## Suggestions
 

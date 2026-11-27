@@ -81,6 +81,23 @@ describe("Dialog keyboard behaviour", () => {
     expect(document.body).toHaveFocus();
   });
 
+  it("goes back nowhere when focus had dropped to nothing before the dialog opened", async () => {
+    render(<Page>{(close) => <Dialog onClose={close} />}</Page>);
+    const behind = screen.getByLabelText("behind");
+    behind.focus();
+    // Focus leaves the field for nothing, as when something that takes no focus is clicked.
+    fireEvent.focusOut(behind, { relatedTarget: null });
+    behind.blur();
+    fireEvent.click(screen.getByRole("button", { name: "Open" }));
+    await waitFor(() => expect(screen.getByTestId("box")).toHaveFocus());
+    // Focus moving between fields inside the dialog changes nothing.
+    fireEvent.focusOut(screen.getByRole("button", { name: "Close" }), { relatedTarget: null });
+    key("Escape");
+    await waitFor(() => expect(screen.queryByTestId("box")).not.toBeInTheDocument());
+    await act(async () => {});
+    expect(behind).not.toHaveFocus();
+  });
+
   it("leaves by Close or Cancel, and by the backdrop where there is neither", async () => {
     const closed = vi.fn();
     const { rerender } = render(
