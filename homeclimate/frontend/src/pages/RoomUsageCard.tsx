@@ -202,7 +202,7 @@ export default function RoomUsageCard() {
               </ul>
               {made.includes(r.room_id) ? (
                 <span className="shade-why" role="status">
-                  Added. Change them under Schedules.
+                  Added. Change them under Rooms.
                 </span>
               ) : making === r.room_id ? (
                 <MakeSchedule

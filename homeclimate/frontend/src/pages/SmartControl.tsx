@@ -1,4 +1,5 @@
-import EntityName, { entityName } from "../components/EntityName";
+import EntityName from "../components/EntityName";
+import { entityName } from "../entityNames";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 import { getRooms, type Room } from "../api";
@@ -30,7 +31,6 @@ import PeakSection from "./PeakSection";
 import ForecastSection from "./ForecastSection";
 import LearningSection from "./LearningSection";
 import ShadesSection from "./ShadesSection";
-import RoomsSection from "./RoomsSection";
 
 type Minutes = "zone_pause_min" | "room_pause_min" | "resume_min";
 
@@ -313,8 +313,6 @@ export default function SmartControl() {
         <FanSection />
       ) : section === "peak-hours" ? (
         <PeakSection />
-      ) : section === "rooms" ? (
-        <RoomsSection />
       ) : (
         <div className="embedded-page">
           <Schedules />

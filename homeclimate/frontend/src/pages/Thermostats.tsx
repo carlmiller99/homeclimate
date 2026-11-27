@@ -1,4 +1,5 @@
-import EntityName, { entityName } from "../components/EntityName";
+import EntityName from "../components/EntityName";
+import { entityName } from "../entityNames";
 import { Fragment, useEffect, useRef, useState } from "react";
 import {
   getThermostats,

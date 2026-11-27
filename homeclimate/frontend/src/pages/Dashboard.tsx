@@ -1,4 +1,4 @@
-import { entityName } from "../components/EntityName";
+import { entityName } from "../entityNames";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import {
   getStatus,

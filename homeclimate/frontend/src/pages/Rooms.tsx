@@ -1,4 +1,5 @@
-import EntityName, { entityName, prettyEntity } from "../components/EntityName";
+import EntityName from "../components/EntityName";
+import { entityName, prettyEntity } from "../entityNames";
 import { PencilIcon } from "../components/icons";
 import { useEffect, useState } from "react";
 import {

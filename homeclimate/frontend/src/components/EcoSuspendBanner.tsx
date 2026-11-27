@@ -1,4 +1,4 @@
-import { entityName } from "./EntityName";
+import { entityName } from "../entityNames";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getThermostats, type ThermostatConfig } from "../api";
 import { onStateChanged } from "../stateEvents";

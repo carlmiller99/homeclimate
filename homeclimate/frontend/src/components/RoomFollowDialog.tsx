@@ -79,7 +79,7 @@ export default function RoomFollowDialog({
                 <span className="rule-title">{row.title}</span>
                 <p className="rule-help">
                   {moot ? "Not used while the room is not in use." : on ? row.on : row.off}
-                  {byCalendar && ` Set by ${calendar}; change it in Smart Control, Schedules.`}
+                  {byCalendar && ` Set by ${calendar}; change it in Smart Control, Rooms.`}
                 </p>
               </div>
             </div>

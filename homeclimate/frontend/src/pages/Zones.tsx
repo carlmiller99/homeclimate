@@ -1,4 +1,5 @@
-import EntityName, { entityName, prettyEntity } from "../components/EntityName";
+import EntityName from "../components/EntityName";
+import { entityName, prettyEntity } from "../entityNames";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import AirIntakeField from "../components/AirIntakeField";

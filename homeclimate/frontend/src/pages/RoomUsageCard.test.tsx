@@ -101,9 +101,7 @@ describe("Smart Learning → When Rooms Are Used", () => {
       expires_at: null,
       name: "Usual hours",
     });
-    expect(
-      await within(bunk).findByText("Added. Change them under Schedules.")
-    ).toBeInTheDocument();
+    expect(await within(bunk).findByText("Added. Change them under Rooms.")).toBeInTheDocument();
     expect(within(bunk).queryByRole("button")).not.toBeInTheDocument();
   });
 
@@ -155,9 +153,7 @@ describe("Smart Learning → When Rooms Are Used", () => {
       await within(bunk).findByText("1 block was not added: Could not add it.")
     ).toBeInTheDocument();
     fireEvent.click(within(bunk).getByRole("button", { name: "Add 1 Block" }));
-    expect(
-      await within(bunk).findByText("Added. Change them under Schedules.")
-    ).toBeInTheDocument();
+    expect(await within(bunk).findByText("Added. Change them under Rooms.")).toBeInTheDocument();
     expect(vi.mocked(api.createSchedule).mock.calls.map((c) => c[1].start_time)).toEqual([
       "07:00",
       "22:00",
@@ -200,9 +196,7 @@ describe("Smart Learning → When Rooms Are Used", () => {
     expect(api.createSchedule).toHaveBeenCalledTimes(1);
     expect(vi.mocked(api.createSchedule).mock.calls[0][1].start_time).toBe("22:00");
     fireEvent.click(within(bunk).getByRole("button", { name: "Add 1 Block" }));
-    expect(
-      await within(bunk).findByText("Added. Change them under Schedules.")
-    ).toBeInTheDocument();
+    expect(await within(bunk).findByText("Added. Change them under Rooms.")).toBeInTheDocument();
   });
 
   it("counts every block that was refused", async () => {

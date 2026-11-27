@@ -1,4 +1,5 @@
-import EntityName, { entityName } from "../components/EntityName";
+import EntityName from "../components/EntityName";
+import { entityName } from "../entityNames";
 import { useEffect, useState } from "react";
 import { getRooms, type Room } from "../api";
 import { Frozen } from "../ci";

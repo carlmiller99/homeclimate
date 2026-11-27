@@ -1,4 +1,5 @@
-import EntityName, { entityName } from "./EntityName";
+import EntityName from "./EntityName";
+import { entityName } from "../entityNames";
 import { useEffect, useState } from "react";
 import Notice from "./Notice";
 import { getThermostatHealth, type ThermostatHealth, type UnavailableThermostat } from "../api";

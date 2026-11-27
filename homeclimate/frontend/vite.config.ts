@@ -27,7 +27,7 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       reporter: ["text", "json", "html"],
-      exclude: ["node_modules/", "dist/", "src/test/setup.ts"],
+      exclude: ["node_modules/", "dist/", "src/test/"],
       // Thresholds calibrated for Vitest 4's v8 AST-aware coverage remapping,
       // which is more accurate (and reports lower) than the v3 v8-to-istanbul
       // remapping these were originally tuned against.

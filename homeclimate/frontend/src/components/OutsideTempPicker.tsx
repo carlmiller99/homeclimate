@@ -5,7 +5,7 @@ import {
   type OutsideTempEntitySetting,
 } from "../api";
 import { useUnit } from "../contexts";
-import { useEntityName } from "./EntityName";
+import { useEntityName } from "../entityNames";
 import EntityPicker from "./EntityPicker";
 import { CrossIcon } from "./icons";
 

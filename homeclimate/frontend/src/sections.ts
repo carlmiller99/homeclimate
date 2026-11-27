@@ -2,7 +2,6 @@ import type { Section } from "./components/SectionLayout";
 import { PLANNED_SECTIONS } from "./smartControlApi";
 
 export const SMART_CONTROL_SECTIONS: Section[] = [
-  { id: "schedules", label: "Schedules" },
   { id: "rooms", label: "Rooms" },
   { id: "doors-windows", label: "Doors & Windows" },
   { id: "smart-learning", label: "Smart Learning" },

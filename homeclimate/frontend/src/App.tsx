@@ -503,7 +503,7 @@ export default function App() {
             <Route path="/smart-control" element={<SmartControl />} />
             <Route
               path="/schedules"
-              element={<Navigate to="/smart-control?section=schedules" replace />}
+              element={<Navigate to="/smart-control?section=rooms" replace />}
             />
             <Route
               path="/metrics"

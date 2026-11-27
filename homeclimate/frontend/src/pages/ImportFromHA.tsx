@@ -1,4 +1,4 @@
-import { entityName } from "../components/EntityName";
+import { entityName } from "../entityNames";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import {

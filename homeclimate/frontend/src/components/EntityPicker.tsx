@@ -1,4 +1,4 @@
-import { prettyEntity } from "./EntityName";
+import { prettyEntity } from "../entityNames";
 import { useEffect, useRef, useState } from "react";
 import { getHAEntities, type HAEntity, type RoomDeviceKind } from "../api";
 

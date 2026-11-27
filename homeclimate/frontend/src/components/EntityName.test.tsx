@@ -1,11 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
-import EntityName, {
-  entityName,
-  forgetEntityNames,
-  prettyEntity,
-  useEntityName,
-} from "./EntityName";
+import EntityName from "./EntityName";
+import { entityName, forgetEntityNames, prettyEntity, useEntityName } from "../entityNames";
 import * as api from "../api";
 
 vi.mock("../api");

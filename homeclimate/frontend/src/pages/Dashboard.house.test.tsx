@@ -489,7 +489,7 @@ describe("Dashboard room options", () => {
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByRole("switch", { name: "Room In Use" })).toBeDisabled();
     expect(
-      within(dialog).getByText(/Set by calendar\.custody; change it in Smart Control, Schedules\./)
+      within(dialog).getByText(/Set by calendar\.custody; change it in Smart Control, Rooms\./)
     ).toBeInTheDocument();
     expect(within(dialog).getByRole("switch", { name: "Follow Occupancy" })).not.toBeDisabled();
   });

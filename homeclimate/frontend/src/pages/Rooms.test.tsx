@@ -3,7 +3,7 @@ import { ecoThermostatDefaults, ecoRoomDefaults } from "../testFixtures";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import Rooms from "./Rooms";
-import RoomsSection from "./RoomsSection";
+import RoomsSection from "../test/TuningHarness";
 import * as api from "../api";
 import * as zonesApi from "../zonesApi";
 import * as sc from "../smartControlApi";

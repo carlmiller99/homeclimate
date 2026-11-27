@@ -1,4 +1,4 @@
-import { entityName } from "./EntityName";
+import { entityName } from "../entityNames";
 import { useMemo, useState } from "react";
 import { setEcoSuspend, clearEcoSuspend, type ThermostatConfig } from "../api";
 import { notifyStateChanged } from "../stateEvents";

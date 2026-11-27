@@ -1,4 +1,4 @@
-import { entityName } from "./EntityName";
+import { entityName } from "../entityNames";
 import { useState } from "react";
 import {
   describeBuilding,

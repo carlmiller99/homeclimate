@@ -1,4 +1,4 @@
-import { entityName } from "../components/EntityName";
+import { entityName } from "../entityNames";
 import { useEffect, useState } from "react";
 import {
   getOutsideTempEntity,
