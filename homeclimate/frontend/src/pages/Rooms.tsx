@@ -376,7 +376,7 @@ export function RoomSettings({
                     <option value="">Choose a zone</option>
                     {thermostats.map((tc) => (
                       <option key={tc.thermostat_entity_id} value={tc.thermostat_entity_id}>
-                        {tc.name || tc.thermostat_entity_id}
+                        {tc.name || entityName(tc.thermostat_entity_id)}
                       </option>
                     ))}
                   </select>
@@ -1627,9 +1627,7 @@ export default function MyHome() {
             <h2 className="group-header-title">Rooms Without a Zone</h2>
             <span className="group-header-rule" />
           </div>
-          <p className="field-help">
-            Use the pencil by each room&rsquo;s name to choose its zone.
-          </p>
+          <p className="field-help">Use the pencil by each room&rsquo;s name to choose its zone.</p>
           <div className="card-grid">{loose.map(card)}</div>
         </section>
       )}

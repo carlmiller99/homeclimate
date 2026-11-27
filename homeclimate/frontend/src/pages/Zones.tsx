@@ -1,4 +1,4 @@
-import EntityName, { prettyEntity } from "../components/EntityName";
+import EntityName, { entityName, prettyEntity } from "../components/EntityName";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import AirIntakeField from "../components/AirIntakeField";
@@ -167,7 +167,10 @@ function ZoneEditor({
   const setSystem = (t: SystemType) => setForm((f) => ({ ...f, system_type: t }));
 
   return (
-    <section className="zone-editor" aria-label={`Edit ${zone.name || zone.thermostat_entity_id}`}>
+    <section
+      className="zone-editor"
+      aria-label={`Edit ${zone.name || entityName(zone.thermostat_entity_id)}`}
+    >
       <div className="zone-editor-head">
         <label className="field-inline">
           Building
@@ -355,7 +358,7 @@ function ZoneEditor({
 
         <AirIntakeField
           entityId={zone.thermostat_entity_id}
-          zoneName={zone.name || zone.thermostat_entity_id}
+          zoneName={zone.name || entityName(zone.thermostat_entity_id)}
           value={form.air_intake}
           onChange={(air_intake) => setForm((f) => ({ ...f, air_intake }))}
         />
@@ -402,7 +405,7 @@ function EditZoneDialog({
   onClose: () => void;
 }) {
   const [tab, setTab] = useState<"equipment" | "thermostat">("equipment");
-  const name = zone.name || zone.thermostat_entity_id;
+  const name = zone.name || entityName(zone.thermostat_entity_id);
   return (
     <div
       className="modal-backdrop"
@@ -962,7 +965,7 @@ export default function Zones({
       {deleting && (
         <ConfirmDialog
           title="Delete zone?"
-          message={`Delete the zone "${deleting.name || deleting.thermostat_entity_id}" and all of its rooms? HomeClimate stops controlling its thermostat. This cannot be undone.`}
+          message={`Delete the zone "${deleting.name || entityName(deleting.thermostat_entity_id)}" and all of its rooms? HomeClimate stops controlling its thermostat. This cannot be undone.`}
           confirmLabel="Delete Zone"
           onCancel={() => setDeleting(null)}
           onConfirm={() => void deleteZone(deleting)}
@@ -1012,12 +1015,12 @@ export default function Zones({
               <section
                 key={z.thermostat_entity_id}
                 className="zone-panel"
-                aria-label={z.name || z.thermostat_entity_id}
+                aria-label={z.name || entityName(z.thermostat_entity_id)}
               >
                 <div className="zone-row zone-panel-head">
                   <div className="zone-row-title">
                     <div className="zone-name">
-                      {z.name || z.thermostat_entity_id}
+                      {z.name || entityName(z.thermostat_entity_id)}
                       <button
                         type="button"
                         className="icon-button"
@@ -1056,7 +1059,7 @@ export default function Zones({
                     <button
                       type="button"
                       className="pill pill-heat pill-button"
-                      aria-label={`${z.name || z.thermostat_entity_id} looks like a heat pump. Check its system type`}
+                      aria-label={`${z.name || entityName(z.thermostat_entity_id)} looks like a heat pump. Check its system type`}
                       onClick={() => setEditing(z.thermostat_entity_id)}
                     >
                       Looks Like a Heat Pump: Check System Type

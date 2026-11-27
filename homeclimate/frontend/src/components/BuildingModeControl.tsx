@@ -1,3 +1,4 @@
+import { entityName } from "./EntityName";
 import { useState } from "react";
 import {
   describeBuilding,
@@ -56,7 +57,7 @@ export default function BuildingModeControl({
         {describeBuilding(building)}
         {building.waiting.map((w) => (
           <span key={w.thermostat_entity_id} className="building-mode-wait">
-            {` ${zoneNames[w.thermostat_entity_id] ?? w.thermostat_entity_id} ${
+            {` ${zoneNames[w.thermostat_entity_id] ?? entityName(w.thermostat_entity_id)} ${
               w.obeyed ? "is waiting" : "would be waiting"
             } to start ${w.direction}.`}
           </span>

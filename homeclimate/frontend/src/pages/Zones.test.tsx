@@ -119,7 +119,7 @@ describe("Zones page", () => {
     expect(screen.getByRole("heading", { name: "Unassigned" })).toBeInTheDocument();
     expect(screen.getByText(/No zones in this building yet/)).toBeInTheDocument();
     // A zone with no name falls back to its entity id.
-    expect(screen.getByRole("region", { name: "climate.loose" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Loose" })).toBeInTheDocument();
     // Under each name, its thermostat as Home Assistant names it, or its id tidied up.
     expect(screen.getByText("Thermostat: Loose")).toHaveAttribute("title", "climate.loose");
     expect(screen.getAllByText("Conventional, Electric Strips").length).toBe(2);
@@ -418,7 +418,7 @@ describe("Zones page", () => {
     renderPage();
     await screen.findByText("South Wing");
     fireEvent.click(screen.getAllByRole("button", { name: "Edit Zone" })[1]);
-    const editor = screen.getByRole("region", { name: "Edit climate.loose" });
+    const editor = screen.getByRole("region", { name: "Edit Loose" });
     fireEvent.click(within(editor).getByRole("radio", { name: "Heat Pump" }));
     fireEvent.click(within(editor).getByRole("radio", { name: "Conventional" }));
     fireEvent.change(within(editor).getByLabelText("Building"), { target: { value: "" } });
@@ -586,7 +586,7 @@ describe("Zones page", () => {
     ]);
     renderPage();
     const wing = await screen.findByRole("region", { name: "South Wing" });
-    const loose = screen.getByRole("region", { name: "climate.loose" });
+    const loose = screen.getByRole("region", { name: "Loose" });
     expect(within(loose).queryByText(/Looks Like a Heat Pump/)).toBeNull();
     // The mark is the way in to fixing it.
     fireEvent.click(
@@ -673,7 +673,7 @@ describe("Zones page", () => {
     expect(screen.getByText("card Renamed")).toBeInTheDocument();
     // The zone takes its name from the thermostat, so its heading follows.
     expect(screen.getByRole("region", { name: "Renamed" })).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "climate.loose" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Loose" })).toBeInTheDocument();
 
     // Deleting the zone closes its editor and tells the page to reload.
     fireEvent.click(screen.getByRole("button", { name: "stub delete" }));
@@ -683,7 +683,7 @@ describe("Zones page", () => {
 
     // The other zone's settings were untouched by the save above.
     fireEvent.click(screen.getAllByRole("button", { name: "Edit Zone" })[1]);
-    expect(screen.getByRole("region", { name: "Edit climate.loose" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Edit Loose" })).toBeInTheDocument();
     expect(screen.getByText("card Loose Stat")).toBeInTheDocument();
     // A click beside the sheet does not drop two unsaved forms; Close does.
     fireEvent.click(screen.getByRole("dialog"));

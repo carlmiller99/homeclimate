@@ -163,7 +163,7 @@ describe("Rooms grouped by building and zone", () => {
     expect(within(panel).getByRole("button", { name: "Edit Zone" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Main House" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Unassigned" })).toBeInTheDocument();
-    const empty = screen.getByRole("region", { name: "climate.empty" });
+    const empty = screen.getByRole("region", { name: "Empty" });
     expect(
       within(empty).getByText(
         "This zone has no rooms. It cannot be controlled until at least one room is added."

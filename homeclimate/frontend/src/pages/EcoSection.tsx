@@ -1,3 +1,4 @@
+import { entityName } from "../components/EntityName";
 import { useEffect, useState } from "react";
 import {
   getOutsideTempEntity,
@@ -43,7 +44,7 @@ function EcoZoneCard({
 }) {
   const { unitLabel, isCelsius, toDisplay, toDisplayDelta } = useUnit();
   const tid = config.thermostat_entity_id;
-  const title = config.name || tid;
+  const title = config.name || entityName(tid);
   // The form holds display units and submits them as typed; the backend converts.
   const derive = (cfg: ThermostatConfig): EcoForm => ({
     eco_mode_enabled: cfg.eco_mode_enabled ?? false,

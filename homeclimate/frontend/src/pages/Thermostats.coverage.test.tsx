@@ -245,7 +245,7 @@ describe("Thermostats — card failure paths", () => {
     const dialog = await screen.findByTestId("confirm-dialog");
     // With no friendly name the confirmation falls back to the entity id, so
     // the prompt still says which thermostat is about to go.
-    expect(within(dialog).getByText(/climate\.test/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/Test/)).toBeInTheDocument();
   });
 
   it("surfaces an Error rejection from the save", async () => {

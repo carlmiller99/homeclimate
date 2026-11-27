@@ -702,7 +702,7 @@ describe("Room card — devices", () => {
     expect(doors.querySelectorAll(".device-dot-off")).toHaveLength(1);
     expect(within(doors).getByText("Zone")).toHaveClass("device-tag");
     expect(doors.querySelectorAll(".device-tag")).toHaveLength(1);
-    expect(doors.querySelector(".device-open")).toHaveTextContent("Open");
+    expect(doors.querySelector(".device-open")).toHaveTextContent("Zone");
     expect(doors.querySelectorAll(".device-open")).toHaveLength(1);
     expect(screen.queryByText("Garage Door")).toBeNull();
   });

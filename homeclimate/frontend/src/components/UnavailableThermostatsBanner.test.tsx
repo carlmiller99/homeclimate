@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import UnavailableThermostatsBanner from "./UnavailableThermostatsBanner";
 import * as api from "../api";
@@ -56,7 +56,7 @@ describe("UnavailableThermostatsBanner", () => {
     const banner = await screen.findByTestId("unavailable-thermostats-banner");
     expect(banner).toHaveTextContent("1 thermostat unavailable in Home Assistant");
     expect(banner).toHaveTextContent("Downstairs");
-    expect(banner).toHaveTextContent("climate.downstairs");
+    expect(within(banner).getByTitle("climate.downstairs")).toBeInTheDocument();
     expect(banner).toHaveTextContent("unavailable for 5 min");
   });
 
@@ -87,9 +87,10 @@ describe("UnavailableThermostatsBanner", () => {
     expect(banner).toHaveTextContent("unavailable for under a minute");
     expect(banner).toHaveTextContent("unavailable for 2.0 h");
     expect(banner).toHaveTextContent("never seen by HA");
-    // Falls back to the entity id when the name is empty: once in the
-    // sentence, and twice under Details (as the name and as the entity id).
-    expect(banner.textContent?.match(/climate\.attic/g)?.length).toBe(3);
+    // Falls back to the entity id, tidied, when the name is empty: once in
+    // the sentence and once under Details. The id itself is only on hover.
+    expect(banner.textContent?.match(/Attic/g)?.length).toBe(2);
+    expect(banner).not.toHaveTextContent("climate.");
   });
 
   it("warns that a running cycle will auto-abort after the configured delay", async () => {

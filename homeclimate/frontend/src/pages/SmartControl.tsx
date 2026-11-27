@@ -1,4 +1,4 @@
-import EntityName from "../components/EntityName";
+import EntityName, { entityName } from "../components/EntityName";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 import { getRooms, type Room } from "../api";
@@ -117,7 +117,7 @@ function OverrideEditor({
 
   return (
     <div className="override-editor">
-      {row("zone", zone.thermostat_entity_id, zone.name || zone.thermostat_entity_id)}
+      {row("zone", zone.thermostat_entity_id, zone.name || entityName(zone.thermostat_entity_id))}
       {rooms.map((r) => row("room", r.id, r.name))}
       {err && <p className="form-error">{err}</p>}
     </div>

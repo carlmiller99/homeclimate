@@ -229,7 +229,7 @@ describe("Smart Control", () => {
     expect(
       screen.getByText(/Add door and window sensors to rooms\s+in My Home/)
     ).toBeInTheDocument();
-    expect(screen.getByText("climate.north")).toBeInTheDocument();
+    expect(screen.getByTitle("climate.north")).toBeInTheDocument();
     expect(screen.getAllByText("Uses Defaults")).toHaveLength(3);
     // Sensors themselves are edited in My Home, not here.
     expect(screen.queryByText("Front Door")).toBeNull();
@@ -413,9 +413,9 @@ describe("Smart Control", () => {
     );
     renderAt(DOORS);
     expect(await screen.findByText("Zone Pause Off (Override)")).toBeInTheDocument();
-    expect(screen.getAllByText("climate.empty")).toHaveLength(2);
+    expect(screen.getAllByText("Empty")).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "Zone Pause Off (Override)" }));
-    expect(screen.getByLabelText("Pause Zone for climate.empty")).not.toBeChecked();
+    expect(screen.getByLabelText("Pause Zone for Empty")).not.toBeChecked();
   });
 
   it("ignores a load that finishes after unmount", async () => {

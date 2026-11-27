@@ -10,7 +10,8 @@ import * as api from "../api";
 
 vi.mock("../api");
 
-const state = (name: unknown) => ({ attributes: { friendly_name: name } }) as api.EntityState;
+const state = (name: unknown) =>
+  ({ attributes: { friendly_name: name } }) as unknown as api.EntityState;
 
 function Sentence({ id }: { id: string }) {
   return <p>{`${useEntityName(id)} is not reporting`}</p>;

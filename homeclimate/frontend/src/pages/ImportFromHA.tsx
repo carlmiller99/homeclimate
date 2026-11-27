@@ -1,3 +1,4 @@
+import { entityName } from "../components/EntityName";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import {
@@ -136,7 +137,10 @@ export default function ImportFromHA() {
     ...configured.map((c) => ({ id: c.id, name: c.name || c.id })),
     ...preview.zones
       .filter((z) => !z.configured && zoneChoices[z.entity_id]?.include)
-      .map((z) => ({ id: z.entity_id, name: zoneChoices[z.entity_id].name || z.entity_id })),
+      .map((z) => ({
+        id: z.entity_id,
+        name: zoneChoices[z.entity_id].name || entityName(z.entity_id),
+      })),
   ];
   // Two thermostats can carry one name (the same thermostat seen through two
   // integrations, say). Their entity ids tell them apart in the list.

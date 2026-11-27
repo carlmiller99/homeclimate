@@ -235,8 +235,8 @@ describe("Smart Control → Eco Mode", () => {
   it("names a zone with no name by its thermostat", async () => {
     stored = zone({ name: "" });
     show();
-    const c = await screen.findByRole("group", { name: "climate.up" });
-    expect(within(c).getByRole("switch", { name: "Eco Mode for climate.up" })).toBeInTheDocument();
+    const c = await screen.findByRole("group", { name: "Up" });
+    expect(within(c).getByRole("switch", { name: "Eco Mode for Up" })).toBeInTheDocument();
   });
 
   it("will not turn Eco on without an outside temperature sensor", async () => {

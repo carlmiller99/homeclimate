@@ -1,4 +1,4 @@
-import EntityName from "../components/EntityName";
+import EntityName, { entityName } from "../components/EntityName";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import {
   getThermostats,
@@ -954,7 +954,7 @@ export function ThermostatCard({
       {confirmRemove && (
         <ConfirmDialog
           title="Delete zone?"
-          message={`Delete the zone "${form.name || config.thermostat_entity_id}" and all of its rooms? This cannot be undone.`}
+          message={`Delete the zone "${form.name || entityName(config.thermostat_entity_id)}" and all of its rooms? This cannot be undone.`}
           confirmLabel="Delete Zone"
           onConfirm={() => void remove()}
           onCancel={() => setConfirmRemove(false)}

@@ -1,3 +1,4 @@
+import { entityName } from "../components/EntityName";
 import { useEffect, useMemo, useState } from "react";
 import { getAuxSummary, getZones, type AuxSummary } from "../zonesApi";
 import {
@@ -410,7 +411,7 @@ export default function Metrics() {
               <option value={HOME}>All thermostats (home)</option>
               {thermostats.map((t) => (
                 <option key={t.thermostat_entity_id} value={t.thermostat_entity_id}>
-                  {t.name || t.thermostat_entity_id}
+                  {t.name || entityName(t.thermostat_entity_id)}
                 </option>
               ))}
             </select>
