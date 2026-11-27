@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.21
+
+- Smart Learning shows how early Stop Early actually closes each room (never more than half its deadband), and says nothing while Stop Early is off.
+- A room closed early no longer cuts the minimum run time short when its schedule or occupancy changes.
+- The room chart puts Midnight, 6 AM, Noon and 6 PM in the right place on a day the clocks change, and no longer draws a line across a gap in readings.
+- Smart Learning's room rows keep their layout with the chart open.
+- **Make This a Schedule** picks up where it left off if you leave the page part-way through.
+- Closing a dialog opened over another returns to the button that opened it.
+
 ## 0.5.20
 
 - Smart Learning: **Stop Early to Avoid Overshoot**. Closes a room's vent a little before its target when the room is known to run on the rest of the way. Learned per room from recent closes, never more than half the room's deadband. Off, Watch Only or On.
