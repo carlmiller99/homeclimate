@@ -69,18 +69,21 @@ export default function RoomHindcast({ roomId, name }: { roomId: string; name: s
   const draw = (runs: { at: string; value: number }[][], kind: string) =>
     runs.map((run) =>
       run.length === 1 ? (
-        // One reading alone: a dot, since a line needs two.
-        <circle
+        // One reading alone: a dot, since a line needs two. Drawn as a
+        // line of no length with round ends, so it stays round however the
+        // chart is stretched.
+        <polyline
           key={run[0].at}
-          className={`hindcast-dot-${kind}`}
-          cx={x(run[0].at)}
-          cy={y(run[0].value)}
-          r="3"
+          className={`hindcast-dot hindcast-dot-${kind}`}
+          points={line([run[0], run[0]])}
         />
       ) : (
         <polyline key={run[0].at} className={`hindcast-${kind}`} points={line(run)} />
       )
     );
+  // Evenly spaced if the marks did not come with the day.
+  const tick = (i: number) =>
+    data.ticks?.length === 5 ? ((Date.parse(data.ticks[i]) - t0) / span) * 100 : i * 25;
   const measured = runsOf(data.points.map((p) => ({ at: p.at, value: p.measured })));
   const predicted = runsOf(data.points.map((p) => ({ at: p.at, value: p.predicted })));
   const miss =
@@ -114,7 +117,7 @@ export default function RoomHindcast({ roomId, name }: { roomId: string; name: s
           // evenly spaced on a day the clocks change.
           <span
             key={i}
-            style={{ left: `${((Date.parse(data.ticks[i]) - t0) / span) * 100}%` }}
+            style={{ left: `${tick(i)}%` }}
             data-edge={i === 0 ? "start" : i === 4 ? "end" : undefined}
           >
             {label}

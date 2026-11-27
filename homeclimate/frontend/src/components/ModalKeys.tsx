@@ -41,18 +41,28 @@ export default function ModalKeys() {
         outside = null;
     };
 
+    // What had focus when each dialog opened, so closing one opened over
+    // another goes back to the control that opened it.
+    const openers = new Map<HTMLElement, Element | null>();
+
     const settle = () => {
       const top = topDialog();
       if (top?.backdrop === seen) return;
       if (top) {
+        const back = seen && !document.contains(seen) ? openers.get(seen) : undefined;
+        if (seen && !document.contains(seen)) openers.delete(seen);
+        if (!openers.has(top.backdrop)) openers.set(top.backdrop, document.activeElement);
         seen = top.backdrop;
-        if (!top.box.contains(document.activeElement)) {
+        if (back instanceof HTMLElement && top.box.contains(back)) {
+          back.focus({ preventScroll: true });
+        } else if (!top.box.contains(document.activeElement)) {
           if (!top.box.hasAttribute("tabindex")) top.box.setAttribute("tabindex", "-1");
           top.box.focus();
         }
         return;
       }
       seen = null;
+      openers.clear();
       if (outside instanceof HTMLElement && document.contains(outside))
         outside.focus({ preventScroll: true });
     };

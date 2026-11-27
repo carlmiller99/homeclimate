@@ -57,6 +57,7 @@ beforeEach(() => {
     { id: "r2", name: "Loft", system_wide_temp: null } as api.Room,
   ]);
   vi.mocked(api.createSchedule).mockResolvedValue({} as api.Schedule);
+  vi.mocked(api.getSchedules).mockResolvedValue([]);
 });
 
 describe("Smart Learning → When Rooms Are Used", () => {
@@ -165,14 +166,44 @@ describe("Smart Learning → When Rooms Are Used", () => {
     ]);
   });
 
+  it("takes a block the room already has as added, and gives each reason once", async () => {
+    // The weekday block went in on an earlier visit; the list could not be read the second time.
+    vi.mocked(api.getSchedules)
+      .mockResolvedValueOnce([
+        { days_of_week: [4, 3, 2, 1, 0], start_time: "07:00", end_time: "09:00" } as api.Schedule,
+        { days_of_week: [5, 6], start_time: "21:00", end_time: "00:00" } as api.Schedule,
+      ])
+      .mockRejectedValueOnce(new Error("offline"));
+    vi.mocked(api.createSchedule).mockRejectedValueOnce(new Error("Too late."));
+    show();
+    const bunk = await screen.findByRole("group", { name: "Bunk Room" });
+    fireEvent.click(within(bunk).getByRole("button", { name: /Make Bunk Room/ }));
+    fireEvent.click(within(bunk).getByRole("button", { name: "Add 2 Blocks" }));
+    expect(await within(bunk).findByText("1 block was not added: Too late.")).toBeInTheDocument();
+    expect(api.createSchedule).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(api.createSchedule).mock.calls[0][1].start_time).toBe("22:00");
+    fireEvent.click(within(bunk).getByRole("button", { name: "Add 1 Block" }));
+    expect(
+      await within(bunk).findByText("Added. Change them under Schedules.")
+    ).toBeInTheDocument();
+  });
+
   it("counts every block that was refused", async () => {
-    vi.mocked(api.createSchedule).mockRejectedValue(new Error("offline"));
+    vi.mocked(api.createSchedule)
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockRejectedValueOnce(new Error("Too late."));
     show();
     const bunk = await screen.findByRole("group", { name: "Bunk Room" });
     fireEvent.click(within(bunk).getByRole("button", { name: /Make Bunk Room/ }));
     fireEvent.click(within(bunk).getByRole("button", { name: "Add 2 Blocks" }));
     expect(await within(bunk).findByText("2 blocks were not added: offline.")).toBeInTheDocument();
     expect(within(bunk).getByRole("button", { name: "Add 2 Blocks" })).toBeEnabled();
+    fireEvent.click(within(bunk).getByRole("button", { name: "Add 2 Blocks" }));
+    expect(
+      await within(bunk).findByText("2 blocks were not added: offline; Too late.")
+    ).toBeInTheDocument();
   });
 
   it("says so with nothing to show, when it cannot load, and ignores late answers", async () => {

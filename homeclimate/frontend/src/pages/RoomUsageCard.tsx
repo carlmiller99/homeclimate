@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { createSchedule, getRooms, type Room } from "../api";
+import { createSchedule, getRooms, getSchedules, type Room } from "../api";
 import { HouseTime } from "../components/Time";
 import { useUnit } from "../contexts";
 import {
@@ -71,10 +71,24 @@ function MakeSchedule({
     }
     setSaving(true);
     setError("");
+    // A block the room already has (added here before this page was left, say)
+    // counts as added: asking again would only be refused as an overlap.
+    const have = await getSchedules(suggestion.room_id).catch(() => []);
+    const same = (b: (typeof left)[number]) =>
+      have.some(
+        (h) =>
+          h.start_time === b.start &&
+          h.end_time === b.end &&
+          [...h.days_of_week].sort().join("") === [...b.days].sort().join("")
+      );
     // Each block is tried: one that is refused does not stop the rest.
     const done: string[] = [];
-    let why = "";
+    const why: string[] = [];
     for (const b of left) {
+      if (same(b)) {
+        done.push(`${b.days.join("")}-${b.start}`);
+        continue;
+      }
       try {
         // The temperature is sent as typed; the backend converts it.
         await createSchedule(suggestion.room_id, {
@@ -88,7 +102,8 @@ function MakeSchedule({
         });
         done.push(`${b.days.join("")}-${b.start}`);
       } catch (e) {
-        why = e instanceof Error ? e.message.replace(/\.$/, "") : "Could not add it";
+        const said = e instanceof Error ? e.message.replace(/\.$/, "") : "Could not add it";
+        if (!why.includes(said)) why.push(said);
       }
     }
     const missed = left.length - done.length;
@@ -97,7 +112,9 @@ function MakeSchedule({
       return;
     }
     setAdded((all) => [...all, ...done]);
-    setError(`${missed === 1 ? "1 block was" : `${missed} blocks were`} not added: ${why}.`);
+    setError(
+      `${missed === 1 ? "1 block was" : `${missed} blocks were`} not added: ${why.join("; ")}.`
+    );
     setSaving(false);
   };
 

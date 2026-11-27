@@ -215,10 +215,14 @@ describe("Dialog keyboard behaviour", () => {
       );
     }
     render(<Two />);
-    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    const more = screen.getByRole("button", { name: "More" });
+    more.focus();
+    fireEvent.click(more);
     await waitFor(() => expect(screen.getByText("bare").parentElement).toHaveFocus());
     key("Escape");
     await waitFor(() => expect(screen.queryByText("bare")).not.toBeInTheDocument());
+    // Back on the control that opened the one on top, not the top of the dialog under it.
+    await waitFor(() => expect(more).toHaveFocus());
     expect(closed).not.toHaveBeenCalled();
     key("Escape");
     expect(closed).toHaveBeenCalledWith("first");

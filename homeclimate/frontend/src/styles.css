@@ -3732,11 +3732,16 @@ button.sc-nav-item {
 .hindcast-axis span[data-edge="end"] {
   transform: translateX(-100%);
 }
+.hindcast-lines polyline.hindcast-dot {
+  stroke-width: 6;
+  stroke-linecap: round;
+  stroke-dasharray: none;
+}
 .hindcast-dot-measured {
-  fill: var(--ink);
+  stroke: var(--ink);
 }
 .hindcast-dot-predicted {
-  fill: var(--orange);
+  stroke: var(--orange);
 }
 .hindcast-legend {
   display: flex;

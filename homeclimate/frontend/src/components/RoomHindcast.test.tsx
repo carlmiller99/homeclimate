@@ -61,9 +61,8 @@ describe("A room's predicted-against-measured chart", () => {
     expect(container.querySelectorAll(".hindcast-measured")).toHaveLength(0);
     const dots = container.querySelectorAll(".hindcast-dot-measured");
     expect(dots).toHaveLength(5);
-    expect(dots[0].getAttribute("cx")).toBe("0");
-    expect(dots[0].getAttribute("cy")).toBe("152");
-    expect(dots[1].getAttribute("cx")).toBe("180");
+    expect(dots[0].getAttribute("points")).toBe("0.0,152.0 0.0,152.0");
+    expect(dots[1].getAttribute("points")!.startsWith("180.0,")).toBe(true);
     expect(container.querySelectorAll(".hindcast-dot-predicted")).toHaveLength(3);
     // The clock marks sit where the house's clock reads them.
     const marks = [...container.querySelectorAll<HTMLElement>(".hindcast-axis span")];
@@ -93,6 +92,8 @@ describe("A room's predicted-against-measured chart", () => {
         ],
         typical_miss: null,
         predicted_points: 0,
+        // A day that came without its clock marks: they are spaced evenly.
+        ticks: undefined as unknown as string[],
       })
     );
     const { container } = show();
@@ -103,6 +104,9 @@ describe("A room's predicted-against-measured chart", () => {
     expect(container.querySelector(".hindcast-measured")!.getAttribute("points")).toBe(
       "0.0,152.0 7.5,152.0"
     );
+    expect(
+      [...container.querySelectorAll<HTMLElement>(".hindcast-axis span")].map((m) => m.style.left)
+    ).toEqual(["0%", "25%", "50%", "75%", "100%"]);
   });
 
   it("joins close readings, breaks across a gap, and moves the marks on a short day", async () => {
@@ -129,7 +133,7 @@ describe("A room's predicted-against-measured chart", () => {
     expect(measured[0].getAttribute("points")!.split(" ")).toHaveLength(3);
     expect(measured[1].getAttribute("points")!.split(" ")).toHaveLength(2);
     expect(container.querySelectorAll(".hindcast-predicted")).toHaveLength(2);
-    expect(container.querySelectorAll("circle")).toHaveLength(0);
+    expect(container.querySelectorAll(".hindcast-dot")).toHaveLength(0);
     const marks = [...container.querySelectorAll<HTMLElement>(".hindcast-axis span")];
     expect(marks[1].style.left).toBe(`${(5 / 23) * 100}%`);
     expect(marks[4].style.left).toBe("100%");

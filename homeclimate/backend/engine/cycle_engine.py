@@ -1430,7 +1430,7 @@ class CycleEngine:
         return stop_early.stops_now(lead, mode, avg + offset, rcs.target_temp, started)
 
     def _within_stop_early_lead(self, ar: ActiveRoom, avg: float, mode: str) -> bool:
-        """Whether a room already closed sits within its Stop Early lead of the target."""
+        """Whether a room already served sits within its Stop Early lead of the target."""
         if self._stop_early_level != "on" or ar.source == "safety":
             return False
         band = _effective_deadband(ar.room, self._stop_early_deadband, ar.deadband_override)
@@ -1929,10 +1929,12 @@ class CycleEngine:
                     if not _is_at_target(
                         avg + joined.room.temp_offset, joined.target_temp, hvac_mode
                     ) and not (
-                        # A room Stop Early closed, still within its lead of
-                        # the target, asks for nothing more.
+                        # A room already served this run (the hold reopened
+                        # its vent, so only ``reached_at`` still says so) and
+                        # within its Stop Early lead of the target asks for
+                        # nothing more.
                         held is not None
-                        and held.vent_closed_at is not None
+                        and held.reached_at is not None
                         and self._within_stop_early_lead(joined, avg, hvac_mode)
                     ):
                         unsatisfied.append(joined.room.name)

@@ -320,9 +320,12 @@ async def test_a_room_closed_early_keeps_the_minimum_runtime_hold(level, source,
         conn, stop_early.KEY, json.dumps({room.id: {"cooling": {"lead": 0.9, "runs": 7}}})
     )
     await engine._read_stop_early(conn, False)
-    engine._room_cycle_states[room.id].vent_closed_at = NOW
-    cycle.in_min_runtime_hold = True
-    await db.set_cycle_log_min_runtime_hold(conn, cycle.id, True)
+    # The room was closed early, then the hold began: entering it the way the
+    # engine does reopens the vent and leaves only ``reached_at`` to say so.
+    state = engine._room_cycle_states[room.id]
+    state.vent_closed_at = state.reached_at = NOW
+    await engine._enter_min_runtime_hold(conn)
+    assert cycle.in_min_runtime_hold and state.vent_closed_at is None
     engine._ha.get_numeric_state.return_value = temp
 
     was = engine._active_rooms[room.id]
