@@ -202,7 +202,7 @@ describe("Thermostats Page", () => {
     fireEvent.change(fractionSlider, { target: { value: "0.5" } });
 
     const card = totalVentsInput.closest(".card") as HTMLElement;
-    fireEvent.click(within(card).getByText("Save changes"));
+    fireEvent.click(within(card).getByText("Save Changes"));
 
     await waitFor(() => {
       expect(api.updateThermostat).toHaveBeenCalledWith(
@@ -237,7 +237,7 @@ describe("Thermostats Page", () => {
     fireEvent.change(nameInput, { target: { value: "Renamed HVAC" } });
 
     const card = nameInput.closest(".card") as HTMLElement;
-    fireEvent.click(within(card).getByText("Save changes"));
+    fireEvent.click(within(card).getByText("Save Changes"));
 
     await waitFor(() =>
       expect(api.updateThermostat).toHaveBeenCalledWith(
@@ -316,7 +316,7 @@ describe("Thermostats Page", () => {
     // The edit survived the refetch, and Save posts it — the payload is the
     // thing #293 is about.
     const survivor = screen.getByDisplayValue("Edited, not yet saved").closest(".card")!;
-    fireEvent.click(within(survivor as HTMLElement).getByText("Save changes"));
+    fireEvent.click(within(survivor as HTMLElement).getByText("Save Changes"));
 
     await waitFor(() =>
       expect(api.updateThermostat).toHaveBeenCalledWith(
@@ -509,7 +509,7 @@ describe("Thermostats Page", () => {
     fireEvent.change(nameInput, { target: { value: "Updated Name" } });
 
     const card = nameInput.closest(".card") as HTMLElement;
-    fireEvent.click(within(card).getByText("Save changes"));
+    fireEvent.click(within(card).getByText("Save Changes"));
 
     await waitFor(() => {
       expect(api.updateThermostat).toHaveBeenCalledWith(
@@ -532,7 +532,7 @@ describe("Thermostats Page", () => {
     fireEvent.change(offtimeInput, { target: { value: "5" } });
 
     const card = runtimeInput.closest(".card") as HTMLElement;
-    fireEvent.click(within(card).getByText("Save changes"));
+    fireEvent.click(within(card).getByText("Save Changes"));
 
     await waitFor(() => {
       expect(api.updateThermostat).toHaveBeenCalledWith(
@@ -561,7 +561,7 @@ describe("Thermostats Page", () => {
 
     fireEvent.change(input, { target: { value: "12" } });
     const card = input.closest(".card") as HTMLElement;
-    fireEvent.click(within(card).getByText("Save changes"));
+    fireEvent.click(within(card).getByText("Save Changes"));
 
     await waitFor(() => {
       expect(api.updateThermostat).toHaveBeenCalledWith(
@@ -599,7 +599,7 @@ describe("Thermostats Page", () => {
     expect(overflowToggle.checked).toBe(false);
 
     const card = runtimeInput.closest(".card") as HTMLElement;
-    fireEvent.click(within(card).getByText("Save changes"));
+    fireEvent.click(within(card).getByText("Save Changes"));
 
     await waitFor(() => {
       expect(api.updateThermostat).toHaveBeenCalledWith(
@@ -621,7 +621,7 @@ describe("Thermostats Page", () => {
     fireEvent.change(lockoutInput, { target: { value: "55" } });
 
     const card = lockoutInput.closest(".card") as HTMLElement;
-    fireEvent.click(within(card).getByText("Save changes"));
+    fireEvent.click(within(card).getByText("Save Changes"));
 
     await waitFor(() => {
       expect(api.updateThermostat).toHaveBeenCalledWith(
@@ -641,7 +641,7 @@ describe("Thermostats Page", () => {
     fireEvent.change(lockoutInput, { target: { value: "" } });
 
     const card = lockoutInput.closest(".card") as HTMLElement;
-    fireEvent.click(within(card).getByText("Save changes"));
+    fireEvent.click(within(card).getByText("Save Changes"));
 
     await waitFor(() => {
       expect(api.updateThermostat).toHaveBeenCalledWith(
@@ -689,7 +689,7 @@ describe("Thermostats Page", () => {
     fireEvent.change(maxInput, { target: { value: "80" } });
 
     const card = minInput.closest(".card") as HTMLElement;
-    fireEvent.click(within(card).getByText("Save changes"));
+    fireEvent.click(within(card).getByText("Save Changes"));
 
     expect(
       await screen.findByText("Min setpoint must be less than max setpoint")
@@ -727,7 +727,7 @@ describe("Thermostats Page — while you are away", () => {
 
     fireEvent.click(toggle);
     const card = toggle.closest(".card") as HTMLElement;
-    fireEvent.click(within(card).getByText("Save changes"));
+    fireEvent.click(within(card).getByText("Save Changes"));
 
     await waitFor(() => expect(api.updateThermostat).toHaveBeenCalled());
     const [, body] = vi.mocked(api.updateThermostat).mock.calls[0];
@@ -801,7 +801,7 @@ describe("Thermostats Page — Celsius mode", () => {
     expect(minInput.value).toBe("16");
 
     const card = nameInput.closest(".card") as HTMLElement;
-    fireEvent.click(within(card).getByText("Save changes"));
+    fireEvent.click(within(card).getByText("Save Changes"));
 
     await waitFor(() => {
       expect(api.updateThermostat).toHaveBeenCalledWith(
@@ -828,7 +828,7 @@ describe("Thermostats Page — Celsius mode", () => {
     expect(deadbandInput).toHaveDisplayValue("1");
 
     const card = nameInput.closest(".card") as HTMLElement;
-    fireEvent.click(within(card).getByText("Save changes"));
+    fireEvent.click(within(card).getByText("Save Changes"));
 
     await waitFor(() => {
       expect(api.updateThermostat).toHaveBeenCalledWith(
@@ -863,7 +863,7 @@ describe("Thermostats Page — Celsius mode", () => {
     expect(screen.getByLabelText(/Min setpoint \(°C\)/i)).toHaveDisplayValue("16");
 
     const card = nameInput.closest(".card") as HTMLElement;
-    fireEvent.click(within(card).getByText("Save changes"));
+    fireEvent.click(within(card).getByText("Save Changes"));
 
     await waitFor(() => {
       expect(api.updateThermostat).toHaveBeenCalled();
@@ -891,7 +891,7 @@ describe("Thermostats Page — Celsius mode", () => {
     });
     expect(screen.queryByLabelText(/Cooling.*outdoor threshold/i)).not.toBeInTheDocument();
     const card = nameInput.closest(".card") as HTMLElement;
-    fireEvent.click(within(card).getByText("Save changes"));
+    fireEvent.click(within(card).getByText("Save Changes"));
 
     await waitFor(() => {
       expect(api.updateThermostat).toHaveBeenCalled();
@@ -928,7 +928,7 @@ describe("Thermostats Page — Sensor-staleness threshold (Issue #211)", () => {
     expect(input.value).toBe("30");
 
     fireEvent.change(input, { target: { value: "45" } });
-    // Scope the click to the staleness card so we don't pick up "Save changes"
+    // Scope the click to the staleness card so we don't pick up "Save Changes"
     // buttons on the per-thermostat cards.
     const card = input.closest(".card") as HTMLElement;
     fireEvent.click(within(card).getByRole("button", { name: /^Save$/i }));
@@ -1124,7 +1124,7 @@ describe("Thermostat settings inside Edit Zone", () => {
     expect(container.querySelector(".card")).toBeNull();
     expect(container.querySelector(".card-title")).toBeNull();
     // The settings and their own actions are all still there.
-    expect(screen.getByRole("button", { name: "Save changes" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save Changes" })).toBeInTheDocument();
     // Deleting the zone is the dialog's job, so there is no second button for it here.
     expect(screen.queryByRole("button", { name: "Delete Zone" })).toBeNull();
   });
@@ -1246,7 +1246,7 @@ describe("Thermostats Page — welcome home (#728)", () => {
 
   const group = () => screen.getByTestId("welcome-home-group");
   const save = () =>
-    fireEvent.click(within(group().closest(".card") as HTMLElement).getByText("Save changes"));
+    fireEvent.click(within(group().closest(".card") as HTMLElement).getByText("Save Changes"));
 
   it("shows the defaults and helper text when the config predates the fields", async () => {
     render(<Thermostats />);

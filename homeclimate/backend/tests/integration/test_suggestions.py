@@ -151,3 +151,38 @@ async def test_blocks_run_to_midnight_and_group_days_that_match():
         {"days": [0], "start": "06:00", "end": "07:00"},
         {"days": [5, 6], "start": "22:00", "end": "00:00"},
     ]
+
+
+async def test_how_much_each_hour_of_the_week_is_used_comes_with_the_room(client, room):
+    conn = await client.app["scheduler"].get_db()
+    await _occupancy(conn, room, days=21, hours={8, 9})
+    (found,) = (await suggestions.build(conn, now=NOW))["rooms"]
+    usage = found["usage"]
+    assert len(usage) == 7 and all(len(day) == 24 for day in usage)
+    # Monday to Friday at 08:00 and 09:00, every reading; never at the weekend.
+    assert usage[0][8] == 100 and usage[4][9] == 100
+    assert usage[0][7] == 0 and usage[5][8] == 0
+
+
+async def test_a_room_used_now_and_then_is_shown_with_no_blocks(client, room):
+    """Seen in use, but never often enough in one hour to be called usual."""
+    conn = await client.app["scheduler"].get_db()
+    await conn.execute(
+        "INSERT INTO room_reading_keys(key, kind, value) VALUES(1, 'room', ?), (2, 'zone', ?),"
+        " (3, 'action', 'idle')",
+        (room, T1),
+    )
+    start = NOW - timedelta(days=21)
+    for step in range(21 * 48):
+        at = start + timedelta(minutes=30 * step)
+        # One reading in four at 20:00.
+        here = at.hour == 20 and at.minute == 0 and at.toordinal() % 2 == 0
+        await conn.execute(
+            "INSERT INTO room_readings(room_key, ts, zone_key, action_key, aux_heat, occupied)"
+            " VALUES(1, ?, 2, 3, 0, ?)",
+            (int(at.timestamp()), int(here)),
+        )
+    await conn.commit()
+    (found,) = (await suggestions.build(conn, now=NOW))["rooms"]
+    assert found["blocks"] == [] and found["hours_a_week"] == 0
+    assert 0 < found["usage"][0][20] < 60

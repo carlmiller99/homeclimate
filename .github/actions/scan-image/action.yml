@@ -101,6 +101,17 @@ runs:
         docker run --rm -v "$PWD:/work" -w /work aquasec/trivy:latest \
           convert --format table --output trivy-image-report.txt trivy-image-output.json
 
+    # In the log as well as the job summary: a summary can only be read in the
+    # browser, and whoever (or whatever) reads the failed check from the API
+    # needs to see which packages to fix.
+    - name: Print fixable findings to the log
+      shell: bash
+      run: |
+        jq -r '.Results[]? | .Target as $t | (.Vulnerabilities // [])[]
+               | select((.FixedVersion // "") != "")
+               | [.Severity, .VulnerabilityID, .PkgName, .InstalledVersion, .FixedVersion, $t] | @tsv' \
+          trivy-image-output.json | sort -u || true
+
     - name: Count findings by severity
       id: counts
       shell: bash

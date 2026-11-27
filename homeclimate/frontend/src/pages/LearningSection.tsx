@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Frozen } from "../ci";
 import ConfirmDialog from "../components/ConfirmDialog";
+import RoomHindcast from "../components/RoomHindcast";
 import Time from "../components/Time";
 import { RuleRow } from "../components/SmartControlControls";
 import { useTimeZone, useUnit } from "../contexts";
@@ -8,6 +9,7 @@ import {
   describeModel,
   EARLY_START_LABELS,
   describeCoasting,
+  describeStopEarly,
   fitLearning,
   GRADE_LABELS,
   describeCollected,
@@ -105,6 +107,8 @@ export default function LearningSection() {
   const [attempt, setAttempt] = useState(0);
   const [shorten, setShorten] = useState<number | null>(null);
   const [fitting, setFitting] = useState(false);
+  // The room whose chart is open, if any.
+  const [charted, setCharted] = useState<string | null>(null);
   const [fitErr, setFitErr] = useState<string | null>(null);
   const { toDisplayDelta, unitLabel } = useUnit();
   const tz = useTimeZone();
@@ -320,6 +324,25 @@ export default function LearningSection() {
             ))}
           </select>
         </RuleRow>
+        <RuleRow
+          id="learning-stop-early"
+          title="Stop Early to Avoid Overshoot"
+          help="Closes a room's vent a little before its target when the room usually runs on the rest of the way. Never by more than half the room's deadband."
+        >
+          <select
+            className="form-control"
+            aria-label="Stop Early to Avoid Overshoot"
+            value={s.stop_early_level}
+            disabled={saving}
+            onChange={(e) => void set({ stop_early_level: Number(e.target.value) as 0 | 1 | 2 })}
+          >
+            {EARLY_START_LABELS.map((label, level) => (
+              <option key={label} value={level}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </RuleRow>
         {fitErr && <p className="form-error">{fitErr}</p>}
         {data.rooms.length === 0 && (
           <p className="page-subtitle">Add rooms in My Home to start collecting.</p>
@@ -343,6 +366,21 @@ export default function LearningSection() {
                 ) : (
                   <span className="shade-why">Not worked out yet.</span>
                 )}
+                {describeStopEarly(r.stop_early, toDisplayDelta, unitLabel) && (
+                  <span className="shade-why">
+                    {`${describeStopEarly(r.stop_early, toDisplayDelta, unitLabel)}.`}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  aria-expanded={charted === r.room_id}
+                  aria-label={`${charted === r.room_id ? "Hide" : "Show"} ${r.name}'s chart`}
+                  onClick={() => setCharted(charted === r.room_id ? null : r.room_id)}
+                >
+                  {charted === r.room_id ? "Hide Chart" : "Chart"}
+                </button>
+                {charted === r.room_id && <RoomHindcast roomId={r.room_id} name={r.name} />}
               </li>
             ))}
           </ul>

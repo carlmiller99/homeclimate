@@ -249,7 +249,7 @@ The golden-screenshot jobs (`E2E visual regression (F)/(C)/(auth)` and `Commit u
 
 - **Rendering is checked by hand.** Look at a UI change in a browser, in both themes and both units, before it merges. The vitest suite covers behaviour and text; the round-trip spec covers conversion.
 - **`<Frozen>` / `isCI` (`frontend/src/ci.tsx`), the demo-metrics seeder and `HOMECLIMATE_CLOCK_OVERRIDE` stay.** The image CI builds is still `version: CI`, and the round-trip, MQTT and MCP legs run against it. Keep `<Frozen>` around anything that changes between two renders, so a screenshot suite could be brought back without redoing that work.
-- **The Playwright specs other than `temperature-units.spec.ts` are not run by CI**, and several predate the current screens (they look for buttons that no longer exist). Treat them as a starting point, not as passing tests. They still call `toHaveScreenshot`, so running one locally writes fresh PNGs on its first pass. Do not commit those. `e2e/global-setup.ts` IS run by CI (the round-trip uses it) and drives My Home, so a change to creating a room or adding its devices has to be made there too.
+- **CI runs `temperature-units.spec.ts` only.** `time-zones.spec.ts` is kept for running by hand; the screenshot specs were deleted. `e2e/global-setup.ts` IS run by CI (the round-trip uses it) and drives My Home, so a change to creating a room or adding its devices has to be made there too.
 - **A release PR builds one image again** (the real `:<version>`), not a second frozen one.
 
 ### Temperature field registry (parity-enforced)

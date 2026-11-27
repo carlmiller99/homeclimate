@@ -733,7 +733,7 @@ export default function Dashboard() {
     <HouseContext.Provider value={houseCtx}>
       <OpenRoomContext.Provider value={setDetailsFor}>
         <div>
-          <div className="page-header">
+          <div className="page-header dash-page-header">
             <div>
               <div className="page-title">Dashboard</div>
               <div className="page-subtitle">

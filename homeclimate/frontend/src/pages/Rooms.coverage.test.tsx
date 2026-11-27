@@ -171,12 +171,12 @@ describe("Rooms settings form — validation guards", () => {
     await openNewRoom();
     fireEvent.change(screen.getByLabelText(/Room name/i), { target: { value: "Den" } });
     // The form opens on the zone whose Add Room button was pressed.
-    const zonePicker = screen.getByRole("combobox", { name: /Thermostat/i });
+    const zonePicker = screen.getByRole("combobox", { name: /^Zone/ });
     expect(zonePicker).toHaveValue("climate.test");
     fireEvent.change(zonePicker, { target: { value: "" } });
     fireEvent.click(screen.getByRole("button", { name: /Create room/i }));
 
-    expect(await screen.findByText("Thermostat is required")).toBeInTheDocument();
+    expect(await screen.findByText("Pick the zone this room is in.")).toBeInTheDocument();
     expect(api.createRoom).not.toHaveBeenCalled();
   });
 
@@ -288,7 +288,7 @@ describe("Rooms settings form — validation guards", () => {
     vi.mocked(api.createRoom).mockRejectedValue(new Error("Room name already taken"));
     await openNewRoom();
     fireEvent.change(screen.getByLabelText(/Room name/i), { target: { value: "Den" } });
-    fireEvent.change(screen.getByRole("combobox", { name: /Thermostat/i }), {
+    fireEvent.change(screen.getByRole("combobox", { name: /^Zone/ }), {
       target: { value: "climate.test" },
     });
     fireEvent.click(screen.getByRole("button", { name: /Create room/i }));
@@ -302,7 +302,7 @@ describe("Rooms settings form — validation guards", () => {
     vi.mocked(api.createRoom).mockRejectedValue("kaboom");
     await openNewRoom();
     fireEvent.change(screen.getByLabelText(/Room name/i), { target: { value: "Den" } });
-    fireEvent.change(screen.getByRole("combobox", { name: /Thermostat/i }), {
+    fireEvent.change(screen.getByRole("combobox", { name: /^Zone/ }), {
       target: { value: "climate.test" },
     });
     fireEvent.click(screen.getByRole("button", { name: /Create room/i }));
@@ -318,7 +318,7 @@ describe("Rooms settings form — validation guards", () => {
     await openNewRoom();
 
     expect(screen.getByText(/No zones yet\. Go back to My Home and use/)).toBeInTheDocument();
-    expect(screen.queryByRole("combobox", { name: /Thermostat/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: /^Zone/ })).not.toBeInTheDocument();
   });
 
   it("keeps pre-cool/pre-heat locked when the outside-sensor probe fails", async () => {
@@ -1030,7 +1030,7 @@ describe("My Home — page edge cases", () => {
     // The Add Room tile opens the new-room form on that zone.
     fireEvent.click(screen.getByRole("button", { name: "Add Room to Test Thermostat" }));
     await screen.findByText("New Room", { selector: ".page-title" });
-    expect(screen.getByRole("combobox", { name: /Thermostat/i })).toHaveValue("climate.test");
+    expect(screen.getByRole("combobox", { name: /^Zone/ })).toHaveValue("climate.test");
   });
 
   it("lists rooms whose thermostat is not a zone, so they can be given one", async () => {

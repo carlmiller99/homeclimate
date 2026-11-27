@@ -123,7 +123,7 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
         r.url().includes(`/api/thermostats/${TC_ID}`) &&
         r.request().method() === "PUT",
     );
-    await card.getByRole("button", { name: "Save changes" }).click();
+    await card.getByRole("button", { name: "Save Changes" }).click();
     const response = await putResponse;
     const responseText = await response.text();
     expect(

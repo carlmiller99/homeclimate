@@ -69,17 +69,8 @@ describe("Suggestions", () => {
       )
     ).toBeInTheDocument();
     expect(within(zone).getByRole("link", { name: "My Home" })).toHaveAttribute("href", "/my-home");
-    const room = screen.getByRole("group", { name: "Bunk Room" });
-    expect(
-      within(room).getByText("From 21 days of its occupancy sensors, about 25 hours a week.")
-    ).toBeInTheDocument();
-    const blocks = within(room).getAllByRole("listitem");
-    expect(blocks[0]).toHaveTextContent(/^Mon–Fri, .*7.*to.*9/);
-    expect(blocks[1]).toHaveTextContent(/^Sat, Sun, /);
-    expect(within(room).getByRole("link", { name: "Schedules" })).toHaveAttribute(
-      "href",
-      "/smart-control?section=schedules"
-    );
+    // Rooms have a card of their own: When Rooms Are Used.
+    expect(screen.queryByRole("group", { name: "Bunk Room" })).not.toBeInTheDocument();
   });
 
   it("gives a deadband as a difference in Celsius", async () => {
@@ -89,7 +80,7 @@ describe("Suggestions", () => {
   });
 
   it("says so when there is nothing to suggest, or it cannot load", async () => {
-    vi.mocked(sa.getSuggestions).mockResolvedValue(data());
+    vi.mocked(sa.getSuggestions).mockResolvedValue(data({ rooms: [ROOM] }));
     const first = show();
     expect(await screen.findByText(/Suggestions need 14 days of history/)).toBeInTheDocument();
     first.unmount();

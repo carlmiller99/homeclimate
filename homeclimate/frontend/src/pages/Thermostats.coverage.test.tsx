@@ -230,7 +230,7 @@ describe("Thermostats — card failure paths", () => {
       selector: "#thermo-climate\\.test-name",
     });
     fireEvent.change(nameInput, { target: { value: "   " } });
-    fireEvent.click(within(cardOf(nameInput)).getByText("Save changes"));
+    fireEvent.click(within(cardOf(nameInput)).getByText("Save Changes"));
 
     expect(await screen.findByText("Friendly name is required")).toBeInTheDocument();
     expect(api.updateThermostat).not.toHaveBeenCalled();
@@ -254,7 +254,7 @@ describe("Thermostats — card failure paths", () => {
     await cardsSettled();
 
     const card = cardOf(await screen.findByLabelText(/^Total vent count$/));
-    fireEvent.click(within(card).getByText("Save changes"));
+    fireEvent.click(within(card).getByText("Save Changes"));
 
     expect(await screen.findByText("min_setpoint out of range")).toBeInTheDocument();
     expect(within(card).queryByText("Saved!")).toBeNull();
@@ -266,7 +266,7 @@ describe("Thermostats — card failure paths", () => {
     await cardsSettled();
 
     const card = cardOf(await screen.findByLabelText(/^Total vent count$/));
-    fireEvent.click(within(card).getByText("Save changes"));
+    fireEvent.click(within(card).getByText("Save Changes"));
 
     expect(await screen.findByText("Save failed")).toBeInTheDocument();
   });
@@ -312,7 +312,7 @@ describe("Thermostats — the Saved! badge", () => {
     await cardsSettled();
 
     const card = cardOf(await screen.findByLabelText(/^Total vent count$/));
-    fireEvent.click(within(card).getByText("Save changes"));
+    fireEvent.click(within(card).getByText("Save Changes"));
     await within(card).findByText("Saved!");
 
     // Second save 1s in: the first timer is cancelled, so the badge must not
@@ -320,7 +320,7 @@ describe("Thermostats — the Saved! badge", () => {
     await act(async () => {
       vi.advanceTimersByTime(1000);
     });
-    fireEvent.click(within(card).getByText("Save changes"));
+    fireEvent.click(within(card).getByText("Save Changes"));
     await within(card).findByText("Saved!");
 
     await act(async () => {
@@ -393,7 +393,7 @@ describe("Thermostats — a legacy config with null columns", () => {
     });
 
     const card = cardOf(screen.getByLabelText(/^Total vent count$/));
-    fireEvent.click(within(card).getByText("Save changes"));
+    fireEvent.click(within(card).getByText("Save Changes"));
 
     await waitFor(() =>
       expect(api.updateThermostat).toHaveBeenCalledWith(
@@ -426,7 +426,7 @@ describe("Thermostats — a legacy config with null columns", () => {
       { target: { value: "Legacy HVAC" } }
     );
     const card = cardOf(screen.getByLabelText(/^Total vent count$/));
-    fireEvent.click(within(card).getByText("Save changes"));
+    fireEvent.click(within(card).getByText("Save Changes"));
 
     await waitFor(() =>
       expect(api.updateThermostat).toHaveBeenCalledWith(
@@ -449,7 +449,7 @@ describe("Thermostats — numeric coercion", () => {
     const maxClosed = screen.getByLabelText(/Max vent closed/i);
     fireEvent.change(maxClosed, { target: { value: "" } });
 
-    fireEvent.click(within(cardOf(maxClosed)).getByText("Save changes"));
+    fireEvent.click(within(cardOf(maxClosed)).getByText("Save Changes"));
     await waitFor(() =>
       expect(api.updateThermostat).toHaveBeenCalledWith(
         "climate.test",
@@ -473,7 +473,7 @@ describe("Thermostats — numeric coercion", () => {
 
     // 0 is falsy but a real setting — it must not be coerced away.
     fireEvent.change(lockout, { target: { value: "0" } });
-    fireEvent.click(within(cardOf(lockout)).getByText("Save changes"));
+    fireEvent.click(within(cardOf(lockout)).getByText("Save Changes"));
     await waitFor(() =>
       expect(api.updateThermostat).toHaveBeenCalledWith(
         "climate.test",
@@ -491,7 +491,7 @@ describe("Thermostats — numeric coercion", () => {
     expect(totalVents).toHaveValue(1);
 
     fireEvent.change(totalVents, { target: { value: "" } });
-    fireEvent.click(within(cardOf(totalVents)).getByText("Save changes"));
+    fireEvent.click(within(cardOf(totalVents)).getByText("Save Changes"));
     await waitFor(() =>
       expect(api.updateThermostat).toHaveBeenCalledWith(
         "climate.test",
@@ -517,7 +517,7 @@ describe("Thermostats — numeric coercion", () => {
     fireEvent.change(drift, { target: { value: "" } });
     expect(drift).toHaveValue(0);
 
-    fireEvent.click(within(cardOf(drift)).getByText("Save changes"));
+    fireEvent.click(within(cardOf(drift)).getByText("Save Changes"));
     await waitFor(() =>
       expect(api.updateThermostat).toHaveBeenCalledWith(
         "climate.test",

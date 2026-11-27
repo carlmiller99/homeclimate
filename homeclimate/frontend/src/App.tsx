@@ -43,6 +43,7 @@ import {
 } from "./contexts";
 import { notifyStateChanged } from "./stateEvents";
 import { browserZone } from "./time";
+import ModalKeys from "./components/ModalKeys";
 import UnitChangeBanner from "./components/UnitChangeBanner";
 import VacationModeBanner from "./components/VacationModeBanner";
 import EcoSuspendBanner from "./components/EcoSuspendBanner";
@@ -484,6 +485,7 @@ export default function App() {
     <AuthGate>
       <AppRoot>
         <Nav />
+        <ModalKeys />
         <UnitChangeBanner />
         <main className="main">
           {/* Inside .main so it gets the same gutter (1.5rem) and top gap as the

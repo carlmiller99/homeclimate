@@ -123,7 +123,7 @@ async def _room_keys(conn: aiosqlite.Connection) -> dict[str, int]:
 
 async def _usual(
     conn: aiosqlite.Connection, room_key: int, now: datetime
-) -> tuple[set[tuple[int, int]], int] | None:
+) -> tuple[set[tuple[int, int]], int, list[list[int]]] | None:
     """The (weekday, hour) cells a room is usually occupied in, and the days of history.
 
     None until there are two weeks of occupancy readings to go on.
@@ -154,7 +154,12 @@ async def _usual(
         for key, (count, total, weeks) in seen.items()
         if len(weeks) >= MIN_WEEKS and count / total >= USUAL_SHARE
     }
-    return usual, round((samples[-1][0] - samples[0][0]).total_seconds() / 86400)
+    # How much of each hour of the week the room was in use, 0 to 100, Monday first.
+    usage = [
+        [round(100 * seen[d, h][0] / seen[d, h][1]) if (d, h) in seen else 0 for h in range(24)]
+        for d in range(7)
+    ]
+    return usual, round((samples[-1][0] - samples[0][0]).total_seconds() / 86400), usage
 
 
 async def usual_hours(
@@ -175,9 +180,11 @@ async def _schedules(conn: aiosqlite.Connection, now: datetime) -> list[dict[str
     out = []
     for room in await db.get_all_rooms(conn):
         found = await _usual(conn, keys.get(room.id, -1), now)
-        if found is None or not found[0]:
+        if found is None:
             continue
-        usual, days = found
+        usual, days, usage = found
+        if not any(any(row) for row in usage):
+            continue
         out.append(
             {
                 "kind": "schedule",
@@ -186,6 +193,7 @@ async def _schedules(conn: aiosqlite.Connection, now: datetime) -> list[dict[str
                 "days": days,
                 "hours_a_week": len(usual),
                 "blocks": _blocks(usual),
+                "usage": usage,
             }
         )
     return out
