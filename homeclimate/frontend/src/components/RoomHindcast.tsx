@@ -48,19 +48,44 @@ export default function RoomHindcast({ roomId, name }: { roomId: string; name: s
   const y = (f: number) => H - PAD - ((f - low) / range) * (H - 2 * PAD);
   const line = (pts: { at: string; value: number }[]) =>
     pts.map((p) => `${x(p.at).toFixed(1)},${y(p.value).toFixed(1)}`).join(" ");
-  const measured = data.points.map((p) => ({ at: p.at, value: p.measured }));
-  // The predicted line breaks where the model could not say.
-  const runs: { at: string; value: number }[][] = [];
-  let open = false;
-  for (const p of data.points) {
-    if (p.predicted == null) {
-      open = false;
-      continue;
+  // A line is broken where readings are missing, or where the model could
+  // not say: it is never drawn across a gap it knows nothing about.
+  const GAP_MS = 20 * 60 * 1000;
+  const runsOf = (pts: { at: string; value: number | null }[]) => {
+    const runs: { at: string; value: number }[][] = [];
+    let last = -Infinity;
+    for (const p of pts) {
+      const when = Date.parse(p.at);
+      if (p.value == null) {
+        last = -Infinity;
+        continue;
+      }
+      if (when - last > GAP_MS) runs.push([]);
+      runs[runs.length - 1].push({ at: p.at, value: p.value });
+      last = when;
     }
-    if (!open) runs.push([]);
-    open = true;
-    runs[runs.length - 1].push({ at: p.at, value: p.predicted });
-  }
+    return runs;
+  };
+  const draw = (runs: { at: string; value: number }[][], kind: string) =>
+    runs.map((run) =>
+      run.length === 1 ? (
+        // One reading alone: a dot, since a line needs two. Drawn as a
+        // line of no length with round ends, so it stays round however the
+        // chart is stretched.
+        <polyline
+          key={run[0].at}
+          className={`hindcast-dot hindcast-dot-${kind}`}
+          points={line([run[0], run[0]])}
+        />
+      ) : (
+        <polyline key={run[0].at} className={`hindcast-${kind}`} points={line(run)} />
+      )
+    );
+  // Evenly spaced if the marks did not come with the day.
+  const tick = (i: number) =>
+    data.ticks?.length === 5 ? ((Date.parse(data.ticks[i]) - t0) / span) * 100 : i * 25;
+  const measured = runsOf(data.points.map((p) => ({ at: p.at, value: p.measured })));
+  const predicted = runsOf(data.points.map((p) => ({ at: p.at, value: p.predicted })));
   const miss =
     data.typical_miss == null
       ? "The model could not speak for this day yet."
@@ -82,18 +107,22 @@ export default function RoomHindcast({ roomId, name }: { roomId: string; name: s
           viewBox={`0 0 ${W} ${H}`}
           preserveAspectRatio="none"
         >
-          <polyline className="hindcast-measured" points={line(measured)} />
-          {runs.map((run) => (
-            <polyline key={run[0].at} className="hindcast-predicted" points={line(run)} />
-          ))}
+          {draw(measured, "measured")}
+          {draw(predicted, "predicted")}
         </svg>
       </div>
       <div className="hindcast-axis" aria-hidden="true">
-        <span>Midnight</span>
-        <span>6 AM</span>
-        <span>Noon</span>
-        <span>6 PM</span>
-        <span>Midnight</span>
+        {["Midnight", "6 AM", "Noon", "6 PM", "Midnight"].map((label, i) => (
+          // Placed where the house's clock reads that hour, which is not
+          // evenly spaced on a day the clocks change.
+          <span
+            key={i}
+            style={{ left: `${tick(i)}%` }}
+            data-edge={i === 0 ? "start" : i === 4 ? "end" : undefined}
+          >
+            {label}
+          </span>
+        ))}
       </div>
       <p className="hindcast-legend">
         <span className="hindcast-key hindcast-key-measured" /> Measured

@@ -366,9 +366,9 @@ export default function LearningSection() {
                 ) : (
                   <span className="shade-why">Not worked out yet.</span>
                 )}
-                {describeStopEarly(r.stop_early, toDisplayDelta, unitLabel) && (
+                {describeStopEarly(r.stop_early, toDisplayDelta, unitLabel, s.stop_early_level) && (
                   <span className="shade-why">
-                    {`${describeStopEarly(r.stop_early, toDisplayDelta, unitLabel)}.`}
+                    {`${describeStopEarly(r.stop_early, toDisplayDelta, unitLabel, s.stop_early_level)}.`}
                   </span>
                 )}
                 <button

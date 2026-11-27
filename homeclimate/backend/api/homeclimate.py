@@ -39,6 +39,8 @@ from .. import (
     zone_balance,
     zones,
 )
+from ..engine.room_manager import _effective_deadband
+from ..models import ThermostatConfig
 from ..units import delta_to_f, to_f
 from ..user_errors import UserError, safe_text
 from . import schemas
@@ -460,11 +462,32 @@ async def _learning_snapshot(request: web.Request) -> dict:
     }
     models = await room_model.load(conn)
     leads = await stop_early.load(conn)
+    rooms_by_id = {r.id: r for r in await db.get_all_rooms(conn)}
+    deadbands = {
+        tc.thermostat_entity_id: tc.deadband for tc in await db.get_all_thermostat_configs(conn)
+    }
     for room in snap["rooms"]:
         found = models.get(room["room_id"])
         room["model"] = room_model.describe(found) if found is not None else None
-        # How far the room runs on after its vent closes, per mode (°F differences).
-        room["stop_early"] = leads.get(room["room_id"])
+        # How far the room runs on after its vent closes, per mode (°F
+        # differences), and how much of it is used: half the room's deadband
+        # at most (``used``).
+        learned = leads.get(room["room_id"])
+        known = rooms_by_id.get(room["room_id"])
+        if isinstance(learned, dict) and known is not None:
+            band = _effective_deadband(
+                known,
+                deadbands.get(
+                    known.thermostat_entity_id,
+                    ThermostatConfig(thermostat_entity_id="").deadband,
+                ),
+            )
+            learned = {
+                mode: {**value, "used": stop_early.lead(leads, known.id, mode, band)}
+                for mode, value in learned.items()
+                if isinstance(value, dict)
+            }
+        room["stop_early"] = learned
     now = datetime.now(tz.UTC)
     snap["coasting"] = coasting.describe(
         snap["settings"]["coast_level"],
@@ -506,11 +529,7 @@ async def get_room_hindcast(request: web.Request) -> web.Response:
     zone = tz.get_timezone()
     start = datetime.combine(day, time.min, tzinfo=zone).astimezone(tz.UTC)
     end = datetime.combine(day + timedelta(days=1), time.min, tzinfo=zone).astimezone(tz.UTC)
-    samples = [
-        s
-        for s in await learning.load(conn, room_id=room.id, since=hindcast.lookback(start))
-        if s.ts < end
-    ]
+    samples = await learning.load(conn, room_id=room.id, since=hindcast.lookback(start), until=end)
     model = (await room_model.load(conn)).get(room.id)
     sun_at = (await solar.for_rooms(conn)).get(room.id)
     return json_response(
@@ -518,6 +537,18 @@ async def get_room_hindcast(request: web.Request) -> web.Response:
             "room_id": room.id,
             "name": room.name,
             "day": day.isoformat(),
+            # Where the house's clock reads midnight, 6, noon, 18 and midnight:
+            # not evenly spaced on a day the clocks change.
+            "ticks": [
+                (
+                    datetime.combine(day, time.min, tzinfo=zone) + timedelta(hours=h)
+                    if h == 24
+                    else datetime.combine(day, time(h), tzinfo=zone)
+                )
+                .astimezone(tz.UTC)
+                .isoformat()
+                for h in (0, 6, 12, 18, 24)
+            ],
             **hindcast.build(model, samples, start=start, end=end, sun_at=sun_at),
         }
     )

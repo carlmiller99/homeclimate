@@ -1329,8 +1329,10 @@ class LearningRoomSchema(Schema):
     stop_early = fields.Dict(
         allow_none=True,
         metadata={
-            "description": "Per mode (heating, cooling): lead, a °F difference the room is "
-            "closed early by, and runs, the closes it rests on. Null before any is learned."
+            "description": "Per mode (heating, cooling): lead, the °F difference learned; "
+            "runs, the closes it rests on; used, the °F difference applied (the lead held "
+            "to half the room's deadband, before any schedule block's own deadband). "
+            "Null before any is learned."
         },
     )
 
@@ -1350,6 +1352,10 @@ class HindcastSchema(Schema):
     day = fields.Str(metadata={"description": "House-local date"})
     start = fields.Str()
     end = fields.Str()
+    ticks = fields.List(
+        fields.Str(),
+        metadata={"description": "UTC instants of house-local 00:00, 06:00, 12:00, 18:00, 24:00"},
+    )
     points = fields.List(fields.Nested(HindcastPointSchema))
     typical_miss = fields.Float(
         allow_none=True, metadata={"description": "°F difference, mean over the day"}

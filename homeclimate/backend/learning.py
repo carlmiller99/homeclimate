@@ -293,9 +293,13 @@ async def store(conn: aiosqlite.Connection, samples: list[RoomSample]) -> None:
 
 
 async def load(
-    conn: aiosqlite.Connection, *, room_id: str | None = None, since: datetime | None = None
+    conn: aiosqlite.Connection,
+    *,
+    room_id: str | None = None,
+    since: datetime | None = None,
+    until: datetime | None = None,
 ) -> list[RoomSample]:
-    """Stored readings, oldest first within each room; optionally one room, or recent only."""
+    """Stored readings, oldest first within each room; optionally one room, or a span of time."""
     async with conn.execute("SELECT key, kind, value FROM room_reading_keys") as cur:
         names = {r["key"]: r["value"] for r in await cur.fetchall()}
     async with conn.execute(
@@ -307,8 +311,12 @@ async def load(
     for key in sorted(room_keys):
         # One primary-key range per room.
         async with conn.execute(
-            "SELECT * FROM room_readings WHERE room_key = ? AND ts >= ? ORDER BY ts",
-            (key, int(since.timestamp()) if since else 0),
+            "SELECT * FROM room_readings WHERE room_key = ? AND ts >= ? AND ts < ? ORDER BY ts",
+            (
+                key,
+                int(since.timestamp()) if since else 0,
+                int(until.timestamp()) if until else 1 << 62,
+            ),
         ) as cur:
             rows = await cur.fetchall()
         out.extend(

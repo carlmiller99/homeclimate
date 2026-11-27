@@ -19,6 +19,7 @@ const day = (over: Partial<la.Hindcast> = {}): la.Hindcast => ({
   // Midnight to midnight in New York.
   start: "2026-02-02T05:00:00+00:00",
   end: "2026-02-03T05:00:00+00:00",
+  ticks: [at(0), at(6), at(12), at(18), "2026-02-03T05:00:00+00:00"],
   points: [
     { at: at(0), measured: 66, predicted: null },
     { at: at(6), measured: 68, predicted: 68.5 },
@@ -55,17 +56,24 @@ describe("A room's predicted-against-measured chart", () => {
       "Den ranged from 66°F to 71°F. Typically 0.6°F off, one hour ahead."
     );
     expect(screen.getByText(/^Den: predicted against measured, .*2\/2\/2026/)).toBeInTheDocument();
-    const measured = container.querySelector(".hindcast-measured")!;
-    // Five points, the first at the left edge and the lowest reading at the bottom.
-    const pts = measured.getAttribute("points")!.split(" ");
-    expect(pts).toHaveLength(5);
-    expect(pts[0]).toBe("0.0,152.0");
-    expect(pts[1].startsWith("180.0,")).toBe(true);
-    // The prediction is broken where it could not say: two runs, not one line.
-    const runs = container.querySelectorAll(".hindcast-predicted");
-    expect(runs).toHaveLength(2);
-    expect(runs[0].getAttribute("points")!.split(" ")).toHaveLength(2);
-    expect(runs[1].getAttribute("points")!.split(" ")).toHaveLength(1);
+    // Readings hours apart are not joined: each stands alone as a dot, the
+    // first at the left edge and the lowest reading at the bottom.
+    expect(container.querySelectorAll(".hindcast-measured")).toHaveLength(0);
+    const dots = container.querySelectorAll(".hindcast-dot-measured");
+    expect(dots).toHaveLength(5);
+    expect(dots[0].getAttribute("points")).toBe("0.0,152.0 0.0,152.0");
+    expect(dots[1].getAttribute("points")!.startsWith("180.0,")).toBe(true);
+    expect(container.querySelectorAll(".hindcast-dot-predicted")).toHaveLength(3);
+    // The clock marks sit where the house's clock reads them.
+    const marks = [...container.querySelectorAll<HTMLElement>(".hindcast-axis span")];
+    expect(marks.map((m) => m.textContent)).toEqual([
+      "Midnight",
+      "6 AM",
+      "Noon",
+      "6 PM",
+      "Midnight",
+    ]);
+    expect(marks.map((m) => m.style.left)).toEqual(["0%", "25%", "50%", "75%", "100%"]);
     expect(screen.getByText("71.0°F")).toBeInTheDocument();
     expect(screen.getByText("66.0°F")).toBeInTheDocument();
   });
@@ -80,10 +88,12 @@ describe("A room's predicted-against-measured chart", () => {
       day({
         points: [
           { at: at(0), measured: 68, predicted: null },
-          { at: at(12), measured: 68, predicted: null },
+          { at: at(0, 15), measured: 68, predicted: null },
         ],
         typical_miss: null,
         predicted_points: 0,
+        // A day that came without its clock marks: they are spaced evenly.
+        ticks: undefined as unknown as string[],
       })
     );
     const { container } = show();
@@ -92,8 +102,41 @@ describe("A room's predicted-against-measured chart", () => {
     ).toBeInTheDocument();
     expect(container.querySelectorAll(".hindcast-predicted")).toHaveLength(0);
     expect(container.querySelector(".hindcast-measured")!.getAttribute("points")).toBe(
-      "0.0,152.0 360.0,152.0"
+      "0.0,152.0 7.5,152.0"
     );
+    expect(
+      [...container.querySelectorAll<HTMLElement>(".hindcast-axis span")].map((m) => m.style.left)
+    ).toEqual(["0%", "25%", "50%", "75%", "100%"]);
+  });
+
+  it("joins close readings, breaks across a gap, and moves the marks on a short day", async () => {
+    const m = (h: number, min: number) => at(h, min);
+    vi.mocked(la.getHindcast).mockResolvedValue(
+      day({
+        // A 23-hour day: 6 AM comes five hours in.
+        end: "2026-02-03T04:00:00+00:00",
+        ticks: [at(0), at(5), at(11), at(17), "2026-02-03T04:00:00+00:00"],
+        points: [
+          { at: m(1, 0), measured: 66, predicted: 66 },
+          { at: m(1, 15), measured: 66.5, predicted: 66.4 },
+          { at: m(1, 30), measured: 67, predicted: null },
+          // Nothing recorded for two hours.
+          { at: m(3, 30), measured: 68, predicted: 68 },
+          { at: m(3, 45), measured: 68.2, predicted: 68.1 },
+        ],
+      })
+    );
+    const { container } = show();
+    await screen.findByRole("img");
+    const measured = container.querySelectorAll(".hindcast-measured");
+    expect(measured).toHaveLength(2);
+    expect(measured[0].getAttribute("points")!.split(" ")).toHaveLength(3);
+    expect(measured[1].getAttribute("points")!.split(" ")).toHaveLength(2);
+    expect(container.querySelectorAll(".hindcast-predicted")).toHaveLength(2);
+    expect(container.querySelectorAll(".hindcast-dot")).toHaveLength(0);
+    const marks = [...container.querySelectorAll<HTMLElement>(".hindcast-axis span")];
+    expect(marks[1].style.left).toBe(`${(5 / 23) * 100}%`);
+    expect(marks[4].style.left).toBe("100%");
   });
 
   it("says so with no readings, and when it cannot load", async () => {
