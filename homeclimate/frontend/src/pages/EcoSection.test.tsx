@@ -49,7 +49,7 @@ const store = (patch: Record<string, unknown>) => {
 beforeEach(() => {
   vi.clearAllMocks();
   houseUnit = "F";
-  stored = zone();
+  stored = zone({ eco_mode_enabled: true });
   vi.mocked(api.getThermostats).mockImplementation(async () => [stored]);
   vi.mocked(api.getOutsideTempEntity).mockResolvedValue({
     entity_id: "sensor.outside",
@@ -61,6 +61,7 @@ beforeEach(() => {
 
 describe("Smart Control → Eco Mode", () => {
   it("shows each zone's settings and saves only what was changed", async () => {
+    stored = zone();
     show();
     expect(screen.getByText("Loading the zones…")).toBeInTheDocument();
     const c = await card();
@@ -68,10 +69,20 @@ describe("Smart Control → Eco Mode", () => {
     expect(toggle).not.toBeChecked();
     const save = within(c).getByRole("button", { name: "Save" });
     expect(save).toBeDisabled(); // nothing changed yet
-    expect(within(c).getByTestId("eco-worked-example")).toBeInTheDocument();
+    // Off, a zone is one line.
+    expect(
+      within(c).getByText("Off. Rooms hold their targets in any weather.")
+    ).toBeInTheDocument();
+    expect(within(c).queryByRole("slider")).not.toBeInTheDocument();
 
     fireEvent.click(toggle);
-    fireEvent.change(within(c).getByLabelText(/Cooling — outdoor threshold/), {
+    expect(within(c).getAllByRole("slider")).toHaveLength(4);
+    expect(
+      within(c).getByRole("img", {
+        name: "Rooms hold their target between 40°F and 86°F outside. Colder than that they run up to 4°F cooler; hotter, up to 4°F warmer.",
+      })
+    ).toBeInTheDocument();
+    fireEvent.change(within(c).getByLabelText("Start When Outside Is Above"), {
       target: { value: "92" },
     });
     fireEvent.click(save);
@@ -83,7 +94,9 @@ describe("Smart Control → Eco Mode", () => {
     expect(await within(c).findByText("Saved")).toBeInTheDocument();
     expect(within(c).getByRole("button", { name: "Save" })).toBeDisabled();
     // Editing again clears the confirmation.
-    fireEvent.change(within(c).getByLabelText(/Hysteresis band/), { target: { value: "3" } });
+    fireEvent.change(within(c).getByLabelText(/^Keep drifting until outside comes back by/), {
+      target: { value: "3" },
+    });
     expect(within(c).queryByText("Saved")).not.toBeInTheDocument();
   });
 
@@ -91,11 +104,13 @@ describe("Smart Control → Eco Mode", () => {
     show("C");
     const c = await card();
     // 86 °F shows as 30 °C; a 4 °F drift shows as 2.22 °C.
-    expect(within(c).getByLabelText(/Cooling — outdoor threshold \(°C\)/)).toHaveDisplayValue("30");
-    fireEvent.change(within(c).getByLabelText(/Cooling — outdoor threshold/), {
+    expect(within(c).getByLabelText("Start When Outside Is Above")).toHaveDisplayValue("30");
+    fireEvent.change(within(c).getByLabelText("Start When Outside Is Above"), {
       target: { value: "31" },
     });
-    fireEvent.change(within(c).getByLabelText(/Heating — max drift/), { target: { value: "2" } });
+    fireEvent.change(within(c).getByLabelText("Let Rooms Run Cooler By Up To"), {
+      target: { value: "2" },
+    });
     fireEvent.click(within(c).getByRole("button", { name: "Save" }));
     await waitFor(() => expect(api.updateThermostat).toHaveBeenCalled());
     const [, payload] = vi.mocked(api.updateThermostat).mock.calls[0];
@@ -103,13 +118,14 @@ describe("Smart Control → Eco Mode", () => {
     // The backend stored 87.8 °F and 3.6 °F; the form still shows what was typed.
     expect(await within(c).findByText("Saved")).toBeInTheDocument();
     expect(stored.eco_cooling_outdoor_threshold).toBe(87.8);
-    expect(within(c).getByLabelText(/Cooling — outdoor threshold/)).toHaveDisplayValue("31");
-    expect(within(c).getByLabelText(/Heating — max drift/)).toHaveDisplayValue("2");
+    expect(within(c).getByLabelText("Start When Outside Is Above")).toHaveDisplayValue("31");
+    expect(within(c).getByLabelText("Let Rooms Run Cooler By Up To")).toHaveDisplayValue("2");
     expect(within(c).getByRole("button", { name: "Save" })).toBeDisabled();
   });
 
   it("does not rewrite a Celsius zone's untouched values when only the switch changes", async () => {
     // 100 °F shows as 37.8 °C, which would store back as 100.04 °F if it were resent.
+    stored = zone();
     show("C");
     const c = await card();
     fireEvent.click(within(c).getByRole("switch", { name: /^Eco Mode for/ }));
@@ -122,11 +138,11 @@ describe("Smart Control → Eco Mode", () => {
   it("settles after a save even when what was typed rounds to what was shown", async () => {
     show();
     const c = await card();
-    const field = within(c).getByLabelText(/Cooling — outdoor threshold/);
-    fireEvent.change(field, { target: { value: "86.004" } });
+    const field = within(c).getByLabelText(/^Keep drifting until outside comes back by/);
+    fireEvent.change(field, { target: { value: "2.004" } });
     fireEvent.click(within(c).getByRole("button", { name: "Save" }));
     expect(await within(c).findByText("Saved")).toBeInTheDocument();
-    expect(field).toHaveDisplayValue("86");
+    expect(field).toHaveDisplayValue("2");
     expect(within(c).getByRole("button", { name: "Save" })).toBeDisabled();
   });
 
@@ -135,10 +151,12 @@ describe("Smart Control → Eco Mode", () => {
     vi.mocked(api.updateThermostat).mockReturnValueOnce(new Promise((r) => (finish = r)));
     show();
     const c = await card();
-    fireEvent.change(within(c).getByLabelText(/Hysteresis band/), { target: { value: "3" } });
+    fireEvent.change(within(c).getByLabelText(/^Keep drifting until outside comes back by/), {
+      target: { value: "3" },
+    });
     fireEvent.click(within(c).getByRole("button", { name: "Save" }));
     expect(within(c).getByRole("switch", { name: /^Eco Mode for/ })).toBeDisabled();
-    expect(within(c).getByLabelText(/Hysteresis band/)).toBeDisabled();
+    expect(within(c).getByLabelText(/^Keep drifting until outside comes back by/)).toBeDisabled();
     expect(
       within(c).getByRole("switch", { name: "Let an Empty Zone Drift Further" })
     ).toBeDisabled();
@@ -157,22 +175,61 @@ describe("Smart Control → Eco Mode", () => {
       </StrictMode>
     );
     const c = await card();
-    fireEvent.change(within(c).getByLabelText(/Hysteresis band/), { target: { value: "3" } });
-    expect(within(c).getByLabelText(/Hysteresis band/)).toHaveDisplayValue("3");
+    fireEvent.change(within(c).getByLabelText(/^Keep drifting until outside comes back by/), {
+      target: { value: "3" },
+    });
+    expect(
+      within(c).getByLabelText(/^Keep drifting until outside comes back by/)
+    ).toHaveDisplayValue("3");
     expect(within(c).getByRole("button", { name: "Save" })).toBeEnabled();
   });
 
   it("shows the house's unit once it is known, when that arrives after the zones", async () => {
     const view = show();
     const c = await card();
-    expect(within(c).getByLabelText(/Cooling — outdoor threshold/)).toHaveDisplayValue("86");
+    expect(within(c).getByLabelText("Start When Outside Is Above")).toHaveDisplayValue("86");
     view.rerender(
       <UnitContext.Provider value={buildUnitContext("C")}>
         <EcoSection />
       </UnitContext.Provider>
     );
-    expect(within(c).getByLabelText(/Cooling — outdoor threshold/)).toHaveDisplayValue("30");
+    expect(within(c).getByLabelText("Start When Outside Is Above")).toHaveDisplayValue("30");
     expect(within(c).getByRole("button", { name: "Save" })).toBeDisabled();
+  });
+
+  it("never reaches the full drift before the drift starts", async () => {
+    show();
+    const c = await card();
+    // Dragged past where the full drift was, each start takes it along.
+    fireEvent.change(within(c).getByLabelText("Start When Outside Is Above"), {
+      target: { value: "104" },
+    });
+    fireEvent.change(within(c).getByLabelText("Start When Outside Is Below"), {
+      target: { value: "-4" },
+    });
+    fireEvent.change(within(c).getByLabelText("Let Rooms Run Warmer By Up To"), {
+      target: { value: "6" },
+    });
+    expect(within(c).getByLabelText(/^Hot days: full drift/)).toHaveDisplayValue("104");
+    expect(within(c).getByLabelText(/^Cold days: full drift/)).toHaveDisplayValue("-4");
+    expect(within(c).getByText("6°F")).toBeInTheDocument();
+    fireEvent.click(within(c).getByRole("button", { name: "Save" }));
+    await within(c).findByText("Saved");
+    expect(vi.mocked(api.updateThermostat).mock.calls[0][1]).toEqual({
+      eco_cooling_outdoor_threshold: 104,
+      eco_cooling_full_drift_temp: 104,
+      eco_heating_outdoor_threshold: -4,
+      eco_heating_full_drift_temp: -4,
+      eco_cooling_max_drift: 6,
+    });
+    // With no drift allowed at all the picture is a flat line, not a division by zero.
+    fireEvent.change(within(c).getByLabelText("Let Rooms Run Warmer By Up To"), {
+      target: { value: "0" },
+    });
+    fireEvent.change(within(c).getByLabelText("Let Rooms Run Cooler By Up To"), {
+      target: { value: "0" },
+    });
+    expect(c.querySelector(".eco-chart-line")!.getAttribute("points")).not.toContain("NaN");
   });
 
   it("names a zone with no name by its thermostat", async () => {
@@ -186,6 +243,7 @@ describe("Smart Control → Eco Mode", () => {
     vi.mocked(api.getOutsideTempEntity).mockResolvedValue({
       entity_id: null,
     } as unknown as Awaited<ReturnType<typeof api.getOutsideTempEntity>>);
+    stored = zone();
     show();
     const c = await card();
     expect(screen.getByText(/no outside temperature sensor is chosen/)).toBeInTheDocument();
@@ -199,7 +257,9 @@ describe("Smart Control → Eco Mode", () => {
     stored = zone({ eco_mode_enabled: true });
     show();
     const c = await card();
-    fireEvent.change(within(c).getByLabelText(/Hysteresis band/), { target: { value: "3" } });
+    fireEvent.change(within(c).getByLabelText(/^Keep drifting until outside comes back by/), {
+      target: { value: "3" },
+    });
     expect(within(c).queryByText(/Eco Mode needs an outside/)).not.toBeInTheDocument();
     fireEvent.click(within(c).getByRole("button", { name: "Save" }));
     await within(c).findByText("Saved");
@@ -216,9 +276,13 @@ describe("Smart Control → Eco Mode", () => {
   it("needs a number in every field", async () => {
     show();
     const c = await card();
-    fireEvent.change(within(c).getByLabelText(/Hysteresis band/), { target: { value: "" } });
+    fireEvent.change(within(c).getByLabelText(/^Keep drifting until outside comes back by/), {
+      target: { value: "" },
+    });
     expect(within(c).getByText("Every field needs a number.")).toBeInTheDocument();
-    expect(within(c).getByLabelText(/Hysteresis band/)).toHaveDisplayValue("");
+    expect(
+      within(c).getByLabelText(/^Keep drifting until outside comes back by/)
+    ).toHaveDisplayValue("");
     expect(within(c).getByRole("button", { name: "Save" })).toBeDisabled();
   });
 
@@ -226,10 +290,14 @@ describe("Smart Control → Eco Mode", () => {
     vi.mocked(api.updateThermostat).mockRejectedValueOnce(new Error("Eco needs a sensor"));
     show();
     const c = await card();
-    fireEvent.change(within(c).getByLabelText(/Hysteresis band/), { target: { value: "3" } });
+    fireEvent.change(within(c).getByLabelText(/^Keep drifting until outside comes back by/), {
+      target: { value: "3" },
+    });
     fireEvent.click(within(c).getByRole("button", { name: "Save" }));
     expect(await within(c).findByText("Eco needs a sensor")).toBeInTheDocument();
-    expect(within(c).getByLabelText(/Hysteresis band/)).toHaveDisplayValue("3");
+    expect(
+      within(c).getByLabelText(/^Keep drifting until outside comes back by/)
+    ).toHaveDisplayValue("3");
     vi.mocked(api.updateThermostat).mockRejectedValueOnce("x");
     fireEvent.click(within(c).getByRole("button", { name: "Save" }));
     expect(await within(c).findByText("Could not save")).toBeInTheDocument();
@@ -244,17 +312,23 @@ describe("Smart Control → Eco Mode", () => {
 
   it("saves one zone without disturbing another", async () => {
     vi.mocked(api.getThermostats).mockResolvedValue([
-      zone(),
-      zone({ thermostat_entity_id: "climate.den", name: "Den" }),
+      zone({ eco_mode_enabled: true }),
+      zone({ eco_mode_enabled: true, thermostat_entity_id: "climate.den", name: "Den" }),
     ]);
     show();
     const den = await screen.findByRole("group", { name: "Den" });
     const up = await card();
-    fireEvent.change(within(den).getByLabelText(/Hysteresis band/), { target: { value: "5" } });
-    fireEvent.change(within(up).getByLabelText(/Hysteresis band/), { target: { value: "3" } });
+    fireEvent.change(within(den).getByLabelText(/^Keep drifting until outside comes back by/), {
+      target: { value: "5" },
+    });
+    fireEvent.change(within(up).getByLabelText(/^Keep drifting until outside comes back by/), {
+      target: { value: "3" },
+    });
     fireEvent.click(within(up).getByRole("button", { name: "Save" }));
     await within(up).findByText("Saved");
-    expect(within(den).getByLabelText(/Hysteresis band/)).toHaveDisplayValue("5");
+    expect(
+      within(den).getByLabelText(/^Keep drifting until outside comes back by/)
+    ).toHaveDisplayValue("5");
   });
 
   it("lets an empty zone drift further after a set number of hours", async () => {
@@ -266,7 +340,7 @@ describe("Smart Control → Eco Mode", () => {
     expect(hours).toBeDisabled();
     expect(hours).toHaveValue(null);
     expect(
-      within(c).getByText(/^With Eco Mode on, after nobody has used this zone .* drift 2°F further/)
+      within(c).getByText("After nobody has used the zone this long, rooms may drift 2°F more.")
     ).toBeInTheDocument();
 
     fireEvent.click(toggle);
@@ -293,10 +367,10 @@ describe("Smart Control → Eco Mode", () => {
   });
 
   it("shows the extra drift in the house's unit and refuses hours out of range", async () => {
-    stored = zone({ eco_empty_zone_hours: 3 });
+    stored = zone({ eco_mode_enabled: true, eco_empty_zone_hours: 3 });
     show("C");
     const c = await card();
-    expect(within(c).getByText(/its rooms may drift 1\.11°C further/)).toBeInTheDocument();
+    expect(within(c).getByText(/rooms may drift 1\.11°C more/)).toBeInTheDocument();
     const hours = within(c).getByLabelText("Hours before Upstairs drifts further");
     expect(hours).toHaveValue(3);
     for (const bad of ["80", "", "-1", "0.2"]) {
