@@ -58,6 +58,13 @@ async def test_a_day_of_a_room_is_read_in_the_houses_day(client, room, monkeypat
         "predicted": None,
     }
     assert body["typical_miss"] is None
+    assert body["ticks"] == [
+        "2026-02-02T00:00:00+00:00",
+        "2026-02-02T06:00:00+00:00",
+        "2026-02-02T12:00:00+00:00",
+        "2026-02-02T18:00:00+00:00",
+        "2026-02-03T00:00:00+00:00",
+    ]
     # A named day with nothing recorded.
     empty = await (await client.get(f"/api/learning/rooms/{room}/hindcast?day=2026-01-10")).json()
     assert empty["day"] == "2026-01-10" and empty["points"] == []
@@ -81,7 +88,34 @@ async def test_what_stop_early_learned_is_shown_with_each_room(client, room):
     resp = await client.put("/api/learning/settings", json={"stop_early_level": 2})
     body = await resp.json()
     assert body["settings"]["stop_early_level"] == 2
-    assert body["rooms"][0]["stop_early"] == learned
+    # What is used is at most half the deadband (0.5 for the zone, so 0.25).
+    assert body["rooms"][0]["stop_early"] == {
+        "heating": {"lead": 0.7, "runs": 9, "used": 0.25},
+        "cooling": {"lead": 0.0, "runs": 1, "used": 0.0},
+    }
+    # A room with its own wider deadband may use more of it.
+    await client.put(f"/api/rooms/{room}", json={"deadband_override": 2.0})
+    body = await (await client.get("/api/learning")).json()
+    assert body["rooms"][0]["stop_early"]["heating"]["used"] == 0.7
     bad = await client.put("/api/learning/settings", json={"stop_early_level": 3})
     assert bad.status == 400
     assert "stop_early_level must be 0" in (await bad.json())["error"]
+
+
+async def test_the_clock_marks_follow_the_house_on_a_day_the_clocks_change(
+    client, room, monkeypatch
+):
+    from zoneinfo import ZoneInfo
+
+    monkeypatch.setattr(tz, "get_timezone", lambda: ZoneInfo("America/Chicago"))
+    # Spring forward: 2026-03-08 has 23 hours in Chicago.
+    body = await (await client.get(f"/api/learning/rooms/{room}/hindcast?day=2026-03-08")).json()
+    assert body["start"] == "2026-03-08T06:00:00+00:00"
+    assert body["end"] == "2026-03-09T05:00:00+00:00"
+    assert body["ticks"] == [
+        "2026-03-08T06:00:00+00:00",
+        "2026-03-08T11:00:00+00:00",
+        "2026-03-08T17:00:00+00:00",
+        "2026-03-08T23:00:00+00:00",
+        "2026-03-09T05:00:00+00:00",
+    ]

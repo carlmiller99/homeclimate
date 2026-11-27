@@ -3014,6 +3014,19 @@ button.sc-nav-item {
 .learning-room:first-child {
   border-top: 0;
 }
+/* Each line of words on the left, the badge and button on the right, the chart across. */
+.learning-room > .shade-why {
+  grid-column: 1;
+}
+.learning-room > .badge,
+.learning-room > .btn {
+  grid-column: 2;
+  justify-self: end;
+}
+.learning-room > .hindcast {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
 .learning-collected {
   color: var(--gray-600);
   font-size: 0.875rem;
@@ -3702,11 +3715,28 @@ button.sc-nav-item {
   stroke-dasharray: 5 4;
 }
 .hindcast-axis {
-  display: flex;
-  justify-content: space-between;
+  position: relative;
+  height: 1.1rem;
   margin-left: 3.5rem;
   font-size: 0.75rem;
   color: var(--gray-600);
+}
+.hindcast-axis span {
+  position: absolute;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+.hindcast-axis span[data-edge="start"] {
+  transform: none;
+}
+.hindcast-axis span[data-edge="end"] {
+  transform: translateX(-100%);
+}
+.hindcast-dot-measured {
+  fill: var(--ink);
+}
+.hindcast-dot-predicted {
+  fill: var(--orange);
 }
 .hindcast-legend {
   display: flex;

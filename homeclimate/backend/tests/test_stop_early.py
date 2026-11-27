@@ -292,6 +292,54 @@ async def test_a_running_room_is_closed_short_of_its_target_only_when_on(level, 
     assert (state.vent_closed_at is not None) is closes
     events = await db.get_cycle_vent_events(conn, cycle.id)
     assert any(e.action == "closed_reached_target" for e in events) is closes
+    # The record says it was an early close, so it can be told from a reached target.
+    assert [e.reason for e in events if e.action == "closed_reached_target"] == (
+        ["stopped early avg=72.2 target=72.0"] if closes else []
+    )
+    await conn.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "level, source, temp, kept",
+    [
+        (2, "presence", 72.2, True),  # closed early, still within its lead
+        (2, "presence", 72.4, False),  # further out than the lead: it asks again
+        (2, "safety", 72.2, False),  # safety protection is never cut short
+        (1, "presence", 72.2, False),  # only watching: nothing was closed early
+    ],
+)
+async def test_a_room_closed_early_keeps_the_minimum_runtime_hold(level, source, temp, kept):
+    """Its trigger changes mid-hold; short of the target by less than the lead is no new call."""
+    from .test_cycle_diagnostics import _running_cycle_with_vent
+
+    engine, conn, cycle, room = await _running_cycle_with_vent()
+    engine._logger = AsyncMock()
+    await learning.update_settings(conn, {"stop_early_level": level})
+    await db.set_system_setting(
+        conn, stop_early.KEY, json.dumps({room.id: {"cooling": {"lead": 0.9, "runs": 7}}})
+    )
+    await engine._read_stop_early(conn, False)
+    engine._room_cycle_states[room.id].vent_closed_at = NOW
+    cycle.in_min_runtime_hold = True
+    await db.set_cycle_log_min_runtime_hold(conn, cycle.id, True)
+    engine._ha.get_numeric_state.return_value = temp
+
+    was = engine._active_rooms[room.id]
+    now = ActiveRoom(room=room, target_temp=was.target_temp, source=source)
+    await engine._start_or_update_cycle(conn, {room.id: now}, "cooling")
+
+    assert cycle.in_min_runtime_hold is kept
+    await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_a_room_with_nothing_learned_is_not_within_any_lead():
+    conn, engine, room = await _engine(2, lead=0.0)
+    await engine._read_stop_early(conn, False)
+    ar = ActiveRoom(room=room, target_temp=70.0, source="schedule")
+    assert not engine._within_stop_early_lead(ar, 69.99, "heating")
+    assert not engine._within_stop_early_lead(ar, 70.0, "auto")
     await conn.close()
 
 

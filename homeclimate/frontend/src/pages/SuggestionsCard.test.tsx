@@ -95,4 +95,31 @@ describe("Suggestions", () => {
     expect(sa.describeDays([5, 6])).toBe("Sat, Sun");
     expect(sa.describeDays([1, 2, 3])).toBe("Tue–Thu");
   });
+
+  it("ignores an answer, or a failure, that lands after it has gone", async () => {
+    let answer!: (d: sa.Suggestions) => void;
+    vi.mocked(sa.getSuggestions).mockReturnValue(new Promise((r) => (answer = r)));
+    const first = render(
+      <MemoryRouter>
+        <UnitContext.Provider value={buildUnitContext("F")}>
+          <SuggestionsCard />
+        </UnitContext.Provider>
+      </MemoryRouter>
+    );
+    first.unmount();
+    answer(data());
+    let fail!: (e: Error) => void;
+    vi.mocked(sa.getSuggestions).mockReturnValue(new Promise((_, r) => (fail = r)));
+    const second = render(
+      <MemoryRouter>
+        <UnitContext.Provider value={buildUnitContext("F")}>
+          <SuggestionsCard />
+        </UnitContext.Provider>
+      </MemoryRouter>
+    );
+    second.unmount();
+    fail(new Error("gone"));
+    await Promise.resolve();
+    expect(document.body.textContent).toBe("");
+  });
 });

@@ -305,30 +305,43 @@ describe("Smart Learning section", () => {
   });
 
   it("sets Stop Early, and says what each room has learned for it", async () => {
-    vi.mocked(la.getLearning).mockResolvedValue(
-      data({
-        rooms: [
-          {
-            ...ROOM,
-            stop_early: { heating: { lead: 0.7, runs: 9 }, cooling: { lead: 0.4, runs: 6 } },
+    const learned = {
+      rooms: [
+        {
+          ...ROOM,
+          stop_early: {
+            heating: { lead: 0.7, runs: 9, used: 0.25 },
+            cooling: { lead: 0.4, runs: 6, used: 0.2 },
           },
-          { ...ROOM, room_id: "r2", name: "Loft", stop_early: { heating: { lead: 0, runs: 2 } } },
-        ],
-      })
+        },
+        {
+          ...ROOM,
+          room_id: "r2",
+          name: "Loft",
+          stop_early: { heating: { lead: 0, runs: 2, used: 0 } },
+        },
+      ],
+    };
+    vi.mocked(la.getLearning).mockResolvedValue(data(learned));
+    vi.mocked(la.updateLearningSettings).mockImplementation(async (patch) =>
+      data({ ...learned, settings: { ...data().settings, ...patch } })
     );
     render(<LearningSection />);
     const level = await screen.findByLabelText("Stop Early to Avoid Overshoot");
     expect(level).toHaveValue("0");
     const den = screen.getByRole("listitem", { name: `${ROOM.name} model` });
-    expect(
-      within(den).getByText("Stops early by up to 0.7°F when heating and 0.4°F when cooling.")
-    ).toBeInTheDocument();
-    const loft = screen.getByRole("listitem", { name: "Loft model" });
-    expect(within(loft).queryByText(/^Stops early/)).not.toBeInTheDocument();
+    // Off: nothing is stopping early, so nothing says it is.
+    expect(within(den).queryByText(/stop.* early by/i)).not.toBeInTheDocument();
     fireEvent.change(level, { target: { value: "2" } });
     await waitFor(() =>
       expect(la.updateLearningSettings).toHaveBeenCalledWith({ stop_early_level: 2 })
     );
+    // What is in use (half the deadband at most), not what was learned.
+    expect(
+      await within(den).findByText("Stops early by 0.25°F when heating and 0.2°F when cooling.")
+    ).toBeInTheDocument();
+    const loft = screen.getByRole("listitem", { name: "Loft model" });
+    expect(within(loft).queryByText(/^Stops early/)).not.toBeInTheDocument();
   });
 
   it("opens one room's chart at a time", async () => {
@@ -350,10 +363,25 @@ describe("Smart Learning section", () => {
   it("describes what Stop Early learned as a difference, in the house's unit", () => {
     const c = buildUnitContext("C");
     expect(
-      la.describeStopEarly({ cooling: { lead: 0.9, runs: 5 } }, c.toDisplayDelta, c.unitLabel)
-    ).toBe("Stops early by up to 0.5°C when cooling");
-    expect(la.describeStopEarly(null, c.toDisplayDelta, c.unitLabel)).toBe("");
-    expect(la.describeStopEarly(undefined, c.toDisplayDelta, c.unitLabel)).toBe("");
+      la.describeStopEarly(
+        { cooling: { lead: 1.4, runs: 5, used: 0.9 } },
+        c.toDisplayDelta,
+        c.unitLabel,
+        2
+      )
+    ).toBe("Stops early by 0.5°C when cooling");
+    const both = {
+      heating: { lead: 1, runs: 5, used: 0.5 },
+      cooling: { lead: 0, runs: 1, used: 0 },
+    };
+    const f = buildUnitContext("F");
+    // Watching only: it says what it would do.
+    expect(la.describeStopEarly(both, f.toDisplayDelta, f.unitLabel, 1)).toBe(
+      "Would stop early by 0.5°F when heating"
+    );
+    expect(la.describeStopEarly(both, f.toDisplayDelta, f.unitLabel, 0)).toBe("");
+    expect(la.describeStopEarly(null, c.toDisplayDelta, c.unitLabel, 2)).toBe("");
+    expect(la.describeStopEarly(undefined, c.toDisplayDelta, c.unitLabel, 2)).toBe("");
   });
 
   it("sets whether rooms may coast, and says how the week has gone", async () => {

@@ -1350,6 +1350,10 @@ class HindcastSchema(Schema):
     day = fields.Str(metadata={"description": "House-local date"})
     start = fields.Str()
     end = fields.Str()
+    ticks = fields.List(
+        fields.Str(),
+        metadata={"description": "UTC instants of house-local 00:00, 06:00, 12:00, 18:00, 24:00"},
+    )
     points = fields.List(fields.Nested(HindcastPointSchema))
     typical_miss = fields.Float(
         allow_none=True, metadata={"description": "°F difference, mean over the day"}

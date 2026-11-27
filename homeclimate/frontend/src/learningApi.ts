@@ -20,6 +20,8 @@ export interface StopEarlyLearned {
   lead: number;
   /** The closes it rests on. */
   runs: number;
+  /** What is used: the lead, held to half the room's deadband. A °F difference. */
+  used: number;
 }
 
 export const EARLY_START_LABELS = ["Off", "Watch Only", "On"] as const;
@@ -71,6 +73,8 @@ export interface Hindcast {
   day: string;
   start: string;
   end: string;
+  /** Where the house's clock reads midnight, 6 AM, noon, 6 PM and midnight. */
+  ticks: string[];
   /** °F; `predicted` is null where the model cannot say. */
   points: { at: string; measured: number; predicted: number | null }[];
   /** °F difference; null when nothing was predicted. */
@@ -82,18 +86,22 @@ export const getHindcast = (roomId: string) =>
   api<Hindcast>(`/api/learning/rooms/${encodeURIComponent(roomId)}/hindcast`);
 
 /**
- * "Stops early by up to 0.7°F when heating and 0.4°F when cooling", or "" with
- * nothing learned. "Up to": half the room's deadband is the most that is used.
+ * "Stops early by 0.3°F when heating and 0.2°F when cooling": what is in use,
+ * not what was learned. "" with nothing in use or Stop Early off; "Would stop
+ * early by…" while it only watches.
  */
 export function describeStopEarly(
   learned: LearningRoom["stop_early"],
   delta: (f: number) => number,
-  unitLabel: string
+  unitLabel: string,
+  level: number
 ): string {
+  if (level === 0) return "";
   const parts = (["heating", "cooling"] as const)
-    .filter((mode) => (learned?.[mode]?.lead ?? 0) > 0)
-    .map((mode) => `${delta(learned![mode]!.lead)}${unitLabel} when ${mode}`);
-  return parts.length ? `Stops early by up to ${parts.join(" and ")}` : "";
+    .filter((mode) => (learned?.[mode]?.used ?? 0) > 0)
+    .map((mode) => `${delta(learned![mode]!.used)}${unitLabel} when ${mode}`);
+  if (!parts.length) return "";
+  return `${level === 1 ? "Would stop early by" : "Stops early by"} ${parts.join(" and ")}`;
 }
 
 export interface Learning {

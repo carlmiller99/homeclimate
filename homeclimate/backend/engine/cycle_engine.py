@@ -1429,6 +1429,20 @@ class CycleEngine:
         started = None if rcs.temp_at_start is None else rcs.temp_at_start + offset
         return stop_early.stops_now(lead, mode, avg + offset, rcs.target_temp, started)
 
+    def _within_stop_early_lead(self, ar: ActiveRoom, avg: float, mode: str) -> bool:
+        """Whether a room already closed sits within its Stop Early lead of the target."""
+        if self._stop_early_level != "on" or ar.source == "safety":
+            return False
+        band = _effective_deadband(ar.room, self._stop_early_deadband, ar.deadband_override)
+        lead = stop_early.lead(self._stop_early_table, ar.room.id, mode, band)
+        if lead <= 0:
+            return False
+        return _is_at_target(
+            avg + ar.room.temp_offset + (lead if mode == "heating" else -lead),
+            ar.target_temp,
+            mode,
+        )
+
     async def _empty_zone_drift(
         self,
         conn: aiosqlite.Connection,
@@ -1911,8 +1925,15 @@ class CycleEngine:
                     avg = self._get_avg_temp(joined.room)
                     if avg is None:
                         continue
+                    held = self._room_cycle_states.get(room_id)
                     if not _is_at_target(
                         avg + joined.room.temp_offset, joined.target_temp, hvac_mode
+                    ) and not (
+                        # A room Stop Early closed, still within its lead of
+                        # the target, asks for nothing more.
+                        held is not None
+                        and held.vent_closed_at is not None
+                        and self._within_stop_early_lead(joined, avg, hvac_mode)
                     ):
                         unsatisfied.append(joined.room.name)
                 if unsatisfied:
@@ -2420,6 +2441,7 @@ class CycleEngine:
                                     v.entity_id,
                                     room_id,
                                     "closed_reached_target",
+                                    f"{'stopped early ' if early else ''}"
                                     f"avg={avg:.1f} target={rcs.target_temp}",
                                 )
                             except Exception as exc:
