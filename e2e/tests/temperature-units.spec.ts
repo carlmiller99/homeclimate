@@ -656,12 +656,22 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
     // @covers: house_heat_to, house_cool_to
     const heatLabel = /^Heating Target for Downstairs Thermostat/;
     const coolLabel = /^Cooling Target for Downstairs Thermostat/;
+    const openZoneSettings = async () => {
+      await page
+        .getByRole("button", { name: /^Settings for Downstairs Thermostat/ })
+        .click();
+      await page
+        .getByRole("dialog", { name: "Downstairs Thermostat settings" })
+        .waitFor({ state: "visible", timeout: 10_000 });
+    };
     try {
       await page.goto("/");
       await page.waitForSelector(".loading", {
         state: "detached",
         timeout: 15_000,
       });
+      // A zone's targets are in its settings: tap the zone's card.
+      await openZoneSettings();
       await page.getByLabel(heatLabel).fill(HOUSE_HEAT_TO);
       await page.getByLabel(coolLabel).fill(HOUSE_COOL_TO);
       await page
@@ -678,6 +688,7 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
         state: "detached",
         timeout: 15_000,
       });
+      await openZoneSettings();
       expect(
         parseFloat(await page.getByLabel(heatLabel).inputValue()),
       ).toBeCloseTo(parseFloat(HOUSE_HEAT_TO), 1);
@@ -703,11 +714,6 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
     });
     const building = (await made.json()).id as string;
     try {
-      // The threshold shows once the building heats or cools as one, or tries to.
-      const level = await page.request.put(`/api/building-modes/${building}`, {
-        data: { auto_level: "watch" },
-      });
-      expect(level.status(), await level.text()).toBeLessThan(400);
       await page.goto("/smart-control?section=auto-mode");
       const field = page.getByLabel(
         /^Switching threshold for Threshold Test House/,
