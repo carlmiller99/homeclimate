@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.23
+
+- Every text box, dropdown, time field, checkbox and button now looks and sizes the same across the app. On/off settings are switches and either/or choices are buttons.
+- Smart Control → **Peak Hours**: the times sit on one line and the days are a row of buttons. Simpler wording throughout.
+- The time block sheet uses the same day buttons, with **Allowed Drift** and **Ends** as plain choices.
+- My Home device sheets are simpler: one row per door, window or vent, with no table to scroll sideways.
+- Device searches list the room's own devices first: those in its Home Assistant area, then those with the room's name in their name. The list is no longer cut off inside a sheet.
+- Prompts to remove a device show its name instead of its entity ID.
+
 ## 0.5.22
 
 - Sensors and devices are shown by the name Home Assistant gives them everywhere. The entity ID is on hover.
