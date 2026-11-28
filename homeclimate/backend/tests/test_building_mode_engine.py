@@ -253,6 +253,9 @@ async def test_a_zone_held_on_its_old_side_waits_to_join_what_the_others_run():
         await engine._do_tick(conn)
         started.assert_not_awaited()
         assert engine.building_wait["direction"] == "heating"
+        assert _messages(engine) == [
+            f"{engine.thermostat_entity_id} is waiting to start heating: it is still on cooling"
+        ]
         # Not held by a zone running the other way: by its own limit.
         assert engine.held_for is None
         # Wanting what it is already on, it is held by the others.

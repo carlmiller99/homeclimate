@@ -6035,6 +6035,7 @@ class CycleEngine:
         active_rooms: dict[str, Any],
         tc: Any,
         thermo_state: dict[str, Any] | None,
+        why: str | None = None,
     ) -> None:
         """Count this tick toward the zone's wait to switch to ``inferred``.
 
@@ -6096,8 +6097,8 @@ class CycleEngine:
             await self._logger.log(
                 "info",
                 "engine",
-                f"{self.thermostat_entity_id} {waits} to start {inferred}: its building is"
-                f" on {side}",
+                f"{self.thermostat_entity_id} {waits} to start {inferred}: "
+                + (why or f"its building is on {side}"),
                 {"thermostat": self.thermostat_entity_id, "wants": inferred, "side": side},
             )
 
@@ -6162,7 +6163,15 @@ class CycleEngine:
                 if not breaches and await self._could_start(
                     conn, inferred, active_rooms, tc, thermo_state, outside_temp, off_schedule_ok
                 ):
-                    await self._note_wait(inferred, obey, own, active_rooms, tc, thermo_state)
+                    await self._note_wait(
+                        inferred,
+                        obey,
+                        own,
+                        active_rooms,
+                        tc,
+                        thermo_state,
+                        why=f"it is still on {own}",
+                    )
                 else:
                     self._wait_started = None
             else:

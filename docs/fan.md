@@ -13,7 +13,7 @@ It is set per zone under **Smart Control → Fan**:
 All of these have to be true:
 
 1. The zone is idle: no cycle is running and the thermostat is not heating or cooling.
-2. It is held to one side: the zone (or its building) is set to Heat or Cool, or it is in Auto in a building (see [Building and zone modes](./building-mode.md)). The fan works the other side, the one the zone is not serving. A zone in no building in Auto chooses freely and has no use for it.
+2. It is held to one side: the zone (or its building) is set to Heat or Cool, or it is in Auto in a building (see [Building and zone modes](./building-mode.md)). The fan works the other side, the one the zone is not serving. A zone in no building, following or in Auto, chooses freely and has no use for it.
 3. A room is at least 0.5 °F (0.3 °C) past its target on that side: above its cooling target in a building that is heating, or below its heating target in one that is cooling. A room kept to one number (a single target, or two targets that are the same) has to be 2.5 °F (1.4 °C) past it, because a cycle overshoots by about that much and that alone is no reason to run the fan.
 4. Another room of the zone is at least 1.5 °F (0.8 °C) closer to it: cooler than the warm room, or warmer than the cold one. A room that is itself at or past its own target on that side is no help, since mixing would push it further out.
 

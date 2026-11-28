@@ -214,7 +214,7 @@ NEW_ZONE_MIN_OFFTIME_MIN = 5
 class ThermostatConfig:
     thermostat_entity_id: str  # PK — HA climate entity
     name: str = ""  # friendly display name, e.g. "Upstairs HVAC"
-    default_temp: float | None = None  # thermostat-level fallback for presence activation
+    default_temp: float | None = None  # unused since 0.5.25: a room sets its own occupied targets
     min_setpoint: float = 60.0
     max_setpoint: float = 85.0
     deadband: float = 0.5  # ±°F
