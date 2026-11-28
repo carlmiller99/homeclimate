@@ -14,6 +14,13 @@ interface Props {
   onSelect: (entityId: string) => void;
 }
 
+/** Where a device is, said the way the room's own list would say it. */
+function placeOf(e: HAEntity): string {
+  if (e.in_room_area) return "In This Room";
+  if (e.named_for_room) return "Named for This Room";
+  return e.area_name ?? "";
+}
+
 export default function EntityPicker({
   domain,
   placeholder,
@@ -80,11 +87,7 @@ export default function EntityPicker({
               }}
             >
               <div title={e.entity_id}>{e.friendly_name || prettyEntity(e.entity_id)}</div>
-              {e.area_name && (
-                <div className="entity-id">
-                  {e.in_room_area ? "In this room's area" : e.area_name}
-                </div>
-              )}
+              {(e.area_name || e.named_for_room) && <div className="entity-id">{placeOf(e)}</div>}
             </div>
           ))}
         </div>

@@ -1,6 +1,7 @@
 import EntityName from "../components/EntityName";
 import { entityName, prettyEntity } from "../entityNames";
-import { PencilIcon } from "../components/icons";
+import { CrossIcon, PencilIcon } from "../components/icons";
+import Segmented from "../components/Segmented";
 import { useEffect, useState } from "react";
 import {
   deleteContactSensor,
@@ -347,7 +348,7 @@ export function RoomSettings({
             <>
               <div className="form-group">
                 <label className="form-label" htmlFor="room-name">
-                  Room name *
+                  Room Name
                 </label>
                 <input
                   id="room-name"
@@ -391,6 +392,7 @@ export function RoomSettings({
                 >
                   <input
                     id="room-include-thermo"
+                    className="switch"
                     type="checkbox"
                     checked={includeThermoSensor}
                     onChange={(e) => setIncludeThermoSensor(e.target.checked)}
@@ -485,6 +487,7 @@ export function RoomSettings({
                 >
                   <input
                     id="room-ambient-enabled"
+                    className="switch"
                     type="checkbox"
                     checked={ambientEnabled}
                     disabled={!hasOutsideSensor}
@@ -740,11 +743,6 @@ function DoorsWindowsEditor({
   };
   return (
     <div className="entity-section">
-      <div style={{ display: "flex", alignItems: "center", gap: ".5rem", marginBottom: ".3rem" }}>
-        <span style={{ fontSize: "1.2rem" }}>🚪</span>
-        <span style={{ fontWeight: 700, fontSize: "1rem" }}>Doors &amp; Windows</span>
-        {contacts.length > 0 && <span className="badge badge-blue">{contacts.length}</span>}
-      </div>
       <p className="text-sm text-muted" style={{ marginBottom: ".75rem" }}>
         An open door or window pauses this room, or its whole zone, after the delay set in Smart
         Control.
@@ -772,36 +770,32 @@ function DoorsWindowsEditor({
               <span className="entity-row-name" title={c.entity_id}>
                 {c.name}
               </span>
-              <label className="sensor-scope">
+              <span className="sensor-scope">
                 Pauses
-                <select
-                  className="form-control"
+                <Segmented
+                  label={`What ${c.name} pauses`}
                   value={c.pauses}
-                  aria-label={`What ${c.name} pauses`}
-                  onChange={(e) =>
+                  options={[
+                    { value: "room", label: "This Room" },
+                    { value: "zone", label: "Whole Zone" },
+                  ]}
+                  onChange={(pauses) =>
                     void run(
-                      () =>
-                        saveContactSensor(c.entity_id, {
-                          room_id: roomId,
-                          pauses: e.target.value as "room" | "zone",
-                        }),
+                      () => saveContactSensor(c.entity_id, { room_id: roomId, pauses }),
                       "Could not save the sensor"
                     )
                   }
-                >
-                  <option value="room">This Room</option>
-                  <option value="zone">Whole Zone</option>
-                </select>
-              </label>
+                />
+              </span>
               <button
                 type="button"
-                className="btn btn-secondary btn-sm"
+                className="icon-button"
                 aria-label={`Remove ${c.name}`}
                 onClick={() =>
                   void run(() => deleteContactSensor(c.entity_id), "Could not remove the sensor")
                 }
               >
-                Remove
+                <CrossIcon />
               </button>
             </li>
           ))}
@@ -813,9 +807,7 @@ function DoorsWindowsEditor({
 }
 
 function EntitySection({
-  title,
   description,
-  icon,
   items,
   domain,
   kind,
@@ -826,9 +818,7 @@ function EntitySection({
   onAdd,
   onRemove,
 }: {
-  title: string;
   description: string;
-  icon: string;
   items: string[];
   domain: string;
   kind: RoomDeviceKind;
@@ -841,11 +831,6 @@ function EntitySection({
 }) {
   return (
     <div style={{ marginBottom: "1.5rem" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: ".5rem", marginBottom: ".3rem" }}>
-        <span style={{ fontSize: "1.2rem" }}>{icon}</span>
-        <span style={{ fontWeight: 700, fontSize: "1rem" }}>{title}</span>
-        {items.length > 0 && <span className="badge badge-blue">{items.length}</span>}
-      </div>
       <p className="text-sm text-muted" style={{ marginBottom: ".75rem" }}>
         {description}
       </p>
@@ -870,7 +855,7 @@ function EntitySection({
             <span key={id} className="tag">
               <EntityName id={id} />
               <button className="tag-remove" title="Remove" onClick={() => onRemove(id)}>
-                ×
+                <CrossIcon />
               </button>
             </span>
           ))}
@@ -896,15 +881,9 @@ function VentTable({
 }) {
   return (
     <div style={{ marginBottom: "1.5rem" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: ".5rem", marginBottom: ".3rem" }}>
-        <span style={{ fontSize: "1.2rem" }}>💨</span>
-        <span style={{ fontWeight: 700, fontSize: "1rem" }}>Smart Vents</span>
-        {vents.length > 0 && <span className="badge badge-blue">{vents.length}</span>}
-      </div>
       <p className="text-sm text-muted" style={{ marginBottom: ".75rem" }}>
-        Vents in this room, controlled as cover entities. When the room hits target, the system
-        closes these vents. Each vent can use a different control method depending on which services
-        its HA integration exposes.
+        HomeClimate opens and closes these to steer air to the room. Use Test to check each one
+        moves.
       </p>
 
       <EntityPicker
@@ -919,34 +898,15 @@ function VentTable({
       />
 
       {vents.length === 0 ? (
-        <p className="text-sm text-muted" style={{ marginTop: ".5rem", fontStyle: "italic" }}>
-          No vents added yet — search above to add one.
+        <p className="text-sm text-muted" style={{ marginTop: ".5rem" }}>
+          No vents in this room.
         </p>
       ) : (
-        <div style={{ marginTop: ".75rem", overflowX: "auto" }}>
-          <table
-            className="vent-table table-cards"
-            style={{ width: "100%", borderCollapse: "collapse" }}
-          >
-            <thead>
-              <tr style={{ textAlign: "left", borderBottom: "1px solid var(--border, #ddd)" }}>
-                <th style={{ padding: ".4rem .5rem" }}>Entity</th>
-                <th style={{ padding: ".4rem .5rem" }}>Control method</th>
-                <th style={{ padding: ".4rem .5rem" }}>Test</th>
-                <th style={{ padding: ".4rem .5rem" }}></th>
-              </tr>
-            </thead>
-            <tbody>
-              {vents.map((v) => (
-                <VentRow key={v.id} vent={v} onChanged={onChanged} />
-              ))}
-            </tbody>
-          </table>
-          <p className="text-sm text-muted" style={{ marginTop: ".5rem", fontStyle: "italic" }}>
-            Not sure which method your vent uses? Try it in Home Assistant → Developer Tools →
-            Actions against the entity to see which service works.
-          </p>
-        </div>
+        <ul className="entity-list">
+          {vents.map((v) => (
+            <VentRow key={v.id} vent={v} onChanged={onChanged} />
+          ))}
+        </ul>
       )}
     </div>
   );
@@ -988,16 +948,18 @@ function VentRow({ vent, onChanged }: { vent: RoomVent; onChanged: () => Promise
   };
 
   return (
-    <tr style={{ borderBottom: "1px solid var(--border, #eee)", verticalAlign: "top" }}>
-      <td data-label="Entity" style={{ padding: ".5rem" }}>
+    <li className="entity-row">
+      <span className="entity-row-name">
         <EntityName id={vent.entity_id} />
-      </td>
-      <td data-label="Control method" className="td-stack" style={{ padding: ".5rem" }}>
+      </span>
+      <span className="sensor-scope">
+        Moves By
         <select
+          className="form-control"
+          aria-label={`How ${entityName(vent.entity_id)} moves`}
           value={method}
           onChange={(e) => onChangeMethod(e.target.value as ControlMethod)}
           disabled={saving}
-          style={{ minWidth: "min(20rem, 100%)", maxWidth: "100%" }}
         >
           {(Object.keys(CONTROL_METHOD_LABELS) as ControlMethod[]).map((m) => (
             <option key={m} value={m}>
@@ -1005,40 +967,29 @@ function VentRow({ vent, onChanged }: { vent: RoomVent; onChanged: () => Promise
             </option>
           ))}
         </select>
-        {status && (
-          <div
-            className="text-sm"
-            style={{
-              marginTop: ".25rem",
-              color: status.ok ? "var(--success, #1a7f37)" : "var(--danger, #b3261e)",
-            }}
-          >
-            {status.ok ? "✓" : "✗"} {status.msg}
-          </div>
-        )}
-      </td>
-      <td data-label="Test" style={{ padding: ".5rem", whiteSpace: "nowrap" }}>
+      </span>
+      <span className="sensor-scope">
         <button
-          className="btn btn-sm"
+          className="btn btn-secondary btn-sm"
           onClick={() => runTest("open")}
           disabled={testing !== null || saving}
-          style={{ marginRight: ".25rem" }}
         >
-          {testing === "open" ? "…" : "Test open"}
+          {testing === "open" ? "…" : "Test Open"}
         </button>
         <button
-          className="btn btn-sm"
+          className="btn btn-secondary btn-sm"
           onClick={() => runTest("close")}
           disabled={testing !== null || saving}
         >
-          {testing === "close" ? "…" : "Test close"}
+          {testing === "close" ? "…" : "Test Close"}
         </button>
-      </td>
-      <td style={{ padding: ".5rem" }}>
         <button className="tag-remove" title="Remove" onClick={() => setConfirmRemove(true)}>
-          ×
+          <CrossIcon />
         </button>
-      </td>
+      </span>
+      {status && (
+        <p className={status.ok ? "entity-row-note" : "entity-row-note form-error"}>{status.msg}</p>
+      )}
       {confirmRemove && (
         <ConfirmDialog
           title="Remove vent?"
@@ -1052,7 +1003,7 @@ function VentRow({ vent, onChanged }: { vent: RoomVent; onChanged: () => Promise
           onCancel={() => setConfirmRemove(false)}
         />
       )}
-    </tr>
+    </li>
   );
 }
 
@@ -1174,9 +1125,7 @@ function RoomDeviceModal({
         )}
         {kind === "temps" && (
           <EntitySection
-            title="Temperature Sensors"
             description="The room's temperature is the average of these. Add every temperature sensor in the room."
-            icon="🌡"
             items={sensors}
             domain="sensor"
             kind="temperature"
@@ -1197,9 +1146,7 @@ function RoomDeviceModal({
         )}
         {kind === "occupancy" && (
           <EntitySection
-            title="Occupancy Sensors"
             description="When any sensor here detects motion, the room is kept at its occupied temperature, set on the Dashboard, until its holdover runs out."
-            icon="🚶"
             items={presence}
             domain="binary_sensor"
             kind="presence"
@@ -1225,7 +1172,7 @@ function RoomDeviceModal({
         {confirmTarget && (
           <ConfirmDialog
             title={confirmTarget.kind === "sensor" ? "Remove sensor?" : "Remove presence sensor?"}
-            message={`Remove ${confirmTarget.kind === "sensor" ? "sensor" : "presence sensor"} "${confirmTarget.id}" from this room?`}
+            message={`Remove ${confirmTarget.kind === "sensor" ? "sensor" : "presence sensor"} "${entityName(confirmTarget.id)}" from this room?`}
             confirmLabel="Remove"
             onConfirm={() => void doRemoveConfirmedEntity()}
             onCancel={() => setConfirmTarget(null)}

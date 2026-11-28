@@ -50,10 +50,10 @@ export interface RoomSensor {
 export type ControlMethod = "open_close" | "set_position" | "set_tilt_position" | "toggle";
 
 export const CONTROL_METHOD_LABELS: Record<ControlMethod, string> = {
-  open_close: "Open / close (cover.open_cover · cover.close_cover)",
-  set_position: "Set position 0/100 (cover.set_cover_position)",
-  set_tilt_position: "Set tilt 0/100 (cover.set_cover_tilt_position)",
-  toggle: "Toggle (cover.toggle)",
+  open_close: "Open and Close",
+  set_position: "Set Position",
+  set_tilt_position: "Set Tilt",
+  toggle: "Toggle",
 };
 
 export interface RoomVent {
@@ -317,6 +317,8 @@ export interface HAEntity {
   area_name?: string | null;
   /** True when that area is named like the room; these come first. */
   in_room_area?: boolean;
+  /** Its name or ID carries the room's name; listed after the room's area. */
+  named_for_room?: boolean;
 }
 
 /** The kinds of device a room's pickers ask for. */

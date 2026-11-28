@@ -379,7 +379,7 @@ describe("Schedules Page — Celsius mode", () => {
     renderInCelsius();
     fireEvent.click(await screen.findByText("Living Room"));
     fireEvent.click(await screen.findByText("Add Block"));
-    expect(screen.getByText("Target temperature (°C)")).toBeInTheDocument();
+    expect(screen.getByText("Target Temperature (°C)")).toBeInTheDocument();
   });
 
   it("displays existing schedule target temp in °C", async () => {
@@ -490,8 +490,8 @@ describe("Schedules Page — lifecycle (#359)", () => {
     fireEvent.click(await screen.findByText("Add Block"));
     fireEvent.change(screen.getByLabelText(/Start time/i), { target: { value: "10:00" } });
     fireEvent.change(screen.getByLabelText(/End time/i), { target: { value: "12:00" } });
-    fireEvent.click(screen.getByLabelText("Auto-disable at"));
-    fireEvent.change(screen.getByLabelText("Auto-disable date and time"), {
+    fireEvent.click(screen.getByRole("radio", { name: "On a Date" }));
+    fireEvent.change(screen.getByLabelText("End date and time"), {
       target: { value: "2030-01-01T08:00" },
     });
     fireEvent.click(screen.getAllByText("Save").slice(-1)[0]);
@@ -588,8 +588,8 @@ const openNewBlock = async () => {
   fireEvent.change(screen.getByLabelText(/End time/i), { target: { value: "12:00" } });
 };
 
-const inheritRadio = () => screen.getByRole("radio", { name: /normal deadband/i });
-const customRadio = () => screen.getByRole("radio", { name: /override deadband/i });
+const inheritRadio = () => screen.getByRole("radio", { name: /Usual/ });
+const customRadio = () => screen.getByRole("radio", { name: "Custom" });
 const bandInput = () => screen.getByLabelText(/^Deadband/i);
 
 describe("Schedules Page — per-schedule deadband override (#517)", () => {
@@ -772,16 +772,17 @@ describe("Schedules Page — per-schedule deadband override (#517)", () => {
     fireEvent.click(await screen.findByText("Add Block"));
 
     // Inherit mode names the value that stays in force.
-    expect(screen.getByText(/keeps its usual deadband/i)).toBeInTheDocument();
-    expect(screen.getByText(/±3°F/)).toBeInTheDocument();
+    expect(screen.getByText("The room keeps its usual drift of ±3°F.")).toBeInTheDocument();
 
     fireEvent.click(customRadio());
     fireEvent.change(bandInput(), { target: { value: "1" } });
 
     // Custom mode states replacement explicitly and contrasts the two numbers.
-    expect(screen.getByText(/replaces/i)).toBeInTheDocument();
-    expect(screen.getByText(/is not added to it/i)).toBeInTheDocument();
-    expect(screen.getByText(/instead of its usual/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "How far the room may drift from its target during this block. It replaces the room’s usual ±3°F."
+      )
+    ).toBeInTheDocument();
   });
 
   it("treats a zero band as set, not as absent", async () => {

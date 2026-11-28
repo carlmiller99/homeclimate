@@ -239,6 +239,7 @@ export function AddThermostatModal({
           >
             <input
               id="add-thermo-bypass-damper"
+              className="switch"
               type="checkbox"
               checked={hasBypassDamper}
               onChange={(e) => setHasBypassDamper(e.target.checked)}

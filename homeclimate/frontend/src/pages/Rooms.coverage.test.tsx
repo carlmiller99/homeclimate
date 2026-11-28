@@ -437,7 +437,7 @@ describe("Room device dialogs", () => {
     expect(screen.getByText("No sensors added yet — search above to add one.")).toBeInTheDocument();
     closeDevices();
     await openDevices("Smart Vents");
-    expect(screen.getByText(/No vents added yet — search above to add one/i)).toBeInTheDocument();
+    expect(screen.getByText("No vents in this room.")).toBeInTheDocument();
     closeDevices();
     await openDevices("Occupancy Sensors");
     expect(
@@ -476,14 +476,14 @@ describe("Room device dialogs", () => {
     ).toBeInTheDocument();
     // The card behind the dialog follows.
     expect(screen.getAllByTitle("cover.new_vent")).toHaveLength(2);
-    expect(screen.queryByText(/No vents added yet/i)).not.toBeInTheDocument();
+    expect(screen.queryByText("No vents in this room.")).not.toBeInTheDocument();
   });
 
   it("reports a failed vent test on the row", async () => {
     vi.mocked(api.testVent).mockRejectedValue(new Error("service not found"));
     await openConfigure();
 
-    fireEvent.click(screen.getByText("Test open"));
+    fireEvent.click(screen.getByText("Test Open"));
 
     expect(await screen.findByText(/service not found/)).toBeInTheDocument();
   });
@@ -891,7 +891,8 @@ describe("Room device dialogs — doors and windows", () => {
         pauses: "room",
       })
     );
-    expect(await screen.findByLabelText("What Patio Door pauses")).toHaveValue("room");
+    const scope = await screen.findByRole("radiogroup", { name: "What Patio Door pauses" });
+    expect(within(scope).getByRole("radio", { name: "This Room" })).toBeChecked();
     expect(screen.queryByText("No doors or windows in this room.")).toBeNull();
   });
 
@@ -910,17 +911,15 @@ describe("Room device dialogs — doors and windows", () => {
     // Only this room's sensors are listed.
     expect(screen.queryByText("Garage Door")).toBeNull();
 
-    const scope = await screen.findByLabelText("What Patio Door pauses");
-    fireEvent.change(scope, { target: { value: "zone" } });
+    const scope = await screen.findByRole("radiogroup", { name: "What Patio Door pauses" });
+    fireEvent.click(within(scope).getByRole("radio", { name: "Whole Zone" }));
     await waitFor(() =>
       expect(sc.saveContactSensor).toHaveBeenCalledWith("binary_sensor.door", {
         room_id: "room-1",
         pauses: "zone",
       })
     );
-    await waitFor(() =>
-      expect(screen.getByLabelText("What Patio Door pauses")).toHaveValue("zone")
-    );
+    await waitFor(() => expect(screen.getByRole("radio", { name: "Whole Zone" })).toBeChecked());
 
     fireEvent.click(screen.getByRole("button", { name: "Remove Patio Door" }));
     await waitFor(() => expect(sc.deleteContactSensor).toHaveBeenCalledWith("binary_sensor.door"));
@@ -933,13 +932,13 @@ describe("Room device dialogs — doors and windows", () => {
       { entity_id: "binary_sensor.win", friendly_name: "Bay Window", state: "" },
     ]);
     await open();
-    const scope = await screen.findByLabelText("What Patio Door pauses");
+    const scope = await screen.findByRole("radiogroup", { name: "What Patio Door pauses" });
 
     vi.mocked(sc.saveContactSensor).mockRejectedValueOnce(new Error("That room does not exist"));
-    fireEvent.change(scope, { target: { value: "zone" } });
+    fireEvent.click(within(scope).getByRole("radio", { name: "Whole Zone" }));
     expect(await screen.findByText("That room does not exist")).toBeInTheDocument();
     vi.mocked(sc.saveContactSensor).mockRejectedValueOnce(0);
-    fireEvent.change(scope, { target: { value: "zone" } });
+    fireEvent.click(within(scope).getByRole("radio", { name: "Whole Zone" }));
     expect(await screen.findByText("Could not save the sensor")).toBeInTheDocument();
 
     vi.mocked(sc.deleteContactSensor).mockRejectedValueOnce(null);
@@ -953,7 +952,7 @@ describe("Room device dialogs — doors and windows", () => {
     fireEvent.mouseDown(await screen.findByText("Bay Window"));
     expect(await screen.findByText("Could not add the sensor")).toBeInTheDocument();
     // The list is unchanged by a failed write.
-    expect(screen.getByLabelText("What Patio Door pauses")).toHaveValue("room");
+    expect(screen.getByRole("radio", { name: "This Room" })).toBeChecked();
   });
 });
 

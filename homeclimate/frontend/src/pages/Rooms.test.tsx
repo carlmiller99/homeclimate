@@ -451,19 +451,19 @@ describe("Rooms Page", () => {
     // Remove a sensor — requires confirmation naming the entity
     fireEvent.click(within(devices).getAllByTitle("Remove")[0]);
     let dialog = await screen.findByTestId("confirm-dialog");
-    expect(within(dialog).getByText(/sensor\.temp/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/Remove sensor "Temp" from this room/)).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "Remove" }));
     await waitFor(() => {
       expect(api.removeSensor).toHaveBeenCalledWith("room-1", "sensor.temp");
     });
     // Only this kind of device is in the dialog.
-    expect(screen.queryByText("Test open")).toBeNull();
+    expect(screen.queryByText("Test Open")).toBeNull();
     closeDevices();
     expect(screen.queryByRole("dialog")).toBeNull();
 
     // Test vent
     devices = await openDevices("Smart Vents");
-    fireEvent.click(screen.getByText("Test open"));
+    fireEvent.click(screen.getByText("Test Open"));
     expect(api.testVent).toHaveBeenCalledWith("cover.vent", "open_close", "open");
 
     // Remove vent — requires confirmation naming the entity
@@ -480,7 +480,9 @@ describe("Rooms Page", () => {
     devices = await openDevices("Occupancy Sensors");
     fireEvent.click(within(devices).getAllByTitle("Remove")[0]);
     dialog = await screen.findByTestId("confirm-dialog");
-    expect(within(dialog).getByText(/binary_sensor\.existing_motion/)).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(/Remove presence sensor "Existing Motion" from this room/)
+    ).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "Remove" }));
     await waitFor(() => {
       expect(api.removePresence).toHaveBeenCalledWith("room-1", "binary_sensor.existing_motion");
@@ -528,7 +530,7 @@ describe("Rooms Page", () => {
 
     await openDevices("Smart Vents");
 
-    const methodSelect = screen.getByDisplayValue(/Open \/ close/i);
+    const methodSelect = screen.getByDisplayValue("Open and Close");
     fireEvent.change(methodSelect, { target: { value: "set_position" } });
 
     await waitFor(() => {
@@ -552,7 +554,7 @@ describe("Rooms Page", () => {
 
     await openDevices("Smart Vents");
 
-    const methodSelect = screen.getByDisplayValue(/Open \/ close/i) as HTMLSelectElement;
+    const methodSelect = screen.getByDisplayValue("Open and Close") as HTMLSelectElement;
     fireEvent.change(methodSelect, { target: { value: "toggle" } });
 
     expect(await screen.findByText(/Save failed: nope/i)).toBeInTheDocument();
@@ -572,7 +574,7 @@ describe("Rooms Page", () => {
     );
 
     await openDevices("Smart Vents");
-    fireEvent.click(await screen.findByText("Test close"));
+    fireEvent.click(await screen.findByText("Test Close"));
 
     expect(api.testVent).toHaveBeenCalledWith("cover.vent", "open_close", "close");
     expect(await screen.findByText(/Close command accepted/i)).toBeInTheDocument();

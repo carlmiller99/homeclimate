@@ -176,6 +176,8 @@ class HAEntitySchema(Schema):
     area_name = fields.Str(allow_none=True)
     # True when that area is named like the room; these are listed first.
     in_room_area = fields.Bool()
+    # True when the entity's name or ID carries the room's name; listed next.
+    named_for_room = fields.Bool()
 
 
 class CycleLogResponseSchema(Schema):

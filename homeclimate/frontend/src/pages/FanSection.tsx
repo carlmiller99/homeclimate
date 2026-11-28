@@ -78,30 +78,27 @@ export default function FanSection() {
                 <Frozen>{`Ran ${z.minutes_last_hour} of the last 60 minutes.`}</Frozen>
               </span>
             )}
-          </div>
-          <label className="field-stack">
-            Fan
-            <select
-              className="form-control"
-              aria-label={`Fan for ${z.name}`}
-              value={z.level}
-              disabled={busy}
-              onChange={(e) => void change(z.thermostat_entity_id, e.target.value as FanLevel)}
-            >
-              {(Object.keys(FAN_LEVEL_LABELS) as FanLevel[]).map((l) => (
-                <option key={l} value={l}>
-                  {FAN_LEVEL_LABELS[l]}
-                </option>
-              ))}
-            </select>
-            <span className="form-hint">{LEVEL_HELP[z.level]}</span>
             {!z.supported && (
               <span className="form-hint">
-                This thermostat does not offer an on and auto fan setting in Home Assistant, so
-                HomeClimate cannot run its fan.
+                This thermostat has no on and auto fan setting in Home Assistant, so HomeClimate
+                cannot run its fan.
               </span>
             )}
-          </label>
+          </div>
+          <select
+            className="form-control fan-level"
+            aria-label={`Fan for ${z.name}`}
+            title={LEVEL_HELP[z.level]}
+            value={z.level}
+            disabled={busy}
+            onChange={(e) => void change(z.thermostat_entity_id, e.target.value as FanLevel)}
+          >
+            {(Object.keys(FAN_LEVEL_LABELS) as FanLevel[]).map((l) => (
+              <option key={l} value={l}>
+                {FAN_LEVEL_LABELS[l]}
+              </option>
+            ))}
+          </select>
         </div>
       ))}
       {err && <p className="form-error">{err}</p>}

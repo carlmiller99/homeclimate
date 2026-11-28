@@ -110,8 +110,8 @@ describe("the form-control sizes this guard exists for", () => {
   // If either of these ever reaches 16, iOS stops auto-zooming that control on
   // its own and the guard is no longer what is holding the behaviour up.
   it("are both under the 16px threshold in styles.css", () => {
-    expect(declaredFontSizePx(".form-control")).toBe(14);
-    expect(declaredFontSizePx(".form-control-sm")).toBeCloseTo(12.8);
+    expect(declaredFontSizePx(".form-control")).toBe(15);
+    expect(declaredFontSizePx(".form-control-sm")).toBe(14);
     expect(declaredFontSizePx(".form-control")).toBeLessThan(16);
     expect(declaredFontSizePx(".form-control-sm")).toBeLessThan(16);
   });

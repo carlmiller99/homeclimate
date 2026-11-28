@@ -1,10 +1,10 @@
+import DayChips from "../components/DayChips";
 import { useEffect, useState } from "react";
 import { useTimeZone, useUnit } from "../contexts";
 import { Frozen } from "../ci";
 import { ZoneHint } from "../components/Time";
 import { RuleRow } from "../components/SmartControlControls";
 import {
-  DAY_LABELS,
   DEPTH_CHOICES,
   LEAD_CHOICES,
   describePeak,
@@ -119,7 +119,7 @@ export default function PeakSection() {
       <RuleRow
         id="peak-enabled"
         title="Bank Ahead of Peak Hours"
-        help="Off until you turn it on. It needs rooms that follow a band: targets that are not the same number, or a schedule or occupancy target with a Cool To."
+        help="Cools or heats a little extra before peak hours so the equipment can rest during them. Rooms need a Heat To and a Cool To that differ."
         enabled={data.enabled}
         onToggle={(v) => void set({ enabled: v })}
       >
@@ -128,35 +128,28 @@ export default function PeakSection() {
       <RuleRow
         id="peak-hours"
         title="The Peak Hours"
-        help="When electricity costs most, in the house's time. An end earlier than the start runs into the next day."
+        help="When electricity costs most. An end earlier than the start runs into the next day."
       >
-        <TimeField
-          id="peak-hours-min"
-          label="Peak starts"
-          value={data.start}
-          onCommit={(start) => void set({ start })}
-        />
-        <TimeField
-          id="peak-hours-end"
-          label="Peak ends"
-          value={data.end}
-          onCommit={(end) => void set({ end })}
-        />
-        <ZoneHint />
+        <span className="minutes-field">
+          <TimeField
+            id="peak-hours-min"
+            label="Peak starts"
+            value={data.start}
+            onCommit={(start) => void set({ start })}
+          />
+          <span className="minutes-unit">to</span>
+          <TimeField
+            id="peak-hours-end"
+            label="Peak ends"
+            value={data.end}
+            onCommit={(end) => void set({ end })}
+          />
+          <ZoneHint />
+        </span>
       </RuleRow>
-      <fieldset className="notify-categories" disabled={busy}>
-        <legend>On These Days</legend>
-        {DAY_LABELS.map((label, day) => (
-          <label key={label}>
-            <input
-              type="checkbox"
-              checked={data.days.includes(day)}
-              onChange={() => toggleDay(day)}
-            />{" "}
-            {label}
-          </label>
-        ))}
-      </fieldset>
+      <RuleRow id="peak-days" title="On These Days" help="The days your peak rate applies.">
+        <DayChips label="On These Days" selected={data.days} disabled={busy} onToggle={toggleDay} />
+      </RuleRow>
       <RuleRow
         id="peak-lead"
         title="Start Banking"
@@ -172,7 +165,7 @@ export default function PeakSection() {
         >
           {leads.map((m) => (
             <option key={m} value={m}>
-              {m} minutes before
+              {`${m} minutes before`}
             </option>
           ))}
         </select>
