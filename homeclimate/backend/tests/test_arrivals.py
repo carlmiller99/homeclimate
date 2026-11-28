@@ -129,12 +129,13 @@ async def test_too_warm_a_room_is_cooled_to_the_top_of_what_occupancy_would_allo
     tc.min_setpoint = 76.0
     await db.upsert_thermostat_config(conn, tc)
     assert _targets(await engine._arrive(conn, [], now=MON)) == [(76.0, "arrival")]
-    # The zone default stands in for a room with no temperature of its own.
+    # A room with no occupied temperature of its own is not got ready: the
+    # zone's old default no longer stands in for it.
     tc.min_setpoint, tc.default_temp = 60.0, 72.0
     await db.upsert_thermostat_config(conn, tc)
     room.system_wide_temp = None
     await db.upsert_room(conn, room)
-    assert _targets(await engine._arrive(conn, [], now=MON)) == [(72.0, "arrival")]
+    assert _targets(await engine._arrive(conn, [], now=MON)) == []
     await conn.close()
 
 

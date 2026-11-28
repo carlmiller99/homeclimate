@@ -5527,8 +5527,8 @@ class CycleEngine:
         That band is the room's own ``deadband_override`` when set (#305).
 
         Deliberately NOT the #237 tier system: ``get_overflow_candidates`` ranks
-        against a room's *comfort* setpoint (``system_wide_temp`` →
-        ``default_temp``) and skips rooms that have neither, which during
+        against a room's *comfort* setpoint (``system_wide_temp``) and skips
+        rooms that have none, which during
         vacation is the wrong question and the wrong exclusion. It keeps its
         ``in_vacation`` short-circuit; nothing here touches it.
 
@@ -7238,9 +7238,7 @@ class CycleEngine:
                     target = reading + room.temp_offset
             else:
                 coming = arrivals.next_arrival(usual.get(room.id, frozenset()), local_now)
-                presence_temp = (
-                    tc.default_temp if room.system_wide_temp is None else room.system_wide_temp
-                )
+                presence_temp = room.system_wide_temp
                 if (
                     coming is None
                     or presence_temp is None

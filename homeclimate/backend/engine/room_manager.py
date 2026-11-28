@@ -89,8 +89,8 @@ async def _resolve_room(
 ) -> ActiveRoom:
     """What a room is following right now, most specific first.
 
-    Hold, then schedule, then occupancy, then the house band. The room's
-    switches (``house.RoomSwitches``) can take the schedule and occupancy steps
+    Hold, then schedule, then occupancy, then When Unoccupied, then the
+    targets. The room's switches (``house.RoomSwitches``) can take the schedule and occupancy steps
     out, and a room that is not in use follows nothing but a hold.
     """
     if the_house is None:
@@ -129,21 +129,17 @@ async def _resolve_room(
         )
 
     # 3. Presence holdover
+    occupied = False
     if switches.use_presence and room.presence_holdover_hours > 0:
         holdover = await db.get_holdover_state(conn, room.id)
         if holdover and holdover.expires_at > now:
-            # Room-level temp takes priority; fall back to thermostat default_temp
+            occupied = True
+            # The room's own When Occupied targets. With none, occupancy does
+            # not change its temperature (there is no zone-wide fallback since
+            # 0.5.25): it keeps its targets below.
             presence_temp = room.system_wide_temp
-            if presence_temp is None:
-                tc = await db.get_thermostat_config(conn, room.thermostat_entity_id)
-                presence_temp = tc.default_temp
             if presence_temp is not None:
-                # Only the room's own target can be a band, not the zone default.
-                cool_to = (
-                    the_house.cool_to("presence", room.id, presence_temp)
-                    if room.system_wide_temp is not None
-                    else None
-                )
+                cool_to = the_house.cool_to("presence", room.id, presence_temp)
                 return ActiveRoom(
                     room=room,
                     target_temp=presence_temp,
@@ -151,14 +147,28 @@ async def _resolve_room(
                     heat_to=presence_temp if cool_to is not None else None,
                     cool_to=cool_to,
                 )
-            else:
-                log.debug(
-                    "Room %s has presence holdover but no presence temp configured "
-                    "(set room system_wide_temp or thermostat default_temp) — skipping",
-                    room.name,
-                )
 
-    # 4. The room's targets: its own, else its zone's, else its building's
+    # 4. When Unoccupied: the room's own targets while its occupancy sensors
+    # see nobody. Only for a room that follows occupancy and has a sensor to
+    # say so; they are static targets like its own, so the room counts as
+    # not in use.
+    unoccupied = the_house.levels.get(("unoccupied", room.id))
+    if (
+        unoccupied is not None
+        and not occupied
+        and switches.use_presence
+        and room.presence_holdover_hours > 0
+        and await db.get_room_presence_sensors(conn, room.id)
+    ):
+        return ActiveRoom(
+            room=room,
+            target_temp=unoccupied.heat_to,
+            source="house",
+            heat_to=unoccupied.heat_to,
+            cool_to=unoccupied.cool_to,
+        )
+
+    # 5. The room's targets: its own, else its zone's, else its building's
     band = the_house.band_for(room.id, room.thermostat_entity_id)
     if band is not None:
         return ActiveRoom(
@@ -623,7 +633,6 @@ async def get_overflow_candidates(
         return []
 
     rooms = await db.get_rooms_for_thermostat(conn, thermostat_entity_id)
-    tc = await db.get_thermostat_config(conn, thermostat_entity_id)
 
     pool: list[OverflowCandidate] = []
     for room in rooms:
@@ -637,7 +646,7 @@ async def get_overflow_candidates(
         # avg + temp_offset; ranking overflow candidates on the raw average
         # mis-tiered calibrated rooms and skewed tier-3 headroom by the offset.
         avg = avg + room.temp_offset
-        eff = room.system_wide_temp if room.system_wide_temp is not None else tc.default_temp
+        eff = room.system_wide_temp
         pool.append(
             OverflowCandidate(
                 room=room,
@@ -661,7 +670,7 @@ async def get_overflow_candidates(
     # `_filter_rooms_for_mode` for opposite-direction demand can reach this pool
     # while a block of its own is running. The reason is that this whole
     # calculation tiers against the room's PRESENCE setpoint above
-    # (`system_wide_temp` → `default_temp`), never the schedule target — so the
+    # (`system_wide_temp`), never the schedule target — so the
     # room-level band is the consistent partner for it. Pairing a schedule
     # block's band with a presence setpoint would compare two different
     # activations' numbers.

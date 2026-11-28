@@ -418,14 +418,13 @@ async def test_nullable_state_reports_the_inherited_value(client, bridge, fake_h
 
 
 @pytest.mark.asyncio
-async def test_presence_target_inherits_the_thermostat_default(client, bridge, fake_ha) -> None:
-    """The other non-1:1 inheritance: a room's `system_wide_temp` falls back to
-    the thermostat's `default_temp`, not to a same-named field."""
+async def test_presence_target_no_longer_inherits_a_zone_default(client, bridge, fake_ha) -> None:
+    """A room's `system_wide_temp` has no fallback since 0.5.25: unset reads empty."""
     await _make_thermostat(client, default_temp=71)
     room_id = await _make_room(client)
     await bridge.sync()
 
-    assert bridge.transport.retained()[f"{PREFIX}/room/{room_id}/system_wide_temp/state"] == "71"
+    assert bridge.transport.retained()[f"{PREFIX}/room/{room_id}/system_wide_temp/state"] == ""
 
 
 @pytest.mark.asyncio

@@ -82,8 +82,8 @@ class Control:
     clearable: bool = False
     # Which thermostat field a nullable room field falls back to when it is
     # null. Usually the same name (the Eco overrides), but not always:
-    # `deadband_override` inherits `deadband` and `system_wide_temp` inherits
-    # `default_temp`. Only used to render the effective value onto state.
+    # `deadband_override` inherits `deadband`. Only used to render the
+    # effective value onto state.
     inherits_from: str | None = None
 
     def __post_init__(self) -> None:
@@ -243,8 +243,7 @@ ROOM_CONTROLS: tuple[Control, ...] = (
         field="system_wide_temp",
         temp=TEMP_ABSOLUTE,
         nullable=True,
-        # Both are "the target presence activates this room to".
-        inherits_from="default_temp",
+        # No zone-wide fallback since 0.5.25: unset is unset.
         min=40,
         max=90,
         step=0.5,
@@ -424,18 +423,6 @@ THERMOSTAT_CONTROLS: tuple[Control, ...] = (
         icon="mdi:leaf-off",
     ),
     # --- nullable --------------------------------------------------------
-    Control(
-        key="default_temp",
-        entity="number",
-        name="Default Target",
-        kind=KIND_NUMBER,
-        field="default_temp",
-        temp=TEMP_ABSOLUTE,
-        nullable=True,
-        min=40,
-        max=90,
-        step=0.5,
-    ),
     # REST accepts any numeric value here; the advertised range matches the eco
     # outdoor thresholds' −40…130 °F since it is the same kind of quantity (an
     # outdoor temperature), so every plausibly stored value stays in range.
@@ -474,6 +461,9 @@ THERMOSTAT_EXCLUDED_FIELDS: frozenset[str] = frozenset(
         "welcome_home_enabled",
         "welcome_home_lead_min",
         "welcome_home_hours",
+        # The zone-wide occupied temperature, unused since 0.5.25: a room with
+        # no When Occupied of its own keeps its targets while occupied.
+        "default_temp",
         # Identity / display label.
         "thermostat_entity_id",
         "name",

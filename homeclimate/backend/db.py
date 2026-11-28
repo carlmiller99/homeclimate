@@ -302,7 +302,7 @@ CREATE TABLE IF NOT EXISTS target_bands (
 -- building, a zone or a room. The most specific one a room has wins; a room
 -- with none inherits its zone's, then its building's.
 CREATE TABLE IF NOT EXISTS level_targets (
-    scope TEXT NOT NULL,     -- 'building' | 'zone' | 'room'
+    scope TEXT NOT NULL,     -- 'building' | 'zone' | 'room' | 'unoccupied' (a room's)
     scope_id TEXT NOT NULL,  -- building id, thermostat entity id, or room id
     heat_to REAL NOT NULL,
     cool_to REAL NOT NULL,
@@ -1658,7 +1658,10 @@ async def delete_room(conn: aiosqlite.Connection, room_id: str) -> None:
     await conn.execute("DELETE FROM fireplace_rooms WHERE room_id=?", (room_id,))
     await conn.execute("DELETE FROM room_switches WHERE room_id=?", (room_id,))
     await conn.execute("DELETE FROM room_calendars WHERE room_id=?", (room_id,))
-    await conn.execute("DELETE FROM level_targets WHERE scope='room' AND scope_id=?", (room_id,))
+    await conn.execute(
+        "DELETE FROM level_targets WHERE scope IN ('room', 'unoccupied') AND scope_id=?",
+        (room_id,),
+    )
     await conn.execute(
         "DELETE FROM target_bands WHERE ref_id=? OR (kind='schedule' AND ref_id NOT IN"
         " (SELECT id FROM schedules))",

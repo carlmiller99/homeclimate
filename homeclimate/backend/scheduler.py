@@ -862,7 +862,7 @@ class Scheduler:
         for room in rooms:
             if room.presence_holdover_hours <= 0:
                 continue
-            if room.system_wide_temp is None and tc.default_temp is None:
+            if room.system_wide_temp is None:
                 continue
             existing = await db.get_holdover_state(self._db_conn, room.id)
             expires_at = until

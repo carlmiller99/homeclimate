@@ -369,8 +369,8 @@ class TestGetActiveRooms:
         await conn.close()
 
     @pytest.mark.asyncio
-    async def test_presence_uses_thermostat_default_temp(self):
-        """When room has no system_wide_temp, falls back to thermostat default_temp."""
+    async def test_presence_no_longer_falls_back_to_the_zone_default(self):
+        """With no When Occupied of its own, occupancy does not change the room."""
         conn = await _setup_db()
         await _insert_room(conn, "r1", "Bedroom", system_wide_temp=None)
 
@@ -389,9 +389,7 @@ class TestGetActiveRooms:
 
         check_time = now + timedelta(minutes=30)
         active = await get_active_rooms(conn, THERMO_ID, now=check_time)
-        assert len(active) == 1
-        assert active[0].source == "presence"
-        assert active[0].target_temp == 70.0
+        assert active == []
         await conn.close()
 
 
@@ -1137,8 +1135,8 @@ class TestGetOverflowCandidates:
         await conn.close()
 
     @pytest.mark.asyncio
-    async def test_room_falls_back_to_thermostat_default_temp(self):
-        """Room with no per-room setpoint uses the thermostat's global one."""
+    async def test_room_no_longer_falls_back_to_thermostat_default_temp(self):
+        """A room with no occupied temperature of its own has no setpoint to rank by."""
         conn = await self._setup(
             rooms=[("r1", "Bedroom", None)],
             thermostat_default_temp=70.0,
@@ -1153,9 +1151,8 @@ class TestGetOverflowCandidates:
             in_vacation=False,
             get_avg_temp=self._temp_map({"r1": 72.0}),
         )
-        assert [c.room.id for c in out] == ["r1"]
-        assert out[0].tier == 1
-        assert out[0].effective_setpoint == 70.0
+        assert all(c.effective_setpoint is None for c in out)
+        assert all(c.tier != 1 for c in out)
         await conn.close()
 
     @pytest.mark.asyncio

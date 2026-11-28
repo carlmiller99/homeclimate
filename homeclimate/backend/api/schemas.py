@@ -1112,7 +1112,7 @@ class HouseRoomSchema(RoomSwitchesSchema):
 
 
 class LevelTargetsSchema(HouseBandSchema):
-    scope = fields.Str(metadata={"description": "building, zone or room"})
+    scope = fields.Str(metadata={"description": "building, zone, room or unoccupied (a room's)"})
     scope_id = fields.Str(metadata={"description": "Building id, thermostat entity id, or room id"})
 
 

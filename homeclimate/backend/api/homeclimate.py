@@ -963,7 +963,7 @@ async def get_house(request: web.Request) -> web.Response:
     return json_response(await _house_snapshot(request))
 
 
-BAD_SCOPE = "Targets belong to a building, a zone or a room"
+BAD_SCOPE = "Targets belong to a building, a zone, a room or a room when unoccupied"
 LEVEL_UNKNOWN = "That building, zone or room was not found"
 
 
