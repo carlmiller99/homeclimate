@@ -44,10 +44,11 @@ from .user_errors import UserError, fixed
 BAND_SETTING = "house_band"
 # °F between the heating and the cooling target. None is required: they may be
 # the same number. Only the room's deadband then separates heating from
-# cooling, unless its building is held to one side (Heat Only, Cool Only, or
-# Auto set to On), which is what limits how often the side changes.
+# cooling, unless its zone is held to one side (Heat or Cool, or Auto with its
+# building's switching limit), which is what limits how often the side changes.
 MIN_GAP_F = 0.0
-SCOPES = ("building", "zone", "room")
+# "unoccupied" is a room's When Unoccupied targets, kept beside its own.
+SCOPES = ("building", "zone", "room", "unoccupied")
 # °F a band edge must stay inside a zone's safety limits, so a cycle working
 # toward it can always finish.
 SAFETY_MARGIN_F = 1.0
@@ -176,7 +177,7 @@ class House:
             if (scope == "building" and scope_id == building_id)
             or (scope == "zone" and self.zone_building.get(scope_id) == building_id)
             or (
-                scope == "room"
+                scope in ("room", "unoccupied")
                 and self.zone_building.get(self.room_zone.get(scope_id, "")) == building_id
             )
         ]
@@ -295,6 +296,7 @@ async def level_exists(conn: aiosqlite.Connection, scope: str, scope_id: str) ->
         "zone": "SELECT 1 FROM thermostat_configs WHERE thermostat_entity_id=?1"
         " UNION SELECT 1 FROM rooms WHERE thermostat_entity_id=?1",
         "room": "SELECT 1 FROM rooms WHERE id=?",
+        "unoccupied": "SELECT 1 FROM rooms WHERE id=?",
     }[scope]
     async with conn.execute(query, (scope_id,)) as cur:
         return await cur.fetchone() is not None
@@ -398,7 +400,7 @@ async def zones_under(conn: aiosqlite.Connection, scope: str, scope_id: str) -> 
     """The zones (thermostat entity ids) that targets set at a level can reach."""
     if scope == "zone":
         return {scope_id}
-    if scope == "room":
+    if scope in ("room", "unoccupied"):
         room = await db.get_room(conn, scope_id)
         return {room.thermostat_entity_id} if room else set()
     async with conn.execute(

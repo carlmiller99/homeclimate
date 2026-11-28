@@ -1148,7 +1148,7 @@ function RoomDeviceModal({
         )}
         {kind === "occupancy" && (
           <EntitySection
-            description="When any sensor here detects motion, the room is kept at its occupied temperature, set on the Dashboard, until its holdover runs out."
+            description="When any sensor here detects motion, the room is kept at its When Occupied targets, set on the Dashboard, until its holdover runs out."
             items={presence}
             domain="binary_sensor"
             kind="presence"

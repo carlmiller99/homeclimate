@@ -77,8 +77,12 @@ describe("Schedules Page", () => {
     expect(head).toHaveAttribute("aria-expanded", "true");
     const group = screen.getByRole("radiogroup", { name: "Living Room is in use" });
     expect(within(group).getByRole("radio", { name: "Never" })).toBeChecked();
-    // The room's own temperatures and its time blocks are in the same card.
-    expect(screen.getByRole("region", { name: "When occupied" })).toBeInTheDocument();
+    // What the room follows sits here; not in use, it follows nothing.
+    expect(screen.getByRole("switch", { name: "Follow Its Schedules" })).toBeDisabled();
+    expect(screen.getByRole("switch", { name: "Follow Occupancy" })).toBeDisabled();
+    expect(screen.getAllByText("Not used while the room is not in use.")).toHaveLength(2);
+    // Its occupied targets are set on the Dashboard; the card says so.
+    expect(screen.getByText("No occupied targets. Set them on the Dashboard.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add Block" })).toBeInTheDocument();
   });
 
@@ -110,15 +114,31 @@ describe("Schedules Page", () => {
     const first = await screen.findByRole("button", { name: /^Living Room/ });
     await waitFor(() => expect(first).toHaveTextContent("On a calendar"));
     expect(screen.getByRole("button", { name: /^Loft/ })).toHaveTextContent("Always in use");
-    // The room's own occupied temperature is set here, and the card keeps it.
+    // Each follow switch saves as it is flipped.
     fireEvent.click(first);
-    const occupied = screen.getByRole("region", { name: "When occupied" });
-    const temp = within(occupied).getAllByRole("spinbutton")[0];
-    fireEvent.change(temp, { target: { value: "71" } });
-    fireEvent.click(within(occupied).getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(api.updateRoom).toHaveBeenCalled());
-    expect(await within(occupied).findByText("Saved")).toBeInTheDocument();
-    expect(temp).toHaveValue(71);
+    const presence = screen.getByRole("switch", { name: "Follow Occupancy" });
+    expect(presence).toBeChecked();
+    expect(
+      screen.getByText("When someone is in the room it gets its occupied targets.")
+    ).toBeInTheDocument();
+    fireEvent.click(presence);
+    await waitFor(() =>
+      expect(api.api).toHaveBeenCalledWith(
+        `/api/house/rooms/${mockRooms[0].id}`,
+        expect.objectContaining({ body: JSON.stringify({ use_presence: false }) })
+      )
+    );
+  });
+
+  it("shows a room's occupied targets as set on the Dashboard", async () => {
+    vi.mocked(api.getRooms).mockResolvedValue([
+      { ...mockRooms[0], system_wide_temp: 70, presence_cool_to: 74 },
+    ]);
+    render(<Schedules />);
+    fireEvent.click(await screen.findByRole("button", { name: /^Living Room/ }));
+    expect(
+      screen.getByText("When occupied: 70.0°F to 74.0°F. Set on the Dashboard.")
+    ).toBeInTheDocument();
   });
 
   it("lists the rooms when the zones cannot be read, naming each by its thermostat", async () => {
@@ -129,6 +149,11 @@ describe("Schedules Page", () => {
   });
 
   it("names each room's zone, and opens its fine tuning from the card", async () => {
+    // A second room is left as it was when the first is saved.
+    vi.mocked(api.getRooms).mockResolvedValue([
+      mockRooms[0],
+      { ...mockRooms[0], id: "room-2", name: "Loft" },
+    ]);
     vi.mocked(api.getThermostats).mockResolvedValue([
       { thermostat_entity_id: mockRooms[0].thermostat_entity_id, name: "North Wing" },
     ] as api.ThermostatConfig[]);
@@ -304,7 +329,7 @@ describe("Schedules Page", () => {
     const editBtn = await screen.findByText("Edit");
     fireEvent.click(editBtn);
 
-    const tempInput = screen.getByLabelText(/Target temperature/i);
+    const tempInput = screen.getByLabelText(/^Heating Target/i);
     fireEvent.change(tempInput, { target: { value: "70" } });
 
     fireEvent.click(screen.getAllByText("Save").slice(-1)[0]);
@@ -379,7 +404,7 @@ describe("Schedules Page — Celsius mode", () => {
     renderInCelsius();
     fireEvent.click(await screen.findByText("Living Room"));
     fireEvent.click(await screen.findByText("Add Block"));
-    expect(screen.getByText("Target Temperature (°C)")).toBeInTheDocument();
+    expect(screen.getByText("Heating Target (°C)")).toBeInTheDocument();
   });
 
   it("displays existing schedule target temp in °C", async () => {
@@ -394,7 +419,7 @@ describe("Schedules Page — Celsius mode", () => {
     fireEvent.click(await screen.findByText("Living Room"));
     fireEvent.click(await screen.findByText("Add Block"));
 
-    const tempInput = screen.getByLabelText(/Target temperature/i);
+    const tempInput = screen.getByLabelText(/^Heating Target/i);
     fireEvent.change(tempInput, { target: { value: "0" } }); // 0°C < 4.4°C lower bound
     fireEvent.click(screen.getAllByText("Save").slice(-1)[0]);
 
@@ -423,7 +448,7 @@ describe("Schedules Page — Celsius mode", () => {
     fireEvent.change(screen.getByLabelText(/Start time/i), { target: { value: "10:00" } });
     fireEvent.change(screen.getByLabelText(/End time/i), { target: { value: "12:00" } });
     // Frontend sends display value as-is; backend's _to_f converts °C → °F.
-    fireEvent.change(screen.getByLabelText(/Target temperature/i), { target: { value: "22" } });
+    fireEvent.change(screen.getByLabelText(/^Heating Target/i), { target: { value: "22" } });
 
     fireEvent.click(screen.getAllByText("Save").slice(-1)[0]);
 
@@ -653,7 +678,7 @@ describe("Schedules Page — per-schedule deadband override (#517)", () => {
   it("leaves cool_to out for a single target, and sends it for a band", async () => {
     render(<Schedules />);
     await openNewBlock();
-    expect(screen.getByLabelText(/Target temperature/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Heating Target/i)).toBeInTheDocument();
     fireEvent.click(screen.getAllByText("Save").slice(-1)[0]);
     await waitFor(() => expect(api.createSchedule).toHaveBeenCalled());
     expect(vi.mocked(api.createSchedule).mock.calls[0][1]).not.toHaveProperty("cool_to");
@@ -662,10 +687,10 @@ describe("Schedules Page — per-schedule deadband override (#517)", () => {
   it("sends the typed Cool To, and calls the target Heat To", async () => {
     render(<Schedules />);
     await openNewBlock();
-    fireEvent.change(screen.getAllByLabelText(/Cool To/i).slice(-1)[0], {
+    fireEvent.change(screen.getAllByLabelText(/Cooling Target/i).slice(-1)[0], {
       target: { value: "76" },
     });
-    expect(screen.getByLabelText(/^Heat To/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Heating Target/i)).toBeInTheDocument();
     fireEvent.click(screen.getAllByText("Save").slice(-1)[0]);
     await waitFor(() => {
       expect(api.createSchedule).toHaveBeenCalledWith(
@@ -682,8 +707,10 @@ describe("Schedules Page — per-schedule deadband override (#517)", () => {
     fireEvent.click(await screen.findByText("Living Room"));
     expect(await screen.findByText(/°F to 76\.0°F/)).toBeInTheDocument();
     fireEvent.click(await screen.findByText("Edit"));
-    expect(screen.getAllByLabelText(/Cool To/i).slice(-1)[0]).toHaveValue(76);
-    fireEvent.change(screen.getAllByLabelText(/Cool To/i).slice(-1)[0], { target: { value: "" } });
+    expect(screen.getAllByLabelText(/Cooling Target/i).slice(-1)[0]).toHaveValue(76);
+    fireEvent.change(screen.getAllByLabelText(/Cooling Target/i).slice(-1)[0], {
+      target: { value: "" },
+    });
     fireEvent.click(screen.getAllByText("Save").slice(-1)[0]);
     await waitFor(() => {
       expect(api.updateSchedule).toHaveBeenCalledWith(
@@ -912,7 +939,7 @@ describe("Schedules Page — deadband override in Celsius mode (#517)", () => {
     expect(bandInput()).toHaveValue(5.55);
 
     // An edit to an unrelated field still saves.
-    fireEvent.change(screen.getByLabelText(/Target temperature/i), { target: { value: "19" } });
+    fireEvent.change(screen.getByLabelText(/^Heating Target/i), { target: { value: "19" } });
     fireEvent.click(screen.getAllByText("Save").slice(-1)[0]);
 
     await waitFor(() => {

@@ -471,7 +471,7 @@ describe("Dashboard rooms and zones", () => {
     // And one being cooled ahead of a warm afternoon.
     expect(within(screen.getByTestId("dash-room-loft")).getByText("Cooling Early")).toHaveAttribute(
       "title",
-      expect.stringMatching(/expected to pass its Cool To later/)
+      expect.stringMatching(/expected to pass its Cooling Target later/)
     );
     expect(within(screen.getByTestId("dash-room-bunk")).queryByText("Cooling Early")).toBeNull();
   });

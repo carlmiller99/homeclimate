@@ -58,6 +58,9 @@ class ZoneProfile:
     # draws in outside air: yes / no / unsure (treated as no).
     fan_level: str = "off"
     air_intake: str = "unsure"
+    # Building mode (backend/building_mode.py): "follow" takes the building's
+    # mode; "auto", "heat", "cool" or "off" is the zone's own, set on the Dashboard.
+    mode: str = "follow"
 
     @property
     def is_heat_pump(self) -> bool:
@@ -106,6 +109,7 @@ _CHOICES = {
     "hp_aux_policy": AUX_POLICIES,
     "fan_level": ("off", "watch", "on"),
     "air_intake": ("yes", "no", "unsure"),
+    "mode": ("follow", "auto", "heat", "cool", "off"),
 }
 _CHOICE_MESSAGES = {
     name: fixed(f"{name} must be one of: {', '.join(options)}")
@@ -282,6 +286,7 @@ def _profile(row: aiosqlite.Row) -> ZoneProfile:
                 "hp_aux_policy": row["hp_aux_policy"],
                 "fan_level": row["fan_level"],
                 "air_intake": row["air_intake"],
+                "mode": row["mode"],
             }
             if has_row
             else {}
@@ -335,7 +340,7 @@ async def update_zone_profile(
         zone.hp_compressor_lockout_f = (
             None if raw is None else _float(raw, "hp_compressor_lockout_f")
         )
-    for name in ("fan_level", "air_intake"):
+    for name in ("fan_level", "air_intake", "mode"):
         if name in changes:
             setattr(zone, name, _choice(changes[name], name))
     if leaving is not None:
@@ -347,8 +352,8 @@ async def update_zone_profile(
                compressor_stages, backup_heat, equipment_running_entity, heat_kit_confirmed,
                hp_max_step_f, hp_recovery_f_per_hr, hp_min_runtime_min,
                hp_min_open_heat_pct, hp_switchover_gap_min, hp_compressor_lockout_f,
-               hp_aux_policy, fan_level, air_intake)
-           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+               hp_aux_policy, fan_level, air_intake, mode)
+           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
            ON CONFLICT(thermostat_entity_id) DO UPDATE SET
              building_id=excluded.building_id, sort_order=excluded.sort_order,
              system_type=excluded.system_type, compressor_stages=excluded.compressor_stages,
@@ -362,7 +367,8 @@ async def update_zone_profile(
              hp_switchover_gap_min=excluded.hp_switchover_gap_min,
              hp_compressor_lockout_f=excluded.hp_compressor_lockout_f,
              hp_aux_policy=excluded.hp_aux_policy,
-             fan_level=excluded.fan_level, air_intake=excluded.air_intake""",
+             fan_level=excluded.fan_level, air_intake=excluded.air_intake,
+             mode=excluded.mode""",
         (
             entity_id,
             zone.building_id,
@@ -381,6 +387,7 @@ async def update_zone_profile(
             zone.hp_aux_policy,
             zone.fan_level,
             zone.air_intake,
+            zone.mode,
         ),
     )
     await conn.commit()

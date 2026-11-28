@@ -56,6 +56,7 @@ const CLEAR_WITH_NOTHING_ABOVE: Record<TargetScope, string> = {
     "Rooms in this building with no targets of their own stop asking for heating or cooling straight away.",
   zone: "Rooms in this zone with no targets of their own stop asking for heating or cooling straight away.",
   room: "This room stops asking for heating or cooling straight away, unless a hold, a schedule or occupancy gives it a target.",
+  unoccupied: "While nobody is in the room, it keeps its baseline targets.",
 };
 
 /**
@@ -67,10 +68,13 @@ export function TargetsRow({
   house,
   level,
   onSaved,
+  bare = false,
 }: {
   house: House;
   level: TargetLevel;
   onSaved: (house: House) => void;
+  /** Leave out the level's name and what it follows: a dialog already says both. */
+  bare?: boolean;
 }) {
   const { toDisplay, toDisplayDelta, unitLabel } = useUnit();
   const own = targetsFor(house, level.scope, level.id);
@@ -123,10 +127,12 @@ export function TargetsRow({
 
   return (
     <div className={`targets-row targets-row-${level.scope}`} role="group" aria-label={level.name}>
-      <div className="targets-row-name">
-        <span className="targets-name">{level.name}</span>
-        {!own && <span className="targets-follows">{follows}</span>}
-      </div>
+      {!bare && (
+        <div className="targets-row-name">
+          <span className="targets-name">{level.name}</span>
+          {!own && <span className="targets-follows">{follows}</span>}
+        </div>
+      )}
       <div className="house-band-fields">
         <label className="field-stack">
           {`Heating Target (${unitLabel})`}
@@ -191,9 +197,9 @@ export function TargetsRow({
         <ConfirmDialog
           title="Clear these targets?"
           message={
-            inherited
-              ? `This ${level.scope} goes back to following ${inherited.from.name}.`
-              : CLEAR_WITH_NOTHING_ABOVE[level.scope]
+            level.scope === "unoccupied" || !inherited
+              ? CLEAR_WITH_NOTHING_ABOVE[level.scope]
+              : `This ${level.scope} goes back to following ${inherited.from.name}.`
           }
           confirmLabel="Clear Targets"
           onCancel={() => setConfirmClear(false)}

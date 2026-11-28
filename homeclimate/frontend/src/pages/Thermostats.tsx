@@ -266,7 +266,7 @@ export function AddThermostatModal({
 }
 
 // ---------------------------------------------------------------------------
-// Per-thermostat card (name, default_temp, safety settings)
+// Per-thermostat card (name, safety settings)
 // ---------------------------------------------------------------------------
 
 /**
@@ -619,34 +619,6 @@ export function ThermostatCard({
             <span className="minutes-unit">{unitLabel}</span>
           </span>
         </div>
-        <div className="sheet-row">
-          <label
-            className="sheet-row-text"
-            htmlFor={`thermo-${config.thermostat_entity_id}-default_temp`}
-          >
-            <strong>Occupied Temperature</strong>
-            <p className="rule-help">
-              Used when someone is in a room that has no temperature of its own.
-            </p>
-          </label>
-          <span className="minutes-field">
-            <input
-              id={`thermo-${config.thermostat_entity_id}-default_temp`}
-              className="form-control minutes-input"
-              type="number"
-              step="0.5"
-              value={form.default_temp ?? ""}
-              placeholder={String(Math.round(toDisplay(72)))}
-              onChange={(e) =>
-                setForm((f) => ({
-                  ...f,
-                  default_temp: e.target.value ? parseFloat(e.target.value) : null,
-                }))
-              }
-            />
-            <span className="minutes-unit">{unitLabel}</span>
-          </span>
-        </div>
       </div>
 
       <details className="advanced-box">
@@ -814,7 +786,7 @@ export function ThermostatCard({
                 className="advanced-row"
                 htmlFor={`thermo-${config.thermostat_entity_id}-welcome-home`}
               >
-                <span title="Before you get back, each room is brought to its occupied temperature, so the house is comfortable when you walk in.">
+                <span title="Before you get back, each room is brought to its occupied targets, so the house is comfortable when you walk in.">
                   Get the house ready before I return
                 </span>
                 <input

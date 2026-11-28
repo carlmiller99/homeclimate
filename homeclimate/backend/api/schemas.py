@@ -736,6 +736,11 @@ class ZoneProfileSchema(Schema):
     air_intake = fields.Str(
         metadata={"description": "Whether the air handler draws in outside air: yes | no | unsure"}
     )
+    mode = fields.Str(
+        metadata={
+            "description": "The zone's mode: follow (its building's) | auto | heat | cool | off"
+        }
+    )
     hp_min_runtime_min = fields.Int()
     hp_min_open_heat_pct = fields.Int()
     hp_switchover_gap_min = fields.Int()
@@ -780,6 +785,11 @@ class ZoneProfileWriteSchema(Schema):
     )
     air_intake = fields.Str(
         metadata={"description": "Whether the air handler draws in outside air: yes | no | unsure"}
+    )
+    mode = fields.Str(
+        metadata={
+            "description": "The zone's mode: follow (its building's) | auto | heat | cool | off"
+        }
     )
     hp_min_runtime_min = fields.Int()
     hp_min_open_heat_pct = fields.Int()
@@ -949,37 +959,49 @@ class FanSchema(Schema):
 
 class BuildingModeWriteSchema(Schema):
     mode = fields.Str(metadata={"description": "auto, heat_only, cool_only or off"})
-    auto_level = fields.Str(
-        metadata={"description": "For Auto: off, watch or on (hold zones to one side)"}
+    opposite_allowed = fields.Bool(
+        metadata={"description": "Whether the building's zones may heat and cool at the same time"}
     )
     switching = fields.Str(
         metadata={
-            "description": "How often Auto may change sides: often (4 hours apart, twice a"
-            " day), daily, weekly or monthly, each counted from the last switch"
+            "description": "How often a zone in Auto may change sides: often (4 hours apart,"
+            " twice a day), daily, weekly or monthly, each counted from its last switch"
         }
     )
     switch_threshold = fields.Float(
         metadata={
             "description": "How far past its target on the far side a room must be before"
-            " Auto considers switching. Display-unit difference on write; °F on read"
+            " its zone switches. Display-unit difference on write; °F on read"
         }
     )
 
 
-class BuildingWaitSchema(Schema):
+class ZoneModeStateSchema(Schema):
     thermostat_entity_id = fields.Str()
-    direction = fields.Str(metadata={"description": "What the zone wants: heating or cooling"})
-    since = fields.Str()
-    obeyed = fields.Bool(metadata={"description": "False when the side is only being watched"})
+    name = fields.Str()
+    mode = fields.Str(metadata={"description": "The zone's own: follow, auto, heat, cool or off"})
+    effective_mode = fields.Str(
+        metadata={"description": "What it runs in: auto, heat, cool or off"}
+    )
+    side = fields.Str(allow_none=True, metadata={"description": "heating, cooling, off or null"})
+    note = fields.Str(metadata={"description": "Why a wanted switch has not happened yet"})
+    next_switch_at = fields.Str(
+        allow_none=True, metadata={"description": "When an Auto zone may next switch (UTC)"}
+    )
+    waiting = fields.Str(
+        allow_none=True, metadata={"description": "The side it is waiting to switch to"}
+    )
+    held_for = fields.Str(
+        allow_none=True,
+        metadata={"description": "The way it could not start, because another zone runs the other"},
+    )
+    in_use = fields.Bool()
 
 
 class BuildingModeSchema(BuildingModeWriteSchema):
     building_id = fields.Str()
     name = fields.Str()
-    side = fields.Str(allow_none=True, metadata={"description": "heating, cooling, off or null"})
-    obey = fields.Bool(metadata={"description": "Zones are held to the side"})
-    note = fields.Str(metadata={"description": "Why a wanted switch has not happened yet"})
-    waiting = fields.List(fields.Nested(BuildingWaitSchema))
+    zones = fields.List(fields.Nested(ZoneModeStateSchema))
 
 
 class BuildingModesSchema(Schema):
@@ -1018,7 +1040,7 @@ class PeakHoursSchema(PeakHoursWriteSchema):
 
 
 class ZoneBalanceWriteSchema(Schema):
-    level = fields.Str(metadata={"description": "off, watch or on"})
+    level = fields.Str(metadata={"description": "off or on (Keep Zones Within)"})
     zone_gap = fields.Float(
         metadata={
             "description": "How far apart zones may be. A difference: display unit in, °F out."
@@ -1090,7 +1112,7 @@ class HouseRoomSchema(RoomSwitchesSchema):
 
 
 class LevelTargetsSchema(HouseBandSchema):
-    scope = fields.Str(metadata={"description": "building, zone or room"})
+    scope = fields.Str(metadata={"description": "building, zone, room or unoccupied (a room's)"})
     scope_id = fields.Str(metadata={"description": "Building id, thermostat entity id, or room id"})
 
 
@@ -1110,7 +1132,7 @@ class FireplaceWriteSchema(Schema):
     entity_id = fields.Str(metadata={"description": "The entity that is on while the fire is lit"})
     room_ids = fields.List(fields.Str(), metadata={"description": "Every room the fire warms"})
     cooldown_min = fields.Int(metadata={"description": "0 to 240"})
-    control = fields.Str(metadata={"description": "off, watch or on"})
+    control = fields.Str(metadata={"description": "Fireplace Compensation: off or on"})
 
 
 class FireplaceSchema(FireplaceWriteSchema):

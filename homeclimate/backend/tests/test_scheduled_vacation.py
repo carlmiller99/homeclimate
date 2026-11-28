@@ -60,6 +60,9 @@ async def _sched(*thermostats: str) -> Scheduler:
 
 
 async def _room(sched: Scheduler, rid: str, tid: str, **kw) -> Room:
+    # An occupied temperature of its own, unless a test says otherwise: there
+    # is no zone-wide one to fall back to.
+    kw.setdefault("system_wide_temp", 70.0)
     room = Room(id=rid, name=rid, thermostat_entity_id=tid, **kw)
     await db.upsert_room(sched._db_conn, room)
     return room
@@ -434,7 +437,7 @@ async def test_pre_728_active_db_keeps_working():
 @pytest.mark.asyncio
 async def test_welcome_home_writes_presence_for_eligible_rooms_only():
     sched = await _sched(T_A)
-    await _room(sched, "plain", T_A)  # presence temp from default_temp
+    await _room(sched, "plain", T_A)
     await _room(sched, "own_temp", T_A, system_wide_temp=68.0)
     await _room(sched, "presence_off", T_A, presence_holdover_hours=0)
     longer = await _room(sched, "longer", T_A)
@@ -469,7 +472,7 @@ async def test_welcome_home_skips_rooms_with_no_presence_temperature():
     tc.default_temp = None
     tc.name = ""
     await db.upsert_thermostat_config(sched._db_conn, tc)
-    await _room(sched, "no_temp", T_A)
+    await _room(sched, "no_temp", T_A, system_wide_temp=None)
     await sched.set_vacation_mode(True, NOW + timedelta(minutes=10))
     await sched._check_welcome_home(now=NOW)
     assert await db.get_all_holdover_states(sched._db_conn) == []

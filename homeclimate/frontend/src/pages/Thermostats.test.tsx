@@ -1271,7 +1271,7 @@ describe("Thermostats Page — welcome home (#728)", () => {
     expect(within(g).getByLabelText(/^Start this long before I return/)).toHaveValue(60);
     expect(within(g).getByLabelText(/Keep rooms occupied for/i)).toHaveValue(1);
     expect(
-      within(g).getByTitle(/each room is brought to its occupied temperature/)
+      within(g).getByTitle(/each room is brought to its occupied targets/)
     ).toBeInTheDocument();
   });
 

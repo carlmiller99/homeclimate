@@ -180,6 +180,9 @@ class Scheduler:
         # an engine clears its wait at the top of each tick, and zones tick
         # side by side.
         self._waiting_at_plan: dict[str, str] = {}
+        # Whether anyone is using each zone (a hold, a schedule or occupancy
+        # asking for one of its rooms), as of the last plan.
+        self._in_use: dict[str, bool] = {}
         self._balance_said: dict[str, tuple[str, bool]] = {}
         self._aux = heat_pump.AuxMonitor()
         self._shades = shades.ShadeController()
@@ -859,7 +862,7 @@ class Scheduler:
         for room in rooms:
             if room.presence_holdover_hours <= 0:
                 continue
-            if room.system_wide_temp is None and tc.default_temp is None:
+            if room.system_wide_temp is None:
                 continue
             existing = await db.get_holdover_state(self._db_conn, room.id)
             expires_at = until
@@ -1093,6 +1096,7 @@ class Scheduler:
             get_fireplace_rooms=lambda: frozenset(self._fireplaces.set_aside_rooms()),
             get_building_side=functools.partial(self._building_side, tid),
             get_side_fixed=functools.partial(self._building_plan.side_is_fixed, tid),
+            get_zone_side=functools.partial(self._building_plan.side_for, tid),
             get_building_waiting=functools.partial(self._building_waiting, tid),
             claim_building_side=functools.partial(self._building_plan_claim, tid),
             get_heat_pump=functools.partial(self._heat_pumps.get, tid),
@@ -1453,11 +1457,8 @@ class Scheduler:
             acting = f.control == "on"
             hold_h = fireplace.SIGNAL_LOST_HOLD.total_seconds() / 3600
             message = {
-                fireplace.LIT: (
-                    f"{f.name} is lit; {names} set aside"
-                    if acting
-                    else f"{f.name} is lit (watching only)"
-                ),
+                # Only a fireplace with compensation on is followed while lit.
+                fireplace.LIT: f"{f.name} is lit; {names} set aside",
                 fireplace.COOLING: f"{f.name} is out; cooling down for {f.cooldown_min} min",
                 fireplace.LOST: (
                     f"{f.name}: its signal stopped reporting while lit;"
@@ -1911,26 +1912,26 @@ class Scheduler:
         return self._building_plan.live_side(thermostat_entity_id, running)
 
     def _building_waiting(self, thermostat_entity_id: str) -> str | None:
-        """The direction another zone of this zone's building was waiting to go, if any.
+        """The direction another zone of this zone's building is about to go, if any.
 
-        As of the last plan. Convenience rooms (Zone Balance and the like)
-        read it: a zone whose wait is about to switch the building is what
-        the building wants next, and no convenience run is started or kept
-        going against it.
+        Only in a building whose zones may not run opposite each other, and as
+        of the last plan. Convenience rooms (Zone Balance and the like) read
+        it: no convenience run is started or kept going against a zone that is
+        about to switch, or that has no side yet and is waiting to start.
         """
-        building = self._building_plan.building_of(thermostat_entity_id)
-        # Only a wait the building is about to act on. One held back by the
-        # building's limit can last a month, and must not turn every other
-        # zone's conveniences against the side the building is really on.
-        decision = self._building_plan.decisions().get(building or "")
-        leaning = decision.leaning if decision is not None else None
+        plan = self._building_plan
+        building = plan.building_of(thermostat_entity_id)
+        if not plan.keeps_apart(building):
+            return None
+        decisions = plan.decisions()
         for tid, direction in self._waiting_at_plan.items():
-            if (
-                tid != thermostat_entity_id
-                # On no side yet, any zone's wait says where it is heading.
-                and (decision is None or decision.side is None or direction == leaning)
-                and self._building_plan.building_of(tid) == building
-            ):
+            if tid == thermostat_entity_id or plan.building_of(tid) != building:
+                continue
+            decision = decisions.get(tid)
+            # Only a wait the zone is about to act on. One held back by the
+            # limit can last a month, and must not turn every other zone's
+            # conveniences against the side it is really on.
+            if decision is None or decision.side is None or direction == decision.leaning:
                 return direction
         return None
 
@@ -1947,8 +1948,10 @@ class Scheduler:
                 tid,
                 engine.cycle_mode,
                 engine.building_wait,
-                # Neither kind of run says which side the building wants.
+                # Neither kind of run says which side the zone wants.
                 engine.protecting_only or engine.optional_only,
+                self._in_use.get(tid, False),
+                engine.held_for,
             )
             for tid, engine in self._engines.items()
         ]
@@ -1965,19 +1968,23 @@ class Scheduler:
                 b.id: the_house.building_forecast_band(b.id)
                 for b in await zones.list_buildings(self._db_conn)
             }
+            self._in_use = {
+                tid: any(ar.source != "house" for ar in await get_active_rooms(self._db_conn, tid))
+                for tid in self._engines
+            }
             zones_now = self.zones_now()
             self._waiting_at_plan = {
                 z.thermostat_entity_id: z.wait["direction"] for z in zones_now if z.wait
             }
             switched = await self._building_plan.plan(self._db_conn, zones_now, hours, band, now)
             if switched and self._event_logger is not None:
-                names = {b.id: b.name for b in await zones.list_buildings(self._db_conn)}
-                for building_id, side in switched:
+                for tid, side in switched:
+                    profile = self._zone_profiles.get(tid)
                     await self._event_logger.log(
                         "info",
                         "engine",
-                        f"{names.get(building_id, 'A building')} is now on {side}",
-                        {"building": building_id, "side": side},
+                        f"{(profile.name if profile else '') or tid} is now on {side}",
+                        {"thermostat": tid, "side": side},
                     )
         except Exception:
             log.exception("Could not plan building modes")
@@ -1989,13 +1996,13 @@ class Scheduler:
 
     def building_direction(self, tids: list[str]) -> str | None:
         """The way a building is working: its side, or the way its zones are running."""
-        # A side that is only being watched is not the way the building is working.
         sides = {side for side, obey in map(self._building_side, tids) if obey}
-        if "off" in sides:
+        if sides == {"off"}:
             return None
-        for side in ("heating", "cooling"):
-            if side in sides:
-                return side
+        # Zones on different sides: the way it is working is the way they run.
+        on = sides & {"heating", "cooling"}
+        if len(on) == 1:
+            return on.pop()
         running = {m for tid in tids if (m := self._engines[tid].cycle_mode)}
         return running.pop() if len(running) == 1 else None
 
@@ -2042,7 +2049,7 @@ class Scheduler:
                         [states[tid] for tid in tids], self.building_direction(tids), setting.gap
                     )
                     for tid, call in found.items():
-                        calls[tid] = (call, setting.level == "on")
+                        calls[tid] = (call, True)
             for tid, (call, obey) in calls.items():
                 if self._balance_said.get(tid) != (call.mode, obey) and self._event_logger:
 
@@ -2050,7 +2057,7 @@ class Scheduler:
                         return self._zone_profiles[t].name or t
 
                     way = "colder" if call.mode == "heating" else "warmer"
-                    does = "it is asked" if obey else "it would be asked (watching only)"
+                    does = "it is asked"
                     await self._event_logger.log(
                         "info",
                         "engine",

@@ -204,7 +204,10 @@ CREATE TABLE IF NOT EXISTS zone_profiles (
     -- Fan (backend/fan.py): 'off' | 'watch' | 'on', and whether the air
     -- handler draws in outside air: 'yes' | 'no' | 'unsure'.
     fan_level TEXT NOT NULL DEFAULT 'off',
-    air_intake TEXT NOT NULL DEFAULT 'unsure'
+    air_intake TEXT NOT NULL DEFAULT 'unsure',
+    -- Building mode: 'follow' takes the building's; else 'auto' | 'heat' |
+    -- 'cool' | 'off', the zone's own.
+    mode TEXT NOT NULL DEFAULT 'follow'
 );
 
 -- HomeClimate Smart Control: door and window sensors. Each sensor pauses
@@ -299,7 +302,7 @@ CREATE TABLE IF NOT EXISTS target_bands (
 -- building, a zone or a room. The most specific one a room has wins; a room
 -- with none inherits its zone's, then its building's.
 CREATE TABLE IF NOT EXISTS level_targets (
-    scope TEXT NOT NULL,     -- 'building' | 'zone' | 'room'
+    scope TEXT NOT NULL,     -- 'building' | 'zone' | 'room' | 'unoccupied' (a room's)
     scope_id TEXT NOT NULL,  -- building id, thermostat entity id, or room id
     heat_to REAL NOT NULL,
     cool_to REAL NOT NULL,
@@ -314,14 +317,27 @@ CREATE TABLE IF NOT EXISTS zone_balance (
     gap REAL NOT NULL DEFAULT 3.0
 );
 
--- Building mode (backend/building_mode.py): each building's mode, and for
--- Auto the side it is on and when it last switched (Unix seconds).
+-- Building mode (backend/building_mode.py): each building's mode and Auto
+-- limits. Each zone's own side is in zone_sides.
 CREATE TABLE IF NOT EXISTS building_modes (
     building_id TEXT PRIMARY KEY,
     mode TEXT NOT NULL DEFAULT 'auto',
+    -- Unused since 0.5.25 (opposite_allowed replaced it); kept, never dropped.
     auto_level TEXT NOT NULL DEFAULT 'off',
     switching TEXT NOT NULL DEFAULT 'often',
     switch_threshold_f REAL NOT NULL DEFAULT 3.0,
+    -- Unused since 0.5.25: each zone keeps its own side (zone_sides).
+    side TEXT,
+    switched_at INTEGER,
+    switch_day TEXT NOT NULL DEFAULT '',
+    switches INTEGER NOT NULL DEFAULT 0,
+    -- 1: zones may heat and cool at the same time; 0: never at once.
+    opposite_allowed INTEGER NOT NULL DEFAULT 1
+);
+
+-- Each zone in Auto keeps its own side, and when it last switched (Unix seconds).
+CREATE TABLE IF NOT EXISTS zone_sides (
+    thermostat_entity_id TEXT PRIMARY KEY,
     side TEXT,
     switched_at INTEGER,
     switch_day TEXT NOT NULL DEFAULT '',
@@ -682,6 +698,8 @@ async def init_db(conn: aiosqlite.Connection) -> list[tuple[str, str]]:
     await _migrate_eco_defaults(conn)
     # Data migration: give metrics their own retention window (Issue #617)
     await _migrate_metrics_retention(conn)
+    # Data migration: each zone's own Auto side, and no more Watch Only (0.5.25)
+    await _migrate_zone_modes(conn)
     # Data migration: force sanitized-name uniqueness across rooms (Issue #519)
     renames = await _migrate_room_name_uniqueness(conn)
     log.info("Database initialised")
@@ -964,6 +982,38 @@ async def _migrate_holdover_timestamps_to_utc(conn: aiosqlite.Connection) -> Non
     await conn.execute(
         """INSERT INTO system_settings(key,value) VALUES(?,?)
            ON CONFLICT(key) DO UPDATE SET value=excluded.value""",
+        (sentinel, "1"),
+    )
+    await conn.commit()
+
+
+async def _migrate_zone_modes(conn: aiosqlite.Connection) -> None:
+    """One-time move to each zone choosing its own side (0.5.25).
+
+    A building that heated or cooled as one becomes one whose zones may not
+    run opposite each other, and each of its zones starts on the side the
+    building was on, with the building's last switch, so a weekly or monthly
+    limit is not reset by the upgrade. Watch Only settings for Zone Balance
+    and fireplaces become Off: they never changed anything, and Developer
+    Mode now does the watching. Sentinel-guarded.
+    """
+    sentinel = "migration_zone_modes_v1"
+    async with conn.execute("SELECT value FROM system_settings WHERE key=?", (sentinel,)) as cur:
+        if await cur.fetchone():
+            return
+    await conn.execute("UPDATE building_modes SET opposite_allowed=0 WHERE auto_level='on'")
+    await conn.execute(
+        """INSERT OR IGNORE INTO zone_sides(thermostat_entity_id, side, switched_at,
+               switch_day, switches)
+           SELECT z.thermostat_entity_id, b.side, b.switched_at, b.switch_day, b.switches
+             FROM zone_profiles z JOIN building_modes b ON b.building_id = z.building_id
+            WHERE b.mode='auto' AND b.auto_level='on' AND b.side IS NOT NULL"""
+    )
+    await conn.execute("UPDATE zone_balance SET level='off' WHERE level='watch'")
+    await conn.execute("UPDATE fireplaces SET control='off' WHERE control='watch'")
+    await conn.execute(
+        "INSERT INTO system_settings(key,value) VALUES(?,?)"
+        " ON CONFLICT(key) DO UPDATE SET value=excluded.value",
         (sentinel, "1"),
     )
     await conn.commit()
@@ -1440,6 +1490,14 @@ MIGRATIONS: tuple[Migration, ...] = (
         "Add eco_empty_zone_hours to thermostat_configs",
         ("ALTER TABLE thermostat_configs ADD COLUMN eco_empty_zone_hours REAL NOT NULL DEFAULT 0",),
     ),
+    Migration(
+        28,
+        "Add each zone's mode, and whether a building's zones may run opposite each other",
+        (
+            "ALTER TABLE zone_profiles ADD COLUMN mode TEXT NOT NULL DEFAULT 'follow'",
+            "ALTER TABLE building_modes ADD COLUMN opposite_allowed INTEGER NOT NULL DEFAULT 1",
+        ),
+    ),
 )
 
 
@@ -1600,7 +1658,10 @@ async def delete_room(conn: aiosqlite.Connection, room_id: str) -> None:
     await conn.execute("DELETE FROM fireplace_rooms WHERE room_id=?", (room_id,))
     await conn.execute("DELETE FROM room_switches WHERE room_id=?", (room_id,))
     await conn.execute("DELETE FROM room_calendars WHERE room_id=?", (room_id,))
-    await conn.execute("DELETE FROM level_targets WHERE scope='room' AND scope_id=?", (room_id,))
+    await conn.execute(
+        "DELETE FROM level_targets WHERE scope IN ('room', 'unoccupied') AND scope_id=?",
+        (room_id,),
+    )
     await conn.execute(
         "DELETE FROM target_bands WHERE ref_id=? OR (kind='schedule' AND ref_id NOT IN"
         " (SELECT id FROM schedules))",

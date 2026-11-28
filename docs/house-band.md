@@ -10,13 +10,13 @@ Targets are set at three levels, and the most specific one wins:
 2. its **zone**'s
 3. its **building**'s
 
-A level with no targets of its own follows the one above, and the Dashboard shows which. Each building is set separately; there is no single setting for the whole home. A zone that is in no building is set on its own.
+A level with no targets of its own follows the one above, and the Dashboard shows which. A building's targets are on its header; a zone's are in its settings (tap the zone's card); a room's are its **Baseline Temperature Target** on its card. Each building is set separately; there is no single setting for the whole home. A zone that is in no building is set on its own.
 
 - With no targets anywhere above a room, nothing changes for it: it is only heated or cooled by a hold, a schedule or occupancy.
 - Setting targets makes **every room in use** under them call for heating or cooling whenever it is outside them. That is a big change on a home that has relied on schedules and occupancy alone.
 - The cooling target cannot be below the heating target. Both must be between 45 and 95 °F, and inside the safety limits of the zones they reach: the heating target at least 1 °F below the lowest maximum safety temperature among them, the cooling target at least 1 °F above the highest minimum.
 - Targets do not expire. **Clear** removes a level's own targets, so it follows the level above again.
-- With the two targets close together, only a room's deadband separates heating from cooling. What limits how often a building changes between them is its mode: Heat Only or Cool Only, or Auto set to On with a limit of your choosing. See [Building mode](./building-mode.md). A zone in no building, or a building whose Auto is Off, has no such limit.
+- With the two targets close together, only a room's deadband separates heating from cooling. What limits how often a zone changes between them is its mode: Heat or Cool, or Auto with its building's switching limit. See [Building and zone modes](./building-mode.md). A zone in no building has no such limit.
 - The safety-limit check looks only at the zones the targets can reach: a building's zones, the one zone, or a room's zone.
 - A zone that leaves its building for none or for one with no targets, or whose building is deleted, keeps the targets it was following as its own.
 
@@ -32,24 +32,22 @@ Things to know before setting them:
 
 ### Upgrading from the house band
 
-Versions before 0.5.17 had one Heat To and Cool To for the whole house. On the first start after upgrading, those two numbers become the targets of every building, and of every zone that is in no building, so every room is kept where it was. Nothing needs doing. The same happens when a backup from an earlier version is restored.
+Versions before 0.5.17 had one Heating Target and Cooling Target for the whole house. On the first start after upgrading, those two numbers become the targets of every building, and of every zone that is in no building, so every room is kept where it was. Nothing needs doing. The same happens when a backup from an earlier version is restored.
 
 ## A band on a schedule, a hold or occupancy
 
-A schedule block, a temporary hold and a room's occupancy target each hold one temperature by default. Give any of them a **Cool To** and that temperature becomes its **Heat To**: the room is kept between the two, exactly as it is with its targets, for as long as that block, hold or occupancy is what the room follows.
+A schedule block, a temporary hold and a room's occupied targets each have a **Heating Target** and a **Cooling Target**. Leave the Cooling Target empty, or give it the same number, and they hold one temperature; give it a higher one and the room is kept between the two, exactly as it is with its targets, for as long as that block, hold or occupancy is what the room follows.
 
-- **Schedule block**: Smart Control → Rooms → the room → add or edit a block → Cool To.
-- **Hold**: the Dashboard's hold dialog → Cool To.
-- **Occupancy target**: Dashboard → the room → When Occupied → Cool To, beside the temperature.
-
-Leave Cool To blank for a single target. The same rules as targets apply: Cool To not below the target, both between 45 and 95 °F, and inside every zone's safety limits.
+- **Schedule block**: Smart Control → Rooms → the room → add or edit a block.
+- **Hold**: the Dashboard's hold dialog.
+- **Occupied targets**: Dashboard → the room → When Occupied. The same rules as targets apply: Cooling Target not below the target, both between 45 and 95 °F, and inside every zone's safety limits.
 
 A band belongs to the target it was set on:
 
-- Change a block's or a room's target without naming a Cool To and the band moves with it. If the new target would be above the Cool To, or take the band outside the limits, the band is dropped and the target becomes a single one, so MQTT and automations can always move a target.
+- Change a block's or a room's target without naming a Cooling Target and the band moves with it. If the new target would be above the Cooling Target, or take the band outside the limits, the band is dropped and the target becomes a single one, so MQTT and automations can always move a target.
 - A hold set without `cool_to` (from MQTT, an automation, or any other client) is a single target, even on a room whose last hold was a band.
 - Copying a schedule block copies its band.
-- Through the API a banded target still reports `target_temp` (its Heat To), with `cool_to` beside it. MQTT's hold entity shows the Heat To.
+- Through the API a banded target still reports `target_temp` (its Heating Target), with `cool_to` beside it. MQTT's hold entity shows the Heating Target.
 
 If a room's own sensors stop reporting, a band on its hold, schedule or occupancy target goes by the thermostat's reading, as a single target does. (A room that is only following its targets sits out instead.)
 
@@ -59,14 +57,15 @@ Most specific first:
 
 1. a **hold**
 2. an active **schedule**
-3. **occupancy** (the room's occupied target)
-4. its **targets**: the room's own, else its zone's, else its building's
+3. **occupancy**: the room's When Occupied targets, while someone is in it. A room with none set is not changed by occupancy.
+4. **When Unoccupied**: targets used while the room's occupancy sensors see nobody, if they are set. Only for a room that follows occupancy and has occupancy sensors.
+5. its **baseline targets**: the room's own, else its zone's, else its building's
 
-Holds, schedules and occupancy each have one target, not a band.
+When Occupied and When Unoccupied are on the room's card on the Dashboard, folded away until opened.
 
 ## Per-room options
 
-Each room's details on the Dashboard (click the room's row) have **In Use, Schedules and Occupancy**:
+Each room's card in **Smart Control → Rooms** has these switches (Room In Use is the "This room is in use" choice at the top):
 
 | Switch | Off means |
 |---|---|

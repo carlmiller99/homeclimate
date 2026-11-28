@@ -43,7 +43,7 @@ async def _setup_hold_with_overflow(client, fake_ha, tick) -> None:
     )
     fake_ha.seed_state(A_SENSOR, "80.0", {"unit_of_measurement": "°F"})
     fake_ha.seed_state(A_VENT, "open", {})
-    # Room C: idle (no schedule), hot past the default_temp (70) + deadband →
+    # Room C: idle (no schedule), hot past its occupied target (70) + deadband →
     # tier-1 overflow candidate for a cooling cycle.
     fake_ha.seed_state(C_SENSOR, "80.0", {"unit_of_measurement": "°F"})
     fake_ha.seed_state(C_VENT, "open", {})
@@ -82,12 +82,11 @@ async def _setup_hold_with_overflow(client, fake_ha, tick) -> None:
             "overflow_during_min_runtime": True,
             "reconciliation_interval_min": 1,
             "deadband": 1.0,
-            # Room C has no per-room setpoint; the overflow candidate ranking
-            # falls back to the thermostat default_temp (70 → C at 80 is a
-            # tier-1 candidate for a cooling cycle).
-            "default_temp": 70.0,
         },
     )
+    # Room C ranks against its occupied target (70 → C at 80 is a tier-1
+    # candidate for a cooling cycle).
+    await client.put(f"/api/rooms/{room_c}", json={"system_wide_temp": 70.0})
 
     await tick()  # cycle starts for A; idle C's vent is closed
     eng = _engine(client)

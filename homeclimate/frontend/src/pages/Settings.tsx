@@ -139,6 +139,7 @@ export default function Settings() {
   if (section === "sensors") {
     body = (
       <>
+        <p className="field-help">Add sensors on the My Home tab.</p>
         <SensorStalenessCard />
       </>
     );

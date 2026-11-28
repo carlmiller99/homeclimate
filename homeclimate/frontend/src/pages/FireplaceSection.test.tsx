@@ -45,7 +45,7 @@ const HEARTH: fp.Fireplace = {
   entity_id: "switch.relay",
   room_ids: ["r1"],
   cooldown_min: 60,
-  control: "watch",
+  control: "on",
   state: "out",
   lit_since: null,
   cooling_until: null,
@@ -80,10 +80,10 @@ describe("Fireplace section", () => {
     expect(screen.getByText("Loading fireplaces…")).toBeInTheDocument();
     const card = await screen.findByRole("group", { name: "Hearth" });
     expect(within(card).getByRole("status")).toHaveTextContent("Out");
-    expect(within(card).getByLabelText("When Lit")).toHaveValue("watch");
     expect(
-      within(card).getByText("HomeClimate notes when it is lit, and changes nothing.")
-    ).toBeInTheDocument();
+      within(card).getByRole("switch", { name: "Fireplace Compensation for Hearth" })
+    ).toBeChecked();
+    expect(within(card).getByText(/^While it is lit or cooling down/)).toBeInTheDocument();
     expect(within(card).getByLabelText("Cool-down for Hearth in minutes")).toHaveValue(60);
     // Rooms are listed by name; the ones it warms are ticked.
     const boxes = within(card).getAllByRole("checkbox");
@@ -163,11 +163,11 @@ describe("Fireplace section", () => {
   it("saves the rule, the cool-down and the rooms", async () => {
     show();
     const card = await screen.findByRole("group", { name: "Hearth" });
-    fireEvent.change(within(card).getByLabelText("When Lit"), { target: { value: "on" } });
-    await waitFor(() => expect(fp.saveFireplace).toHaveBeenCalledWith("f1", { control: "on" }));
-    expect(
-      await within(card).findByText(/stop calling for heating or cooling/)
-    ).toBeInTheDocument();
+    fireEvent.click(
+      within(card).getByRole("switch", { name: "Fireplace Compensation for Hearth" })
+    );
+    await waitFor(() => expect(fp.saveFireplace).toHaveBeenCalledWith("f1", { control: "off" }));
+    expect(await within(card).findByText(/^This fireplace is ignored/)).toBeInTheDocument();
 
     const minutes = within(card).getByLabelText("Cool-down for Hearth in minutes");
     fireEvent.change(minutes, { target: { value: "90" } });
@@ -300,13 +300,24 @@ describe("Fireplace section", () => {
     expect(await screen.findByText("No fireplaces yet.")).toBeInTheDocument();
   });
 
+  it("turns compensation on for a fireplace that is ignored", async () => {
+    vi.mocked(fp.getFireplaces).mockResolvedValue(list({ ...HEARTH, control: "off" }));
+    show();
+    const card = await screen.findByRole("group", { name: "Hearth" });
+    expect(within(card).getByRole("status")).toHaveTextContent("Ignored");
+    fireEvent.click(
+      within(card).getByRole("switch", { name: "Fireplace Compensation for Hearth" })
+    );
+    await waitFor(() => expect(fp.saveFireplace).toHaveBeenCalledWith("f1", { control: "on" }));
+  });
+
   it("runs one change at a time and reports a failed save", async () => {
     let finish!: (d: fp.Fireplaces) => void;
     vi.mocked(fp.saveFireplace).mockReturnValueOnce(new Promise((r) => (finish = r)));
     show();
     const card = await screen.findByRole("group", { name: "Hearth" });
-    const select = within(card).getByLabelText("When Lit");
-    fireEvent.change(select, { target: { value: "on" } });
+    const select = within(card).getByRole("switch", { name: "Fireplace Compensation for Hearth" });
+    fireEvent.click(select);
     await waitFor(() => expect(select).toBeDisabled());
     fireEvent.click(screen.getByRole("button", { name: "Add Fireplace" }));
     const adding = screen.getByRole("group", { name: "Add Fireplace" });
@@ -325,7 +336,7 @@ describe("Fireplace section", () => {
     await waitFor(() => expect(select).not.toBeDisabled());
 
     vi.mocked(fp.saveFireplace).mockRejectedValueOnce("nope");
-    fireEvent.change(select, { target: { value: "off" } });
+    fireEvent.click(select);
     expect(await screen.findByText("Could not save the fireplace")).toBeInTheDocument();
   });
 

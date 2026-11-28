@@ -42,7 +42,6 @@ const MIN_SETPOINT = isCelsius ? "17" : "62";
 const MAX_SETPOINT = isCelsius ? "26" : "78";
 const DEADBAND = isCelsius ? "0.5" : "0.9";
 const OVERSHOOT_DELTA = isCelsius ? "0.3" : "0.5";
-const DEFAULT_TEMP = isCelsius ? "22" : "72";
 const COOLING_LOCKOUT = isCelsius ? "12" : "54";
 const SCHEDULE_TARGET = isCelsius ? "20" : "68";
 // Schedule deadband override (Issue #517). A DELTA, so it scales by 9/5 with
@@ -90,7 +89,7 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
   test("thermostat fields persist exactly as entered (#231)", async ({
     page,
   }) => {
-    // @covers: default_temp, min_setpoint, max_setpoint, deadband, overshoot_delta, cooling_lockout_below_f
+    // @covers: min_setpoint, max_setpoint, deadband, overshoot_delta, cooling_lockout_below_f
     // Thermostat settings live inside their zone on My Home.
     await gotoMyHome(page);
     await openZoneEditor(page, TC_ID);
@@ -105,7 +104,6 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
     // The thermostat's settings are the second tab of the Edit Zone dialog.
     const card = page.getByRole("tabpanel", { name: "Thermostat" });
 
-    await page.locator(idSel("default_temp")).fill(DEFAULT_TEMP);
     await page.locator(idSel("min_setpoint")).fill(MIN_SETPOINT);
     await page.locator(idSel("max_setpoint")).fill(MAX_SETPOINT);
     await page.locator(idSel("deadband")).fill(DEADBAND);
@@ -148,10 +146,6 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
         await page.locator(`[id="thermo-${TC_ID}-${suffix}"]`).inputValue(),
       );
 
-    expect(await readBack("default_temp")).toBeCloseTo(
-      parseFloat(DEFAULT_TEMP),
-      1,
-    );
     expect(await readBack("min_setpoint")).toBeCloseTo(
       parseFloat(MIN_SETPOINT),
       1,
@@ -177,10 +171,12 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
     // @covers: system_wide_temp, temp_offset, deadband_override
     // The occupied temperature is a temperature setting: Dashboard → the room.
     let occupied = await openOccupied(page, "Living Room");
-    await occupied.getByLabel(/^Temperature/).fill(ROOM_SYS_TEMP);
+    // The same number in both is one temperature.
+    await occupied.getByLabel(/^Heating Target/).fill(ROOM_SYS_TEMP);
+    await occupied.getByLabel(/^Cooling Target/).fill(ROOM_SYS_TEMP);
     await saveOccupied(occupied);
     occupied = await openOccupied(page, "Living Room");
-    const sysTempAfter = await occupied.getByLabel(/^Temperature/).inputValue();
+    const sysTempAfter = await occupied.getByLabel(/^Heating Target/).inputValue();
     expect(parseFloat(sysTempAfter)).toBeCloseTo(parseFloat(ROOM_SYS_TEMP), 1);
 
     // How the room is heated and cooled: Smart Control → Rooms.
@@ -414,7 +410,7 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
     // leave the modal open and time us out.
     await modal.getByLabel(/Start time/i).fill("18:00");
     await modal.getByLabel(/End time/i).fill("20:00");
-    await modal.getByLabel(/Target temperature/i).fill(SCHEDULE_TARGET);
+    await modal.getByLabel(/^Heating Target/i).fill(SCHEDULE_TARGET);
 
     // The drift band exercises a DIFFERENT conversion than the target above:
     // _delta_to_f (x9/5) rather than _to_f (x9/5 + 32). A regression routing
@@ -462,11 +458,11 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
     expect(parseFloat(band)).toBeCloseTo(parseFloat(SCHEDULE_DRIFT), 1);
   });
 
-  test("schedule and occupancy Cool To persist exactly as entered", async ({
+  test("schedule and occupancy Cooling Target persist exactly as entered", async ({
     page,
   }) => {
     // @covers: cool_to, presence_cool_to
-    // A Cool To turns a target into a band. It is an absolute temperature
+    // A Cooling Target turns a target into a band. It is an absolute temperature
     // like the target beside it, sent as typed and converted once.
     const HEAT = isCelsius ? "20" : "68";
     const COOL = isCelsius ? "24" : "76";
@@ -478,8 +474,8 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
     // 05:00-06:00 is clear of the seeded blocks and of the block the test above adds.
     await modal.getByLabel(/Start time/i).fill("05:00");
     await modal.getByLabel(/End time/i).fill("06:00");
-    await modal.getByLabel(/Target temperature/i).fill(HEAT);
-    await modal.getByLabel(/Cool To/i).fill(COOL);
+    await modal.getByLabel(/^Heating Target/i).fill(HEAT);
+    await modal.getByLabel(/^Cooling Target/i).fill(COOL);
     await modal.getByRole("button", { name: /^Save$/ }).click();
     await modal.waitFor({ state: "detached", timeout: 5_000 });
 
@@ -501,16 +497,16 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
     await dialog.waitFor({ state: "detached", timeout: 5_000 });
     await expect(row).toHaveCount(0);
 
-    // The occupancy target's Cool To, in the room's details on the Dashboard.
+    // The occupied Cooling Target, in the room's details on the Dashboard.
     let occupied = await openOccupied(page, "Living Room");
-    await occupied.getByLabel(/^Temperature/).fill(HEAT);
-    await occupied.getByLabel(/^Cool To/).fill(COOL);
+    await occupied.getByLabel(/^Heating Target/).fill(HEAT);
+    await occupied.getByLabel(/^Cooling Target/).fill(COOL);
     await saveOccupied(occupied);
     occupied = await openOccupied(page, "Living Room");
-    const coolAfter = await occupied.getByLabel(/^Cool To/).inputValue();
+    const coolAfter = await occupied.getByLabel(/^Cooling Target/).inputValue();
     expect(parseFloat(coolAfter)).toBeCloseTo(parseFloat(COOL), 1);
     // Back to a single target, as the other specs expect.
-    await occupied.getByLabel(/^Cool To/).fill("");
+    await occupied.getByLabel(/^Cooling Target/).fill("");
     await saveOccupied(occupied);
   });
 
@@ -660,12 +656,22 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
     // @covers: house_heat_to, house_cool_to
     const heatLabel = /^Heating Target for Downstairs Thermostat/;
     const coolLabel = /^Cooling Target for Downstairs Thermostat/;
+    const openZoneSettings = async () => {
+      await page
+        .getByRole("button", { name: /^Settings for Downstairs Thermostat/ })
+        .click();
+      await page
+        .getByRole("dialog", { name: "Downstairs Thermostat settings" })
+        .waitFor({ state: "visible", timeout: 10_000 });
+    };
     try {
       await page.goto("/");
       await page.waitForSelector(".loading", {
         state: "detached",
         timeout: 15_000,
       });
+      // A zone's targets are in its settings: tap the zone's card.
+      await openZoneSettings();
       await page.getByLabel(heatLabel).fill(HOUSE_HEAT_TO);
       await page.getByLabel(coolLabel).fill(HOUSE_COOL_TO);
       await page
@@ -682,6 +688,7 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
         state: "detached",
         timeout: 15_000,
       });
+      await openZoneSettings();
       expect(
         parseFloat(await page.getByLabel(heatLabel).inputValue()),
       ).toBeCloseTo(parseFloat(HOUSE_HEAT_TO), 1);
@@ -707,11 +714,6 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
     });
     const building = (await made.json()).id as string;
     try {
-      // The threshold shows once the building heats or cools as one, or tries to.
-      const level = await page.request.put(`/api/building-modes/${building}`, {
-        data: { auto_level: "watch" },
-      });
-      expect(level.status(), await level.text()).toBeLessThan(400);
       await page.goto("/smart-control?section=auto-mode");
       const field = page.getByLabel(
         /^Switching threshold for Threshold Test House/,
@@ -741,7 +743,7 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
     }
   });
 
-  test("zone balance gap limit persists exactly as chosen", async ({
+  test("Keep Zones Within gap limit persists exactly as chosen", async ({
     page,
   }) => {
     // @covers: zone_gap
@@ -752,7 +754,7 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
     });
     const building = (await made.json()).id as string;
     try {
-      await page.goto("/smart-control?section=zone-balance");
+      await page.goto("/smart-control?section=auto-mode");
       const gap = page.getByLabel("Gap limit for Gap Test House");
       await gap.waitFor({ state: "visible", timeout: 15_000 });
       const saved = page.waitForResponse(

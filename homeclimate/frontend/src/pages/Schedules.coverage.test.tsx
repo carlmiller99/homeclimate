@@ -127,7 +127,7 @@ describe("Schedules — modal validation refusals", () => {
     render(<Schedules />);
     await openNewBlock();
 
-    fireEvent.change(screen.getByLabelText(/Target temperature/i), { target: { value: "" } });
+    fireEvent.change(screen.getByLabelText(/^Heating Target/i), { target: { value: "" } });
     fireEvent.click(screen.getAllByText("Save").slice(-1)[0]);
 
     expect(await screen.findByText("Temperature required")).toBeInTheDocument();

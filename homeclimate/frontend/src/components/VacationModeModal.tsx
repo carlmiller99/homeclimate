@@ -107,8 +107,8 @@ export default function VacationModeModal({ current, onClose, onChanged }: Props
             </p>
             <p style={{ marginBottom: "1rem", color: "var(--gray-600)", fontSize: ".9rem" }}>
               <strong>Welcome home</strong> also starts now where it is switched on: each room is
-              brought to its occupied temperature once. Choose <em>End without welcome home</em> to
-              skip that.
+              brought to its occupied targets once. Choose <em>End without welcome home</em> to skip
+              that.
             </p>
             {errorBadge}
             <div className="modal-footer">

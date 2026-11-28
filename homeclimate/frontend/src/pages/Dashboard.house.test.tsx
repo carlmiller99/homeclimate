@@ -133,10 +133,16 @@ beforeEach(() => {
 const HEAT = "Heating Target for Main (°F)";
 const COOL = "Cooling Target for Main (°F)";
 const SAVE = "Save targets for Main";
+/** A zone's targets are in its settings, opened from its card. */
+async function openZone() {
+  fireEvent.click(await screen.findByRole("button", { name: /^Settings for Main / }));
+  return screen.getByRole("dialog", { name: "Main settings" });
+}
 
 describe("Dashboard targets", () => {
   it("shows a zone's targets and saves what was typed", async () => {
     show();
+    await openZone();
     const heat = await screen.findByLabelText(HEAT);
     // Today's Plan sits on the Dashboard too (it has its own tests).
     expect(screen.getByTestId("today-card-stub")).toBeInTheDocument();
@@ -156,6 +162,7 @@ describe("Dashboard targets", () => {
 
   it("sends Celsius as typed and never converts it", async () => {
     show("C");
+    await openZone();
     const heat = await screen.findByLabelText("Heating Target for Main (°C)");
     expect(heat).toHaveValue(20);
     expect(screen.getByLabelText("Cooling Target for Main (°C)")).toHaveValue(24);
@@ -167,11 +174,12 @@ describe("Dashboard targets", () => {
   it("lets the two targets be the same, but not cross", async () => {
     vi.mocked(ha.getHouse).mockResolvedValue(UNSET);
     show();
+    const zone = await openZone();
     const heat = await screen.findByLabelText(HEAT);
     const save = screen.getByRole("button", { name: SAVE });
-    expect(
-      within(screen.getByRole("group", { name: "Main" })).getByText("No targets set")
-    ).toBeInTheDocument();
+    expect(zone).toHaveTextContent(
+      "Leave empty and rooms here are kept at nothing in particular. Rooms with their own targets keep them."
+    );
     expect(screen.queryByRole("button", { name: "Clear targets for Main" })).toBeNull();
     fireEvent.change(heat, { target: { value: "71" } });
     expect(save).toBeDisabled(); // needs both
@@ -188,6 +196,7 @@ describe("Dashboard targets", () => {
 
   it("asks before clearing targets that nothing above replaces", async () => {
     show();
+    await openZone();
     fireEvent.click(await screen.findByRole("button", { name: "Clear targets for Main" }));
     const dialog = screen.getByText("Clear these targets?").closest(".modal") as HTMLElement;
     expect(dialog).toHaveTextContent(/stop asking for heating or cooling straight away/);
@@ -208,13 +217,14 @@ describe("Dashboard targets", () => {
 
   it("gives a room its own targets, or lets it follow its zone", async () => {
     show();
-    await screen.findByLabelText(HEAT);
     // A room's targets are in its details, which say what it follows.
-    fireEvent.click(screen.getByRole("button", { name: "Details for Kitchen" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Details for Kitchen" }));
     const details = screen.getByRole("dialog", { name: "Kitchen details" });
     expect(details).toHaveTextContent("Main");
+    expect(
+      within(details).getByRole("region", { name: "Baseline temperature target" })
+    ).toHaveTextContent("Leave empty to follow Main: 68 to 75.2°F.");
     const kitchen = within(details).getByRole("group", { name: "Kitchen" });
-    expect(within(kitchen).getByText("Follows Main: 68 to 75.2°F")).toBeInTheDocument();
     const heat = within(kitchen).getByLabelText("Heating Target for Kitchen (°F)");
     expect(heat).toHaveAttribute("placeholder", "68");
     fireEvent.change(heat, { target: { value: "66" } });
@@ -237,7 +247,11 @@ describe("Dashboard targets", () => {
     );
     fireEvent.click(within(kitchen).getByRole("button", { name: "Save targets for Kitchen" }));
     await waitFor(() => expect(ha.setTargets).toHaveBeenCalledWith("room", "kitchen", 66, 66));
-    await waitFor(() => expect(within(kitchen).queryByText(/Follows Main/)).toBeNull());
+    await waitFor(() =>
+      expect(
+        within(kitchen).getByRole("button", { name: "Clear targets for Kitchen" })
+      ).toBeInTheDocument()
+    );
     // Clearing a room's own targets hands it back to its zone, and says so.
     fireEvent.click(within(kitchen).getByRole("button", { name: "Clear targets for Kitchen" }));
     const dialog = screen.getByText("Clear these targets?").closest(".modal") as HTMLElement;
@@ -246,17 +260,37 @@ describe("Dashboard targets", () => {
     await waitFor(() =>
       expect(ha.setTargets).toHaveBeenLastCalledWith("room", "kitchen", null, null)
     );
-    expect(await within(kitchen).findByText("Follows Main: 68 to 75.2°F")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        within(kitchen).queryByRole("button", { name: "Clear targets for Kitchen" })
+      ).toBeNull()
+    );
   });
 
-  it("opens a building's zone targets when a zone there has its own", async () => {
+  it("says in a zone's settings what it follows in its building", async () => {
     vi.mocked(zonesApi.getBuildings).mockResolvedValue([
       { id: "b1", name: "Main House", sort_order: 0 },
     ]);
     vi.mocked(zonesApi.getZones).mockResolvedValue([{ ...ZONE, building_id: "b1" }]);
+    vi.mocked(ha.getHouse).mockResolvedValue(
+      house({
+        targets: [{ scope: "building", scope_id: "b1", house_heat_to: 71, house_cool_to: 71 }],
+      })
+    );
     show();
-    const summary = await screen.findByText("Targets for zones in Main House");
-    expect(summary.closest("details")).toHaveAttribute("open");
+    const zone = await openZone();
+    expect(zone).toHaveTextContent("Leave empty to follow Main House: 71.0°F.");
+    expect(screen.getByLabelText(HEAT)).toHaveAttribute("placeholder", "71");
+    // A range reads as one.
+    vi.mocked(ha.getHouse).mockResolvedValue(
+      house({
+        targets: [{ scope: "building", scope_id: "b1", house_heat_to: 69, house_cool_to: 73 }],
+      })
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Refresh/ }));
+    expect(
+      await within(zone).findByText(/^Leave empty to follow Main House: 69 to 73°F\./)
+    ).toBeInTheDocument();
   });
 
   it("puts a building first, with its zones and rooms under it", async () => {
@@ -272,20 +306,13 @@ describe("Dashboard targets", () => {
     );
     show();
     expect(await screen.findByLabelText("Heating Target for Main House (°F)")).toHaveValue(71);
-    // Folded while every zone follows the building.
-    expect(
-      screen.getByText("Targets for zones in Main House").closest("details")
-    ).not.toHaveAttribute("open");
-    // The zone follows its building, and the room follows through the zone.
-    expect(
-      within(screen.getByRole("group", { name: "Main" })).getByText(
-        /^Follows Main House: 71 to 72°F$/
-      )
-    ).toBeInTheDocument();
+    // The zone's own targets are in its settings, not on the building.
+    expect(screen.queryByLabelText(HEAT)).toBeNull();
+    // The room follows its building through the zone.
     fireEvent.click(screen.getByRole("button", { name: "Details for Kitchen" }));
     const details = screen.getByRole("dialog", { name: "Kitchen details" });
     expect(details).toHaveTextContent("Main, Main House");
-    expect(within(details).getByText("Follows Main House: 71 to 72°F")).toBeInTheDocument();
+    expect(details).toHaveTextContent("Leave empty to follow Main House: 71 to 72°F.");
     fireEvent.click(within(details).getByRole("button", { name: "Close" }));
     expect(screen.queryByRole("dialog", { name: "Kitchen details" })).toBeNull();
     // A building with no zones has nothing to show on the Dashboard.
@@ -294,9 +321,7 @@ describe("Dashboard targets", () => {
     vi.mocked(ha.getHouse).mockResolvedValue(UNSET);
     fireEvent.click(screen.getByRole("button", { name: /Refresh/ }));
     expect(
-      await within(screen.getByRole("group", { name: "Main" })).findByText(
-        "No targets set, here or for Main House"
-      )
+      await within(screen.getByRole("group", { name: "Main House" })).findByText("No targets set")
     ).toBeInTheDocument();
   });
 
@@ -316,6 +341,7 @@ describe("Dashboard targets", () => {
 
   it("notes targets close enough to heat and cool in turn", async () => {
     show();
+    await openZone();
     const cool = await screen.findByLabelText(COOL);
     expect(screen.queryByText(/With targets this close/)).toBeNull();
     fireEvent.change(cool, { target: { value: "69.5" } });
@@ -331,24 +357,24 @@ describe("Dashboard targets", () => {
     await waitFor(() => expect(ha.getHouse).toHaveBeenCalled());
     expect(screen.queryByText("Targets")).toBeNull();
     // It comes back with the layout.
+    const zone = await openZone();
+    expect(within(zone).queryByText("Baseline Temperature Target")).toBeNull();
     vi.mocked(zonesApi.getBuildings).mockResolvedValue([]);
     fireEvent.click(screen.getByRole("button", { name: /Refresh/ }));
     expect(await screen.findByLabelText(HEAT)).toHaveValue(68);
   });
 
-  it("shows a room's reading, sensors and hold in its details", async () => {
+  it("shows a room's reading and hold in its details", async () => {
     show();
     fireEvent.click(await screen.findByRole("button", { name: "Details for Kitchen" }));
     const details = screen.getByRole("dialog", { name: "Kitchen details" });
     expect(details).toHaveTextContent("Not asking for heating or cooling right now.");
-    expect(details).toHaveTextContent(/No temperature sensors\. This room goes by its thermostat/);
-    expect(details).toHaveTextContent(/A hold keeps this room at one temperature for 1 to 8 hours/);
-    // Its two buttons hand over to the hold and the options dialogs.
-    fireEvent.click(
-      within(details).getByRole("button", { name: "In Use, Schedules and Occupancy" })
+    expect(details).toHaveTextContent(
+      "One temperature for 1 to 8 hours, ahead of everything else."
     );
+    // Starting a hold hands over to the hold dialog.
+    fireEvent.click(within(details).getByRole("button", { name: "Start a Hold" }));
     expect(screen.queryByRole("dialog", { name: "Kitchen details" })).toBeNull();
-    expect(await screen.findByText(/Follow Its Schedules/)).toBeInTheDocument();
   });
 
   it("shows no targets card before there is anything to give targets to", async () => {
@@ -362,6 +388,7 @@ describe("Dashboard targets", () => {
   it("shows why targets were refused and keeps what was typed", async () => {
     vi.mocked(ha.setTargets).mockRejectedValueOnce(new Error("Outside the safety limits"));
     show();
+    await openZone();
     const cool = await screen.findByLabelText(COOL);
     fireEvent.change(cool, { target: { value: "69" } });
     fireEvent.click(screen.getByRole("button", { name: SAVE }));
@@ -374,6 +401,7 @@ describe("Dashboard targets", () => {
 
   it("shows what was stored after a save that reads the same as before", async () => {
     show();
+    await openZone();
     const heat = await screen.findByLabelText(HEAT);
     fireEvent.change(heat, { target: { value: "68.0" } });
     fireEvent.click(screen.getByRole("button", { name: SAVE }));
@@ -385,6 +413,7 @@ describe("Dashboard targets", () => {
 
   it("keeps the targets and an unsaved edit when a refresh fails", async () => {
     show();
+    await openZone();
     const heat = await screen.findByLabelText(HEAT);
     fireEvent.change(heat, { target: { value: "65" } });
     vi.mocked(ha.getHouse).mockRejectedValueOnce(new Error("blip"));
@@ -396,6 +425,7 @@ describe("Dashboard targets", () => {
 
   it("shows targets that were changed somewhere else", async () => {
     show();
+    await openZone();
     await screen.findByLabelText(HEAT);
     vi.mocked(ha.getHouse).mockResolvedValue(
       house({ targets: [{ ...ZONE_TARGETS, house_heat_to: 64, house_cool_to: 70 }] })
@@ -407,6 +437,7 @@ describe("Dashboard targets", () => {
 
   it("keeps an unsaved edit when the dashboard refreshes with the same targets", async () => {
     show();
+    await openZone();
     const heat = await screen.findByLabelText(HEAT);
     fireEvent.change(heat, { target: { value: "65" } });
     fireEvent.click(screen.getByRole("button", { name: /Refresh/ }));
@@ -415,110 +446,28 @@ describe("Dashboard targets", () => {
   });
 });
 
-/** A room's options are reached through its details. */
-function openOptions(name: string) {
-  fireEvent.click(screen.getByRole("button", { name: `Details for ${name}` }));
-  fireEvent.click(screen.getByRole("button", { name: "In Use, Schedules and Occupancy" }));
-}
-
 describe("Dashboard room options", () => {
-  it("marks a room that is not in use and opens its options", async () => {
+  it("marks a room that is not in use", async () => {
     show();
     const bunk = await screen.findByTestId("dash-room-bunk");
     expect(within(bunk).getByText("Not In Use")).toBeInTheDocument();
     const kitchen = screen.getByTestId("dash-room-kitchen");
     expect(within(kitchen).queryByText("Not In Use")).toBeNull();
-
-    openOptions("Kitchen");
-    const dialog = screen.getByRole("dialog", { name: "What Kitchen Follows" });
-    const inUse = within(dialog).getByRole("switch", { name: "Room In Use" });
-    expect(inUse).toBeChecked();
-    expect(within(dialog).getByText("The room is heated and cooled as usual.")).toBeInTheDocument();
-
-    fireEvent.click(within(dialog).getByRole("switch", { name: "Follow Its Schedules" }));
-    await waitFor(() =>
-      expect(ha.setRoomSwitches).toHaveBeenCalledWith("kitchen", { use_schedules: false })
+    fireEvent.click(screen.getByRole("button", { name: "Details for Bunk Room" }));
+    expect(screen.getByRole("dialog", { name: "Bunk Room details" })).toHaveTextContent(
+      "Not in use: only a hold or its safety limits heat or cool it."
     );
-    expect(
-      await within(dialog).findByText(
-        "The room's schedules are skipped, not deleted. It follows its targets instead."
-      )
-    ).toBeInTheDocument();
-
-    fireEvent.click(inUse);
-    await waitFor(() =>
-      expect(ha.setRoomSwitches).toHaveBeenLastCalledWith("kitchen", { in_use: false })
-    );
-    fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
-    expect(screen.queryByRole("dialog")).toBeNull();
-  });
-
-  it("greys out the other switches for a room that is not in use", async () => {
-    show();
-    await screen.findByTestId("dash-room-bunk");
-    openOptions("Bunk Room");
-    const dialog = screen.getByRole("dialog");
-    expect(within(dialog).getByRole("switch", { name: "Room In Use" })).not.toBeChecked();
-    expect(within(dialog).getByText(/asks for no heating or cooling/)).toBeInTheDocument();
-    expect(within(dialog).getByRole("switch", { name: "Follow Occupancy" })).toBeDisabled();
-    expect(within(dialog).getAllByText("Not used while the room is not in use.")).toHaveLength(2);
-    // Clicking the backdrop closes it; clicking inside does not.
-    fireEvent.click(dialog);
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
-    fireEvent.click(dialog.parentElement as HTMLElement);
-    expect(screen.queryByRole("dialog")).toBeNull();
-  });
-
-  it("shows that a room's In Use is set by a calendar and cannot be flipped here", async () => {
-    vi.mocked(ha.getHouse).mockResolvedValue(
-      house({
-        rooms: [
-          {
-            room_id: "kitchen",
-            in_use: true,
-            use_schedules: true,
-            use_presence: true,
-            calendar: { entity_id: "calendar.custody", match_text: "", lead_min: 120 },
-          },
-        ],
-      })
-    );
-    show();
-    await screen.findByTestId("dash-room-kitchen");
-    openOptions("Kitchen");
-    const dialog = screen.getByRole("dialog");
-    expect(within(dialog).getByRole("switch", { name: "Room In Use" })).toBeDisabled();
-    expect(
-      within(dialog).getByText(/Set by calendar\.custody; change it in Smart Control, Rooms\./)
-    ).toBeInTheDocument();
-    expect(within(dialog).getByRole("switch", { name: "Follow Occupancy" })).not.toBeDisabled();
-  });
-
-  it("reports a switch that could not be saved", async () => {
-    vi.mocked(ha.setRoomSwitches).mockRejectedValueOnce(new Error("Room not found"));
-    show();
-    await screen.findByTestId("dash-room-kitchen");
-    openOptions("Kitchen");
-    fireEvent.click(screen.getByRole("switch", { name: "Follow Occupancy" }));
-    expect(await screen.findByText("Room not found")).toBeInTheDocument();
-    vi.mocked(ha.setRoomSwitches).mockRejectedValueOnce("nope");
-    fireEvent.click(screen.getByRole("switch", { name: "Follow Occupancy" }));
-    expect(await screen.findByText("Could not save the change")).toBeInTheDocument();
-    expect(
-      screen.getByText("When someone is in the room it gets its occupied target.")
-    ).toBeInTheDocument();
   });
 
   it("has no house controls when the house could not be loaded", async () => {
     vi.mocked(ha.getHouse).mockRejectedValue(new Error("down"));
     show();
     await screen.findByTestId("dash-room-kitchen");
-    expect(screen.queryByLabelText("Heat To (°F)")).toBeNull();
-    // The room still opens, for a hold; it has no targets or options to offer.
+    // The room still opens, for a hold; it has no targets to offer.
     fireEvent.click(screen.getByRole("button", { name: "Details for Kitchen" }));
     expect(screen.getByRole("button", { name: "Start a Hold" })).toBeInTheDocument();
-    expect(screen.queryByRole("region", { name: "Targets" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "In Use, Schedules and Occupancy" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Baseline temperature target" })).toBeNull();
+    expect(screen.queryByText("When Unoccupied")).toBeNull();
   });
 });
 

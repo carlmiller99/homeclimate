@@ -18,7 +18,7 @@ import {
   type ScheduleCopyResult,
   type ThermostatConfig,
 } from "../api";
-import OccupiedTargets from "../components/OccupiedTargets";
+import RoomFollowSwitches from "../components/RoomFollowSwitches";
 import { entityName } from "../entityNames";
 import { RoomSettings } from "./Rooms";
 import { useUnit } from "../contexts";
@@ -228,7 +228,7 @@ function ScheduleModal({
         name: name.trim() || null,
         // Sent when there is one, or when one is being taken away.
         ...(coolTo.trim() !== "" || schedule?.cool_to != null
-          ? { cool_to: coolToValue(coolTo) }
+          ? { cool_to: coolToValue(coolTo, parseFloat(temp)) }
           : {}),
       };
       if (schedule) await updateSchedule(roomId, schedule.id, payload);
@@ -310,7 +310,7 @@ function ScheduleModal({
 
         <div className="form-group">
           <label className="form-label" htmlFor="schedule-temp">
-            {coolTo.trim() === "" ? "Target Temperature" : "Heat To"} ({unitLabel})
+            Heating Target ({unitLabel})
           </label>
           <input
             id="schedule-temp"
@@ -601,7 +601,18 @@ function RoomSchedules({
       {expanded && (
         <div className="room-plan-body">
           {house && <RoomInUse room={room} house={house} onHouse={onHouse} />}
-          <OccupiedTargets room={room} onSaved={onRoomSaved} />
+          {house && (
+            <RoomFollowSwitches
+              roomId={room.id}
+              switches={switchesFor(house, room.id)}
+              onSaved={onHouse}
+            />
+          )}
+          <p className="field-help">
+            {room.system_wide_temp != null
+              ? `When occupied: ${bandText(fmtTemp, room.system_wide_temp, room.presence_cool_to)}. Set on the Dashboard.`
+              : "No occupied targets. Set them on the Dashboard."}
+          </p>
           <div>
             <h4 className="room-details-title">Schedule</h4>
             <WeekStrip schedules={schedules} />

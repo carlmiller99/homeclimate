@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
-import RoomDetailsModal, { type SensorReading } from "./RoomDetailsModal";
+import RoomDetailsModal from "./RoomDetailsModal";
 import { buildUnitContext, UnitContext } from "../contexts";
 import type { House } from "../houseApi";
 import type { TargetLevel } from "./TargetsCard";
@@ -8,6 +8,7 @@ import type { TargetLevel } from "./TargetsCard";
 const HOUSE = {
   house_heat_to: null,
   house_cool_to: null,
+  rooms: [],
   targets: [{ scope: "zone", scope_id: "climate.up", house_heat_to: 71, house_cool_to: 72 }],
 } as unknown as House;
 const BUILDING: TargetLevel = { scope: "building", id: "b1", name: "Main House" };
@@ -19,23 +20,16 @@ function show(over: Partial<Parameters<typeof RoomDetailsModal>[0]> = {}, unit: 
     onSaved: vi.fn(),
     onHold: vi.fn(),
     onCancelHold: vi.fn(),
-    onOptions: vi.fn(),
     onClearedPresence: vi.fn(),
     onRoomSaved: vi.fn(),
     onClose: vi.fn(),
   };
-  const readings: SensorReading[] = [
-    { entity_id: "sensor.game_1", value: 68.4, stale: false },
-    { entity_id: "sensor.game_2", value: 61, stale: true },
-    { entity_id: "sensor.game_3", value: null, stale: false },
-  ];
   render(
     <UnitContext.Provider value={buildUnitContext(unit)}>
       <RoomDetailsModal
         level={ROOM}
         house={HOUSE}
         temp={68.4}
-        readings={readings}
         held={false}
         status="Asking for heating or cooling now."
         {...handlers}
@@ -47,31 +41,104 @@ function show(over: Partial<Parameters<typeof RoomDetailsModal>[0]> = {}, unit: 
 }
 
 describe("Room details", () => {
-  it("offers the occupied temperature when it has the room, and not without it", () => {
-    show();
-    expect(screen.queryByRole("region", { name: "When occupied" })).not.toBeInTheDocument();
+  it("leaves When Occupied out without the room, and both occupancy parts without the house", () => {
+    show({ house: null });
+    expect(screen.queryByText("When Occupied")).not.toBeInTheDocument();
+    expect(screen.queryByText("When Unoccupied")).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Baseline temperature target" })).toBeNull();
   });
 
-  it("shows the room's occupied temperature", () => {
+  it("shows the baseline it follows, and its occupancy targets folded away", () => {
     show({
+      room: { id: "r1", name: "Game Room", system_wide_temp: 71, presence_cool_to: 74 } as never,
+    });
+    const baseline = screen.getByRole("region", { name: "Baseline temperature target" });
+    expect(baseline).toHaveTextContent(
+      "Leave empty to follow Upstairs: 71 to 72°F. A hold, a schedule or occupancy comes first."
+    );
+    expect(screen.getByLabelText("Heating Target for Game Room (°F)")).toHaveAttribute(
+      "placeholder",
+      "71"
+    );
+    // Folded away, each says what it is set to.
+    const occupied = screen.getByText("When Occupied").closest("details") as HTMLElement;
+    expect(occupied).not.toHaveAttribute("open");
+    expect(occupied).toHaveTextContent("71 to 74°F");
+    expect(occupied).toHaveTextContent(
+      "While someone is in the room. Leave empty and occupancy does not change its temperature."
+    );
+    expect(screen.getByLabelText("Heating Target when Game Room is occupied (°F)")).toHaveValue(71);
+    const empty = screen.getByText("When Unoccupied").closest("details") as HTMLElement;
+    expect(empty).not.toHaveAttribute("open");
+    expect(empty).toHaveTextContent("Not set");
+    expect(empty).toHaveTextContent(
+      "While its occupancy sensors see nobody. Leave empty and the room keeps its baseline."
+    );
+    expect(
+      screen.getByLabelText("Heating Target for Game Room when unoccupied (°F)")
+    ).toHaveAttribute("placeholder", "71");
+  });
+
+  it("shows one occupied temperature, and the unoccupied targets that are set", () => {
+    show({
+      house: {
+        ...HOUSE,
+        targets: [
+          ...HOUSE.targets!,
+          { scope: "unoccupied", scope_id: "r1", house_heat_to: 64, house_cool_to: 78 },
+        ],
+      } as House,
       room: { id: "r1", name: "Game Room", system_wide_temp: 70, presence_cool_to: null } as never,
     });
-    const block = screen.getByRole("region", { name: "When occupied" });
-    expect(block).toHaveTextContent("Kept here while someone is in the room");
-    expect(screen.getByLabelText(/^Temperature/)).toHaveValue(70);
+    const occupied = screen.getByText("When Occupied").closest("details") as HTMLElement;
+    expect(occupied).toHaveTextContent("70.0°F");
+    const empty = screen.getByText("When Unoccupied").closest("details") as HTMLElement;
+    expect(empty).toHaveTextContent("64 to 78°F");
   });
 
-  it("shows where the room is, its reading, what it follows and each sensor", () => {
+  it("says when When Unoccupied is not used for the room", () => {
+    show({
+      room: {
+        id: "r1",
+        name: "Game Room",
+        system_wide_temp: null,
+        presence_holdover_hours: 0,
+      } as never,
+    });
+    expect(
+      screen.getByText("Not used now: this room's occupancy holdover is 0 in Smart Control, Rooms.")
+    ).toBeInTheDocument();
+  });
+
+  it("says when When Unoccupied is not used because the room ignores occupancy", () => {
+    show({
+      house: {
+        ...HOUSE,
+        rooms: [{ room_id: "r1", in_use: true, use_schedules: true, use_presence: false }],
+      } as House,
+    });
+    expect(
+      screen.getByText(
+        "Not used now: Follow Occupancy is off for this room in Smart Control, Rooms."
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("says when there is nothing above the room to follow", () => {
+    show({ house: { ...HOUSE, targets: [] } as House });
+    expect(screen.getByRole("region", { name: "Baseline temperature target" })).toHaveTextContent(
+      "Leave empty and the room is kept at nothing in particular."
+    );
+  });
+
+  it("shows where the room is and its reading, in the house's unit", () => {
     show();
     const dialog = screen.getByRole("dialog", { name: "Game Room details" });
     expect(dialog).toHaveTextContent("Upstairs, Main House");
     expect(dialog).toHaveTextContent("68.4°F");
     expect(dialog).toHaveTextContent("Asking for heating or cooling now.");
-    expect(screen.getByText("Follows Upstairs: 71 to 72°F")).toBeInTheDocument();
-    const sensors = screen.getByRole("region", { name: "Sensors" });
-    expect(sensors).toHaveTextContent("Game 168.4°F");
-    expect(sensors).toHaveTextContent("Game 2Not reporting, left out of the average");
-    expect(sensors).toHaveTextContent("Game 3No reading");
+    // Sensors and what the room follows are set elsewhere now.
+    expect(screen.queryByRole("region", { name: "Sensors" })).toBeNull();
   });
 
   it("shows readings in the house's unit", () => {
@@ -79,12 +146,10 @@ describe("Room details", () => {
     expect(screen.getByRole("dialog", { name: "Game Room details" })).toHaveTextContent("20.2°C");
   });
 
-  it("starts or cancels a hold, opens the options, and closes", () => {
+  it("starts or cancels a hold, and closes", () => {
     const h = show();
     fireEvent.click(screen.getByRole("button", { name: "Start a Hold" }));
     expect(h.onHold).toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "In Use, Schedules and Occupancy" }));
-    expect(h.onOptions).toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     expect(h.onClose).toHaveBeenCalledTimes(1);
     // Clicking the backdrop closes it; clicking inside does not.
@@ -113,14 +178,11 @@ describe("Room details", () => {
     expect(screen.queryByRole("region", { name: "Occupancy" })).toBeNull();
   });
 
-  it("offers to cancel a hold that is on, and copes with no reading or sensors", () => {
-    const h = show({ held: true, temp: null, readings: [], level: { ...ROOM, parent: undefined } });
-    expect(screen.getByText(/This room is on hold/)).toBeInTheDocument();
+  it("offers to cancel a hold that is on, and copes with no reading", () => {
+    const h = show({ held: true, temp: null, level: { ...ROOM, parent: undefined } });
+    expect(screen.getByText(/On hold: kept at one temperature/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Cancel Hold" }));
     expect(h.onCancelHold).toHaveBeenCalled();
     expect(screen.getByText("No reading")).toBeInTheDocument();
-    expect(
-      screen.getByText(/No temperature sensors\. This room goes by its thermostat/)
-    ).toBeInTheDocument();
   });
 });

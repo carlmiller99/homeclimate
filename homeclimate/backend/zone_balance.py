@@ -31,7 +31,7 @@ import aiosqlite
 
 from .user_errors import UserError, fixed
 
-LEVELS = ("off", "watch", "on")
+LEVELS = ("off", "on")
 DEFAULT_GAP_F = 3.0
 MIN_GAP_F = 2.0
 MAX_GAP_F = 10.0
@@ -43,7 +43,7 @@ class ZoneBalanceError(UserError):
 
 BUILDING_UNKNOWN = fixed("building_id does not match a building")
 UNKNOWN_FIELD = fixed("Only level and zone_gap can be set")
-BAD_LEVEL = fixed("level must be off, watch or on")
+BAD_LEVEL = fixed("level must be off or on")
 BAD_GAP = fixed("The gap limit must be between 2 and 10 °F (1.2 and 5.5 °C)")
 
 

@@ -9,7 +9,8 @@ export interface RoomSwitches {
   use_presence: boolean;
 }
 
-export type TargetScope = "building" | "zone" | "room";
+/** "unoccupied" is a room's When Unoccupied targets, kept beside its own. */
+export type TargetScope = "building" | "zone" | "room" | "unoccupied";
 
 /** The heating and cooling targets set at one level, in °F. */
 export interface LevelTargets {

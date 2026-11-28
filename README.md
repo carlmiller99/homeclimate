@@ -239,7 +239,6 @@ A zone is one thermostat and the rooms it serves. Go to **My Home**, add a build
 
 Then open **Edit Zone** to tune its Thermostat Settings:
 
-- Set an **Occupied Temperature** — this is the fallback temperature used when a room is activated by motion and has no room-level presence temp configured
 - Adjust safety limits if needed (min/max setpoint, deadband, overshoot delta)
 
 ### 2. Create rooms
@@ -248,7 +247,7 @@ Go to **My Home** and use the **Add Room** button inside the zone the room belon
 
 - Give the room a name
 - Select the zone it belongs to
-- Optionally set a room-level presence temperature (overrides the thermostat default)
+- Optionally set its **When Occupied** targets on the Dashboard (the room's card)
 
 ### 3. Configure sensors and vents
 
@@ -295,7 +294,6 @@ Where each one is set: name, zone and the thermostat-sensor choice in **My Home*
 
 | Setting | Description |
 |---|---|
-| **Occupied Temperature** | Fallback target °F for presence-activated rooms that have no room-level presence temp |
 | **Temperature Limits** | Hard clamps — the engine will never set the thermostat outside this range |
 | **Deadband** | ±°F tolerance for "at target". 0 = exact match. 0.5 means a 70°F target is satisfied at 69.5–70.5°F |
 | **Run past the target by** | How far past the most demanding room's target to set the thermostat to keep the HVAC running (default 2°F) |

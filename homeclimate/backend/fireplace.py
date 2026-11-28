@@ -7,11 +7,13 @@ warms can be set aside: they stop calling for heating or cooling, so the heat
 of the fire can neither satisfy nor confuse the system. Per-room safety limits
 still apply to a room that is set aside.
 
-Each fireplace has a control level:
+Each fireplace has Fireplace Compensation, on or off:
 
 - ``off``: ignored.
-- ``watch``: tracked, shown and logged, but nothing changes.
 - ``on``: its rooms are set aside while it is lit or cooling down.
+
+(A third level, ``watch``, was removed in 0.5.25: Developer Mode does the
+watching. Stored ``watch`` rows were moved to ``off``.)
 """
 
 from __future__ import annotations
@@ -27,7 +29,7 @@ import aiosqlite
 from . import db
 from .user_errors import UserError, fixed
 
-CONTROLS = ("off", "watch", "on")
+CONTROLS = ("off", "on")
 # Entity kinds that can say "the fire is lit".
 SIGNAL_DOMAINS = ("switch", "binary_sensor", "input_boolean", "light", "fan", "climate")
 COOLDOWN_MIN, COOLDOWN_MAX, COOLDOWN_DEFAULT = 0, 240, 60
@@ -55,7 +57,7 @@ BAD_ENTITY = fixed(
 BAD_ROOMS = fixed("Choose at least one room the fireplace warms")
 ROOM_UNKNOWN = fixed("One of those rooms does not exist")
 BAD_COOLDOWN = fixed("Cool-down must be a whole number of minutes from 0 to 240")
-BAD_CONTROL = fixed("control must be off, watch or on")
+BAD_CONTROL = fixed("control must be off or on")
 UNKNOWN_FIELD = fixed("Unknown fireplace field")
 NAME_AND_ENTITY_NEEDED = fixed("A fireplace needs a name, an entity and at least one room")
 
@@ -183,7 +185,7 @@ async def create(conn: aiosqlite.Connection, body: dict[str, Any]) -> str:
             parsed["name"],
             parsed["entity_id"],
             parsed.get("cooldown_min", COOLDOWN_DEFAULT),
-            parsed.get("control", "watch"),
+            parsed.get("control", "on"),
         ),
     )
     await _set_rooms(conn, fireplace_id, parsed["room_ids"])

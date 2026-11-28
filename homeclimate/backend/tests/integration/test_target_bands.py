@@ -307,7 +307,7 @@ async def test_bands_go_when_what_they_belong_to_goes(client, room):
     assert (await house.load(conn)).targets == {}
 
 
-async def test_the_zones_default_occupancy_target_is_never_a_band(client, room):
+async def test_the_zones_old_default_occupancy_target_is_not_used(client, room):
     conn = await client.app["scheduler"].get_db()
     await client.put(f"/api/rooms/{room}", json={"system_wide_temp": 68, "presence_cool_to": 74})
     stored = await db.get_room(conn, room)
@@ -321,7 +321,9 @@ async def test_the_zones_default_occupancy_target_is_never_a_band(client, room):
             room_id=room, last_detected_at=now, expires_at=now + timedelta(hours=1)
         ),
     )
-    assert await _following(client) == ("presence", 68.0, None, None)
+    # Occupied, with no When Occupied of its own: it keeps its targets, and
+    # with none of those it follows nothing.
+    assert await room_manager.get_active_rooms(conn, T1) == []
 
 
 async def test_an_edit_that_leaves_the_target_alone_never_drops_its_band(client, room):

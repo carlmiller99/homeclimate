@@ -119,7 +119,7 @@ export default function PeakSection() {
       <RuleRow
         id="peak-enabled"
         title="Bank Ahead of Peak Hours"
-        help="Cools or heats a little extra before peak hours so the equipment can rest during them. Rooms need a Heat To and a Cool To that differ."
+        help="Cools or heats a little extra before peak hours so the equipment can rest during them. Rooms need a Heating Target and a Cooling Target that differ."
         enabled={data.enabled}
         onToggle={(v) => void set({ enabled: v })}
       >

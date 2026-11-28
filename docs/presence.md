@@ -5,10 +5,7 @@ Presence sensors let a room activate on demand — when someone walks in, the HV
 ## How a presence-triggered room activates
 
 1. Any configured `binary_sensor.*` on the room fires (`on` state).
-2. The room enters the presence-active state and starts a **holdover timer**. The target is:
-   - the **room-level presence temp** (`system_wide_temp`) if set, otherwise
-   - the **zone's Occupied Temperature**, otherwise
-   - the room is logged as "skipped" and stays idle.
+2. The room enters the presence-active state and starts a **holdover timer**. Its target is its **When Occupied** targets (Dashboard → the room; `system_wide_temp` and `presence_cool_to`). A room with none set is not changed by occupancy: it keeps following its baseline targets. (Before 0.5.25 a zone's Occupied Temperature filled in for a room with none; it is no longer used.)
 3. Each additional motion event **resets** the holdover expiry. The room stays active until the timer runs out.
 4. When the timer expires, the room falls back to its next priority (schedule, or idle).
 
@@ -45,7 +42,7 @@ Shortly before a [vacation](./vacation-mode.md#welcome-home) return, HomeClimate
 
 - **The window is forced.** The holdover ends `welcome_home_hours` (default 1 hour) after the event, whatever the room's own holdover length is.
 - **It never shortens** a longer holdover that is already running.
-- **Holdover 0 still means off.** A room with presence holdover `0`, or with no presence temperature at either level, is skipped.
+- **Holdover 0 still means off.** A room with presence holdover `0`, or with no When Occupied targets, is skipped.
 
 Precedence is unchanged: a room with an active schedule or hold follows that instead. After the event the room behaves like any presence-triggered room — real motion resets the timer with the room's normal holdover, and if nobody arrives it times out. While it lasts, the room shows as `via Presence` on the Dashboard and Rooms page.
 

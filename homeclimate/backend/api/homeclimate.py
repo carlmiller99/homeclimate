@@ -646,35 +646,57 @@ async def _building_modes_snapshot(request: web.Request) -> dict:
     conn = await get_conn(request)
     scheduler = request.app["scheduler"]
     modes = await building_mode.load(conn)
-    decisions = scheduler.building_plan.decisions()
-    waits: dict[str, list[dict]] = {}
-    for zone in scheduler.zones_now():
-        building_id = scheduler.building_plan.building_of(zone.thermostat_entity_id)
-        if zone.wait and building_id:
-            waits.setdefault(building_id, []).append(
-                {
-                    "thermostat_entity_id": zone.thermostat_entity_id,
-                    "direction": zone.wait["direction"],
-                    "since": zone.wait["since"].isoformat(),
-                    "obeyed": zone.wait["obeyed"],
-                }
-            )
+    sides = await building_mode.load_sides(conn)
+    plan = scheduler.building_plan
+    decisions = plan.decisions()
+    now_doing = {z.thermostat_entity_id: z for z in scheduler.zones_now()}
+    profiles = await zones.list_zone_profiles(conn)
     out = []
     for building in await zones.list_buildings(conn):
         m = modes[building.id]
-        decision = decisions.get(building.id)
+        its_zones = []
+        for p in profiles:
+            if p.building_id != building.id:
+                continue
+            tid = p.thermostat_entity_id
+            decision = decisions.get(tid)
+            effective = building_mode.effective_mode(p.mode, m)
+            state = sides.get(tid)
+            # When an Auto zone may next switch, counted from its last switch.
+            next_switch = (
+                state.switched_at + building_mode.BETWEEN_SWITCHES[m.switching]
+                if effective == "auto" and state is not None and state.switched_at is not None
+                else None
+            )
+            doing = now_doing.get(tid)
+            wait = doing.wait if doing else None
+            its_zones.append(
+                {
+                    "thermostat_entity_id": tid,
+                    "name": p.name,
+                    "mode": p.mode,
+                    "effective_mode": effective,
+                    "side": (
+                        decision.side
+                        if decision
+                        else building_mode.FIXED_SIDE.get(effective, state.side if state else None)
+                    ),
+                    "note": decision.note if decision else "",
+                    "next_switch_at": next_switch.isoformat() if next_switch else None,
+                    "waiting": wait["direction"] if wait else None,
+                    "held_for": doing.held_for if doing else None,
+                    "in_use": doing.in_use if doing else False,
+                }
+            )
         out.append(
             {
                 "building_id": building.id,
                 "name": building.name,
                 "mode": m.mode,
-                "auto_level": m.auto_level,
+                "opposite_allowed": m.opposite_allowed,
                 "switching": m.switching,
                 "switch_threshold": m.switch_threshold_f,
-                "side": decision.side if decision else building_mode.FIXED_SIDE.get(m.mode, m.side),
-                "obey": decision.obey if decision else m.mode != "auto" or m.auto_level == "on",
-                "note": decision.note if decision else "",
-                "waiting": waits.get(building.id, []),
+                "zones": its_zones,
             }
         )
     return {
@@ -684,14 +706,16 @@ async def _building_modes_snapshot(request: web.Request) -> dict:
     }
 
 
-@docs(tags=["buildings"], summary="Each building's mode, the side it is on, and zones waiting")
+@docs(
+    tags=["buildings"], summary="Each building's mode and Auto limits, and what each zone is doing"
+)
 @response_schema(schemas.BuildingModesSchema)
 @routes.get("/api/building-modes")
 async def get_building_modes(request: web.Request) -> web.Response:
     return json_response(await _building_modes_snapshot(request))
 
 
-@docs(tags=["buildings"], summary="Set a building's mode, or how Auto chooses a side")
+@docs(tags=["buildings"], summary="Set a building's mode, or the limits its zones in Auto keep to")
 @request_schema(schemas.BuildingModeWriteSchema)
 @response_schema(schemas.BuildingModesSchema)
 @routes.put("/api/building-modes/{building_id}")
@@ -939,7 +963,7 @@ async def get_house(request: web.Request) -> web.Response:
     return json_response(await _house_snapshot(request))
 
 
-BAD_SCOPE = "Targets belong to a building, a zone or a room"
+BAD_SCOPE = "Targets belong to a building, a zone, a room or a room when unoccupied"
 LEVEL_UNKNOWN = "That building, zone or room was not found"
 
 

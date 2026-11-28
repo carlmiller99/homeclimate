@@ -1,7 +1,7 @@
 import { useUnit } from "../contexts";
 
 /**
- * An optional Cool To beside a target, which turns the target into a band.
+ * An optional Cooling Target beside a Heating Target, which makes a range.
  *
  * Holds the display-unit text as typed; the backend converts on the way in.
  */
@@ -20,10 +20,7 @@ export default function CoolToField({
   return (
     <div className="form-group">
       <label className="form-label" htmlFor={id}>
-        Cool To ({unitLabel})
-        <span className="text-muted" style={{ fontWeight: 400, marginLeft: ".5rem" }}>
-          — optional
-        </span>
+        Cooling Target ({unitLabel})
       </label>
       <input
         id={id}
@@ -33,12 +30,9 @@ export default function CoolToField({
         value={value}
         disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
-        placeholder="Single target"
+        placeholder="Same as heating"
       />
-      <div className="form-hint">
-        Leave blank to hold one temperature. Fill it in and the room is kept between the two
-        temperatures.
-      </div>
+      <div className="form-hint">Leave empty, or use the same number, to keep one temperature.</div>
     </div>
   );
 }

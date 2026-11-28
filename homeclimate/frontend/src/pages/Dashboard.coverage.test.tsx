@@ -207,7 +207,7 @@ describe("Dashboard — uncovered branches", () => {
 
     // modeColor("heating") === "orange"; modeLabel("heating", …) === "Heating".
     const card = cardFor("climate.a");
-    const badge = card.querySelector(".flex-between > .badge") as HTMLElement;
+    const badge = card.querySelector(".dash-zone-open .badge") as HTMLElement;
     expect(badge).toHaveTextContent("Heating");
     expect(badge.className).toBe("badge badge-orange");
 

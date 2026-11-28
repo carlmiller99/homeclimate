@@ -83,7 +83,7 @@ The fit takes well under a second per room, and stores one row per room (`room_m
 - A room with nothing scheduled right now can be started early. So can a room that is in a block already, when the next block asks for more of the same: warmer when heating (62 °F overnight, then 70 °F at 7:00), cooler when cooling. A hold, presence, or a block with a band is left alone.
 - Once a room is started early it stays started until its block begins, even if it warms faster than expected, so the equipment is not switched off and on again on the way. The run ends when the room reaches the target, by the same rules as any other run. If it gets there early, it is kept at that target until the block begins.
 - Never against the side its building is on.
-- A cool-down is not started early toward a block with a band, because the block's target there is its Heat To.
+- A cool-down is not started early toward a block with a band, because the block's target there is its Heating Target.
 - The coming block's own deadband is used, if it has one.
 - Heat pump zones keep their own early warm-up and their capped climb; this can start them earlier, not faster. It does not start heating early while auxiliary heat is expected.
 - A room that is paused for an open door or window, or set aside for the fireplace, is not started. Nothing is started early in Vacation Mode.
@@ -126,7 +126,7 @@ How it decides:
 - **Usual hours** come from the room's occupancy sensors: an hour of the week counts once the room has been occupied for most of it on at least two separate weeks, from two weeks or more of history. These are the same hours the schedule suggestion shows. They are read again every six hours.
 - **An arrival** is the first of a run of usual hours. Monday 14:00 to 16:00 gives one arrival, at 14:00.
 - **The lead** is 30 minutes until the room's model has learned how fast it warms or cools; after that it is the time the model says the room needs in this weather, never less than 15 minutes or more than 90.
-- **The temperature** is the one occupancy would give the room: its own occupied temperature (or the top of its occupied band when it is too warm), else the zone's default. A room with neither is never started.
+- **The temperature** is the one occupancy would give the room: its own When Occupied targets (the top of the band when it is too warm). A room with none is never started.
 
 What it will not do:
 
@@ -142,7 +142,7 @@ Known limits: on the two days a year the clocks change, an arrival in the change
 
 ## Early Cooling
 
-**Smart Control → Smart Learning → Early Cooling** cools a room a little before a warm afternoon makes it necessary. A room following a band is normally left alone until it passes its Cool To, which on a hot day happens when the equipment is at its least efficient and every room wants it at once.
+**Smart Control → Smart Learning → Early Cooling** cools a room a little before a warm afternoon makes it necessary. A room following a band is normally left alone until it passes its Cooling Target, which on a hot day happens when the equipment is at its least efficient and every room wants it at once.
 
 | Level | What it does |
 |---|---|
@@ -153,11 +153,11 @@ Known limits: on the two days a year the clocks change, an arrival in the change
 A room is cooled early only when all of these hold:
 
 - It follows a band (its targets, or a schedule or occupancy band), not a hold, and is inside it.
-- The forecast for the next three hours is warmer than the room's Cool To and at least 3 °F (1.7 °C) warmer than now. A day that has already peaked is left alone.
-- The room's own model, fitted in the last week with its heat loss learned, says the room would pass its Cool To within those three hours if nothing ran.
+- The forecast for the next three hours is warmer than the room's Cooling Target and at least 3 °F (1.7 °C) warmer than now. A day that has already peaked is left alone.
+- The room's own model, fitted in the last week with its heat loss learned, says the room would pass its Cooling Target within those three hours if nothing ran.
 - The thermostat is not in heat mode and the building is not held to heating.
 
-While those hold, its Cool To is in effect 1.5 °F (0.8 °C) lower: it is cooled to 1.5 °F (0.8 °C) below its Cool To, never closer than 1 °F and the room's deadband to its Heat To, and inside the zone's setpoint limits. Once it is there it is left until it drifts back past its deadband.
+While those hold, its Cooling Target is in effect 1.5 °F (0.8 °C) lower: it is cooled to 1.5 °F (0.8 °C) below its Cooling Target, never closer than 1 °F and the room's deadband to its Heating Target, and inside the zone's setpoint limits. Once it is there it is left until it drifts back past its deadband.
 
 Like the other conveniences it gives way to any room that asks for itself, never sets or holds a building's side, starts nothing while a call in the zone is waiting to coast, and a room that has started a run stays in it until the run ends. Peak Hours and Zone Balance take a room first when they want it. The Dashboard marks such a room **Cooling Early**; the cycle detail in Logs says "early cooling". The Engine log says it once per room every three hours.
 

@@ -160,6 +160,10 @@ describe("A room's shades", () => {
       .closest(".shade-row") as HTMLElement;
     const lostOpen = within(lostRow).getByLabelText("Open Position");
     expect(lostOpen).toHaveValue(60);
+    // Out of range: it goes back to what is stored.
+    fireEvent.change(lostOpen, { target: { value: "250" } });
+    fireEvent.blur(lostOpen);
+    expect(lostOpen).toHaveValue(60);
     fireEvent.change(lostOpen, { target: { value: "" } });
     fireEvent.blur(lostOpen);
     expect(sh.saveShade).toHaveBeenLastCalledWith("cover.x", { open_position: null });

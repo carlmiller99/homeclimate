@@ -3,6 +3,8 @@ import { api } from "./api";
 export type SystemType = "conventional" | "heat_pump";
 export type BackupHeat = "electric" | "gas" | "none";
 
+export type ZoneMode = "follow" | "auto" | "heat" | "cool" | "off";
+
 export interface Building {
   id: string;
   name: string;
@@ -32,6 +34,8 @@ export interface ZoneProfile {
   fan_level: "off" | "watch" | "on";
   /** Whether the air handler draws in outside air. "unsure" is treated as no. */
   air_intake: "yes" | "no" | "unsure";
+  /** The zone's mode on the Dashboard: its building's, or its own. */
+  mode: ZoneMode;
   /** True while the equipment-running source reports backup (aux) heat. */
   aux_heat_running?: boolean;
   /** True while outdoors is below the heat pump's compressor lockout. */

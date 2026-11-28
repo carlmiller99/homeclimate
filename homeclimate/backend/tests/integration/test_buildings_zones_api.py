@@ -102,6 +102,7 @@ async def test_zones_default_and_update(client):
         "hp_aux_policy": "avoid",
         "fan_level": "off",
         "air_intake": "unsure",
+        "mode": "follow",
         "aux_heat_running": False,
         "strips_expected": False,
         "looks_like_heat_pump": False,
