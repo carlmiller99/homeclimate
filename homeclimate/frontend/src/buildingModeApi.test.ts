@@ -1,25 +1,49 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   describeBuilding,
+  describeZoneMode,
   getBuildingModes,
   setBuildingMode,
+  zoneModeWord,
+  zoneWaitText,
   type BuildingMode,
+  type ZoneModeState,
 } from "./buildingModeApi";
 
 afterEach(() => vi.unstubAllGlobals());
+
+const zone = (over: Partial<ZoneModeState> = {}): ZoneModeState => ({
+  thermostat_entity_id: "climate.north",
+  name: "North Wing",
+  mode: "follow",
+  effective_mode: "auto",
+  side: "heating",
+  note: "",
+  next_switch_at: null,
+  waiting: null,
+  held_for: null,
+  in_use: true,
+  ...over,
+});
 
 const B: BuildingMode = {
   building_id: "b1",
   name: "Main House",
   mode: "auto",
-  auto_level: "on",
+  opposite_allowed: false,
   switching: "often",
   switch_threshold: 3,
-  side: "heating",
-  obey: true,
-  note: "",
-  waiting: [],
+  zones: [zone()],
 };
+
+const SOUTH = zone({
+  thermostat_entity_id: "climate.south",
+  name: "South Wing",
+  mode: "cool",
+  effective_mode: "cool",
+  side: null,
+  held_for: "cooling",
+});
 
 describe("buildingModeApi", () => {
   it("calls the building mode endpoints and unwraps the list", async () => {
@@ -39,23 +63,51 @@ describe("buildingModeApi", () => {
 
   it("describes what a building is doing", () => {
     expect(describeBuilding({ ...B, mode: "off" })).toMatch(/^Off\. No room here asks/);
-    expect(describeBuilding({ ...B, mode: "heat_only" })).toMatch(/^Heating only/);
+    expect(describeBuilding(B)).toBe("Auto.");
+    expect(describeBuilding({ ...B, mode: "heat_only" })).toBe("Heat Only.");
+    expect(describeBuilding({ ...B, mode: "cool_only", zones: [] })).toBe("Cool Only.");
+    expect(describeBuilding({ ...B, zones: [zone(), SOUTH] })).toBe(
+      "Auto. South Wing waits while North Wing heats."
+    );
+    // Nobody running the other way to name.
+    expect(describeBuilding({ ...B, zones: [SOUTH] })).toBe("Auto. South Wing waits.");
     expect(
-      describeBuilding({ ...B, mode: "heat_only", note: "Waiting for cooling to finish" })
-    ).toBe("Heating only. A room that wants cooling waits. Waiting for cooling to finish.");
-    expect(describeBuilding({ ...B, mode: "cool_only" })).toMatch(/^Cooling only/);
-    expect(describeBuilding({ ...B, auto_level: "off" })).toBe(
-      "Each zone chooses heating or cooling for itself."
+      describeBuilding({
+        ...B,
+        zones: [zone({ side: "cooling", name: "Den" }), { ...SOUTH, held_for: "heating" }],
+      })
+    ).toBe("Auto. South Wing waits while Den cools.");
+    expect(
+      describeBuilding({ ...B, zones: [zone({ side: "fan" }), { ...SOUTH, held_for: "heating" }] })
+    ).toBe("Auto. South Wing waits while North Wing runs.");
+  });
+
+  it("says a zone's mode in a word or two", () => {
+    expect(describeZoneMode(zone(), "Main House")).toBe("Follows Main House");
+    expect(describeZoneMode(zone({ mode: "auto" }), "Main House")).toBe("Auto");
+    expect(describeZoneMode(SOUTH, "Main House")).toBe("Set to Cool");
+    expect(zoneModeWord("follow", "Main House")).toBe("Follows Main House");
+    expect(zoneModeWord("follow", null)).toBe("Auto");
+    expect(zoneModeWord("heat", null)).toBe("Heat");
+  });
+
+  it("says why a zone is waiting, or nothing", () => {
+    const b = { ...B, zones: [zone(), SOUTH] };
+    expect(zoneWaitText(SOUTH, b)).toBe(
+      "Set to Cool. Waits while North Wing heats, because zones in Main House may not run opposite each other."
     );
-    expect(describeBuilding({ ...B, side: null })).toBe(
-      "Not on a side yet; the first cycle decides."
+    expect(zoneWaitText({ ...SOUTH, mode: "follow" }, { ...B, zones: [SOUTH] })).toBe(
+      "Waits, because zones in Main House may not run opposite each other."
     );
-    expect(describeBuilding(B)).toBe("Heating for every zone.");
-    expect(describeBuilding({ ...B, side: "cooling", note: "Waiting for cooling to finish" })).toBe(
-      "Cooling for every zone. Waiting for cooling to finish."
+    expect(
+      zoneWaitText(
+        { ...SOUTH, held_for: "heating" },
+        { ...B, zones: [zone({ side: "fan" }), SOUTH] }
+      )
+    ).toMatch(/^Set to Cool\. Waits while North Wing runs,/);
+    expect(zoneWaitText(zone({ note: "Wants cooling; 3 hours until it may switch" }), b)).toBe(
+      "Wants cooling; 3 hours until it may switch."
     );
-    expect(describeBuilding({ ...B, auto_level: "watch" })).toBe(
-      "Watching only: would be on heating."
-    );
+    expect(zoneWaitText(zone(), b)).toBeNull();
   });
 });

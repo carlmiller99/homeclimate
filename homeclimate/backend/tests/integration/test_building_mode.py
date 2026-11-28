@@ -131,6 +131,10 @@ async def test_fixed_modes_and_a_zones_own_mode(client, site):
     await _zone_mode(client, T3, "off")
     planner, _s = await _plan(client, [_zone(T3)])
     assert planner.side_for(T3) == ("off", True)
+    # In Auto it has no building's limits to keep to, so it is free.
+    await _zone_mode(client, T3, "auto")
+    planner, _s = await _plan(client, [_zone(T3)])
+    assert planner.side_for(T3) == (None, False)
     snap = (await (await client.get("/api/building-modes")).json())["buildings"][0]
     south = next(z for z in snap["zones"] if z["thermostat_entity_id"] == T2)
     assert (south["mode"], south["effective_mode"]) == ("auto", "auto")

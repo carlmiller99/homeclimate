@@ -5,11 +5,10 @@ import { getRooms, type Room } from "../api";
 import { Frozen } from "../ci";
 import ConfirmDialog from "../components/ConfirmDialog";
 import EntityPicker from "../components/EntityPicker";
-import { MinutesInput } from "../components/SmartControlControls";
+import { MinutesInput, Switch } from "../components/SmartControlControls";
 import Time from "../components/Time";
 import {
   addFireplace,
-  CONTROL_LABELS,
   COOLDOWN_MAX_MIN,
   deleteFireplace,
   getFireplaces,
@@ -23,8 +22,7 @@ import {
 } from "../fireplaceApi";
 
 const CONTROL_HELP: Record<FireplaceControl, string> = {
-  off: "This fireplace is ignored.",
-  watch: "HomeClimate notes when it is lit, and changes nothing.",
+  off: "This fireplace is ignored. Its rooms are heated and cooled as usual.",
   on: "While it is lit or cooling down, the rooms it warms stop calling for heating or cooling, and are never cooled for being too warm.",
 };
 
@@ -143,22 +141,16 @@ function FireplaceCard({
         </p>
       )}
       <div className="fireplace-fields">
-        <label className="field-stack">
-          When Lit
-          <select
-            className="form-control"
-            value={f.control}
+        <div className="field-stack">
+          <span className="field-label">Fireplace Compensation</span>
+          <Switch
+            id={`fp-control-${f.id}`}
+            checked={f.control === "on"}
+            label={`Fireplace Compensation for ${f.name}`}
             disabled={busy}
-            aria-describedby={`fp-help-${f.id}`}
-            onChange={(e) => onSave(f.id, { control: e.target.value as FireplaceControl })}
-          >
-            {(Object.keys(CONTROL_LABELS) as FireplaceControl[]).map((c) => (
-              <option key={c} value={c}>
-                {CONTROL_LABELS[c]}
-              </option>
-            ))}
-          </select>
-        </label>
+            onChange={(on) => onSave(f.id, { control: on ? "on" : "off" })}
+          />
+        </div>
         <div className="field-stack">
           <span className="field-label">Cool-Down After It Goes Out</span>
           <MinutesInput

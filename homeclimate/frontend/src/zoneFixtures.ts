@@ -13,6 +13,7 @@ export const HP_DEFAULTS = {
 export const FAN_DEFAULTS = {
   fan_level: "off" as const,
   air_intake: "unsure" as const,
+  mode: "follow" as const,
 };
 
 /** A zone profile for a thermostat, as GET /api/zones returns it. For tests. */

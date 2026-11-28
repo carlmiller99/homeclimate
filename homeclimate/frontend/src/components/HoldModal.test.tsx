@@ -97,8 +97,8 @@ describe("HoldModal (Issue #576)", () => {
   it("sends a Cool To when one is typed, making the hold a band", async () => {
     vi.mocked(api.setOverride).mockResolvedValue(makeHold());
     render(<HoldModal rooms={ROOMS} holds={{}} onClose={() => {}} onChanged={() => {}} />);
-    fireEvent.change(screen.getByLabelText(/Hold temperature/i), { target: { value: "66" } });
-    fireEvent.change(screen.getByLabelText(/Cool To/i), { target: { value: "72" } });
+    fireEvent.change(screen.getByLabelText(/Heating Target/i), { target: { value: "66" } });
+    fireEvent.change(screen.getByLabelText(/Cooling Target/i), { target: { value: "72" } });
     fireEvent.click(screen.getByTestId("hold-modal-save"));
     await waitFor(() => expect(api.setOverride).toHaveBeenCalledWith("room-1", 66, 2, false, 72));
   });
@@ -115,10 +115,10 @@ describe("HoldModal (Issue #576)", () => {
         onChanged={() => {}}
       />
     );
-    expect(screen.getByLabelText(/Cool To/i)).toHaveValue(72);
+    expect(screen.getByLabelText(/Cooling Target/i)).toHaveValue(72);
     expect(screen.getByText("66.0°F to 72.0°F")).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Room"), { target: { value: "room-2" } });
-    expect(screen.getByLabelText(/Cool To/i)).toHaveValue(75);
+    expect(screen.getByLabelText(/Cooling Target/i)).toHaveValue(75);
   });
 
   it("does not carry one room's Cool To over to a room with no hold", () => {
@@ -131,24 +131,24 @@ describe("HoldModal (Issue #576)", () => {
       />
     );
     fireEvent.change(screen.getByLabelText("Room"), { target: { value: "room-2" } });
-    expect(screen.getByLabelText(/Cool To/i)).toHaveValue(null);
+    expect(screen.getByLabelText(/Cooling Target/i)).toHaveValue(null);
   });
 
   it("rejects an out-of-bounds temperature without calling the API", async () => {
     render(<HoldModal rooms={ROOMS} holds={{}} onClose={() => {}} onChanged={() => {}} />);
-    fireEvent.change(screen.getByLabelText(/Hold temperature/i), { target: { value: "95" } });
+    fireEvent.change(screen.getByLabelText(/Heating Target/i), { target: { value: "95" } });
     fireEvent.click(screen.getByTestId("hold-modal-save"));
     expect(
-      await screen.findByText("Hold temperature must be between 40.0°F and 90.0°F")
+      await screen.findByText("Heating Target must be between 40.0°F and 90.0°F")
     ).toBeInTheDocument();
     expect(api.setOverride).not.toHaveBeenCalled();
   });
 
   it("rejects a non-numeric temperature without calling the API", async () => {
     render(<HoldModal rooms={ROOMS} holds={{}} onClose={() => {}} onChanged={() => {}} />);
-    fireEvent.change(screen.getByLabelText(/Hold temperature/i), { target: { value: "" } });
+    fireEvent.change(screen.getByLabelText(/Heating Target/i), { target: { value: "" } });
     fireEvent.click(screen.getByTestId("hold-modal-save"));
-    expect(await screen.findByText(/Hold temperature must be between/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Heating Target must be between/i)).toBeInTheDocument();
     expect(api.setOverride).not.toHaveBeenCalled();
   });
 
@@ -178,7 +178,7 @@ describe("HoldModal (Issue #576)", () => {
     expect(screen.getByText("75.0°F")).toBeInTheDocument();
     expect(screen.getByText(/ends in 1h 30m/)).toBeInTheDocument();
     // The temp field initialises from the existing hold, not the 72°F default.
-    expect(screen.getByLabelText(/Hold temperature/i)).toHaveValue(75);
+    expect(screen.getByLabelText(/Heating Target/i)).toHaveValue(75);
     // Save is relabelled as a replace.
     expect(screen.getByTestId("hold-modal-save")).toHaveTextContent("Replace hold");
 
@@ -204,14 +204,14 @@ describe("HoldModal (Issue #576)", () => {
       />
     );
     // room-1 (no hold) is selected: form shows the defaults.
-    expect(screen.getByLabelText(/Hold temperature/i)).toHaveValue(72);
+    expect(screen.getByLabelText(/Heating Target/i)).toHaveValue(72);
     expect(screen.getByLabelText(/Allow Eco Mode/i)).not.toBeChecked();
 
     // Switching to the held room pulls in ITS hold.
     fireEvent.change(screen.getByLabelText("Room"), { target: { value: "room-2" } });
-    expect(screen.getByLabelText(/Hold temperature/i)).toHaveValue(68);
+    expect(screen.getByLabelText(/Heating Target/i)).toHaveValue(68);
     expect(screen.getByLabelText(/Allow Eco Mode/i)).toBeChecked();
-    expect(screen.getByLabelText(/Cool To/i)).toHaveValue(null); // a single target
+    expect(screen.getByLabelText(/Cooling Target/i)).toHaveValue(null); // a single target
     expect(screen.getByTestId("hold-modal-save")).toHaveTextContent("Replace hold");
   });
 
@@ -267,13 +267,13 @@ describe("HoldModal — Celsius mode (#231)", () => {
   it("initialises the default target in °C", () => {
     renderInCelsius();
     // 72°F default → toDisplay(72) = 22.2°C.
-    expect(screen.getByLabelText(/Hold temperature \(°C\)/i)).toHaveValue(22.2);
+    expect(screen.getByLabelText(/Heating Target \(°C\)/i)).toHaveValue(22.2);
   });
 
   it("sends the user's raw °C target, not a pre-converted °F value (#231)", async () => {
     vi.mocked(api.setOverride).mockResolvedValue(makeHold());
     renderInCelsius();
-    fireEvent.change(screen.getByLabelText(/Hold temperature/i), { target: { value: "22" } });
+    fireEvent.change(screen.getByLabelText(/Heating Target/i), { target: { value: "22" } });
     fireEvent.click(screen.getByTestId("hold-modal-save"));
     // 22, NOT 71.6 (toStorage) — the backend's _to_f converts at the write
     // boundary; converting here would re-introduce the #231 double-conversion.
@@ -284,14 +284,14 @@ describe("HoldModal — Celsius mode (#231)", () => {
     renderInCelsius();
     // displayBound, not raw toDisplay: toDisplay(40) = 4.4°C converts back to
     // 39.92°F and the backend refuses the advertised minimum.
-    const input = screen.getByLabelText(/Hold temperature/i);
+    const input = screen.getByLabelText(/Heating Target/i);
     expect(input).toHaveAttribute("min", "4.5");
     expect(input).toHaveAttribute("max", "32.2");
 
     fireEvent.change(input, { target: { value: "4.4" } });
     fireEvent.click(screen.getByTestId("hold-modal-save"));
     expect(
-      await screen.findByText("Hold temperature must be between 4.5°C and 32.2°C")
+      await screen.findByText("Heating Target must be between 4.5°C and 32.2°C")
     ).toBeInTheDocument();
     expect(api.setOverride).not.toHaveBeenCalled();
   });
@@ -300,6 +300,6 @@ describe("HoldModal — Celsius mode (#231)", () => {
     renderInCelsius({ "room-1": makeHold() });
     // Stored 75°F → fmtTemp = "23.9°C"; the editable field holds toDisplay(75).
     expect(screen.getByText("23.9°C")).toBeInTheDocument();
-    expect(screen.getByLabelText(/Hold temperature/i)).toHaveValue(23.9);
+    expect(screen.getByLabelText(/Heating Target/i)).toHaveValue(23.9);
   });
 });

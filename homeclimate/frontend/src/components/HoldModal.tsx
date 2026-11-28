@@ -78,7 +78,7 @@ export default function HoldModal({ rooms, initialRoom, holds, onClose, onChange
     const maxTemp = displayBound(90, "max");
     if (isNaN(t) || t < minTemp || t > maxTemp) {
       setError(
-        `Hold temperature must be between ${minTemp.toFixed(1)}${unitLabel} ` +
+        `Heating Target must be between ${minTemp.toFixed(1)}${unitLabel} ` +
           `and ${maxTemp.toFixed(1)}${unitLabel}`
       );
       return;
@@ -87,7 +87,7 @@ export default function HoldModal({ rooms, initialRoom, holds, onClose, onChange
     setError("");
     try {
       // Raw display value — the backend's _to_f converts (#231).
-      await setOverride(selected, t, parseFloat(duration), allowEco, coolToValue(coolTo));
+      await setOverride(selected, t, parseFloat(duration), allowEco, coolToValue(coolTo, t));
       onChanged();
       onClose();
     } catch (e: unknown) {
@@ -153,7 +153,7 @@ export default function HoldModal({ rooms, initialRoom, holds, onClose, onChange
 
         <div className="form-group">
           <label className="form-label" htmlFor="hold-target-temp">
-            Hold temperature ({unitLabel})
+            Heating Target ({unitLabel})
           </label>
           <input
             id="hold-target-temp"

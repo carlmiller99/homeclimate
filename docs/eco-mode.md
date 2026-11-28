@@ -194,7 +194,7 @@ When nothing has asked for any room of the zone for that long (no hold, no sched
 - It never goes past the zone's safety limits (`min_setpoint` / `max_setpoint`).
 - It does not depend on the outdoor temperature, and it adds to the outdoor drift above when both apply.
 - Vacation Mode has its own hold, so nothing widens during a trip, and the hours start over when the trip ends. A restart also starts the hours over.
-- [Zone Balance](./zone-balance.md) still applies: an empty zone is kept within the gap limit of a zone in use.
+- [Keep Zones Within](./zone-balance.md) still applies: an empty zone is kept within the gap of a zone in use.
 
 A trip, and the system being switched off, count as the zone being in use.
 

@@ -1,6 +1,6 @@
 import { api } from "./api";
 
-export type FireplaceControl = "off" | "watch" | "on";
+export type FireplaceControl = "off" | "on";
 export type FireplaceState = "lit" | "cooling" | "out" | "unknown";
 
 export interface Fireplace {
@@ -36,12 +36,6 @@ export const SIGNAL_DOMAINS = [
   "climate",
 ];
 export const COOLDOWN_MAX_MIN = 240;
-
-export const CONTROL_LABELS: Record<FireplaceControl, string> = {
-  off: "Off",
-  watch: "Watch Only",
-  on: "On",
-};
 
 export const STATE_LABELS: Record<FireplaceState, string> = {
   lit: "Lit",

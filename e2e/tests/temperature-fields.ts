@@ -45,10 +45,11 @@ export interface TempField {
 
 export const TEMPERATURE_FIELDS: TempField[] = [
   // ── Thermostat config — POST /api/thermostats, PUT /api/thermostats/{id}
+  // default_temp is no longer shown: a room with no occupied targets gets none.
   {
     field: "default_temp",
     kind: "absolute_nullable",
-    ui: true,
+    ui: false,
     endpoints: ["POST /api/thermostats", "PUT /api/thermostats/{id}"],
   },
   {

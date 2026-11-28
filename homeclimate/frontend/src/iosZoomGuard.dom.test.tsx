@@ -156,7 +156,7 @@ describe("modals", () => {
   it("pins for the hold modal's text input", () => {
     render(<HoldModal rooms={[room()]} holds={{}} onClose={vi.fn()} onChanged={vi.fn()} />);
 
-    focusField(screen.getByLabelText(/hold temperature/i));
+    focusField(screen.getByLabelText(/^Heating Target/i));
     expect(viewport()).toBe(LOCKED_VIEWPORT);
   });
 
@@ -170,7 +170,7 @@ describe("modals", () => {
   it("holds the pin while the user moves between two fields of one modal", () => {
     render(<HoldModal rooms={[room()]} holds={{}} onClose={vi.fn()} onChanged={vi.fn()} />);
     const roomPicker = screen.getByLabelText("Room");
-    const target = screen.getByLabelText(/hold temperature/i);
+    const target = screen.getByLabelText(/^Heating Target/i);
 
     focusField(roomPicker);
     blurField(roomPicker);
@@ -184,7 +184,7 @@ describe("modals", () => {
     const { unmount } = render(
       <HoldModal rooms={[room()]} holds={{}} onClose={vi.fn()} onChanged={vi.fn()} />
     );
-    const target = screen.getByLabelText(/hold temperature/i);
+    const target = screen.getByLabelText(/^Heating Target/i);
 
     focusField(target);
     expect(viewport()).toBe(LOCKED_VIEWPORT);

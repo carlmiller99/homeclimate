@@ -14,7 +14,7 @@ Find it under **Smart Control → Fireplace**. Fireplaces are added here rather 
 
 | Setting | Default | What it does |
 |---|---|---|
-| **When Lit** | Watch Only | **Off** ignores the fireplace. **Watch Only** tracks, shows and logs it, and changes nothing. **On** sets its rooms aside while it is lit or cooling down. |
+| **Fireplace Compensation** | On | On sets its rooms aside while it is lit or cooling down. Off ignores the fireplace. A fireplace that was on Watch Only before 0.5.25 is Off. To see what it would do first, use Dev Mode. |
 | **Cool-Down After It Goes Out** | 60 min | How long the rooms stay set aside after the fire goes out, while the room is still warm. 0 to 240 minutes. |
 
 ## What "set aside" means
@@ -40,7 +40,7 @@ A burner that cycles on and off during one fire is logged as one fire, not one l
 ## Records
 
 - The Logs page (category `fireplace`) records each fire being lit, going out, and finishing its cool-down.
-- Smart Learning readings note when a room's fireplace is warm, for fireplaces on Watch Only or On, so those hours can be left out of what is learned about the room.
+- Smart Learning readings note when a room's fireplace is warm, for fireplaces with Fireplace Compensation on, so those hours can be left out of what is learned about the room.
 
 ## API
 

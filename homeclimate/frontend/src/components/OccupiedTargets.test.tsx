@@ -16,14 +16,14 @@ const room = (over: Partial<api.Room> = {}) =>
   }) as api.Room;
 
 const onSaved = vi.fn();
-const show = (r: api.Room, unit: "F" | "C" = "F") =>
-  render(
-    <UnitContext.Provider value={buildUnitContext(unit)}>
-      <OccupiedTargets room={r} onSaved={onSaved} />
-    </UnitContext.Provider>
-  );
-const temp = () => screen.getByLabelText(/^Temperature/);
-const coolTo = () => screen.getByLabelText(/^Cool To/);
+const wrap = (r: api.Room, unit: "F" | "C" = "F") => (
+  <UnitContext.Provider value={buildUnitContext(unit)}>
+    <OccupiedTargets room={r} onSaved={onSaved} />
+  </UnitContext.Provider>
+);
+const show = (r: api.Room, unit: "F" | "C" = "F") => render(wrap(r, unit));
+const heat = () => screen.getByLabelText(/^Heating Target when Bunk Room/);
+const cool = () => screen.getByLabelText(/^Cooling Target when Bunk Room/);
 const save = () => screen.getByRole("button", { name: "Save" });
 
 beforeEach(() => {
@@ -34,13 +34,13 @@ beforeEach(() => {
 });
 
 describe("Dashboard → a room → When Occupied", () => {
-  it("shows what is stored and saves a temperature with a Cool To", async () => {
+  it("shows one temperature in both fields and saves a range", async () => {
     const view = show(room());
-    expect(temp()).toHaveValue(72);
-    expect(coolTo()).toHaveValue(null);
+    expect(heat()).toHaveValue(72);
+    expect(cool()).toHaveValue(72);
     expect(save()).toBeDisabled();
-    fireEvent.change(temp(), { target: { value: "68" } });
-    fireEvent.change(coolTo(), { target: { value: "75" } });
+    fireEvent.change(heat(), { target: { value: "68" } });
+    fireEvent.change(cool(), { target: { value: "75" } });
     fireEvent.click(save());
     await waitFor(() =>
       expect(api.updateRoom).toHaveBeenCalledWith("bunk", {
@@ -49,24 +49,20 @@ describe("Dashboard → a room → When Occupied", () => {
       })
     );
     expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ system_wide_temp: 68 }));
-    expect(await screen.findByText("Saved")).toBeInTheDocument();
+    await waitFor(() => expect(save()).toBeDisabled());
     // Typed while the page is still reading the saved room back: it is kept.
-    fireEvent.change(coolTo(), { target: { value: "76" } });
-    view.rerender(
-      <UnitContext.Provider value={buildUnitContext("F")}>
-        <OccupiedTargets
-          room={room({ system_wide_temp: 68, presence_cool_to: 75 })}
-          onSaved={onSaved}
-        />
-      </UnitContext.Provider>
-    );
-    expect(coolTo()).toHaveValue(76);
+    fireEvent.change(cool(), { target: { value: "76" } });
+    view.rerender(wrap(room({ system_wide_temp: 68, presence_cool_to: 75 })));
+    expect(cool()).toHaveValue(76);
+    // Changed somewhere else: what is stored is shown.
+    view.rerender(wrap(room({ system_wide_temp: 66, presence_cool_to: 70 })));
+    expect(heat()).toHaveValue(66);
+    expect(cool()).toHaveValue(70);
   });
 
-  it("takes a Cool To away, and clears both when the temperature is emptied", async () => {
-    const view = show(room({ system_wide_temp: 68, presence_cool_to: 74 }));
-    expect(coolTo()).toHaveValue(74);
-    fireEvent.change(coolTo(), { target: { value: "" } });
+  it("saves the same number in both as one temperature, and empty as nothing", async () => {
+    show(room({ system_wide_temp: 68, presence_cool_to: 74 }));
+    fireEvent.change(cool(), { target: { value: "68" } });
     fireEvent.click(save());
     await waitFor(() =>
       expect(api.updateRoom).toHaveBeenLastCalledWith("bunk", {
@@ -74,16 +70,20 @@ describe("Dashboard → a room → When Occupied", () => {
         presence_cool_to: null,
       })
     );
-    expect(await screen.findByText("Saved")).toBeInTheDocument();
-    // The page then hands back the room as stored: nothing typed is lost.
-    view.rerender(
-      <UnitContext.Provider value={buildUnitContext("F")}>
-        <OccupiedTargets room={room({ system_wide_temp: 68 })} onSaved={onSaved} />
-      </UnitContext.Provider>
+    await waitFor(() => expect(save()).toBeDisabled());
+    expect(cool()).toHaveValue(68);
+    fireEvent.change(heat(), { target: { value: "70" } });
+    fireEvent.change(cool(), { target: { value: "" } });
+    fireEvent.click(save());
+    await waitFor(() =>
+      expect(api.updateRoom).toHaveBeenLastCalledWith("bunk", {
+        system_wide_temp: 70,
+        presence_cool_to: null,
+      })
     );
-    expect(temp()).toHaveValue(68);
-    fireEvent.change(temp(), { target: { value: "" } });
-    expect(screen.queryByText("Saved")).not.toBeInTheDocument();
+    await waitFor(() => expect(save()).toBeDisabled());
+    fireEvent.change(heat(), { target: { value: "" } });
+    fireEvent.change(cool(), { target: { value: "" } });
     fireEvent.click(save());
     await waitFor(() =>
       expect(api.updateRoom).toHaveBeenLastCalledWith("bunk", {
@@ -93,28 +93,42 @@ describe("Dashboard → a room → When Occupied", () => {
     );
   });
 
-  it("refuses a Cool To with no temperature, and a temperature out of range", async () => {
+  it("refuses a cooling target alone, crossed targets, and targets out of range", async () => {
     show(room({ system_wide_temp: null }));
-    expect(temp()).toHaveValue(null);
-    fireEvent.change(coolTo(), { target: { value: "75" } });
+    expect(heat()).toHaveValue(null);
+    expect(cool()).toHaveValue(null);
+    fireEvent.change(cool(), { target: { value: "75" } });
     fireEvent.click(save());
-    expect(screen.getByText("Cool To needs a temperature to pair with.")).toBeInTheDocument();
-    fireEvent.change(temp(), { target: { value: "95" } });
+    expect(
+      screen.getByText("Add a Heating Target too. The same number in both keeps one temperature.")
+    ).toBeInTheDocument();
+    fireEvent.change(heat(), { target: { value: "76" } });
     fireEvent.click(save());
-    expect(screen.getByText("Use a temperature from 40.0°F to 90.0°F.")).toBeInTheDocument();
+    expect(
+      screen.getByText("The Cooling Target cannot be below the Heating Target.")
+    ).toBeInTheDocument();
+    fireEvent.change(heat(), { target: { value: "70" } });
+    fireEvent.change(cool(), { target: { value: "95" } });
+    fireEvent.click(save());
+    expect(screen.getByText("Use temperatures from 40.0°F to 90.0°F.")).toBeInTheDocument();
+    fireEvent.change(heat(), { target: { value: "30" } });
+    fireEvent.change(cool(), { target: { value: "" } });
+    fireEvent.click(save());
+    expect(screen.getByText("Use temperatures from 40.0°F to 90.0°F.")).toBeInTheDocument();
     expect(api.updateRoom).not.toHaveBeenCalled();
   });
 
   it("sends what a Celsius house typed, and states limits the backend accepts (#231, #521)", async () => {
     show(room(), "C");
     // 72 °F reads 22.2 °C.
-    expect(temp()).toHaveValue(22.2);
-    expect(screen.getByText("Temperature (°C)")).toBeInTheDocument();
+    expect(heat()).toHaveValue(22.2);
+    expect(screen.getByText("Heating Target (°C)")).toBeInTheDocument();
     // 4.4 °C is 39.92 °F, which the backend refuses: the limit shown is 4.5.
-    fireEvent.change(temp(), { target: { value: "4.4" } });
+    fireEvent.change(heat(), { target: { value: "4.4" } });
+    fireEvent.change(cool(), { target: { value: "" } });
     fireEvent.click(save());
-    expect(screen.getByText("Use a temperature from 4.5°C to 32.2°C.")).toBeInTheDocument();
-    fireEvent.change(temp(), { target: { value: "22" } });
+    expect(screen.getByText("Use temperatures from 4.5°C to 32.2°C.")).toBeInTheDocument();
+    fireEvent.change(heat(), { target: { value: "22" } });
     fireEvent.click(save());
     await waitFor(() =>
       expect(api.updateRoom).toHaveBeenCalledWith("bunk", {
@@ -125,12 +139,12 @@ describe("Dashboard → a room → When Occupied", () => {
   });
 
   it("reports a refused save and keeps what was typed", async () => {
-    vi.mocked(api.updateRoom).mockRejectedValueOnce(new Error("Cool To must be above the target"));
+    vi.mocked(api.updateRoom).mockRejectedValueOnce(new Error("Too close together"));
     show(room());
-    fireEvent.change(coolTo(), { target: { value: "70" } });
+    fireEvent.change(cool(), { target: { value: "73" } });
     fireEvent.click(save());
-    expect(await screen.findByText("Cool To must be above the target")).toBeInTheDocument();
-    expect(coolTo()).toHaveValue(70);
+    expect(await screen.findByText("Too close together")).toBeInTheDocument();
+    expect(cool()).toHaveValue(73);
     vi.mocked(api.updateRoom).mockRejectedValueOnce("nope");
     fireEvent.click(save());
     expect(await screen.findByText("Could not save")).toBeInTheDocument();

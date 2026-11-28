@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { StrictMode } from "react";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import BuildingAutoCard from "./BuildingAutoCard";
 import * as bm from "../buildingModeApi";
+import * as zb from "../zoneBalanceApi";
 import { buildUnitContext, UnitContext } from "../contexts";
 
 vi.mock("../buildingModeApi", async (orig) => ({
@@ -10,62 +11,105 @@ vi.mock("../buildingModeApi", async (orig) => ({
   getBuildingModes: vi.fn(),
   setBuildingMode: vi.fn(),
 }));
+vi.mock("../zoneBalanceApi", async (orig) => ({
+  ...(await orig<typeof import("../zoneBalanceApi")>()),
+  getZoneBalance: vi.fn(),
+  setZoneBalance: vi.fn(),
+}));
+
+const zone = (id: string, name: string, over: Partial<bm.ZoneModeState> = {}) => ({
+  thermostat_entity_id: id,
+  name,
+  mode: "follow" as const,
+  effective_mode: "auto" as const,
+  side: null,
+  note: "",
+  next_switch_at: null,
+  waiting: null,
+  held_for: null,
+  in_use: false,
+  ...over,
+});
 
 const MAIN: bm.BuildingMode = {
   building_id: "b1",
   name: "Main House",
   mode: "auto",
-  auto_level: "off",
+  opposite_allowed: true,
   switching: "often",
   switch_threshold: 3,
-  side: null,
-  obey: false,
-  note: "",
-  waiting: [],
+  zones: [
+    zone("climate.north", "North Wing", { side: "heating" }),
+    zone("climate.south", "South Wing", { note: "Wants cooling; 3 hours until it may switch" }),
+  ],
 };
+
+const balanceZone = (id: string, name: string, temp: number | null): zb.BalanceZone => ({
+  thermostat_entity_id: id,
+  name,
+  temp,
+  occupied: true,
+  target: null,
+  toward: null,
+  obeyed: true,
+  answering: false,
+});
+
+const BAL: zb.BalanceBuilding = {
+  building_id: "b1",
+  name: "Main House",
+  level: "on",
+  zone_gap: 4,
+  direction: "heating",
+  spread: 2,
+  zones: [
+    balanceZone("climate.north", "North Wing", 70),
+    balanceZone("climate.south", "South Wing", 72),
+  ],
+};
+const balance = (b: zb.BalanceBuilding[] = [BAL]) => ({ buildings: b, min_gap: 1, max_gap: 10 });
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.useRealTimers();
   vi.mocked(bm.getBuildingModes).mockResolvedValue([MAIN]);
   vi.mocked(bm.setBuildingMode).mockImplementation(async (_id, patch) => [{ ...MAIN, ...patch }]);
+  vi.mocked(zb.getZoneBalance).mockResolvedValue(balance());
+  vi.mocked(zb.setZoneBalance).mockImplementation(async (_id, patch) =>
+    balance([{ ...BAL, ...patch }])
+  );
 });
 
 describe("Smart Control → Auto Mode", () => {
   const pick = (group: string, name: string) =>
     within(screen.getByRole("radiogroup", { name: group })).getByRole("radio", { name });
 
-  it("shows each building's level and changes it", async () => {
+  it("lets a building's zones run opposite each other, or not", async () => {
     render(<BuildingAutoCard />);
     expect(screen.getByText("Loading the buildings…")).toBeInTheDocument();
-    await screen.findByRole("radiogroup", { name: "In Auto, Main House" });
-    expect(pick("In Auto, Main House", "Each Zone Decides")).toBeChecked();
+    const group = "Zones in Main House may run opposite each other";
+    await screen.findByRole("radiogroup", { name: group });
+    expect(pick(group, "Yes")).toBeChecked();
     expect(
-      screen.getByText(/^Each zone heats or cools whenever its own rooms need it/)
+      screen.getByText(/^When No, one zone may heat while another coasts/)
     ).toBeInTheDocument();
-    // Left to its zones, a building has no use for the rest.
-    expect(screen.queryByRole("radiogroup", { name: /may switch/ })).not.toBeInTheDocument();
-    // Picking what is already picked asks for nothing.
-    fireEvent.click(pick("In Auto, Main House", "Each Zone Decides"));
+    fireEvent.click(pick(group, "Yes"));
     expect(bm.setBuildingMode).not.toHaveBeenCalled();
-    fireEvent.click(pick("In Auto, Main House", "Try It First"));
+    fireEvent.click(pick(group, "No"));
     await waitFor(() =>
-      expect(bm.setBuildingMode).toHaveBeenCalledWith("b1", { auto_level: "watch" })
+      expect(bm.setBuildingMode).toHaveBeenCalledWith("b1", { opposite_allowed: false })
     );
-    await waitFor(() => expect(pick("In Auto, Main House", "Try It First")).toBeChecked());
-    expect(
-      screen.getByText(/the log shows what the building would have done as one/)
-    ).toBeInTheDocument();
-    expect(screen.getByRole("radiogroup", { name: /may switch/ })).toBeInTheDocument();
+    await waitFor(() => expect(pick(group, "No")).toBeChecked());
+    fireEvent.click(pick(group, "Yes"));
+    await waitFor(() =>
+      expect(bm.setBuildingMode).toHaveBeenLastCalledWith("b1", { opposite_allowed: true })
+    );
   });
 
-  it("chooses how often Auto may change sides, with the real choices", async () => {
-    vi.mocked(bm.getBuildingModes).mockResolvedValue([{ ...MAIN, auto_level: "on" }]);
-    vi.mocked(bm.setBuildingMode).mockImplementation(async (_id, patch) => [
-      { ...MAIN, auto_level: "on", ...patch },
-    ]);
+  it("chooses how often zones may switch, with the real choices", async () => {
     render(<BuildingAutoCard />);
     const group = await screen.findByRole("radiogroup", {
-      name: "How often Main House may switch",
+      name: "How often zones in Main House may switch",
     });
     expect(
       within(group)
@@ -79,18 +123,122 @@ describe("Smart Control → Auto Mode", () => {
       "title",
       expect.stringContaining("7 days")
     );
-    fireEvent.click(within(group).getByRole("radio", { name: "Once a Month" }));
+    fireEvent.click(within(group).getByRole("radio", { name: "Once a Day" }));
     await waitFor(() =>
-      expect(bm.setBuildingMode).toHaveBeenCalledWith("b1", { switching: "monthly" })
+      expect(bm.setBuildingMode).toHaveBeenCalledWith("b1", { switching: "daily" })
     );
-    expect(await screen.findByText(/^Once in any 30 days/)).toBeInTheDocument();
+    expect(await screen.findByText(/^Once in any 24 hours/)).toBeInTheDocument();
+  });
+
+  it("keeps zones within a gap, and shows how far apart they are now", async () => {
+    render(<BuildingAutoCard />);
+    const gap = await screen.findByLabelText("Gap limit for Main House");
+    expect(gap).toHaveValue("4");
+    const on = screen.getByRole("switch", { name: "Keep zones in Main House within the gap" });
+    expect(on).toBeChecked();
+    expect(screen.getByText("Right Now")).toBeInTheDocument();
+    expect(screen.getByText("Gap 2.0°F of 4.0°F allowed")).toBeInTheDocument();
+    // Why a zone has not switched yet is said beside the gap.
+    expect(
+      screen.getByText(/South Wing wants cooling; 3 hours until it may switch\.$/)
+    ).toBeInTheDocument();
+    fireEvent.change(gap, { target: { value: "6" } });
+    await waitFor(() => expect(zb.setZoneBalance).toHaveBeenCalledWith("b1", { zone_gap: 6 }));
+    await waitFor(() => expect(on).toBeEnabled());
+    fireEvent.click(on);
+    await waitFor(() => expect(zb.setZoneBalance).toHaveBeenLastCalledWith("b1", { level: "off" }));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("switch", { name: "Keep zones in Main House within the gap" })
+      ).not.toBeChecked()
+    );
+    fireEvent.click(
+      screen.getByRole("switch", { name: "Keep zones in Main House within the gap" })
+    );
+    await waitFor(() => expect(zb.setZoneBalance).toHaveBeenLastCalledWith("b1", { level: "on" }));
+  });
+
+  it("offers a stored gap that is not one of the choices, and waits for two readings", async () => {
+    vi.mocked(zb.getZoneBalance).mockResolvedValue(
+      balance([
+        {
+          ...BAL,
+          zone_gap: 7,
+          spread: null,
+          direction: null,
+          zones: [BAL.zones[0], { ...BAL.zones[1], temp: null, target: 72 }],
+        },
+      ])
+    );
+    render(<BuildingAutoCard />);
+    const gap = await screen.findByLabelText("Gap limit for Main House");
+    expect(gap).toHaveValue("7");
+    expect(
+      within(gap)
+        .getAllByRole("option")
+        .map((o) => o.textContent)
+    ).toContain("7");
+    expect(screen.getByText("Waiting for two readings")).toBeInTheDocument();
+    expect(screen.getByText("No reading")).toBeInTheDocument();
+  });
+
+  it("leaves out what one zone has no use for", async () => {
+    vi.mocked(bm.getBuildingModes).mockResolvedValue([{ ...MAIN, zones: [MAIN.zones[0]] }]);
+    render(<BuildingAutoCard />);
+    await screen.findByRole("radiogroup", { name: "How often zones in Main House may switch" });
+    expect(screen.queryByRole("radiogroup", { name: /run opposite/ })).toBeNull();
+    expect(screen.queryByLabelText("Gap limit for Main House")).toBeNull();
+  });
+
+  it("does not show the gap when it cannot be read, and keeps it over a failed refresh", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.mocked(zb.getZoneBalance).mockRejectedValueOnce(new Error("down"));
+    render(<BuildingAutoCard />);
+    await screen.findByRole("radiogroup", { name: "How often zones in Main House may switch" });
+    expect(screen.queryByLabelText("Gap limit for Main House")).toBeNull();
+    await act(async () => {
+      vi.advanceTimersByTime(30_000);
+    });
+    expect(await screen.findByLabelText("Gap limit for Main House")).toHaveValue("4");
+    vi.mocked(zb.getZoneBalance).mockRejectedValueOnce(new Error("down"));
+    await act(async () => {
+      vi.advanceTimersByTime(30_000);
+    });
+    expect(screen.getByLabelText("Gap limit for Main House")).toHaveValue("4");
+    vi.useRealTimers();
+  });
+
+  it("keeps a refresh from landing over a change being saved", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    let finish!: (z: zb.ZoneBalance) => void;
+    vi.mocked(zb.setZoneBalance).mockReturnValueOnce(new Promise((r) => (finish = r)));
+    render(<BuildingAutoCard />);
+    fireEvent.change(await screen.findByLabelText("Gap limit for Main House"), {
+      target: { value: "8" },
+    });
+    vi.mocked(zb.getZoneBalance).mockResolvedValueOnce(balance([{ ...BAL, zone_gap: 3 }]));
+    await act(async () => {
+      vi.advanceTimersByTime(30_000);
+    });
+    await act(async () => finish(balance([{ ...BAL, zone_gap: 8 }])));
+    expect(screen.getByLabelText("Gap limit for Main House")).toHaveValue("8");
+    vi.useRealTimers();
+  });
+
+  it("shows the gap in Celsius as the house reads it", async () => {
+    render(
+      <UnitContext.Provider value={buildUnitContext("C")}>
+        <BuildingAutoCard />
+      </UnitContext.Provider>
+    );
+    // 4 °F is 2.2 °C: not a choice, so it is added.
+    const gap = await screen.findByLabelText("Gap limit for Main House");
+    expect(gap).toHaveValue("2.2");
+    fireEvent.change(gap, { target: { value: "2.5" } });
+    await waitFor(() => expect(zb.setZoneBalance).toHaveBeenCalledWith("b1", { zone_gap: 2.5 }));
   });
 
   it("saves the switching threshold as typed, inside its limits", async () => {
-    vi.mocked(bm.getBuildingModes).mockResolvedValue([{ ...MAIN, auto_level: "on" }]);
-    vi.mocked(bm.setBuildingMode).mockImplementation(async (_id, patch) => [
-      { ...MAIN, auto_level: "on", ...patch },
-    ]);
     render(<BuildingAutoCard />);
     const field = await screen.findByLabelText("Switching threshold for Main House (°F)");
     expect(field).toHaveValue(3);
@@ -119,10 +267,7 @@ describe("Smart Control → Auto Mode", () => {
 
   it("shows and sends the threshold in Celsius without converting it", async () => {
     // The backend converts: 2 °C typed is stored as 3.6 °F and comes back as that.
-    vi.mocked(bm.getBuildingModes).mockResolvedValue([{ ...MAIN, auto_level: "on" }]);
-    vi.mocked(bm.setBuildingMode).mockResolvedValue([
-      { ...MAIN, auto_level: "on", switch_threshold: 3.6 },
-    ]);
+    vi.mocked(bm.setBuildingMode).mockResolvedValue([{ ...MAIN, switch_threshold: 3.6 }]);
     render(
       <UnitContext.Provider value={buildUnitContext("C")}>
         <BuildingAutoCard />
@@ -147,13 +292,14 @@ describe("Smart Control → Auto Mode", () => {
 
   it("reports a refused change and keeps what is stored", async () => {
     render(<BuildingAutoCard />);
-    await screen.findByRole("radiogroup", { name: "In Auto, Main House" });
+    const group = "Zones in Main House may run opposite each other";
+    await screen.findByRole("radiogroup", { name: group });
     vi.mocked(bm.setBuildingMode).mockRejectedValueOnce(new Error("Building not found"));
-    fireEvent.click(pick("In Auto, Main House", "Heats or Cools as One"));
+    fireEvent.click(pick(group, "No"));
     expect(await screen.findByText("Building not found")).toBeInTheDocument();
-    expect(pick("In Auto, Main House", "Each Zone Decides")).toBeChecked();
+    expect(pick(group, "Yes")).toBeChecked();
     vi.mocked(bm.setBuildingMode).mockRejectedValueOnce("x");
-    fireEvent.click(pick("In Auto, Main House", "Heats or Cools as One"));
+    fireEvent.click(pick(group, "No"));
     expect(await screen.findByText("Could not save")).toBeInTheDocument();
   });
 

@@ -26,7 +26,6 @@ import FanSection from "./FanSection";
 import EcoSection from "./EcoSection";
 import RoomUsageCard from "./RoomUsageCard";
 import SuggestionsCard from "./SuggestionsCard";
-import ZoneBalanceSection from "./ZoneBalanceSection";
 import PeakSection from "./PeakSection";
 import ForecastSection from "./ForecastSection";
 import LearningSection from "./LearningSection";
@@ -307,8 +306,6 @@ export default function SmartControl() {
         <FireplaceSection />
       ) : section === "eco-mode" ? (
         <EcoSection />
-      ) : section === "zone-balance" ? (
-        <ZoneBalanceSection />
       ) : section === "fan" ? (
         <FanSection />
       ) : section === "peak-hours" ? (

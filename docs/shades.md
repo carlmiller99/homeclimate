@@ -43,8 +43,8 @@ Each move is logged under **Settings → Logs**, in the `shades` category, with 
 
 Without this, a sunlit shade closes only once its zone is cooling, by which time the sun has already warmed the room. With **Close Ahead of a Warm Room** on, a sunlit shade also closes while the zone is idle when both of these hold:
 
-- It is warmer outside than the room's Cool To. A room on a hold or any other single target is left to the ordinary rules: it is always within a degree of its own target, so this would shut its shade whenever it was warm out. In cold weather sun through a window is welcome, so nothing closes early. With no outside sensor this never acts.
-- The room follows a band (its targets, or a schedule or occupancy band) and is within 1 °F (0.6 °C) of its Cool To already, or its Smart Learning model expects it to pass it within three hours on a day the forecast says is still warming.
+- It is warmer outside than the room's Cooling Target. A room on a hold or any other single target is left to the ordinary rules: it is always within a degree of its own target, so this would shut its shade whenever it was warm out. In cold weather sun through a window is welcome, so nothing closes early. With no outside sensor this never acts.
+- The room follows a band (its targets, or a schedule or occupancy band) and is within 1 °F (0.6 °C) of its Cooling Target already, or its Smart Learning model expects it to pass it within three hours on a day the forecast says is still warming.
 
 Every other rule still applies first: Never Control, occupied rooms, quiet hours, manual moves, overcast skies, the minimum time between moves, and a room that follows nothing (not in use) is never acted on. A heating zone still opens sunlit shades. The Engine log and the shade's status line read "Sunlit and the room is expected to get too warm, so closed ahead of it."
 

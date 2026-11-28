@@ -1,4 +1,4 @@
-import type { Locator, Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 
 /**
  * Helpers for My Home, the one page that holds buildings, zones and rooms.
@@ -103,8 +103,8 @@ export async function openRoomTuning(
 }
 
 /**
- * Open a room's occupied temperature: Dashboard → the room → When Occupied.
- * Returns that block. It stays open after a save and says "Saved".
+ * Open a room's occupied targets: Dashboard → the room → When Occupied.
+ * Returns the Heating Target / Cooling Target group. It stays open after a save.
  */
 export async function openOccupied(
   page: Page,
@@ -119,13 +119,16 @@ export async function openOccupied(
   await page
     .getByRole("button", { name: `Details for ${roomName}`, exact: true })
     .click();
-  const block = page.getByRole("region", { name: "When occupied" });
+  // Folded away by default: open it.
+  await page.getByText("When Occupied", { exact: true }).click();
+  const block = page.getByRole("group", { name: `${roomName} when occupied` });
   await block.waitFor({ state: "visible", timeout: 10_000 });
   return block;
 }
 
-/** Save the When Occupied block and wait until it says so. */
+/** Save the When Occupied targets and wait until the save has landed. */
 export async function saveOccupied(block: Locator): Promise<void> {
-  await block.getByRole("button", { name: "Save", exact: true }).click();
-  await block.getByText("Saved", { exact: true }).waitFor({ timeout: 5_000 });
+  const save = block.getByRole("button", { name: "Save", exact: true });
+  await save.click();
+  await expect(save).toBeDisabled({ timeout: 5_000 });
 }

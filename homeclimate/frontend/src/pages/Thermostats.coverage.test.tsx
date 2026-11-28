@@ -349,7 +349,8 @@ describe("Thermostats — a legacy config with null columns", () => {
     await cardsSettled("(unnamed)");
 
     // Nullable numerics render blank, never the string "null".
-    expect(document.getElementById("thermo-climate.test-default_temp")).toHaveValue(null);
+    // The zone's old occupied temperature is gone from the sheet.
+    expect(document.getElementById("thermo-climate.test-default_temp")).toBeNull();
     expect(document.getElementById("thermo-climate.test-total-vents")).toHaveValue(null);
     expect(document.getElementById("thermo-climate.test-min_cycle_runtime_min")).toHaveDisplayValue(
       ""
@@ -378,9 +379,6 @@ describe("Thermostats — a legacy config with null columns", () => {
       }),
       { target: { value: "Legacy HVAC" } }
     );
-    fireEvent.change(document.getElementById("thermo-climate.test-default_temp")!, {
-      target: { value: "70" },
-    });
     fireEvent.change(document.getElementById("thermo-climate.test-total-vents")!, {
       target: { value: "9" },
     });
@@ -400,38 +398,11 @@ describe("Thermostats — a legacy config with null columns", () => {
         "climate.test",
         expect.objectContaining({
           name: "Legacy HVAC",
-          default_temp: 70,
           total_vents_count: 9,
           min_cycle_runtime_min: 10,
           min_open_vents_fraction: 0.5,
           reconciliation_interval_min: 30,
         })
-      )
-    );
-  });
-
-  it("clears the default presence temp back to null when the field is emptied", async () => {
-    render(<Thermostats />);
-    await cardsSettled("(unnamed)");
-
-    const field = document.getElementById("thermo-climate.test-default_temp")!;
-    fireEvent.change(field, { target: { value: "70" } });
-    expect(field).toHaveValue(70);
-    fireEvent.change(field, { target: { value: "" } });
-
-    fireEvent.change(
-      screen.getByLabelText(/^Name/, {
-        selector: "#thermo-climate\\.test-name",
-      }),
-      { target: { value: "Legacy HVAC" } }
-    );
-    const card = cardOf(screen.getByLabelText(/^Number of Vents/));
-    fireEvent.click(within(card).getByText("Save Changes"));
-
-    await waitFor(() =>
-      expect(api.updateThermostat).toHaveBeenCalledWith(
-        "climate.test",
-        expect.objectContaining({ default_temp: null })
       )
     );
   });

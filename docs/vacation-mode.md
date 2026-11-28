@@ -121,7 +121,7 @@ When a trip ends, schedules and presence come back, but a room whose only trigge
 Nothing new decides what a room does; the normal [room precedence](./presence.md#priority) does:
 
 - A room with an **active schedule** or temporary hold follows that, as always, because schedules outrank presence.
-- Every other room conditions to its **presence temperature**: the room's own presence temperature, falling back to the thermostat's default temperature. A room with neither is skipped, as a real presence event would be.
+- Every other room conditions to its **When Occupied** targets. A room with none set is skipped, as a real presence event would be.
 - A room with **presence holdover set to 0** has presence turned off, so welcome home skips it too. That is the per-room opt-out.
 
 The synthetic presence lasts **`welcome_home_hours`** from the moment it fires, whatever the room's own holdover is, and it never shortens a longer holdover that is already running. Real motion after it works as usual, and if nobody arrives the rooms simply time out. See [Presence](./presence.md#welcome-home-after-vacation).

@@ -1,4 +1,3 @@
-import { entityName } from "../entityNames";
 import { useState } from "react";
 import {
   describeBuilding,
@@ -11,12 +10,9 @@ import {
 /** Dashboard: a building's heating/cooling mode, and what it is doing about it. */
 export default function BuildingModeControl({
   building,
-  zoneNames,
   onSaved,
 }: {
   building: BuildingMode;
-  /** Thermostat entity id → the zone's name, for "Upstairs is waiting to cool". */
-  zoneNames: Record<string, string>;
   onSaved: (buildings: BuildingMode[]) => void;
 }) {
   const [saving, setSaving] = useState(false);
@@ -55,13 +51,6 @@ export default function BuildingModeControl({
       </label>
       <span className="building-mode-status" role="status">
         {describeBuilding(building)}
-        {building.waiting.map((w) => (
-          <span key={w.thermostat_entity_id} className="building-mode-wait">
-            {` ${zoneNames[w.thermostat_entity_id] ?? entityName(w.thermostat_entity_id)} ${
-              w.obeyed ? "is waiting" : "would be waiting"
-            } to start ${w.direction}.`}
-          </span>
-        ))}
       </span>
       {error && <span className="form-error">{error}</span>}
     </div>

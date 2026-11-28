@@ -1,12 +1,6 @@
 import { api } from "./api";
 
-export type BalanceLevel = "off" | "watch" | "on";
-
-export const BALANCE_LEVEL_LABELS: Record<BalanceLevel, string> = {
-  off: "Off",
-  watch: "Watch Only",
-  on: "On",
-};
+export type BalanceLevel = "off" | "on";
 
 export interface BalanceZone {
   thermostat_entity_id: string;
@@ -68,7 +62,6 @@ export function describeBalance(
   if (called.length > 0) {
     const names = called.map((z) => `${z.name} to ${fmtTemp(z.target as number)}`).join(", ");
     const verb = b.direction === "cooling" ? "cooling" : "heating";
-    if (!called[0].obeyed) return `${apart} Would be ${verb} ${names} (watching only).`;
     return called.some((z) => z.answering)
       ? `${apart} Now ${verb} ${names}.`
       : `${apart} Asking for ${names}, but no room there can answer: each has its own target, is paused, or is close enough already.`;

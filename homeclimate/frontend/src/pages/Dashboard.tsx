@@ -29,7 +29,13 @@ import {
 } from "../zonesApi";
 import { bandText } from "../bands";
 import BuildingModeControl from "../components/BuildingModeControl";
-import { getBuildingModes, type BuildingMode } from "../buildingModeApi";
+import {
+  getBuildingModes,
+  zoneModeWord,
+  zoneWaitText,
+  type BuildingMode,
+} from "../buildingModeApi";
+import ZoneModal from "../components/ZoneModal";
 import TodayCard from "../components/TodayCard";
 import ConfirmDialog from "../components/ConfirmDialog";
 import {
@@ -40,8 +46,7 @@ import {
 } from "../components/TargetsCard";
 import { roomState, STATE_PILL, type RoomState } from "../roomState";
 import RoomDetailsModal, { type SensorReading } from "../components/RoomDetailsModal";
-import RoomFollowDialog from "../components/RoomFollowDialog";
-import { calendarFor, getHouse, switchesFor, type House } from "../houseApi";
+import { getHouse, switchesFor, type House } from "../houseApi";
 import { getSmartControl, type SmartControl } from "../smartControlApi";
 import { useSystem, useTimeZone, useUnit } from "../contexts";
 import { onStateChanged } from "../stateEvents";
@@ -115,10 +120,9 @@ function modeLabel(action: string, state: string): string {
   return state;
 }
 
-/** The per-room switches, and how to open a room's options. Null until loaded. */
+/** The per-room switches. Null until loaded. */
 const HouseContext = createContext<{
   house: House;
-  openOptions: (room: { id: string; name: string }) => void;
   /** What the room is kept between, for the line under its name. */
   noteFor: (room: { id: string; name: string }) => string;
 } | null>(null);
@@ -252,7 +256,7 @@ function RoomRow({
             <span
               className="badge badge-gray"
               role="status"
-              title="This room is usually used about now, so it is being brought to its occupied temperature ahead of time"
+              title="This room is usually used about now, so it is being brought to its occupied targets ahead of time"
             >
               Getting Ready
             </span>
@@ -261,7 +265,7 @@ function RoomRow({
             <span
               className="badge badge-gray"
               role="status"
-              title="This room is being cooled a little now, because it is expected to pass its Cool To later on a warming afternoon"
+              title="This room is being cooled a little now, because it is expected to pass its Cooling Target later on a warming afternoon"
             >
               Cooling Early
             </span>
@@ -374,6 +378,9 @@ function ZoneCard({
   smart,
   onSuspendEco,
   showActiveRoomsSample,
+  modeWord,
+  waitText,
+  onOpen,
 }: {
   zone: ZoneStatus;
   rooms: Room[];
@@ -387,6 +394,12 @@ function ZoneCard({
   smart: SmartControl | null;
   onSuspendEco: (thermostatEntityId: string) => void;
   showActiveRoomsSample: boolean;
+  /** The zone's mode in a word or two: "Follows Main House", "Cool". */
+  modeWord: string;
+  /** Why the zone is not running as its mode asks, or null. */
+  waitText: string | null;
+  /** Open the zone's settings. */
+  onOpen: () => void;
 }) {
   const { fmtTemp } = useUnit();
   const tz = useTimeZone();
@@ -396,6 +409,7 @@ function ZoneCard({
   const badgeClass = `badge badge-${colorClass}`;
   const zonePaused = pausedBy(smart, "zone", zone.thermostat_entity_id, rooms);
   const tc = thermostats.find((t) => t.thermostat_entity_id === zone.thermostat_entity_id);
+  const zoneName = tc?.name || zone.thermostat_entity_id.split(".").pop()?.replace(/_/g, " ");
   const zoneRooms = rooms.filter((r) => r.thermostat_entity_id === zone.thermostat_entity_id);
   const pausedRooms = Object.fromEntries(
     zoneRooms.map((r) => [r.id, pausedBy(smart, "room", r.id, rooms)])
@@ -430,11 +444,15 @@ function ZoneCard({
 
   return (
     <div className="card" data-testid={`dash-zone-${zone.thermostat_entity_id}`}>
-      <div className="flex-between" style={{ marginBottom: ".75rem" }}>
+      <button
+        type="button"
+        className="dash-zone-open"
+        aria-label={`Settings for ${zoneName}`}
+        onClick={onOpen}
+      >
         <div>
           <div className="card-title" style={{ marginBottom: 0 }}>
-            {thermostats.find((t) => t.thermostat_entity_id === zone.thermostat_entity_id)?.name ||
-              zone.thermostat_entity_id.split(".").pop()?.replace(/_/g, " ")}
+            {zoneName}
           </div>
           {/* The thermostat's own reading and setpoint, then how the zone's
               rooms stand: the same states their pills show. */}
@@ -451,11 +469,20 @@ function ZoneCard({
             )}
           </div>
         </div>
-        {/* hvac action badge flips Cooling/Heating/Idle as the engine cycles */}
-        <Frozen frozen={<span className="badge badge-gray">{FROZEN}</span>}>
-          <span className={badgeClass}>{label}</span>
-        </Frozen>
-      </div>
+        <span className="dash-zone-mode">
+          {/* hvac action badge flips Cooling/Heating/Idle as the engine cycles */}
+          <Frozen frozen={<span className="badge badge-gray">{FROZEN}</span>}>
+            <span className={badgeClass}>{label}</span>
+          </Frozen>
+          <span className="dash-zone-mode-word">{modeWord}</span>
+          <span className="room-details-chevron" aria-hidden="true" />
+        </span>
+      </button>
+      {waitText && (
+        <p className="dash-zone-wait">
+          <Frozen>{waitText}</Frozen>
+        </p>
+      )}
 
       {zonePaused && (
         <div className="dash-paused" role="status">
@@ -579,9 +606,10 @@ export default function Dashboard() {
   // Each list having loaded once is enough: they need not arrive together.
   const loadedLists = useRef({ b: false, zp: false });
   const [buildingModes, setBuildingModes] = useState<BuildingMode[]>([]);
+  // The zone whose settings are open, by thermostat.
+  const [zoneFor, setZoneFor] = useState<string | null>(null);
   const system = useSystem();
   const [confirmSystem, setConfirmSystem] = useState(false);
-  const [optionsFor, setOptionsFor] = useState<{ id: string; name: string } | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [actionError, setActionError] = useState("");
 
@@ -753,7 +781,6 @@ export default function Dashboard() {
   const houseCtx = house
     ? {
         house,
-        openOptions: setOptionsFor,
         noteFor: (room: { id: string; name: string }) =>
           describeTargets(house, levelOfRoom(room.id, room.name), toDisplay, unitLabel),
       }
@@ -798,7 +825,7 @@ export default function Dashboard() {
       return "Not in use: only a hold or its safety limits heat or cool it.";
     }
     const active = zones.flatMap((z) => z.rooms).find((a) => a.room_id === roomId);
-    if (active?.presence_active) return "Occupied: kept at its occupied temperature.";
+    if (active?.presence_active) return "Occupied: kept at its occupied targets.";
     if (active) return "Asking for heating or cooling now.";
     return "Not asking for heating or cooling right now.";
   };
@@ -811,6 +838,14 @@ export default function Dashboard() {
   const levelOfZone = (z: ZoneProfile): TargetLevel => {
     const b = buildings.find((x) => x.id === z.building_id);
     return zoneLevel(z, b ? buildingLevel(b) : undefined);
+  };
+  const profileOf = (tid: string) => profiles.find((p) => p.thermostat_entity_id === tid);
+  const modeOfBuilding = (tid: string) =>
+    buildingModes.find((b) => b.zones.some((z) => z.thermostat_entity_id === tid)) ?? null;
+  const waitOf = (tid: string) => {
+    const b = modeOfBuilding(tid);
+    const z = b?.zones.find((x) => x.thermostat_entity_id === tid);
+    return b && z ? zoneWaitText(z, b) : null;
   };
   /** A room as a targets level, with its zone and building above it. */
   const levelOfRoom = (roomId: string, name: string): TargetLevel => {
@@ -1027,9 +1062,6 @@ export default function Dashboard() {
                           <BuildingModeControl
                             key={m.building_id}
                             building={m}
-                            zoneNames={Object.fromEntries(
-                              profiles.map((p) => [p.thermostat_entity_id, p.name])
-                            )}
                             onSaved={setBuildingModes}
                           />
                         ))}
@@ -1057,46 +1089,6 @@ export default function Dashboard() {
                         </button>
                       )}
                     </div>
-                    {house && structureLoaded && (
-                      <div className="dash-building-targets">
-                        {(() => {
-                          const zoneRows = profiles
-                            .filter((p) =>
-                              group.items.some(
-                                (z) => z.thermostat_entity_id === p.thermostat_entity_id
-                              )
-                            )
-                            .map((p) => (
-                              <TargetsRow
-                                key={p.thermostat_entity_id}
-                                house={house}
-                                level={levelOfZone(p)}
-                                onSaved={setHouse}
-                              />
-                            ));
-                          // A zone in a building follows it unless told otherwise, so
-                          // its own targets are folded away; one in no building has
-                          // nothing above it and is shown outright.
-                          return group.building ? (
-                            <details
-                              className="targets-more"
-                              // Open when a zone here has targets of its own, so an
-                              // override is never out of sight.
-                              open={(house.targets ?? []).some(
-                                (t) =>
-                                  t.scope === "zone" &&
-                                  group.items.some((z) => z.thermostat_entity_id === t.scope_id)
-                              )}
-                            >
-                              <summary>{`Targets for zones in ${group.building.name}`}</summary>
-                              {zoneRows}
-                            </details>
-                          ) : (
-                            zoneRows
-                          );
-                        })()}
-                      </div>
-                    )}
                     <div className="card-grid">
                       {group.items.map((z) => (
                         <ZoneCard
@@ -1110,11 +1102,41 @@ export default function Dashboard() {
                           smart={smart}
                           onSuspendEco={(tid) => setEcoSuspendFor({ thermostat: tid })}
                           showActiveRoomsSample={z === zones[0]}
+                          modeWord={zoneModeWord(
+                            profileOf(z.thermostat_entity_id)?.mode ?? "follow",
+                            group.building?.name ?? null
+                          )}
+                          waitText={waitOf(z.thermostat_entity_id)}
+                          onOpen={() => setZoneFor(z.thermostat_entity_id)}
                         />
                       ))}
                     </div>
                   </section>
                 ))
+            )}
+
+            {zoneFor && profileOf(zoneFor) && (
+              <ZoneModal
+                zone={profileOf(zoneFor) as ZoneProfile}
+                level={levelOfZone(profileOf(zoneFor) as ZoneProfile)}
+                house={structureLoaded ? house : null}
+                building={modeOfBuilding(zoneFor)}
+                thermostatTemp={
+                  zones.find((z) => z.thermostat_entity_id === zoneFor)?.current_temp ?? null
+                }
+                onSavedZone={(saved) => {
+                  setProfiles((list) =>
+                    list.map((p) =>
+                      p.thermostat_entity_id === saved.thermostat_entity_id ? saved : p
+                    )
+                  );
+                  void getBuildingModes()
+                    .then(setBuildingModes)
+                    .catch(() => undefined);
+                }}
+                onSaved={setHouse}
+                onClose={() => setZoneFor(null)}
+              />
             )}
 
             {detailsFor && (
@@ -1127,7 +1149,6 @@ export default function Dashboard() {
                   temps[detailsFor.id] ??
                   null
                 }
-                readings={readings[detailsFor.id] ?? []}
                 held={holds.some((h) => h.room_id === detailsFor.id)}
                 status={roomStatus(detailsFor.id)}
                 active={zones.flatMap((z) => z.rooms).find((a) => a.room_id === detailsFor.id)}
@@ -1143,10 +1164,6 @@ export default function Dashboard() {
                   // Back to the page, which is where a failure is reported.
                   setDetailsFor(null);
                   void cancelHold(detailsFor.id);
-                }}
-                onOptions={() => {
-                  setOptionsFor(detailsFor);
-                  setDetailsFor(null);
                 }}
                 onClose={() => setDetailsFor(null)}
               />
@@ -1179,16 +1196,6 @@ export default function Dashboard() {
                 holds={Object.fromEntries(holds.map((h) => [h.room_id, h]))}
                 onClose={() => setHoldModalFor(null)}
                 onChanged={load}
-              />
-            )}
-            {optionsFor && house && (
-              <RoomFollowDialog
-                roomId={optionsFor.id}
-                roomName={optionsFor.name}
-                switches={switchesFor(house, optionsFor.id)}
-                calendar={calendarFor(house, optionsFor.id)?.entity_id ?? null}
-                onSaved={setHouse}
-                onClose={() => setOptionsFor(null)}
               />
             )}
           </div>

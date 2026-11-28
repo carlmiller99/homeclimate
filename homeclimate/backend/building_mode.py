@@ -3,7 +3,8 @@
 Each building has a mode, set on the Dashboard: ``auto``, ``heat_only``,
 ``cool_only`` or ``off``. Each zone has a mode of its own, also on the
 Dashboard: ``follow`` (its building's), ``auto``, ``heat``, ``cool`` or ``off``.
-A zone in no building that follows chooses freely, with no limits.
+A zone in no building that follows, or is set to Auto, chooses freely, with
+no limits.
 
 A zone in **Auto** keeps its own side, heating or cooling. It starts on the
 side of its first cycle and switches when it has been waiting for the other
@@ -331,12 +332,14 @@ def effective_mode(zone_mode: str, building: BuildingMode | None) -> str:
     """The mode a zone runs in: its own, or its building's when it follows.
 
     Building modes are given in the zone's words: heat_only → heat, and so on.
-    A zone in no building that follows is in Auto with nothing to hold it.
+    A zone in no building that follows, or is set to Auto, chooses freely.
     """
+    if building is None and zone_mode in ("follow", "auto"):
+        # Auto has its limits from a building; with none it chooses freely.
+        return "free"
     if zone_mode != "follow":
         return zone_mode
-    if building is None:
-        return "free"
+    assert building is not None
     return {"heat_only": "heat", "cool_only": "cool"}.get(building.mode, building.mode)
 
 

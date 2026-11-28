@@ -31,8 +31,9 @@ Each room shows a pill beside its temperature:
 Manual controls live here and nowhere else:
 
 - **System On / Off** at the top right: one switch for all of HomeClimate's control. It asks before switching.
-- **One card per building**, with the building's heating and cooling targets in its header, its zones' own targets folded underneath, and a **Hold a Room** button. See [Targets](./house-band.md).
-- **Each room is one row**: its name and one temperature. Click anywhere on the row for the room's details: its own targets, **Start a Hold** or **Cancel Hold**, whether it is in use and what it follows, **Clear Presence** when occupancy is holding it, its vents, and each sensor's reading. See [Temperature holds](./temperature-holds.md).
+- **One card per building**, with the building's mode and its heating and cooling targets in its header, and a **Hold a Room** button. See [Targets](./house-band.md).
+- **Each zone's card** shows what it is doing and its mode. Tap its name for its settings: its mode (Follow Building, Auto, Heat, Cool or Off) and its baseline targets. See [Building and zone modes](./building-mode.md).
+- **Each room is one row**: its name and one temperature. Click anywhere on the row for the room's card: its **Baseline Temperature Target**, its **When Occupied** and **When Unoccupied** targets (folded away until opened), **Start a Hold** or **Cancel Hold**, **Clear Presence** when occupancy is holding it, and its vents. Its sensors are set in My Home, and what it follows in Smart Control → Rooms. See [Temperature holds](./temperature-holds.md).
 - **Suspend Eco**, for the house or for one zone. See [Eco Mode](./eco-mode.md).
 - **Vacation mode**. See [Vacation mode](./vacation-mode.md).
 
@@ -55,15 +56,14 @@ One page for the whole structure: buildings, the zones in each building, and the
 
 A side menu of sections:
 
-- **Rooms** — one card per room. Open it for whether the room is in use (always, never, or while a Home Assistant calendar event is on), its occupied temperature, its time blocks through the week, and **Fine Tuning**: occupancy holdover, temperature offset, deadband, waiting on the weather, its own Eco Mode. See [Schedules](./schedules.md), [House band](./house-band.md) and [Rooms & zones](./rooms-and-zones.md).
+- **Rooms** — one card per room. Open it for whether the room is in use (always, never, or while a Home Assistant calendar event is on), whether it follows its schedules and occupancy, a line naming its occupied targets (set on the Dashboard), its time blocks through the week, and **Fine Tuning**: occupancy holdover, temperature offset, deadband, waiting on the weather, its own Eco Mode. See [Schedules](./schedules.md), [House band](./house-band.md) and [Rooms & zones](./rooms-and-zones.md).
 - **Doors & Windows** — how long a door or window can stay open before its room or zone pauses, per-zone and per-room overrides, and **Shades**. The sensors themselves are added to rooms in My Home. See [Doors & windows](./doors-and-windows.md) and [Shades](./shades.md).
 - **Smart Learning** — records how each room heats and cools, and shows how much each room has collected. See [Smart Learning](./smart-learning.md).
-- **Auto Mode** — what a building does when its Dashboard mode is Auto: let each zone decide or heat and cool as one, how often it may switch, and how far past its target a room must be first. See [Building mode](./building-mode.md).
+- **Auto Mode** — per building: whether its zones may run opposite each other, how often a zone may switch between heating and cooling, how far past its target a room must be first, and Keep Zones Within. See [Building and zone modes](./building-mode.md).
 - **Forecasts** — the weather source, and the forecast HomeClimate has fetched. See [Forecasts](./forecasts.md).
 - **Fireplace** — which entity says a fire is lit, the rooms it warms, and what to do while it burns. Fireplaces are added here, not in My Home, because most rooms don't have one. See [Fireplace](./fireplace.md).
 - **Fan** — run the fan alone to mix a zone's rooms while its building holds it to heating or to cooling. See [Fan](./fan.md).
 - **Peak Hours** — bank heat or cool in banded rooms ahead of the hours when electricity costs most. See [Peak Hours](./peak-hours.md).
-- **Zone Balance** — per building: whether zones are kept within a gap of each other, and the gap. See [Zone Balance](./zone-balance.md).
 - **Eco Mode** — per zone: whether targets relax when it is very hot or cold outside, and by how much. A single room's own Eco settings are in Smart Control → Rooms. See [Eco Mode](./eco-mode.md).
 
 ## Settings
@@ -71,7 +71,7 @@ A side menu of sections:
 A side menu of sections:
 
 - **General** — the house time zone, and backup and restore.
-- **Sensors** — the sensor-staleness threshold.
+- **Sensors** — the sensor-staleness threshold. Sensors themselves are added on the My Home tab.
 - **Integrations** — the MCP server and its access tokens, and the MQTT bridge.
 - **Notifications** — which warnings are sent to your phone, through which Home Assistant notify service, and the daily summary. See [Notifications](./notifications.md).
 - **Logs** — the live feed, cycle history and log retention.
