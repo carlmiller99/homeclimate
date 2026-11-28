@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within, waitFor } from "@testing-library/react";
 import Dashboard from "./Dashboard";
 import * as api from "../api";
 import { SystemContext, DevModeContext, UnitContext, buildUnitContext } from "../contexts";
@@ -206,15 +206,17 @@ describe("Dashboard — uncovered branches", () => {
     await screen.findAllByText("Upstairs");
 
     // modeColor("heating") === "orange"; modeLabel("heating", …) === "Heating".
-    const badge = screen.getByText("Heating");
+    const card = cardFor("climate.a");
+    const badge = card.querySelector(".flex-between > .badge") as HTMLElement;
+    expect(badge).toHaveTextContent("Heating");
     expect(badge.className).toBe("badge badge-orange");
 
-    // 1 of 2 active rooms is done (all vents closed) → the bar is half full and
-    // carries the heating (not cooling) class.
-    const fill = container.querySelector(".progress-fill") as HTMLElement;
-    expect(fill.className).toBe("progress-fill heating");
-    expect(fill.style.width).toBe("50%");
-    expect(screen.getByText("1/2 rooms at target")).toBeInTheDocument();
+    // No progress bar: each room says how it stands instead. The room with an
+    // open vent in a heating cycle is Heating; the zone line counts the same.
+    expect(container.querySelector(".progress-fill")).toBeNull();
+    const study = within(card).getByTestId("dash-room-r2");
+    expect(within(study).getByText("Heating").className).toBe("badge badge-orange");
+    await waitFor(() => expect(card).toHaveTextContent(/1 heating, 1 without a reading/));
 
     // The room with no reading renders the em-dash placeholder.
     const denRow = screen.getByText("Den").closest(".dash-room") as HTMLElement;
@@ -286,14 +288,15 @@ describe("Dashboard — uncovered branches", () => {
     const card = cardFor("climate.a");
 
     // The thermostat's reading and its setpoint both fall back to the em-dash.
-    expect(card).toHaveTextContent("Thermostat —, set to —");
+    // The thermostat's reading falls back to the em-dash; no setpoint, no "set to".
+    expect(card).toHaveTextContent("Thermostat —");
+    expect(card).not.toHaveTextContent("set to");
 
     // An idle cycle shows no progress bar.
     expect(container.querySelector(".progress-fill")).toBeNull();
 
-    // 0 of the zone's 2 rooms are active, but both are still listed, each
-    // with a dash until a sensor reports.
-    expect(card).toHaveTextContent("0 of 2 rooms asking");
+    // Both rooms are listed, each with a dash and no reading to count.
+    await waitFor(() => expect(card).toHaveTextContent("2 without a reading"));
     expect(within(card).getByText("Empty, drifting further")).toBeInTheDocument();
     for (const id of ["r1", "r2"]) {
       const row = within(card).getByTestId(`dash-room-${id}`);

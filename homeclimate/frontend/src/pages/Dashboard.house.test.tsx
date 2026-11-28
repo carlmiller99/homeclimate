@@ -554,3 +554,50 @@ describe("Dashboard system switch", () => {
     expect(toggle).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("each room says how it stands", () => {
+  const readings = (values: Record<string, number | null>) => {
+    vi.mocked(api.getRoom).mockImplementation(
+      async (id: string) =>
+        ({
+          id,
+          sensors: id in values ? [{ entity_id: `sensor.${id}` }] : [],
+        }) as unknown as Awaited<ReturnType<typeof api.getRoom>>
+    );
+    vi.mocked(api.getEntityStates).mockResolvedValue(
+      Object.fromEntries(
+        Object.entries(values).map(([id, v]) => [`sensor.${id}`, { numeric: v }])
+      ) as unknown as Awaited<ReturnType<typeof api.getEntityStates>>
+    );
+  };
+  const pill = (name: string) =>
+    within(screen.getByRole("button", { name: `Details for ${name}` })).queryByText(
+      /Target|Reading|Sensor|Heating|Cooling/
+    );
+
+  it("against the band it follows, and counts the same on the zone's line", async () => {
+    readings({ kitchen: 66, bunk: 76 });
+    show();
+    await waitFor(() => expect(pill("Kitchen")).toHaveTextContent("Below Target"));
+    expect(pill("Bunk Room")).toHaveTextContent("Above Target");
+    expect(screen.getByText("1 below target, 1 above target")).toBeInTheDocument();
+    // The thermostat line names its setpoint when it has one.
+    expect(screen.getByText(/Thermostat 68\.0°F, set to 70\.0°F/)).toBeInTheDocument();
+  });
+
+  it("says when every room is at target", async () => {
+    readings({ kitchen: 70, bunk: 72 });
+    show();
+    await waitFor(() => expect(pill("Kitchen")).toHaveTextContent("At Target"));
+    expect(pill("Bunk Room")).toHaveTextContent("At Target");
+    expect(screen.getByText("All rooms at target")).toBeInTheDocument();
+  });
+
+  it("tells a room with no sensor from one whose sensor is silent", async () => {
+    readings({ kitchen: null });
+    show();
+    await waitFor(() => expect(pill("Kitchen")).toHaveTextContent("No Reading"));
+    expect(pill("Bunk Room")).toHaveTextContent("No Sensor");
+    expect(screen.getByText("2 without a reading")).toBeInTheDocument();
+  });
+});

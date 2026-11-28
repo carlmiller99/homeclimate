@@ -30,7 +30,13 @@ import BuildingModeControl from "../components/BuildingModeControl";
 import { getBuildingModes, type BuildingMode } from "../buildingModeApi";
 import TodayCard from "../components/TodayCard";
 import ConfirmDialog from "../components/ConfirmDialog";
-import { describeTargets, TargetsRow, type TargetLevel } from "../components/TargetsCard";
+import {
+  describeTargets,
+  effective,
+  TargetsRow,
+  type TargetLevel,
+} from "../components/TargetsCard";
+import { roomState, STATE_PILL, type RoomState } from "../roomState";
 import RoomDetailsModal, { type SensorReading } from "../components/RoomDetailsModal";
 import RoomFollowDialog from "../components/RoomFollowDialog";
 import { calendarFor, getHouse, switchesFor, type House } from "../houseApi";
@@ -113,7 +119,10 @@ const HouseContext = createContext<{
   openOptions: (room: { id: string; name: string }) => void;
   /** What the room is kept between, for the line under its name. */
   noteFor: (room: { id: string; name: string }) => string;
+  /** The heat-to and cool-to the room follows (°F), or null when it has none. */
+  bandFor: (room: { id: string; name: string }) => { heat: number; cool: number } | null;
 } | null>(null);
+
 /** Opens a room's details. Always there, so a room can be held or have its
  *  occupancy cleared even when the home's layout could not be read. */
 const OpenRoomContext = createContext<(room: { id: string; name: string }) => void>(() => {});
@@ -122,6 +131,8 @@ function RoomRow({
   room,
   active,
   temp,
+  sensorCount,
+  zoneAction = "",
   held,
   paused,
   fireplace,
@@ -133,7 +144,11 @@ function RoomRow({
 }: {
   room: { id: string; name: string };
   active?: ZoneStatus["rooms"][number];
-  temp: number | null;
+  /** Undefined until the readings have loaded. */
+  temp: number | null | undefined;
+  sensorCount?: number;
+  /** What the zone's thermostat is doing: heating, cooling, idle… */
+  zoneAction?: string;
   held: boolean;
   /** Names of the open doors/windows pausing this room, or null. */
   paused: string[] | null;
@@ -154,7 +169,9 @@ function RoomRow({
   const openRoom = useContext(OpenRoomContext);
   const notInUse = houseCtx !== null && !switchesFor(houseCtx.house, room.id).in_use;
   const { fmtTemp } = useUnit();
-  const shownTemp = active?.avg_temp ?? temp;
+  const shownTemp = active?.avg_temp ?? temp ?? null;
+  const pill =
+    STATE_PILL[roomState(temp, sensorCount, houseCtx?.bandFor(room) ?? null, active, zoneAction)];
   // The whole row opens the room's details, where its targets, hold,
   // occupancy, vents and sensors are. The row itself shows one number.
   return (
@@ -250,6 +267,11 @@ function RoomRow({
         {houseCtx && <span className="dash-room-note">{houseCtx.noteFor(room)}</span>}
       </span>
       <span className="dash-room-temp">
+        {pill && (
+          <span className={`badge ${pill.cls}`} title={pill.title}>
+            {pill.text}
+          </span>
+        )}
         <span className="stat-value">{shownTemp != null ? fmtTemp(shownTemp) : "—"}</span>
       </span>
     </button>
@@ -260,6 +282,8 @@ function roomsBlock(
   zoneRooms: { id: string; name: string }[],
   activeList: ZoneStatus["rooms"],
   temps: Record<string, number | null>,
+  sensorCounts: Record<string, number>,
+  zoneAction: string,
   heldRoomIds: Set<string>,
   pausedRooms: Record<string, string[] | null>,
   fireplaceRooms: Record<string, string>,
@@ -285,7 +309,9 @@ function roomsBlock(
           key={room.id}
           room={room}
           active={activeList.find((a) => a.room_id === room.id)}
-          temp={temps[room.id] ?? null}
+          temp={temps[room.id]}
+          sensorCount={sensorCounts[room.id]}
+          zoneAction={zoneAction}
           held={heldRoomIds.has(room.id)}
           paused={pausedRooms[room.id] ?? null}
           fireplace={fireplaceRooms[room.id] ?? null}
@@ -323,6 +349,7 @@ function ZoneCard({
   thermostats,
   heldRoomIds,
   temps,
+  sensorCounts,
   smart,
   onSuspendEco,
   showActiveRoomsSample,
@@ -333,6 +360,8 @@ function ZoneCard({
   // #576: rooms currently driven by a temporary hold, for the per-room badge.
   heldRoomIds: Set<string>;
   temps: Record<string, number | null>;
+  /** How many temperature sensors each room has; missing until loaded. */
+  sensorCounts: Record<string, number>;
   /** Door and window pauses; null when they could not be read. */
   smart: SmartControl | null;
   onSuspendEco: (thermostatEntityId: string) => void;
@@ -340,24 +369,41 @@ function ZoneCard({
 }) {
   const { fmtTemp } = useUnit();
   const tz = useTimeZone();
+  const houseCtx = useContext(HouseContext);
   const colorClass = modeColor(zone.hvac_action);
   const label = modeLabel(zone.hvac_action, zone.hvac_mode);
   const badgeClass = `badge badge-${colorClass}`;
   const zonePaused = pausedBy(smart, "zone", zone.thermostat_entity_id, rooms);
   const tc = thermostats.find((t) => t.thermostat_entity_id === zone.thermostat_entity_id);
   const zoneRooms = rooms.filter((r) => r.thermostat_entity_id === zone.thermostat_entity_id);
-  const totalRooms = zoneRooms.length;
   const pausedRooms = Object.fromEntries(
     zoneRooms.map((r) => [r.id, pausedBy(smart, "room", r.id, rooms)])
   );
   const fireplaceRooms = Object.fromEntries(
     (smart?.fireplace_rooms ?? []).map((f) => [f.room_id, f.fireplace])
   );
-  const activeRooms = zone.rooms.length;
-  const doneRooms = zone.rooms.filter((r) =>
-    Object.values(r.vent_states).every((s) => s === "closed")
-  ).length;
-  const progress = activeRooms > 0 ? doneRooms / activeRooms : 0;
+  // The same states the rooms' pills show, counted for the line under the zone.
+  const states = zoneRooms.map((r) =>
+    roomState(
+      temps[r.id],
+      sensorCounts[r.id],
+      houseCtx?.bandFor(r) ?? null,
+      zone.rooms.find((a) => a.room_id === r.id),
+      zone.hvac_action
+    )
+  );
+  const count = (...which: RoomState[]) => states.filter((x) => which.includes(x)).length;
+  const summary = [
+    [count("heating"), "heating"],
+    [count("cooling"), "cooling"],
+    [count("below"), "below target"],
+    [count("above"), "above target"],
+    [count("no-sensor", "no-reading"), "without a reading"],
+  ]
+    .filter(([n]) => (n as number) > 0)
+    .map(([n, what]) => `${n} ${what}`);
+  const allAtTarget =
+    states.length > 0 && states.every((x) => x === "at-target") ? "All rooms at target" : null;
 
   return (
     <div className="card" data-testid={`dash-zone-${zone.thermostat_entity_id}`}>
@@ -367,14 +413,16 @@ function ZoneCard({
             {thermostats.find((t) => t.thermostat_entity_id === zone.thermostat_entity_id)?.name ||
               zone.thermostat_entity_id.split(".").pop()?.replace(/_/g, " ")}
           </div>
-          {/* The thermostat's own reading and what it is set to, and how many
-              of the zone's rooms are asking right now. */}
+          {/* The thermostat's own reading and setpoint, then how the zone's
+              rooms stand: the same states their pills show. */}
           <div className="dash-zone-sub" title={zone.thermostat_entity_id}>
-            {`Thermostat ${zone.current_temp != null ? fmtTemp(zone.current_temp) : "—"}, set to ${zone.setpoint != null ? fmtTemp(zone.setpoint) : "—"}`}
-            <span className="dash-zone-asking">
-              <Frozen>{activeRooms}</Frozen>
-              {` of ${totalRooms} ${totalRooms === 1 ? "room" : "rooms"} asking`}
-            </span>
+            {`Thermostat ${zone.current_temp != null ? fmtTemp(zone.current_temp) : "—"}`}
+            {zone.setpoint != null && `, set to ${fmtTemp(zone.setpoint)}`}
+            {(summary.length > 0 || allAtTarget) && (
+              <span className="dash-zone-asking">
+                <Frozen>{allAtTarget ?? summary.join(", ")}</Frozen>
+              </span>
+            )}
             {zone.empty_drift && (
               <span className="dash-zone-asking" title="Eco Mode: nobody is using this zone">
                 Empty, drifting further
@@ -387,25 +435,6 @@ function ZoneCard({
           <span className={badgeClass}>{label}</span>
         </Frozen>
       </div>
-
-      {/* Progress bar + active-rooms list reflect live cycle membership, which
-          flips between the update and verify screenshot passes. Drop them under
-          CI so the card is deterministic. */}
-      <Frozen frozen={null}>
-        {zone.cycle_state === "running" && activeRooms > 0 && (
-          <>
-            <div className="progress-bar" style={{ marginTop: ".75rem" }}>
-              <div
-                className={`progress-fill ${colorClass === "blue" ? "cooling" : "heating"}`}
-                style={{ width: `${progress * 100}%` }}
-              />
-            </div>
-            <div className="text-sm text-muted" style={{ marginTop: ".25rem" }}>
-              {doneRooms}/{activeRooms} rooms at target
-            </div>
-          </>
-        )}
-      </Frozen>
 
       {zonePaused && (
         <div className="dash-paused" role="status">
@@ -430,6 +459,8 @@ function ZoneCard({
                   room_id: zoneRooms[i].id,
                 })),
           temps,
+          sensorCounts,
+          zone.hvac_action,
           // Holds are set and cleared by the user (or a spec), not by the
           // engine, so they stay live under CI.
           heldRoomIds,
@@ -441,6 +472,8 @@ function ZoneCard({
           zoneRooms,
           zone.rooms,
           temps,
+          sensorCounts,
+          zone.hvac_action,
           heldRoomIds,
           pausedRooms,
           fireplaceRooms,
@@ -503,6 +536,9 @@ export default function Dashboard() {
   const [temps, setTemps] = useState<Record<string, number | null>>({});
   // Each room's sensors as last read, for its details.
   const [readings, setReadings] = useState<Record<string, SensorReading[]>>({});
+  const sensorCounts = Object.fromEntries(
+    Object.entries(readings).map(([id, list]) => [id, list.length])
+  );
   const [detailsFor, setDetailsFor] = useState<{ id: string; name: string } | null>(null);
   // Each room's temperature sensors, fetched once per set of rooms: the list
   // only changes when the house's structure does, unlike the readings.
@@ -689,6 +725,8 @@ export default function Dashboard() {
         openOptions: setOptionsFor,
         noteFor: (room: { id: string; name: string }) =>
           describeTargets(house, levelOfRoom(room.id, room.name), toDisplay, unitLabel),
+        bandFor: (room: { id: string; name: string }) =>
+          effective(house, levelOfRoom(room.id, room.name)),
       }
     : null;
   // Targets are set per building, with its zones and rooms underneath; a zone
@@ -1016,6 +1054,7 @@ export default function Dashboard() {
                         thermostats={thermostats}
                         heldRoomIds={new Set(holds.map((h) => h.room_id))}
                         temps={temps}
+                        sensorCounts={sensorCounts}
                         smart={smart}
                         onSuspendEco={(tid) => setEcoSuspendFor({ thermostat: tid })}
                         showActiveRoomsSample={z === zones[0]}
