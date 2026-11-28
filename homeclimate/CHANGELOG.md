@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.5.25
+
+- Dashboard: tap a zone's card for its settings. **Mode** is Follow Building, Auto, Heat, Cool or Off, so one zone can be held to cooling while the building is on Auto. The dialog also holds the zone's **Baseline Temperature Target**. The card shows the zone's mode and says why it is waiting. The folded "Targets for zones" list is gone.
+- Each zone in Auto now keeps its own side and its own count of switches. Smart Control → **Auto Mode** sets, per building: **Zones May Run Opposite Each Other** (Yes or No; when No, a zone in use goes first), **May Switch Between Heating and Cooling**, **Threshold for Switching Mode** and **Keep Zones Within**. A building that was on "Heats or Cools as One" starts with zones that may not run opposite. Zones in Auto in a building now keep to its switching limit even where they used to decide freely: Several Times a Day unless you choose otherwise.
+- Zone Balance is now **Keep Zones Within**, inside Auto Mode, with an on/off switch and a **Right Now** panel. It never switches a zone early.
+- The room card: **Baseline Temperature Target**, then **When Occupied** and a new **When Unoccupied**, folded away with what each is set to, then the hold and the vents. Sensors are set in My Home; what the room follows is in Smart Control → Rooms.
+- **When Unoccupied** targets are used while a room's occupancy sensors see nobody. Leave them empty and the room keeps its baseline.
+- A room with no When Occupied targets is no longer given its zone's Occupied Temperature, and that field is gone. Rooms that relied on it need When Occupied targets of their own.
+- Holds, schedule blocks and occupied targets use **Heating Target** and **Cooling Target**, like everywhere else. The same number in both is one temperature.
+- Fireplace: **When Lit** is now a **Fireplace Compensation** switch. Watch Only and Try It First are gone from Auto Mode, Keep Zones Within and fireplaces (Dev Mode does that); anything on Watch Only is now Off.
+- Smart Control → Rooms: **Follow Its Schedules** and **Follow Occupancy** switches on each room's card.
+- Settings → Sensors says where sensors are added.
+
 ## 0.5.24
 
 - Dashboard: each room shows whether it is **Heating**, **Cooling**, **At Target**, **Below Target**, **Above Target**, has **No Reading** or has **No Sensor**, beside its temperature. A room not in use shows none.
