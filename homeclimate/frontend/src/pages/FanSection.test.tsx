@@ -55,15 +55,16 @@ describe("Smart Control → Fan", () => {
     await waitFor(() => expect(select).toHaveValue("on"));
     expect(screen.getByText("Running: Loft is 2.0° past its target.")).toBeInTheDocument();
     expect(screen.getByText("Ran 7 of the last 60 minutes.")).toBeInTheDocument();
-    expect(screen.getByText(/hands it back to the thermostat afterwards/)).toBeInTheDocument();
+    expect(select).toHaveAttribute(
+      "title",
+      expect.stringMatching(/hands it back to the thermostat/)
+    );
   });
 
   it("says when a thermostat's fan cannot be switched", async () => {
     vi.mocked(fanApi.getFan).mockResolvedValue(fan({ ...UP, supported: false }));
     render(<FanSection />);
-    expect(
-      await screen.findByText(/does not offer an on and auto fan setting/)
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/has no on and auto fan setting/)).toBeInTheDocument();
   });
 
   it("reports a refused change and keeps what is stored", async () => {

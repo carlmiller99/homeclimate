@@ -200,6 +200,7 @@ export default function HoldModal({ rooms, initialRoom, holds, onClose, onChange
           >
             <input
               id="hold-allow-eco"
+              className="switch"
               type="checkbox"
               checked={allowEco}
               onChange={(e) => setAllowEco(e.target.checked)}

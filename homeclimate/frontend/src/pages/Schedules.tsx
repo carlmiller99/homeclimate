@@ -1,3 +1,5 @@
+import DayChips from "../components/DayChips";
+import Segmented from "../components/Segmented";
 import RoomInUse from "../components/RoomInUse";
 import { calendarFor, getHouse, switchesFor, type House } from "../houseApi";
 import { useEffect, useState } from "react";
@@ -33,33 +35,6 @@ const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 // the input means the only way to hit the server-side bound is an API client,
 // so the form never has to render an error for it.
 const MAX_NAME_LENGTH = 64;
-
-function DayPicker({
-  selected,
-  onChange,
-}: {
-  selected: number[];
-  onChange: (days: number[]) => void;
-}) {
-  const toggle = (d: number) => {
-    if (selected.includes(d)) onChange(selected.filter((x) => x !== d));
-    else onChange([...selected, d].sort());
-  };
-  return (
-    <div className="day-picker">
-      {DAYS.map((label, i) => (
-        <button
-          key={i}
-          type="button"
-          className={`day-btn${selected.includes(i) ? " selected" : ""}`}
-          onClick={() => toggle(i)}
-        >
-          {label[0]}
-        </button>
-      ))}
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Overlap detection (mirrors backend logic)
@@ -208,7 +183,7 @@ function ScheduleModal({
     }
 
     if (expiryMode === "at" && !expiresAt) {
-      setError("Pick an auto-disable date and time, or choose Never expire");
+      setError("Pick the date and time this block ends, or choose Never");
       return;
     }
 
@@ -278,7 +253,7 @@ function ScheduleModal({
 
         <div className="form-group">
           <label className="form-label" htmlFor="schedule-name">
-            Name (optional)
+            Name
           </label>
           <input
             id="schedule-name"
@@ -287,20 +262,19 @@ function ScheduleModal({
             maxLength={MAX_NAME_LENGTH}
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. Weekday night setback"
+            placeholder="Optional"
           />
-          <div className="text-sm text-muted" style={{ marginTop: ".3rem" }}>
-            A name for this block, so the list says what it is for. Leave it blank to list it by its{" "}
-            <span className="badge badge-gray font-mono">ID</span>.
-          </div>
         </div>
 
         <div className="form-group">
-          <label className="form-label">Days of week</label>
-          <DayPicker selected={days} onChange={setDays} />
-          <div className="text-sm text-muted" style={{ marginTop: ".3rem" }}>
-            {days.map((d) => DAYS[d]).join(", ") || "None selected"}
-          </div>
+          <span className="form-label">Days</span>
+          <DayChips
+            label="Days"
+            selected={days}
+            onToggle={(d) =>
+              setDays(days.includes(d) ? days.filter((x) => x !== d) : [...days, d].sort())
+            }
+          />
         </div>
 
         {/* flex-basis 10rem (not 0) lets the pair wrap to stacked rows on
@@ -308,7 +282,7 @@ function ScheduleModal({
         <div className="flex gap-md">
           <div className="form-group" style={{ flex: "1 1 10rem" }}>
             <label className="form-label" htmlFor="schedule-start">
-              Start time
+              Start Time
             </label>
             <input
               id="schedule-start"
@@ -321,7 +295,7 @@ function ScheduleModal({
           </div>
           <div className="form-group" style={{ flex: "1 1 10rem" }}>
             <label className="form-label" htmlFor="schedule-end">
-              End time
+              End Time
             </label>
             <input
               id="schedule-end"
@@ -336,7 +310,7 @@ function ScheduleModal({
 
         <div className="form-group">
           <label className="form-label" htmlFor="schedule-temp">
-            {coolTo.trim() === "" ? "Target temperature" : "Heat To"} ({unitLabel})
+            {coolTo.trim() === "" ? "Target Temperature" : "Heat To"} ({unitLabel})
           </label>
           <input
             id="schedule-temp"
@@ -354,27 +328,16 @@ function ScheduleModal({
         <CoolToField id="schedule-cool-to" value={coolTo} onChange={setCoolTo} />
 
         <div className="form-group">
-          <label className="form-label">Temperature drift</label>
-          <div className="flex gap-md" style={{ marginBottom: ".4rem" }}>
-            <label className="flex gap-sm" style={{ alignItems: "center" }}>
-              <input
-                type="radio"
-                name="schedule-deadband-mode"
-                checked={deadbandMode === "inherit"}
-                onChange={() => setDeadbandMode("inherit")}
-              />
-              Use the room&rsquo;s normal deadband
-            </label>
-            <label className="flex gap-sm" style={{ alignItems: "center" }}>
-              <input
-                type="radio"
-                name="schedule-deadband-mode"
-                checked={deadbandMode === "custom"}
-                onChange={() => setDeadbandMode("custom")}
-              />
-              Override deadband
-            </label>
-          </div>
+          <span className="form-label">Allowed Drift</span>
+          <Segmented
+            label="Allowed Drift"
+            value={deadbandMode}
+            options={[
+              { value: "inherit", label: "Room\u2019s Usual" },
+              { value: "custom", label: "Custom" },
+            ]}
+            onChange={setDeadbandMode}
+          />
           {deadbandMode === "custom" && (
             <input
               id="schedule-deadband"
@@ -389,68 +352,40 @@ function ScheduleModal({
             />
           )}
           <div className="text-sm text-muted" style={{ marginTop: ".3rem" }}>
-            {deadbandMode === "custom" ? (
-              <>
-                This <strong>replaces</strong> the room&rsquo;s deadband while the block is running
-                — it is not added to it
-                {inheritedDeadband != null && (
-                  <>
-                    , so the room drifts &plusmn;{deadband || "?"}
-                    {unitLabel} during the block instead of its usual &plusmn;{inheritedDeadband}
-                    {unitLabel}
-                  </>
-                )}
-                . The room may drift this far from target before it calls for heating or cooling, so
-                a wider band saves runtime in a room nobody is using — and a narrower one holds the
-                room tighter.
-              </>
-            ) : (
-              <>
-                The room keeps its usual deadband
-                {inheritedDeadband != null && <> of &plusmn;{inheritedDeadband + unitLabel}</>} —
-                inherited from the room&rsquo;s own override, or the thermostat&rsquo;s deadband if
-                it has none.
-              </>
-            )}
+            {deadbandMode === "custom"
+              ? `How far the room may drift from its target during this block. It replaces the room\u2019s usual${
+                  inheritedDeadband != null ? ` \u00b1${inheritedDeadband}${unitLabel}` : " drift"
+                }.`
+              : `The room keeps its usual drift${
+                  inheritedDeadband != null ? ` of \u00b1${inheritedDeadband}${unitLabel}` : ""
+                }.`}
           </div>
         </div>
 
         <div className="form-group">
-          <label className="form-label">Expiry</label>
-          <div className="flex gap-md" style={{ marginBottom: ".4rem" }}>
-            <label className="flex gap-sm" style={{ alignItems: "center" }}>
-              <input
-                type="radio"
-                name="schedule-expiry-mode"
-                checked={expiryMode === "never"}
-                onChange={() => setExpiryMode("never")}
-              />
-              Never expire
-            </label>
-            <label className="flex gap-sm" style={{ alignItems: "center" }}>
-              <input
-                type="radio"
-                name="schedule-expiry-mode"
-                checked={expiryMode === "at"}
-                onChange={() => setExpiryMode("at")}
-              />
-              Auto-disable at
-            </label>
-          </div>
+          <span className="form-label">Ends</span>
+          <Segmented
+            label="Ends"
+            value={expiryMode}
+            options={[
+              { value: "never", label: "Never" },
+              { value: "at", label: "On a Date" },
+            ]}
+            onChange={setExpiryMode}
+          />
           {expiryMode === "at" && (
             <input
               id="schedule-expires-at"
               className="form-control"
               type="datetime-local"
-              aria-label="Auto-disable date and time"
+              aria-label="End date and time"
               value={expiresAt}
               onChange={(e) => setExpiresAt(e.target.value)}
             />
           )}
           {expiryMode === "at" && <ZoneHint />}
           <div className="text-sm text-muted" style={{ marginTop: ".3rem" }}>
-            A temporary schedule disables itself at this time (it is not deleted). The current
-            block, if running, finishes first.
+            A block with an end date turns itself off then. It is kept, not deleted.
           </div>
         </div>
 

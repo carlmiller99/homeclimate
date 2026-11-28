@@ -2539,7 +2539,8 @@ async def ha_states(request: web.Request) -> web.Response:
             "schema": {"type": "string"},
             "description": (
                 "A room name. Entities in a Home Assistant area with that name are "
-                "listed first and marked in_room_area; every entity carries its area_name."
+                "listed first and marked in_room_area, then entities whose name or ID carries "
+                "the room's name (named_for_room); every entity carries its area_name."
             ),
         },
     ]
@@ -2594,10 +2595,12 @@ async def ha_entities(request: web.Request) -> web.Response:
             "friendly_name": e.get("attributes", {}).get("friendly_name", e["entity_id"]),
             "area_name": area_names.get(e["entity_id"]),
             "in_room_area": e["entity_id"] in in_room,
+            "named_for_room": bool(room) and ha_import.named_for_room(e, room or ""),
         }
         for e in entities
     ]
-    result.sort(key=lambda x: (not x["in_room_area"], x["entity_id"]))
+    # The room's own area first, then devices named for the room, then the rest.
+    result.sort(key=lambda x: (not x["in_room_area"], not x["named_for_room"], x["entity_id"]))
     return json_response(result)
 
 

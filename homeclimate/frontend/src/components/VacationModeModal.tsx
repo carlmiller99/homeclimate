@@ -267,6 +267,7 @@ export default function VacationModeModal({ current, onClose, onChanged }: Props
           <label style={{ display: "flex", alignItems: "center", gap: ".5rem", cursor: "pointer" }}>
             <input
               id="vacation-start-immediately"
+              className="switch"
               type="checkbox"
               checked={immediate}
               onChange={(e) => setImmediate(e.target.checked)}

@@ -5,7 +5,7 @@ A **schedule** is a time block that sets a target temperature for a room on spec
 ## What a block defines
 
 - **Name** (optional) — a label for the block, so the list says what it is *for* and not only when it runs. Blank leaves it unnamed. See [Naming a block](#naming-a-block).
-- **Days of week** — any subset of Mon–Sun.
+- **Days** — any subset of Mon–Sun.
 - **Start time** and **end time** — local-time `HH:MM` values (evaluated in the add-on's configured timezone).
 - **Target temperature** (°F).
 - **Deadband override** (optional) — how far the room may drift from that target before it calls for heating or cooling, for this block's hours only. Blank inherits. See [Deadband override](#deadband-override).
@@ -34,7 +34,7 @@ Within schedules, **overlapping enabled blocks on the same room are rejected at 
 
 ## Deadband override
 
-The block editor's **Temperature drift** control has two settings: *Use the room's normal deadband* (the default) or *Override deadband*, which takes a ± value bounded to 0–10 °F.
+The block editor's **Allowed Drift** control has two settings: *Room's Usual* (the default) or *Custom*, which takes a ± value bounded to 0–10 °F.
 
 **The block's value replaces the room's — it is not added to it.** A room whose deadband is ±3 °F, with a block set to ±1 °F, drifts ±1 °F while that block runs, not ±4 °F. So the control widens *or* narrows: a night block can loosen a room nobody is using, and a nursery block can hold one tighter than the room's own setting.
 
@@ -42,7 +42,7 @@ The band resolves most specific first:
 
 | Level | Where it is set | Applies when |
 |---|---|---|
-| **Schedule block** | *Temperature drift* in the block editor | Set on the block, **and** that block is what has the room active |
+| **Schedule block** | *Allowed Drift* in the block editor | Set on the block, **and** that block is what has the room active |
 | **Room** | *Deadband override* in Smart Control → Rooms | The block sets none, or no block is active |
 | **Thermostat** | *Deadband* in the zone's Thermostat Settings (My Home → Edit Zone) | Neither override is set |
 
@@ -67,7 +67,7 @@ Overlap is enforced only between **enabled** blocks, so the same window can hold
 
 Disable the night block first (a new block is created enabled, and an enabled block would be rejected as an overlap), then add the guest block. When the room empties, disable the guest block and re-enable the night one. Neither is ever deleted; only the **Enable** / **Disable** toggle moves.
 
-Pair the guest block with an **Auto-disable at** expiry set to the end of the stay and it parks itself: the expiry sweep disables the block once its current run has finished, and never deletes it. Re-enabling the night block is still a manual step — expiry only ever disables.
+Pair the guest block with an **Ends → On a Date** setting set to the end of the stay and it parks itself: the expiry sweep disables the block once its current run has finished, and never deletes it. Re-enabling the night block is still a manual step — expiry only ever disables.
 
 The whole flip is also reachable over [MCP](./mcp.md): `create_schedule` takes `enabled` and `expires_at`, and `update_schedule` can park or re-arm a block (`enabled`), set an expiry, or drop one (`clear_expires_at` — needed because an omitted argument and a null one are indistinguishable there). Both refuse a block that would overlap a live one, so an assistant cannot produce a state the UI would have rejected. Both also take `name`, with `clear_name` to return a block to unnamed — so "call the 66 °F one *Night setback* and the other one *Guest stay*" is a single request, and `list_schedules` reports each block's name alongside its ID.
 
@@ -75,4 +75,4 @@ The whole flip is also reachable over [MCP](./mcp.md): `create_schedule` takes `
 
 Schedule times are local-time, evaluated in the timezone configured on the add-on's **Configuration** tab. If you change the timezone, existing blocks keep their literal `HH:MM` values — they just now mean those times in the new zone. See the [top-level README](../README.md#timezone-configuration) for how to set this.
 
-The schedule form's time pickers and the **Auto-disable at** expiry are typed in that same house zone, wherever you open HomeClimate from; the ⓘ marker after each picker names the zone, and every time in the schedule table carries it as a tooltip (`EST`). An expiry sent over the API without an offset keeps meaning house-local time. See [Time zones](./time-zones.md).
+The schedule form's time pickers and the **Ends** date are typed in that same house zone, wherever you open HomeClimate from; the ⓘ marker after each picker names the zone, and every time in the schedule table carries it as a tooltip (`EST`). An expiry sent over the API without an offset keeps meaning house-local time. See [Time zones](./time-zones.md).

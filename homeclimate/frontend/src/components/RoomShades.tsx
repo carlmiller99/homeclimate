@@ -1,3 +1,4 @@
+import EntityName from "./EntityName";
 import { useState } from "react";
 import { type Room } from "../api";
 import {
@@ -134,6 +135,7 @@ function ShadeRow({
         <div className="shade-options">
           <label className="field-inline">
             <input
+              className="switch"
               type="checkbox"
               checked={shade.quiet_hours}
               onChange={(e) => onSave(shade.entity_id, { quiet_hours: e.target.checked })}
@@ -142,6 +144,7 @@ function ShadeRow({
           </label>
           <label className="field-inline">
             <input
+              className="switch"
               type="checkbox"
               checked={shade.never_control}
               onChange={(e) => onSave(shade.entity_id, { never_control: e.target.checked })}
@@ -174,10 +177,12 @@ function ShadeRow({
 
 function AddShade({
   roomId,
+  roomName,
   onAdd,
   onCancel,
 }: {
   roomId: string;
+  roomName: string;
   onAdd: (entityId: string, data: ShadeWrite) => void;
   onCancel: () => void;
 }) {
@@ -190,13 +195,18 @@ function AddShade({
           <span className="field-label">Shade</span>
           {entity ? (
             <div className="picked-entity">
-              <span>{entity}</span>
+              <EntityName id={entity} />
               <button type="button" className="link-button" onClick={() => setEntity("")}>
                 Change
               </button>
             </div>
           ) : (
-            <EntityPicker domain="cover" placeholder="Search shades…" onSelect={setEntity} />
+            <EntityPicker
+              domain="cover"
+              room={roomName}
+              placeholder="Search shades…"
+              onSelect={setEntity}
+            />
           )}
         </div>
         <label className="field-stack">
@@ -283,6 +293,7 @@ export default function RoomShades({
       {adding && (
         <AddShade
           roomId={room.id}
+          roomName={room.name}
           onCancel={() => setAdding(false)}
           onAdd={async (id, body) => {
             if (await save(id, body)) setAdding(false);

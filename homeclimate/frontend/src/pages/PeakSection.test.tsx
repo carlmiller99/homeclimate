@@ -70,13 +70,13 @@ describe("Peak Hours", () => {
     fireEvent.blur(screen.getByLabelText("Peak ends"));
     fireEvent.blur(screen.getByLabelText("Peak starts"));
     expect(pa.updatePeakHours).toHaveBeenCalledTimes(2);
-    await waitFor(() => expect(screen.getByRole("checkbox", { name: "Sat" })).toBeEnabled());
-    fireEvent.click(screen.getByRole("checkbox", { name: "Sat" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Sat" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Sat" }));
     await waitFor(() =>
       expect(pa.updatePeakHours).toHaveBeenLastCalledWith({ days: [0, 1, 2, 3, 4, 5] })
     );
-    await waitFor(() => expect(screen.getByRole("checkbox", { name: "Mon" })).toBeEnabled());
-    fireEvent.click(screen.getByRole("checkbox", { name: "Mon" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Mon" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Mon" }));
     await waitFor(() =>
       expect(pa.updatePeakHours).toHaveBeenLastCalledWith({ days: [1, 2, 3, 4, 5] })
     );

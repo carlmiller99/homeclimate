@@ -148,6 +148,13 @@ describe("EntityPicker", () => {
         in_room_area: false,
       },
       { entity_id: "sensor.loose_temp", state: "60", friendly_name: "Loose Temperature" },
+      {
+        entity_id: "sensor.den_probe",
+        state: "61",
+        friendly_name: "Den Probe",
+        area_name: null,
+        named_for_room: true,
+      },
     ]);
     render(<EntityPicker domain="sensor" kind="temperature" room="Den" onSelect={vi.fn()} />);
     await waitFor(() =>
@@ -163,7 +170,10 @@ describe("EntityPicker", () => {
     const names = (await screen.findAllByText(/Temperature$/)).map((n) => n.textContent);
     expect(names).toEqual(["Den Temperature", "Attic Temperature", "Loose Temperature"]);
     expect(screen.getByTitle("sensor.den_temp").nextElementSibling).toHaveTextContent(
-      "In this room's area"
+      "In This Room"
+    );
+    expect(screen.getByTitle("sensor.den_probe").nextElementSibling).toHaveTextContent(
+      "Named for This Room"
     );
     expect(screen.getByTitle("sensor.attic_temp").nextElementSibling).toHaveTextContent("Attic");
     // An entity in no area shows just its name.

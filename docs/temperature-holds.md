@@ -26,7 +26,7 @@ on three pages, a hard time cap, and an event-log trail.
   stop/start (#215).
 - **Expiry deletes; schedule expiry only disables.** When a hold expires, the
   engine deletes it on the next tick and logs the handoff. Contrast with a
-  schedule's **Auto-disable at** expiry (#359), which parks the block so it can
+  schedule's **Ends** date (#359), which parks the block so it can
   be re-enabled later: a block is a standing setting worth keeping; a hold has
   no later, so nothing lingers.
 

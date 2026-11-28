@@ -420,7 +420,7 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
     // _delta_to_f (x9/5) rather than _to_f (x9/5 + 32). A regression routing
     // it through the absolute helper would store 33.8°F for "1°C" and this
     // assertion would catch it.
-    await modal.getByRole("radio", { name: /override deadband/i }).click();
+    await modal.getByRole("radio", { name: "Custom" }).click();
     await modal.getByLabel(/^Deadband/i).fill(SCHEDULE_DRIFT);
 
     await modal.getByRole("button", { name: /^Save$/ }).click();
@@ -456,7 +456,7 @@ test.describe(`Temperature round-trip (HOMECLIMATE_TEMP_UNIT=${UNIT})`, () => {
     const reopened = page.locator(".modal");
     await reopened.waitFor({ state: "visible", timeout: 10_000 });
     await expect(
-      reopened.getByRole("radio", { name: /override deadband/i }),
+      reopened.getByRole("radio", { name: "Custom" }),
     ).toBeChecked();
     const band = await reopened.getByLabel(/^Deadband/i).inputValue();
     expect(parseFloat(band)).toBeCloseTo(parseFloat(SCHEDULE_DRIFT), 1);

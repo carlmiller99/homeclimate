@@ -42,7 +42,7 @@ They are accepted by `POST /api/thermostats` and `PUT /api/thermostats/{id}` (40
 
 The **Deadband** above is the base of a three-level chain. A room can override it, and a schedule block can override the room. Most specific first:
 
-1. The active schedule block's **Temperature drift** — only while that block is what has the room active. See [Schedules](./schedules.md#deadband-override).
+1. The active schedule block's **Allowed Drift** — only while that block is what has the room active. See [Schedules](./schedules.md#deadband-override).
 2. The room's **Deadband override** — for that room, whatever activated it. See [Rooms & zones](./rooms-and-zones.md).
 3. This **Deadband** — everything else.
 

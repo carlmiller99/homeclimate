@@ -158,6 +158,21 @@ def room_areas(
     return named, in_room
 
 
+def named_for_room(state: dict, room_name: str) -> bool:
+    """Whether an entity's name or ID carries the room's name as whole words.
+
+    Many devices are never given an area in Home Assistant but are named for
+    the room they sit in ("Upstairs Laundry Bermuda Occupied"). "Den" matches
+    "Den Motion" and not "Garden Motion".
+    """
+    wanted = sanitize(room_name)
+    if not wanted:
+        return False
+    eid: str = state.get("entity_id", "")
+    friendly = (state.get("attributes", {}) or {}).get("friendly_name") or ""
+    return any(f"_{wanted}_" in f"_{sanitize(text)}_" for text in (friendly, eid.split(".", 1)[-1]))
+
+
 def build_preview(
     registries: dict[str, list[dict]],
     states: list[dict],

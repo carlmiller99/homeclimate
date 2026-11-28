@@ -74,28 +74,31 @@ beforeEach(() => {
   vi.mocked(api.updateSchedule).mockResolvedValue(created);
 });
 
+const pressed = () =>
+  dayButtons()
+    .filter((b) => b.getAttribute("aria-pressed") === "true")
+    .map((b) => b.textContent);
+
 describe("Schedules — day picker", () => {
   it("removes a selected day and adds an unselected one, keeping the list sorted", async () => {
     render(<Schedules />);
     await openNewBlock();
 
     // Default selection is Mon–Fri.
-    expect(screen.getByText("Mon, Tue, Wed, Thu, Fri")).toBeInTheDocument();
+    expect(pressed()).toEqual(["Mon", "Tue", "Wed", "Thu", "Fri"]);
 
     // Monday is selected → clicking it deselects.
     fireEvent.click(dayButtons()[0]);
-    expect(screen.getByText("Tue, Wed, Thu, Fri")).toBeInTheDocument();
-    expect(dayButtons()[0].className).not.toContain("selected");
+    expect(pressed()).toEqual(["Tue", "Wed", "Thu", "Fri"]);
 
     // Saturday is not selected → clicking it selects.
     fireEvent.click(dayButtons()[5]);
-    expect(screen.getByText("Tue, Wed, Thu, Fri, Sat")).toBeInTheDocument();
-    expect(dayButtons()[5].className).toContain("selected");
+    expect(pressed()).toEqual(["Tue", "Wed", "Thu", "Fri", "Sat"]);
 
     // Re-adding Monday LAST is what makes the sort load-bearing: click order is
     // [1,2,3,4,5,0], and only a sorted list renders and posts Mon-first.
     fireEvent.click(dayButtons()[0]);
-    expect(screen.getByText("Mon, Tue, Wed, Thu, Fri, Sat")).toBeInTheDocument();
+    expect(pressed()).toEqual(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]);
 
     fireEvent.click(screen.getAllByText("Save").slice(-1)[0]);
     await waitFor(() =>
@@ -106,12 +109,12 @@ describe("Schedules — day picker", () => {
     );
   });
 
-  it("says 'None selected' and refuses to save with no days", async () => {
+  it("refuses to save with no days", async () => {
     render(<Schedules />);
     await openNewBlock();
 
     [0, 1, 2, 3, 4].forEach((i) => fireEvent.click(dayButtons()[i]));
-    expect(screen.getByText("None selected")).toBeInTheDocument();
+    expect(pressed()).toEqual([]);
 
     fireEvent.click(screen.getAllByText("Save").slice(-1)[0]);
     expect(await screen.findByText("Select at least one day")).toBeInTheDocument();
@@ -131,23 +134,23 @@ describe("Schedules — modal validation refusals", () => {
     expect(api.createSchedule).not.toHaveBeenCalled();
   });
 
-  it("refuses 'Auto-disable at' with no datetime, and saves once switched back to Never", async () => {
+  it("refuses an end date with no date chosen, and saves once switched back to Never", async () => {
     render(<Schedules />);
     await openNewBlock();
 
-    fireEvent.click(screen.getByLabelText("Auto-disable at"));
-    expect(screen.getByLabelText("Auto-disable date and time")).toHaveValue("");
+    fireEvent.click(screen.getByRole("radio", { name: "On a Date" }));
+    expect(screen.getByLabelText("End date and time")).toHaveValue("");
     fireEvent.click(screen.getAllByText("Save").slice(-1)[0]);
 
     expect(
-      await screen.findByText("Pick an auto-disable date and time, or choose Never expire")
+      await screen.findByText("Pick the date and time this block ends, or choose Never")
     ).toBeInTheDocument();
     expect(api.createSchedule).not.toHaveBeenCalled();
 
     // The message names the escape hatch; taking it must actually work — and
     // the datetime input disappears with it.
-    fireEvent.click(screen.getByLabelText("Never expire"));
-    expect(screen.queryByLabelText("Auto-disable date and time")).toBeNull();
+    fireEvent.click(screen.getByRole("radio", { name: "Never" }));
+    expect(screen.queryByLabelText("End date and time")).toBeNull();
     fireEvent.click(screen.getAllByText("Save").slice(-1)[0]);
 
     await waitFor(() =>
@@ -171,10 +174,10 @@ describe("Schedules — expiry round-trip (#359)", () => {
     expect(await screen.findByText("2026-07-01 22:00")).toBeInTheDocument();
 
     fireEvent.click(screen.getByText("Edit"));
-    expect(screen.getByLabelText("Auto-disable at")).toBeChecked();
-    expect(screen.getByLabelText("Never expire")).not.toBeChecked();
+    expect(screen.getByRole("radio", { name: "On a Date" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "Never" })).not.toBeChecked();
     // datetime-local wants exactly "YYYY-MM-DDTHH:MM" — the seconds are sliced.
-    expect(screen.getByLabelText("Auto-disable date and time")).toHaveValue("2026-07-01T22:00");
+    expect(screen.getByLabelText("End date and time")).toHaveValue("2026-07-01T22:00");
 
     // …and re-saving carries the same instant straight back.
     fireEvent.click(screen.getAllByText("Save").slice(-1)[0]);

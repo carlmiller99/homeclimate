@@ -314,6 +314,27 @@ class TestRoomDevicePickers:
             ("sensor.den_probe", False),
             ("sensor.den_temp", False),
         ]
+        # A device with no area but named for the room comes next, by whole words.
+        named = await (
+            await client.get(
+                "/api/ha/entities",
+                params={"domain": "sensor", "kind": "temperature", "room": "Den"},
+            )
+        ).json()
+        assert [(e["entity_id"], e["in_room_area"], e["named_for_room"]) for e in named] == [
+            ("sensor.den_probe", False, True),
+            ("sensor.den_temp", False, True),
+            ("sensor.attic_temp", False, False),
+        ]
+        assert not any(e["named_for_room"] for e in other)
+        # A room name with nothing usable in it matches no device.
+        blank = await (
+            await client.get(
+                "/api/ha/entities",
+                params={"domain": "sensor", "kind": "temperature", "room": "!!!"},
+            )
+        ).json()
+        assert not any(e["named_for_room"] for e in blank)
         # Without a room nothing is looked up.
         plain = await (await client.get("/api/ha/entities?domain=sensor&kind=temperature")).json()
         assert all(e["area_name"] is None and e["in_room_area"] is False for e in plain)
@@ -331,8 +352,9 @@ class TestRoomDevicePickers:
         )
         assert resp.status == 200
         assert "secret internals" not in await resp.text()
+        # Names need no registry, so the room's own devices still lead.
         assert [e["entity_id"] for e in await resp.json()] == [
-            "sensor.attic_temp",
             "sensor.den_probe",
             "sensor.den_temp",
+            "sensor.attic_temp",
         ]
