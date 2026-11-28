@@ -317,8 +317,8 @@ CREATE TABLE IF NOT EXISTS zone_balance (
     gap REAL NOT NULL DEFAULT 3.0
 );
 
--- Building mode (backend/building_mode.py): each building's mode, and for
--- Auto the side it is on and when it last switched (Unix seconds).
+-- Building mode (backend/building_mode.py): each building's mode and Auto
+-- limits. Each zone's own side is in zone_sides.
 CREATE TABLE IF NOT EXISTS building_modes (
     building_id TEXT PRIMARY KEY,
     mode TEXT NOT NULL DEFAULT 'auto',

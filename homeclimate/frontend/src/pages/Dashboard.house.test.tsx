@@ -135,7 +135,7 @@ const COOL = "Cooling Target for Main (°F)";
 const SAVE = "Save targets for Main";
 /** A zone's targets are in its settings, opened from its card. */
 async function openZone() {
-  fireEvent.click(await screen.findByRole("button", { name: "Settings for Main" }));
+  fireEvent.click(await screen.findByRole("button", { name: /^Settings for Main / }));
   return screen.getByRole("dialog", { name: "Main settings" });
 }
 

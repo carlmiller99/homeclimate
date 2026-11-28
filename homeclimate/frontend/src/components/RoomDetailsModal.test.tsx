@@ -8,6 +8,7 @@ import type { TargetLevel } from "./TargetsCard";
 const HOUSE = {
   house_heat_to: null,
   house_cool_to: null,
+  rooms: [],
   targets: [{ scope: "zone", scope_id: "climate.up", house_heat_to: 71, house_cool_to: 72 }],
 } as unknown as House;
 const BUILDING: TargetLevel = { scope: "building", id: "b1", name: "Main House" };
@@ -93,6 +94,34 @@ describe("Room details", () => {
     expect(occupied).toHaveTextContent("70.0°F");
     const empty = screen.getByText("When Unoccupied").closest("details") as HTMLElement;
     expect(empty).toHaveTextContent("64 to 78°F");
+  });
+
+  it("says when When Unoccupied is not used for the room", () => {
+    show({
+      room: {
+        id: "r1",
+        name: "Game Room",
+        system_wide_temp: null,
+        presence_holdover_hours: 0,
+      } as never,
+    });
+    expect(
+      screen.getByText("Not used now: this room's occupancy holdover is 0 in Smart Control, Rooms.")
+    ).toBeInTheDocument();
+  });
+
+  it("says when When Unoccupied is not used because the room ignores occupancy", () => {
+    show({
+      house: {
+        ...HOUSE,
+        rooms: [{ room_id: "r1", in_use: true, use_schedules: true, use_presence: false }],
+      } as House,
+    });
+    expect(
+      screen.getByText(
+        "Not used now: Follow Occupancy is off for this room in Smart Control, Rooms."
+      )
+    ).toBeInTheDocument();
   });
 
   it("says when there is nothing above the room to follow", () => {

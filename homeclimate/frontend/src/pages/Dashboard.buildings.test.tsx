@@ -127,7 +127,7 @@ describe("Dashboard building mode", () => {
     expect(status).toHaveTextContent("Auto. Upstairs waits while Den heats.");
     // The zone's card says its mode, and why it waits.
     const card = screen.getByTestId("dash-zone-climate.up");
-    expect(within(card).getByRole("button", { name: "Settings for Upstairs" })).toHaveTextContent(
+    expect(within(card).getByRole("button", { name: /^Settings for Upstairs / })).toHaveTextContent(
       "Cool"
     );
     expect(card).toHaveTextContent(
@@ -143,7 +143,7 @@ describe("Dashboard building mode", () => {
       { ...up, thermostat_entity_id: "climate.den", name: "Den", mode: "follow" },
     ]);
     render(<Dashboard />);
-    fireEvent.click(await screen.findByRole("button", { name: "Settings for Upstairs" }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Settings for Upstairs / }));
     const dialog = screen.getByRole("dialog", { name: "Upstairs settings" });
     expect(dialog).toHaveTextContent("Main House, Thermostat 68.0°F");
     expect(dialog).toHaveTextContent("Follow Main House, or set this zone's own.");
@@ -194,7 +194,7 @@ describe("Dashboard building mode", () => {
       { ...(await api.getStatus())[0], current_temp: null },
     ]);
     render(<Dashboard />);
-    const open = await screen.findByRole("button", { name: "Settings for Upstairs" });
+    const open = await screen.findByRole("button", { name: /^Settings for Upstairs / });
     // Following nothing, it is in Auto.
     expect(open).toHaveTextContent("Auto");
     fireEvent.click(open);

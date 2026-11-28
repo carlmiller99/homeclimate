@@ -166,7 +166,10 @@ describe("Smart Control → Auto Mode", () => {
           zone_gap: 7,
           spread: null,
           direction: null,
-          zones: [BAL.zones[0], { ...BAL.zones[1], temp: null, target: 72 }],
+          zones: [
+            { ...BAL.zones[0], target: 72 },
+            { ...BAL.zones[1], temp: null },
+          ],
         },
       ])
     );

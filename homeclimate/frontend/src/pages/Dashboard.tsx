@@ -444,19 +444,15 @@ function ZoneCard({
 
   return (
     <div className="card" data-testid={`dash-zone-${zone.thermostat_entity_id}`}>
-      <button
-        type="button"
-        className="dash-zone-open"
-        aria-label={`Settings for ${zoneName}`}
-        onClick={onOpen}
-      >
-        <div>
-          <div className="card-title" style={{ marginBottom: 0 }}>
+      <button type="button" className="dash-zone-open" onClick={onOpen}>
+        <span className="dash-zone-name">
+          <span className="sr-only">Settings for </span>
+          <span className="card-title" style={{ marginBottom: 0 }}>
             {zoneName}
-          </div>
+          </span>
           {/* The thermostat's own reading and setpoint, then how the zone's
               rooms stand: the same states their pills show. */}
-          <div className="dash-zone-sub" title={zone.thermostat_entity_id}>
+          <span className="dash-zone-sub" title={zone.thermostat_entity_id}>
             {`Thermostat ${zone.current_temp != null ? fmtTemp(zone.current_temp) : "—"}`}
             {zone.setpoint != null && `, set to ${fmtTemp(zone.setpoint)}`}
             <span className="dash-zone-asking">
@@ -467,8 +463,8 @@ function ZoneCard({
                 Empty, drifting further
               </span>
             )}
-          </div>
-        </div>
+          </span>
+        </span>
         <span className="dash-zone-mode">
           {/* hvac action badge flips Cooling/Heating/Idle as the engine cycles */}
           <Frozen frozen={<span className="badge badge-gray">{FROZEN}</span>}>

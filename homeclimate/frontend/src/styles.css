@@ -3077,6 +3077,11 @@ button.sc-nav-item {
   outline: 2px solid var(--blue);
   outline-offset: 2px;
 }
+.dash-zone-name,
+.dash-zone-name > .card-title,
+.dash-zone-name > .dash-zone-sub {
+  display: block;
+}
 .dash-zone-mode {
   display: inline-flex;
   align-items: center;

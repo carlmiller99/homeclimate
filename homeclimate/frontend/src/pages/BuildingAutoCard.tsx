@@ -255,7 +255,8 @@ export default function BuildingAutoCard() {
             <h4 className="sensor-title">{b.name}</h4>
             {b.mode !== "auto" && (
               <p className="rule-help">
-                Not set to Auto on the Dashboard, so these apply only to zones set to Auto there.
+                Not set to Auto on the Dashboard. Switching limits apply only to its zones set to
+                Auto there.
               </p>
             )}
             {several && (

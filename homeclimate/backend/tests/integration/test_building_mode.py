@@ -521,6 +521,18 @@ async def test_zones_kept_apart_never_start_opposite_each_other(client, site):
     assert planner.live_side(T1, {T2: "cooling"}) == ("off", True)
 
 
+async def test_a_zone_left_on_the_other_side_switches_to_join_the_others(client, site):
+    """Kept apart, a zone on cooling that wants heating while another heats is
+    held from starting, but its wait counts and it switches to join them."""
+    await _mode(client, site, opposite_allowed=False)
+    await _plan(client, [_zone(T1, "cooling")], now=NOW - timedelta(hours=5))
+    planner, _s = await _plan(client, [_zone(T1), _zone(T2, "heating")])
+    assert planner.live_side(T1, {T2: "heating"}) == ("hold", True)
+    planner, switched = await _plan(client, [_zone(T1, wants="heating"), _zone(T2, "heating")])
+    assert (T1, "heating") in switched
+    assert planner.live_side(T1, {T2: "heating"}) == ("heating", True)
+
+
 async def test_a_zone_with_no_side_joins_what_the_others_run(client, site):
     assert (await client.put(f"/api/zones/{T3}", json={"building_id": site})).status == 200
     await _mode(client, site, opposite_allowed=False)

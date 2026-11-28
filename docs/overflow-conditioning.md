@@ -51,9 +51,8 @@ If even Tier 3 yields nothing (every non-active room has zero or negative headro
 
 For each non-active room, the **effective presence setpoint** is resolved in this order:
 
-1. The room's own presence/schedule setpoint, if configured (`Room.system_wide_temp`).
-2. The thermostat's **global presence default** (`ThermostatConfig.default_temp`), used as the fallback when a room has no per-room setpoint.
-3. If neither is configured, the room has no rankable goal. Tiers 1, 2, and 3 all skip it — there is nothing to compare against.
+1. The room's own When Occupied target, if set (`Room.system_wide_temp`).
+2. If it has none, the room has no rankable goal. (Before 0.5.25 the zone's `default_temp` filled in; it is no longer used.) Tiers 1, 2, and 3 all skip it — there is nothing to compare against.
 
 A room without a schedule and without an active presence trigger is *not* excluded from consideration: it's just an unoccupied room with no current call for conditioning. As long as it has an effective setpoint (per the resolution above), HomeClimate is happy to send surplus air there.
 
@@ -79,8 +78,7 @@ The behaviour is controlled per-thermostat by `ThermostatConfig.overflow_during_
 |---|---|---|---|
 | `overflow_during_min_runtime` | `ThermostatConfig` | `True` | Master switch for the tiered overflow logic. |
 | `deadband` | `ThermostatConfig` | `0.5 °F` | Reused as the Tier 1 margin and the Tier 3 opposite-trigger margin — unless the candidate room has its own `deadband_override` set, which takes precedence (see [Deadband inheritance](./thermostat-settings.md#deadband-inheritance)). |
-| `default_temp` | `ThermostatConfig` | unset | Fallback presence setpoint used when a room has no own setpoint. |
-| `Room.system_wide_temp` | `Room` | unset | Per-room presence setpoint; takes priority over the thermostat default. |
+| `Room.system_wide_temp` | `Room` | unset | The room's When Occupied target. |
 | `min_cycle_runtime_min` | `ThermostatConfig` | `0` (disabled) | Without this, the hold phase never starts and overflow never runs. |
 
 ## Observability

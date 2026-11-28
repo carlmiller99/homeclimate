@@ -10,9 +10,9 @@ would have done is logged, the fan is not touched) or ``on``.
 
 The rules, all here:
 
-* only a zone that is idle and held to one side by its building (Heat Only,
-  Cool Only, or Auto set to On): the fan works the *other* side, the one the
-  building is not serving;
+* only a zone that is idle and held to one side (Heat or Cool, its own or its
+  building's, or Auto in a building): the fan works the *other* side, the one
+  the zone is not serving;
 * a room at least ``PAST_F`` past its target on that side (``NARROW_PAST_F``
   when its two targets are the same number, so the ordinary overshoot of a
   cycle is not a reason), with another room of the zone at least ``SPREAD_F``

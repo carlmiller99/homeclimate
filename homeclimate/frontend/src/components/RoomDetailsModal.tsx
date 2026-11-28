@@ -2,7 +2,7 @@ import EntityName from "./EntityName";
 import { useState } from "react";
 import { clearPresenceHoldover, type Room, type ZoneStatus } from "../api";
 import { useUnit } from "../contexts";
-import { targetsFor, type House } from "../houseApi";
+import { switchesFor, targetsFor, type House } from "../houseApi";
 import OccupiedTargets from "./OccupiedTargets";
 import { effective, TargetsRow, type TargetLevel } from "./TargetsCard";
 
@@ -112,6 +112,14 @@ export default function RoomDetailsModal({
       : `${toDisplay(heat)} to ${toDisplay(cool)}${unitLabel}`;
   const above = house ? effective(house, level.parent) : null;
   const unoccupied = house ? targetsFor(house, "unoccupied", level.id) : null;
+  // When Unoccupied is only used for a room that follows its occupancy.
+  const unusedBecause = !house
+    ? null
+    : !switchesFor(house, level.id).use_presence
+      ? "Not used now: Follow Occupancy is off for this room in Smart Control, Rooms."
+      : room && room.presence_holdover_hours <= 0
+        ? "Not used now: this room's occupancy holdover is 0 in Smart Control, Rooms."
+        : null;
   const unoccupiedLevel: TargetLevel = {
     scope: "unoccupied",
     id: level.id,
@@ -184,6 +192,7 @@ export default function RoomDetailsModal({
             <p className="field-help">
               While its occupancy sensors see nobody. Leave empty and the room keeps its baseline.
             </p>
+            {unusedBecause && <p className="field-help">{unusedBecause}</p>}
             <TargetsRow house={house} level={unoccupiedLevel} onSaved={onSaved} bare />
           </Collapsible>
         )}

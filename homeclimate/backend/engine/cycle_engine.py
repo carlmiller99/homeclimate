@@ -206,6 +206,7 @@ class CycleEngine:
         get_building_side: Callable[[], tuple[str | None, bool]] | None = None,
         claim_building_side: Callable[[str], str | None] | None = None,
         get_side_fixed: Callable[[], bool] | None = None,
+        get_zone_side: Callable[[], tuple[str | None, bool]] | None = None,
         get_building_waiting: Callable[[], str | None] | None = None,
         get_heat_pump: Callable[[], HeatPumpGuards | None] | None = None,
         get_balance: Callable[[], zone_balance.Call | None] | None = None,
@@ -227,6 +228,8 @@ class CycleEngine:
         self._get_building_side = get_building_side
         self._claim_building_side = claim_building_side
         self._get_side_fixed = get_side_fixed
+        # The zone's own Auto side, under any hold its building puts on it.
+        self._get_zone_side = get_zone_side
         self._get_building_waiting = get_building_waiting
         # The zone's settings as of the last tick, for ``optional_only``,
         # which is read between ticks.
@@ -6024,6 +6027,80 @@ class CycleEngine:
         finally:
             self._eco_engaged, self._cycle_eco_suspended = eco_state
 
+    async def _note_wait(
+        self,
+        inferred: str,
+        obey: bool,
+        side: str | None,
+        active_rooms: dict[str, Any],
+        tc: Any,
+        thermo_state: dict[str, Any] | None,
+    ) -> None:
+        """Count this tick toward the zone's wait to switch to ``inferred``.
+
+        Sets ``building_wait``, which the building's plan reads to decide when
+        the zone may switch, and logs the start of a new wait.
+        """
+        excess = 0.0
+        past_target = 0.0
+        # In °F whatever unit Home Assistant reports the thermostat in.
+        ambient = _climate_temp_to_f(
+            ((thermo_state or {}).get("attributes") or {}).get("current_temperature"),
+            self._ha.ha_temp_unit,
+        )
+        for ar in active_rooms.values():
+            avg = self._get_avg_temp(ar.room)
+            if avg is None and ambient is not None:
+                # No reading of its own: go by the thermostat's, as the
+                # choice between heating and cooling did. Without this a
+                # zone with no room sensors could never switch its building.
+                avg = float(ambient)
+            if avg is not None:
+                gap = avg + ar.room.temp_offset - ar.target_temp
+                beyond = gap if inferred == "cooling" else -gap
+                # How far past its target, which is what the building's
+                # switching threshold is measured against.
+                past_target = max(past_target, beyond)
+                # How far past the point where it would normally start.
+                past = beyond - _effective_deadband(ar.room, tc.deadband, ar.deadband_override)
+                excess = max(excess, past)
+        now = datetime.now(UTC)
+        started = self._wait_started
+        fresh = (
+            started is None
+            or started[0] != inferred
+            or started[1] != obey
+            # Not seen for a few ticks, or a clock that went backwards:
+            # this is a new wait, not the old one.
+            or not timedelta(0) <= now - started[3] <= timedelta(minutes=3)
+        )
+        since = now if fresh or started is None else started[2]
+        self._wait_started = (inferred, obey, since, now)
+        # How far past its target the zone has stayed over the last ten
+        # minutes: the least of the readings, so one spike counts for nothing.
+        if fresh:
+            self._wait_past = []
+        self._wait_past = [
+            (at, p) for at, p in self._wait_past if now - at < timedelta(minutes=10)
+        ] + [(now, past_target)]
+        self.building_wait = {
+            "direction": inferred,
+            "since": since,
+            "excess": round(excess, 2),
+            "past": round(past_target, 2),
+            "held": round(min(p for _at, p in self._wait_past), 2),
+            "obeyed": obey,
+        }
+        if fresh and self._logger:
+            waits = "is waiting" if obey else "would wait (watching only)"
+            await self._logger.log(
+                "info",
+                "engine",
+                f"{self.thermostat_entity_id} {waits} to start {inferred}: its building is"
+                f" on {side}",
+                {"thermostat": self.thermostat_entity_id, "wants": inferred, "side": side},
+            )
+
     async def _keep_to_building_side(
         self,
         conn: aiosqlite.Connection,
@@ -6076,7 +6153,20 @@ class CycleEngine:
             if self._claim_building_side(inferred) == "hold":
                 side = "hold"
         if side == "hold":
-            self.held_for = inferred
+            own = self._get_zone_side()[0] if self._get_zone_side is not None else None
+            if own in ("heating", "cooling") and inferred != own:
+                # The zone is on the other side from what it wants, and its
+                # building is running what it wants: it is not held by the
+                # others but by its own switching limit. Count the wait, so it
+                # can switch to join them, and start nothing meanwhile.
+                if not breaches and await self._could_start(
+                    conn, inferred, active_rooms, tc, thermo_state, outside_temp, off_schedule_ok
+                ):
+                    await self._note_wait(inferred, obey, own, active_rooms, tc, thermo_state)
+                else:
+                    self._wait_started = None
+            else:
+                self.held_for = inferred
             # Only ever given to a zone that is being held to its building.
             if breaches:
                 # The vote went the other way, but a room is past a limit.
@@ -6089,65 +6179,7 @@ class CycleEngine:
             self._wait_started = None
             return inferred
         if can_start:
-            excess = 0.0
-            past_target = 0.0
-            # In °F whatever unit Home Assistant reports the thermostat in.
-            ambient = _climate_temp_to_f(
-                ((thermo_state or {}).get("attributes") or {}).get("current_temperature"),
-                self._ha.ha_temp_unit,
-            )
-            for ar in active_rooms.values():
-                avg = self._get_avg_temp(ar.room)
-                if avg is None and ambient is not None:
-                    # No reading of its own: go by the thermostat's, as the
-                    # choice between heating and cooling did. Without this a
-                    # zone with no room sensors could never switch its building.
-                    avg = float(ambient)
-                if avg is not None:
-                    gap = avg + ar.room.temp_offset - ar.target_temp
-                    beyond = gap if inferred == "cooling" else -gap
-                    # How far past its target, which is what the building's
-                    # switching threshold is measured against.
-                    past_target = max(past_target, beyond)
-                    # How far past the point where it would normally start.
-                    past = beyond - _effective_deadband(ar.room, tc.deadband, ar.deadband_override)
-                    excess = max(excess, past)
-            now = datetime.now(UTC)
-            started = self._wait_started
-            fresh = (
-                started is None
-                or started[0] != inferred
-                or started[1] != obey
-                # Not seen for a few ticks, or a clock that went backwards:
-                # this is a new wait, not the old one.
-                or not timedelta(0) <= now - started[3] <= timedelta(minutes=3)
-            )
-            since = now if fresh or started is None else started[2]
-            self._wait_started = (inferred, obey, since, now)
-            # How far past its target the zone has stayed over the last ten
-            # minutes: the least of the readings, so one spike counts for nothing.
-            if fresh:
-                self._wait_past = []
-            self._wait_past = [
-                (at, p) for at, p in self._wait_past if now - at < timedelta(minutes=10)
-            ] + [(now, past_target)]
-            self.building_wait = {
-                "direction": inferred,
-                "since": since,
-                "excess": round(excess, 2),
-                "past": round(past_target, 2),
-                "held": round(min(p for _at, p in self._wait_past), 2),
-                "obeyed": obey,
-            }
-            if fresh and self._logger:
-                waits = "is waiting" if obey else "would wait (watching only)"
-                await self._logger.log(
-                    "info",
-                    "engine",
-                    f"{self.thermostat_entity_id} {waits} to start {inferred}: its building is"
-                    f" on {side}",
-                    {"thermostat": self.thermostat_entity_id, "wants": inferred, "side": side},
-                )
+            await self._note_wait(inferred, obey, side, active_rooms, tc, thermo_state)
         else:
             # The zone could not run that way even if the building switched
             # (too cold outside to cool, no such mode, or Eco Mode would not

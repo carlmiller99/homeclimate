@@ -1096,6 +1096,7 @@ class Scheduler:
             get_fireplace_rooms=lambda: frozenset(self._fireplaces.set_aside_rooms()),
             get_building_side=functools.partial(self._building_side, tid),
             get_side_fixed=functools.partial(self._building_plan.side_is_fixed, tid),
+            get_zone_side=functools.partial(self._building_plan.side_for, tid),
             get_building_waiting=functools.partial(self._building_waiting, tid),
             claim_building_side=functools.partial(self._building_plan_claim, tid),
             get_heat_pump=functools.partial(self._heat_pumps.get, tid),

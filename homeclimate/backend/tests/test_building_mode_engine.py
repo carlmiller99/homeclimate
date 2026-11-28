@@ -244,6 +244,38 @@ async def test_nothing_starts_while_another_zone_finishes_the_other_way():
     await conn.close()
 
 
+async def test_a_zone_held_on_its_old_side_waits_to_join_what_the_others_run():
+    """Kept apart, a zone still on cooling that wants heating while the others
+    heat is held from starting, but its wait counts toward switching."""
+    conn, engine, started = await _zone({"r1": 65.0, "r2": 71.0}, "hold", ambient=65.0)
+    try:
+        engine._get_zone_side = lambda: ("cooling", True)
+        await engine._do_tick(conn)
+        started.assert_not_awaited()
+        assert engine.building_wait["direction"] == "heating"
+        # Not held by a zone running the other way: by its own limit.
+        assert engine.held_for is None
+        # Wanting what it is already on, it is held by the others.
+        engine._get_zone_side = lambda: ("heating", True)
+        await engine._do_tick(conn)
+        started.assert_not_awaited()
+        assert engine.held_for == "heating"
+    finally:
+        await conn.close()
+
+
+async def test_a_held_zone_that_could_not_join_the_others_does_not_wait():
+    conn, engine, started = await _zone({"r1": 65.0, "r2": 71.0}, "hold", ambient=65.0)
+    try:
+        engine._get_zone_side = lambda: ("cooling", True)
+        engine._could_start = AsyncMock(return_value=False)
+        await engine._do_tick(conn)
+        started.assert_not_awaited()
+        assert engine.building_wait is None and engine.held_for is None
+    finally:
+        await conn.close()
+
+
 async def test_a_start_is_claimed_and_held_when_another_zone_starts_the_other_way():
     conn, engine, started = await _scheduled({"r1": 75.0, "r2": 72.0}, None, ambient=75.0)
     asked: list[str] = []

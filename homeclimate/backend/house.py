@@ -44,8 +44,8 @@ from .user_errors import UserError, fixed
 BAND_SETTING = "house_band"
 # °F between the heating and the cooling target. None is required: they may be
 # the same number. Only the room's deadband then separates heating from
-# cooling, unless its building is held to one side (Heat Only, Cool Only, or
-# Auto set to On), which is what limits how often the side changes.
+# cooling, unless its zone is held to one side (Heat or Cool, or Auto with its
+# building's switching limit), which is what limits how often the side changes.
 MIN_GAP_F = 0.0
 # "unoccupied" is a room's When Unoccupied targets, kept beside its own.
 SCOPES = ("building", "zone", "room", "unoccupied")
