@@ -14,6 +14,18 @@ HomeClimate has five tabs. One rule decides what goes where, and where new featu
 
 Zones are grouped by building, and every room is listed under its zone with its temperature, whether or not it is part of a running cycle.
 
+Each zone's line gives the thermostat's own reading (and its setpoint, when it has one), then how its rooms stand: how many are heating, cooling, below or above target, or without a reading, or **All rooms at target**.
+
+Each room shows a pill beside its temperature:
+
+| Pill | Means |
+|---|---|
+| **Heating** / **Cooling** | Being heated or cooled now, with its vent open. |
+| **At Target** | Between the temperatures it is heated and cooled to. |
+| **Below Target** / **Above Target** | Outside that range. It may still be within its allowed drift, so this does not always mean it is asking. |
+| **No Reading** | Its sensors have not reported recently. |
+| **No Sensor** | It has no temperature sensor. Add one in My Home. |
+
 **Today's Plan**, under Targets, shows the next 24 forecast hours as a strip (heating where it is colder outside than the lowest heating target, cooling where warmer than the highest cooling target, coasting between), the next schedule blocks and peak hours on the clock in house time, and yesterday in a sentence: how often and how long heating and cooling ran, and how many warnings were logged. It refreshes every five minutes and changes nothing. With no weather source chosen it shows only yesterday.
 
 Manual controls live here and nowhere else:

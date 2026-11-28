@@ -119,6 +119,12 @@ describe("Dashboard — CI build", () => {
     expect(within(row).getByText("Hold")).toBeInTheDocument();
     // The real, engine-driven reading for that room is frozen out under CI.
     expect(screen.queryByText("76.1°F")).not.toBeInTheDocument();
+    // The sample's pill reads the same on every pass: a fixed action, not the
+    // live one (the thermostat here is cooling).
+    expect(within(row).getByText("Heating")).toBeInTheDocument();
+    // The zone's room count is engine-driven too, so it is a fixed placeholder.
+    const card = screen.getByTestId("dash-zone-climate.test");
+    expect(card.querySelector(".dash-zone-asking")).toHaveTextContent("—");
   });
 
   it("shows the sample by id for a zone with no rooms, and nothing for later zones", async () => {

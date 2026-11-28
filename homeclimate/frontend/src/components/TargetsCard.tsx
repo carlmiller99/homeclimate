@@ -16,7 +16,7 @@ export interface TargetLevel {
 const CLOSE_F = 2;
 
 /** The targets a level uses: its own, else the nearest level above that has some. */
-function effective(house: House, level: TargetLevel | undefined) {
+export function effective(house: House, level: TargetLevel | undefined) {
   for (let at = level; at; at = at.parent) {
     const own = targetsFor(house, at.scope, at.id);
     if (own) return { ...own, from: at };

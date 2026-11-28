@@ -10,10 +10,12 @@ import {
   connectWS,
   getEntityStates,
   getRoom,
+  getRoomActiveStatuses,
   getSensorHealth,
   type ZoneStatus,
   type Room,
   type RoomOverrideHold,
+  type RoomActiveStatus,
   type ThermostatConfig,
   type VacationMode,
 } from "../api";
@@ -30,7 +32,13 @@ import BuildingModeControl from "../components/BuildingModeControl";
 import { getBuildingModes, type BuildingMode } from "../buildingModeApi";
 import TodayCard from "../components/TodayCard";
 import ConfirmDialog from "../components/ConfirmDialog";
-import { describeTargets, TargetsRow, type TargetLevel } from "../components/TargetsCard";
+import {
+  describeTargets,
+  effective,
+  TargetsRow,
+  type TargetLevel,
+} from "../components/TargetsCard";
+import { roomState, STATE_PILL, type RoomState } from "../roomState";
 import RoomDetailsModal, { type SensorReading } from "../components/RoomDetailsModal";
 import RoomFollowDialog from "../components/RoomFollowDialog";
 import { calendarFor, getHouse, switchesFor, type House } from "../houseApi";
@@ -114,6 +122,19 @@ const HouseContext = createContext<{
   /** What the room is kept between, for the line under its name. */
   noteFor: (room: { id: string; name: string }) => string;
 } | null>(null);
+
+/** What a room is judged against for its pill: the range it is kept in (°F),
+ *  null when it follows nothing, and the offset the engine adds to its reading. */
+type Judge = (room: { id: string; name: string }) => {
+  band: { heat: number; cool: number } | null;
+  offset: number;
+};
+// Always provided by the Dashboard, which is the only place rooms are shown.
+const JudgeContext = createContext<Judge>(null as unknown as Judge);
+
+/** The reading the engine acts on: the average plus the room's offset. */
+const adjusted = (t: number | null | undefined, offset: number) => (t == null ? t : t + offset);
+
 /** Opens a room's details. Always there, so a room can be held or have its
  *  occupancy cleared even when the home's layout could not be read. */
 const OpenRoomContext = createContext<(room: { id: string; name: string }) => void>(() => {});
@@ -122,6 +143,8 @@ function RoomRow({
   room,
   active,
   temp,
+  sensorCount,
+  zoneAction = "",
   held,
   paused,
   fireplace,
@@ -133,7 +156,11 @@ function RoomRow({
 }: {
   room: { id: string; name: string };
   active?: ZoneStatus["rooms"][number];
-  temp: number | null;
+  /** Undefined until the readings have loaded. */
+  temp: number | null | undefined;
+  sensorCount?: number;
+  /** What the zone's thermostat is doing: heating, cooling, idle… */
+  zoneAction?: string;
   held: boolean;
   /** Names of the open doors/windows pausing this room, or null. */
   paused: string[] | null;
@@ -154,7 +181,18 @@ function RoomRow({
   const openRoom = useContext(OpenRoomContext);
   const notInUse = houseCtx !== null && !switchesFor(houseCtx.house, room.id).in_use;
   const { fmtTemp } = useUnit();
-  const shownTemp = active?.avg_temp ?? temp;
+  const judged = useContext(JudgeContext)(room);
+  const shownTemp = active?.avg_temp ?? temp ?? null;
+  const pill =
+    STATE_PILL[
+      roomState(
+        adjusted(temp, judged.offset),
+        sensorCount,
+        judged.band,
+        active && { ...active, avg_temp: adjusted(active.avg_temp, judged.offset) ?? null },
+        zoneAction
+      )
+    ];
   // The whole row opens the room's details, where its targets, hold,
   // occupancy, vents and sensors are. The row itself shows one number.
   return (
@@ -250,6 +288,11 @@ function RoomRow({
         {houseCtx && <span className="dash-room-note">{houseCtx.noteFor(room)}</span>}
       </span>
       <span className="dash-room-temp">
+        {pill && (
+          <span className={`badge ${pill.cls}`} title={pill.title}>
+            {pill.text}
+          </span>
+        )}
         <span className="stat-value">{shownTemp != null ? fmtTemp(shownTemp) : "—"}</span>
       </span>
     </button>
@@ -260,6 +303,8 @@ function roomsBlock(
   zoneRooms: { id: string; name: string }[],
   activeList: ZoneStatus["rooms"],
   temps: Record<string, number | null>,
+  sensorCounts: Record<string, number>,
+  zoneAction: string,
   heldRoomIds: Set<string>,
   pausedRooms: Record<string, string[] | null>,
   fireplaceRooms: Record<string, string>,
@@ -285,7 +330,9 @@ function roomsBlock(
           key={room.id}
           room={room}
           active={activeList.find((a) => a.room_id === room.id)}
-          temp={temps[room.id] ?? null}
+          temp={temps[room.id]}
+          sensorCount={sensorCounts[room.id]}
+          zoneAction={zoneAction}
           held={heldRoomIds.has(room.id)}
           paused={pausedRooms[room.id] ?? null}
           fireplace={fireplaceRooms[room.id] ?? null}
@@ -323,6 +370,7 @@ function ZoneCard({
   thermostats,
   heldRoomIds,
   temps,
+  sensorCounts,
   smart,
   onSuspendEco,
   showActiveRoomsSample,
@@ -333,6 +381,8 @@ function ZoneCard({
   // #576: rooms currently driven by a temporary hold, for the per-room badge.
   heldRoomIds: Set<string>;
   temps: Record<string, number | null>;
+  /** How many temperature sensors each room has; missing until loaded. */
+  sensorCounts: Record<string, number>;
   /** Door and window pauses; null when they could not be read. */
   smart: SmartControl | null;
   onSuspendEco: (thermostatEntityId: string) => void;
@@ -340,24 +390,43 @@ function ZoneCard({
 }) {
   const { fmtTemp } = useUnit();
   const tz = useTimeZone();
+  const judge = useContext(JudgeContext);
   const colorClass = modeColor(zone.hvac_action);
   const label = modeLabel(zone.hvac_action, zone.hvac_mode);
   const badgeClass = `badge badge-${colorClass}`;
   const zonePaused = pausedBy(smart, "zone", zone.thermostat_entity_id, rooms);
   const tc = thermostats.find((t) => t.thermostat_entity_id === zone.thermostat_entity_id);
   const zoneRooms = rooms.filter((r) => r.thermostat_entity_id === zone.thermostat_entity_id);
-  const totalRooms = zoneRooms.length;
   const pausedRooms = Object.fromEntries(
     zoneRooms.map((r) => [r.id, pausedBy(smart, "room", r.id, rooms)])
   );
   const fireplaceRooms = Object.fromEntries(
     (smart?.fireplace_rooms ?? []).map((f) => [f.room_id, f.fireplace])
   );
-  const activeRooms = zone.rooms.length;
-  const doneRooms = zone.rooms.filter((r) =>
-    Object.values(r.vent_states).every((s) => s === "closed")
-  ).length;
-  const progress = activeRooms > 0 ? doneRooms / activeRooms : 0;
+  // The same states the rooms' pills show, counted for the line under the zone.
+  const states = zoneRooms.map((r) => {
+    const { band, offset } = judge(r);
+    const active = zone.rooms.find((a) => a.room_id === r.id);
+    return roomState(
+      adjusted(temps[r.id], offset),
+      sensorCounts[r.id],
+      band,
+      active && { ...active, avg_temp: adjusted(active.avg_temp, offset) ?? null },
+      zone.hvac_action
+    );
+  });
+  const count = (...which: RoomState[]) => states.filter((x) => which.includes(x)).length;
+  const summary = [
+    [count("heating"), "heating"],
+    [count("cooling"), "cooling"],
+    [count("below"), "below target"],
+    [count("above"), "above target"],
+    [count("no-sensor", "no-reading"), "without a reading"],
+  ]
+    .filter(([n]) => (n as number) > 0)
+    .map(([n, what]) => `${n} ${what}`);
+  const allAtTarget =
+    states.length > 0 && states.every((x) => x === "at-target") ? "All rooms at target" : null;
 
   return (
     <div className="card" data-testid={`dash-zone-${zone.thermostat_entity_id}`}>
@@ -367,13 +436,13 @@ function ZoneCard({
             {thermostats.find((t) => t.thermostat_entity_id === zone.thermostat_entity_id)?.name ||
               zone.thermostat_entity_id.split(".").pop()?.replace(/_/g, " ")}
           </div>
-          {/* The thermostat's own reading and what it is set to, and how many
-              of the zone's rooms are asking right now. */}
+          {/* The thermostat's own reading and setpoint, then how the zone's
+              rooms stand: the same states their pills show. */}
           <div className="dash-zone-sub" title={zone.thermostat_entity_id}>
-            {`Thermostat ${zone.current_temp != null ? fmtTemp(zone.current_temp) : "—"}, set to ${zone.setpoint != null ? fmtTemp(zone.setpoint) : "—"}`}
+            {`Thermostat ${zone.current_temp != null ? fmtTemp(zone.current_temp) : "—"}`}
+            {zone.setpoint != null && `, set to ${fmtTemp(zone.setpoint)}`}
             <span className="dash-zone-asking">
-              <Frozen>{activeRooms}</Frozen>
-              {` of ${totalRooms} ${totalRooms === 1 ? "room" : "rooms"} asking`}
+              <Frozen>{allAtTarget ?? summary.join(", ")}</Frozen>
             </span>
             {zone.empty_drift && (
               <span className="dash-zone-asking" title="Eco Mode: nobody is using this zone">
@@ -387,25 +456,6 @@ function ZoneCard({
           <span className={badgeClass}>{label}</span>
         </Frozen>
       </div>
-
-      {/* Progress bar + active-rooms list reflect live cycle membership, which
-          flips between the update and verify screenshot passes. Drop them under
-          CI so the card is deterministic. */}
-      <Frozen frozen={null}>
-        {zone.cycle_state === "running" && activeRooms > 0 && (
-          <>
-            <div className="progress-bar" style={{ marginTop: ".75rem" }}>
-              <div
-                className={`progress-fill ${colorClass === "blue" ? "cooling" : "heating"}`}
-                style={{ width: `${progress * 100}%` }}
-              />
-            </div>
-            <div className="text-sm text-muted" style={{ marginTop: ".25rem" }}>
-              {doneRooms}/{activeRooms} rooms at target
-            </div>
-          </>
-        )}
-      </Frozen>
 
       {zonePaused && (
         <div className="dash-paused" role="status">
@@ -430,6 +480,9 @@ function ZoneCard({
                   room_id: zoneRooms[i].id,
                 })),
           temps,
+          sensorCounts,
+          // A fixed action, so the sample rows read the same on every pass.
+          "heating",
           // Holds are set and cleared by the user (or a spec), not by the
           // engine, so they stay live under CI.
           heldRoomIds,
@@ -441,6 +494,8 @@ function ZoneCard({
           zoneRooms,
           zone.rooms,
           temps,
+          sensorCounts,
+          zone.hvac_action,
           heldRoomIds,
           pausedRooms,
           fireplaceRooms,
@@ -503,6 +558,9 @@ export default function Dashboard() {
   const [temps, setTemps] = useState<Record<string, number | null>>({});
   // Each room's sensors as last read, for its details.
   const [readings, setReadings] = useState<Record<string, SensorReading[]>>({});
+  const sensorCounts = Object.fromEntries(
+    Object.entries(readings).map(([id, list]) => [id, list.length])
+  );
   const [detailsFor, setDetailsFor] = useState<{ id: string; name: string } | null>(null);
   // Each room's temperature sensors, fetched once per set of rooms: the list
   // only changes when the house's structure does, unlike the readings.
@@ -512,6 +570,10 @@ export default function Dashboard() {
     map: {},
   });
   const [smart, setSmart] = useState<SmartControl | null>(null);
+  // What each room is following now; null until read (or when it cannot be).
+  const [activeStatuses, setActiveStatuses] = useState<Record<string, RoomActiveStatus> | null>(
+    null
+  );
   const [house, setHouse] = useState<House | null>(null);
   const [structureLoaded, setStructureLoaded] = useState(false);
   // Each list having loaded once is enough: they need not arrive together.
@@ -550,6 +612,11 @@ export default function Dashboard() {
       getHouse().catch(() => null),
       getBuildingModes().catch(() => null),
     ]);
+    // Kept from the last good read when this one fails.
+    const statuses = await Promise.resolve()
+      .then(() => getRoomActiveStatuses(r.map((room) => room.id)))
+      .catch(() => null);
+    if (statuses) setActiveStatuses(statuses);
     // A failed refresh keeps the last good house: blanking it would drop an
     // unsaved band edit and close an open Options dialog.
     if (hs) setHouse(hs);
@@ -691,6 +758,28 @@ export default function Dashboard() {
           describeTargets(house, levelOfRoom(room.id, room.name), toDisplay, unitLabel),
       }
     : null;
+  // What each room's pill is judged against: the target the engine is
+  // following for it now (a hold, a schedule, occupancy or the house band),
+  // read from its active status; the band it follows until that has loaded.
+  const judge: Judge = (room) => {
+    const full = rooms.find((r) => r.id === room.id);
+    const offset = full?.temp_offset ?? 0;
+    const st = activeStatuses?.[room.id];
+    if (!st) {
+      const band = house ? effective(house, levelOfRoom(room.id, room.name)) : null;
+      return { band: band && { heat: band.heat, cool: band.cool }, offset };
+    }
+    if (st.source === "idle") return { band: null, offset };
+    if (st.heat_to != null && st.cool_to != null)
+      return { band: { heat: st.heat_to, cool: st.cool_to }, offset };
+    if (st.target_temp == null) return { band: null, offset };
+    // One target: the room is at it within the drift it is allowed.
+    const db =
+      full?.deadband_override ??
+      thermostats.find((t) => t.thermostat_entity_id === full?.thermostat_entity_id)?.deadband ??
+      0;
+    return { band: { heat: st.target_temp - db, cool: st.target_temp + db }, offset };
+  };
   // Targets are set per building, with its zones and rooms underneath; a zone
   // in no building stands on its own, with its rooms under it.
   const zoneLevel = (z: ZoneProfile, parent?: TargetLevel): TargetLevel => ({
@@ -732,375 +821,379 @@ export default function Dashboard() {
   const vacationScheduled = vacationState(vacationMode) === "scheduled";
   return (
     <HouseContext.Provider value={houseCtx}>
-      <OpenRoomContext.Provider value={setDetailsFor}>
-        <div>
-          <div className="page-header dash-page-header">
-            <div>
-              <div className="page-title">Dashboard</div>
-              <div className="page-subtitle">
-                {zones.length} zone{zones.length !== 1 ? "s" : ""} · {rooms.length} room
-                {rooms.length !== 1 ? "s" : ""}
-                {lastUpdate && (
-                  <>
-                    {" · Updated "}
-                    <Frozen>
-                      <Time value={lastUpdate} kind="time" />
-                    </Frozen>
-                  </>
-                )}
+      <JudgeContext.Provider value={judge}>
+        <OpenRoomContext.Provider value={setDetailsFor}>
+          <div>
+            <div className="page-header dash-page-header">
+              <div>
+                <div className="page-title">Dashboard</div>
+                <div className="page-subtitle">
+                  {zones.length} zone{zones.length !== 1 ? "s" : ""} · {rooms.length} room
+                  {rooms.length !== 1 ? "s" : ""}
+                  {lastUpdate && (
+                    <>
+                      {" · Updated "}
+                      <Frozen>
+                        <Time value={lastUpdate} kind="time" />
+                      </Frozen>
+                    </>
+                  )}
+                </div>
+              </div>
+              <div className="dash-header-actions">
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={system.enabled}
+                  className={`btn ${system.enabled ? "btn-secondary" : "btn-danger"}`}
+                  title="Turn all of HomeClimate's heating and cooling control on or off"
+                  onClick={() => setConfirmSystem(true)}
+                >
+                  <span
+                    className="system-toggle-dot"
+                    style={{ background: system.enabled ? "var(--green)" : "var(--gray-400)" }}
+                  />
+                  <span>System</span>
+                  <strong className="system-toggle-state">{system.enabled ? "On" : "Off"}</strong>
+                </button>
+                {/* Vacation Mode sits beside the System switch and is drawn the same
+                way: a dot, the name, the state. It opens the vacation dialog. */}
+                <button
+                  type="button"
+                  className={`btn ${vacationMode.enabled ? "btn-warning" : "btn-secondary"}`}
+                  aria-label={
+                    vacationMode.enabled
+                      ? "Vacation mode active"
+                      : vacationScheduled
+                        ? "Vacation scheduled"
+                        : "Enable vacation mode"
+                  }
+                  title="Set the whole house back while you are away, or plan a trip"
+                  onClick={() => setShowVacationModal(true)}
+                >
+                  <span
+                    className="system-toggle-dot"
+                    style={{
+                      background: vacationMode.enabled
+                        ? "var(--orange)"
+                        : vacationScheduled
+                          ? "var(--orange)"
+                          : "var(--gray-400)",
+                    }}
+                  />
+                  <span>Vacation</span>
+                  <strong className="system-toggle-state">
+                    {vacationMode.enabled ? "On" : vacationScheduled ? "Scheduled" : "Off"}
+                  </strong>
+                </button>
+                <button className="btn btn-secondary" onClick={load}>
+                  ↻ Refresh
+                </button>
               </div>
             </div>
-            <div className="dash-header-actions">
-              <button
-                type="button"
-                role="switch"
-                aria-checked={system.enabled}
-                className={`btn ${system.enabled ? "btn-secondary" : "btn-danger"}`}
-                title="Turn all of HomeClimate's heating and cooling control on or off"
-                onClick={() => setConfirmSystem(true)}
-              >
-                <span
-                  className="system-toggle-dot"
-                  style={{ background: system.enabled ? "var(--green)" : "var(--gray-400)" }}
-                />
-                <span>System</span>
-                <strong className="system-toggle-state">{system.enabled ? "On" : "Off"}</strong>
-              </button>
-              {/* Vacation Mode sits beside the System switch and is drawn the same
-                way: a dot, the name, the state. It opens the vacation dialog. */}
-              <button
-                type="button"
-                className={`btn ${vacationMode.enabled ? "btn-warning" : "btn-secondary"}`}
-                aria-label={
-                  vacationMode.enabled
-                    ? "Vacation mode active"
-                    : vacationScheduled
-                      ? "Vacation scheduled"
-                      : "Enable vacation mode"
+            {confirmSystem && (
+              <ConfirmDialog
+                title={system.enabled ? "Turn the system off?" : "Turn the system on?"}
+                message={
+                  system.enabled
+                    ? "HomeClimate stops controlling every thermostat and vent until you turn it back on. Running cycles end."
+                    : "HomeClimate takes control of every thermostat and vent again."
                 }
-                title="Set the whole house back while you are away, or plan a trip"
-                onClick={() => setShowVacationModal(true)}
-              >
-                <span
-                  className="system-toggle-dot"
-                  style={{
-                    background: vacationMode.enabled
-                      ? "var(--orange)"
-                      : vacationScheduled
-                        ? "var(--orange)"
-                        : "var(--gray-400)",
-                  }}
-                />
-                <span>Vacation</span>
-                <strong className="system-toggle-state">
-                  {vacationMode.enabled ? "On" : vacationScheduled ? "Scheduled" : "Off"}
-                </strong>
-              </button>
-              <button className="btn btn-secondary" onClick={load}>
-                ↻ Refresh
-              </button>
-            </div>
-          </div>
-          {confirmSystem && (
-            <ConfirmDialog
-              title={system.enabled ? "Turn the system off?" : "Turn the system on?"}
-              message={
-                system.enabled
-                  ? "HomeClimate stops controlling every thermostat and vent until you turn it back on. Running cycles end."
-                  : "HomeClimate takes control of every thermostat and vent again."
-              }
-              confirmLabel={system.enabled ? "Turn System Off" : "Turn System On"}
-              onCancel={() => setConfirmSystem(false)}
-              onConfirm={() => {
-                setConfirmSystem(false);
-                void system.toggle();
-              }}
-            />
-          )}
+                confirmLabel={system.enabled ? "Turn System Off" : "Turn System On"}
+                onCancel={() => setConfirmSystem(false)}
+                onConfirm={() => {
+                  setConfirmSystem(false);
+                  void system.toggle();
+                }}
+              />
+            )}
 
-          <AirflowConfigBanner />
-          <UnavailableThermostatsBanner />
-          <StaleSensorsBanner />
+            <AirflowConfigBanner />
+            <UnavailableThermostatsBanner />
+            <StaleSensorsBanner />
 
-          <TodayCard />
+            <TodayCard />
 
-          {/* Eco Suspend — sits above the buildings. Holds start from a building
+            {/* Eco Suspend — sits above the buildings. Holds start from a building
             or from a room's details.
             Vacation Mode is in the page header, beside the System switch. */}
-          <div style={{ marginBottom: "1rem" }}>
-            <div style={{ display: "flex", gap: ".5rem", flexWrap: "wrap" }}>
-              {/* Only shown when Eco is in play somewhere: a thermostat has Eco
+            <div style={{ marginBottom: "1rem" }}>
+              <div style={{ display: "flex", gap: ".5rem", flexWrap: "wrap" }}>
+                {/* Only shown when Eco is in play somewhere: a thermostat has Eco
               enabled, a room has an explicit Eco opt-in, or a suspension is
               already active (#500). */}
-              {(thermostats.some((t) => t.eco_mode_enabled || t.eco_suspend_until) ||
-                rooms.some((r) => r.eco_mode_enabled === true)) && (
-                <button
-                  className="btn btn-secondary"
-                  data-testid="dashboard-eco-suspend-btn"
-                  onClick={() => setEcoSuspendFor({})}
-                  style={{ display: "flex", alignItems: "center", gap: ".5rem" }}
-                >
-                  🍃{" "}
-                  {thermostats.some((t) => t.eco_suspend_until)
-                    ? "Eco suspended — manage"
-                    : "Suspend Eco"}
-                </button>
-              )}
-            </div>
-            {vacationMode.enabled && vacationMode.return_at && (
-              <div
-                className="form-hint"
-                style={{ marginTop: ".4rem" }}
-                title={tz.tooltip(vacationMode.return_at)}
-              >
-                {`Schedules paused until ${tz.format(vacationMode.return_at)}`}
+                {(thermostats.some((t) => t.eco_mode_enabled || t.eco_suspend_until) ||
+                  rooms.some((r) => r.eco_mode_enabled === true)) && (
+                  <button
+                    className="btn btn-secondary"
+                    data-testid="dashboard-eco-suspend-btn"
+                    onClick={() => setEcoSuspendFor({})}
+                    style={{ display: "flex", alignItems: "center", gap: ".5rem" }}
+                  >
+                    🍃{" "}
+                    {thermostats.some((t) => t.eco_suspend_until)
+                      ? "Eco suspended — manage"
+                      : "Suspend Eco"}
+                  </button>
+                )}
               </div>
-            )}
-            {actionError && <p className="form-error">{actionError}</p>}
-            {/* Active holds strip (#576): every live hold — including rooms that
+              {vacationMode.enabled && vacationMode.return_at && (
+                <div
+                  className="form-hint"
+                  style={{ marginTop: ".4rem" }}
+                  title={tz.tooltip(vacationMode.return_at)}
+                >
+                  {`Schedules paused until ${tz.format(vacationMode.return_at)}`}
+                </div>
+              )}
+              {actionError && <p className="form-error">{actionError}</p>}
+              {/* Active holds strip (#576): every live hold — including rooms that
             are not part of a running cycle — with a cancel next to each. The
             countdown is backend-derived and time-varying, so it is frozen for
             the visual goldens; name/target/eco tag are stable and stay live. */}
-            {holds.map((h) => {
-              const room = rooms.find((r) => r.id === h.room_id);
-              return (
-                <div
-                  key={h.room_id}
-                  className="form-hint"
-                  data-testid={`dashboard-hold-${h.room_id}`}
-                  style={{
-                    marginTop: ".4rem",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: ".5rem",
-                  }}
-                >
-                  <span>
-                    🕒 <strong>{room?.name ?? h.room_id}</strong> held at{" "}
-                    <strong>{bandText(fmtTemp, h.target_temp, h.cool_to)}</strong> · ends in{" "}
-                    <Frozen>{formatCountdown(h.ends_in_seconds)}</Frozen> ·{" "}
-                    {h.respect_eco ? "Eco may relax" : "ignores Eco"}
-                  </span>
-                  <button
-                    className="btn btn-sm btn-outline-danger"
-                    style={{ padding: "0 .5rem", fontSize: ".75rem" }}
-                    title="End the hold now — the room returns to its schedules and presence."
-                    onClick={() => cancelHold(h.room_id)}
+              {holds.map((h) => {
+                const room = rooms.find((r) => r.id === h.room_id);
+                return (
+                  <div
+                    key={h.room_id}
+                    className="form-hint"
+                    data-testid={`dashboard-hold-${h.room_id}`}
+                    style={{
+                      marginTop: ".4rem",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: ".5rem",
+                    }}
                   >
-                    Cancel
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-
-          {zones.length === 0 ? (
-            <div className="card">
-              <div className="empty-state">
-                <p>No zones set up yet.</p>
-                <p style={{ marginTop: ".5rem" }}>
-                  Go to <strong>My Home</strong> to add your first zone.
-                </p>
-              </div>
+                    <span>
+                      🕒 <strong>{room?.name ?? h.room_id}</strong> held at{" "}
+                      <strong>{bandText(fmtTemp, h.target_temp, h.cool_to)}</strong> · ends in{" "}
+                      <Frozen>{formatCountdown(h.ends_in_seconds)}</Frozen> ·{" "}
+                      {h.respect_eco ? "Eco may relax" : "ignores Eco"}
+                    </span>
+                    <button
+                      className="btn btn-sm btn-outline-danger"
+                      style={{ padding: "0 .5rem", fontSize: ".75rem" }}
+                      title="End the hold now — the room returns to its schedules and presence."
+                      onClick={() => cancelHold(h.room_id)}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                );
+              })}
             </div>
-          ) : (
-            groupByBuilding(
-              buildings,
-              [...zones].sort(
-                (a, b) =>
-                  (profiles.find((p) => p.thermostat_entity_id === a.thermostat_entity_id)
-                    ?.sort_order ?? 0) -
-                  (profiles.find((p) => p.thermostat_entity_id === b.thermostat_entity_id)
-                    ?.sort_order ?? 0)
-              ),
-              (z) =>
-                profiles.find((p) => p.thermostat_entity_id === z.thermostat_entity_id)
-                  ?.building_id ?? null
-            )
-              // A building with no zones has nothing to show here; My Home lists it.
-              .filter((group) => group.items.length > 0)
-              .map((group) => (
-                <section
-                  key={group.building?.id ?? "unassigned"}
-                  className="dash-building"
-                  data-testid={`dash-building-${group.building?.id ?? "unassigned"}`}
-                >
-                  <div className="dash-building-head">
-                    {buildings.length > 0 && (
-                      <h2 className="dash-building-title">
-                        {group.building?.name ?? "Other Zones"}
-                      </h2>
+
+            {zones.length === 0 ? (
+              <div className="card">
+                <div className="empty-state">
+                  <p>No zones set up yet.</p>
+                  <p style={{ marginTop: ".5rem" }}>
+                    Go to <strong>My Home</strong> to add your first zone.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              groupByBuilding(
+                buildings,
+                [...zones].sort(
+                  (a, b) =>
+                    (profiles.find((p) => p.thermostat_entity_id === a.thermostat_entity_id)
+                      ?.sort_order ?? 0) -
+                    (profiles.find((p) => p.thermostat_entity_id === b.thermostat_entity_id)
+                      ?.sort_order ?? 0)
+                ),
+                (z) =>
+                  profiles.find((p) => p.thermostat_entity_id === z.thermostat_entity_id)
+                    ?.building_id ?? null
+              )
+                // A building with no zones has nothing to show here; My Home lists it.
+                .filter((group) => group.items.length > 0)
+                .map((group) => (
+                  <section
+                    key={group.building?.id ?? "unassigned"}
+                    className="dash-building"
+                    data-testid={`dash-building-${group.building?.id ?? "unassigned"}`}
+                  >
+                    <div className="dash-building-head">
+                      {buildings.length > 0 && (
+                        <h2 className="dash-building-title">
+                          {group.building?.name ?? "Other Zones"}
+                        </h2>
+                      )}
+                      {buildingModes
+                        .filter((m) => m.building_id === group.building?.id)
+                        .map((m) => (
+                          <BuildingModeControl
+                            key={m.building_id}
+                            building={m}
+                            zoneNames={Object.fromEntries(
+                              profiles.map((p) => [p.thermostat_entity_id, p.name])
+                            )}
+                            onSaved={setBuildingModes}
+                          />
+                        ))}
+                      {house && structureLoaded && group.building && (
+                        <TargetsRow
+                          house={house}
+                          level={buildingLevel(group.building)}
+                          onSaved={setHouse}
+                        />
+                      )}
+                      {roomsIn(group.items).length > 0 && (
+                        <button
+                          type="button"
+                          className="btn btn-secondary dash-building-hold"
+                          data-testid={`dash-hold-${group.building?.id ?? "unassigned"}`}
+                          aria-label={
+                            buildings.length > 0
+                              ? `Hold a room in ${group.building?.name ?? "Other Zones"}`
+                              : "Hold a room"
+                          }
+                          title="Keep one room at an exact temperature for 1 to 8 hours, ahead of its schedules, occupancy and targets"
+                          onClick={() => setHoldModalFor({ rooms: roomsIn(group.items) })}
+                        >
+                          Hold a Room
+                        </button>
+                      )}
+                    </div>
+                    {house && structureLoaded && (
+                      <div className="dash-building-targets">
+                        {(() => {
+                          const zoneRows = profiles
+                            .filter((p) =>
+                              group.items.some(
+                                (z) => z.thermostat_entity_id === p.thermostat_entity_id
+                              )
+                            )
+                            .map((p) => (
+                              <TargetsRow
+                                key={p.thermostat_entity_id}
+                                house={house}
+                                level={levelOfZone(p)}
+                                onSaved={setHouse}
+                              />
+                            ));
+                          // A zone in a building follows it unless told otherwise, so
+                          // its own targets are folded away; one in no building has
+                          // nothing above it and is shown outright.
+                          return group.building ? (
+                            <details
+                              className="targets-more"
+                              // Open when a zone here has targets of its own, so an
+                              // override is never out of sight.
+                              open={(house.targets ?? []).some(
+                                (t) =>
+                                  t.scope === "zone" &&
+                                  group.items.some((z) => z.thermostat_entity_id === t.scope_id)
+                              )}
+                            >
+                              <summary>{`Targets for zones in ${group.building.name}`}</summary>
+                              {zoneRows}
+                            </details>
+                          ) : (
+                            zoneRows
+                          );
+                        })()}
+                      </div>
                     )}
-                    {buildingModes
-                      .filter((m) => m.building_id === group.building?.id)
-                      .map((m) => (
-                        <BuildingModeControl
-                          key={m.building_id}
-                          building={m}
-                          zoneNames={Object.fromEntries(
-                            profiles.map((p) => [p.thermostat_entity_id, p.name])
-                          )}
-                          onSaved={setBuildingModes}
+                    <div className="card-grid">
+                      {group.items.map((z) => (
+                        <ZoneCard
+                          key={z.thermostat_entity_id}
+                          zone={z}
+                          rooms={rooms}
+                          thermostats={thermostats}
+                          heldRoomIds={new Set(holds.map((h) => h.room_id))}
+                          temps={temps}
+                          sensorCounts={sensorCounts}
+                          smart={smart}
+                          onSuspendEco={(tid) => setEcoSuspendFor({ thermostat: tid })}
+                          showActiveRoomsSample={z === zones[0]}
                         />
                       ))}
-                    {house && structureLoaded && group.building && (
-                      <TargetsRow
-                        house={house}
-                        level={buildingLevel(group.building)}
-                        onSaved={setHouse}
-                      />
-                    )}
-                    {roomsIn(group.items).length > 0 && (
-                      <button
-                        type="button"
-                        className="btn btn-secondary dash-building-hold"
-                        data-testid={`dash-hold-${group.building?.id ?? "unassigned"}`}
-                        aria-label={
-                          buildings.length > 0
-                            ? `Hold a room in ${group.building?.name ?? "Other Zones"}`
-                            : "Hold a room"
-                        }
-                        title="Keep one room at an exact temperature for 1 to 8 hours, ahead of its schedules, occupancy and targets"
-                        onClick={() => setHoldModalFor({ rooms: roomsIn(group.items) })}
-                      >
-                        Hold a Room
-                      </button>
-                    )}
-                  </div>
-                  {house && structureLoaded && (
-                    <div className="dash-building-targets">
-                      {(() => {
-                        const zoneRows = profiles
-                          .filter((p) =>
-                            group.items.some(
-                              (z) => z.thermostat_entity_id === p.thermostat_entity_id
-                            )
-                          )
-                          .map((p) => (
-                            <TargetsRow
-                              key={p.thermostat_entity_id}
-                              house={house}
-                              level={levelOfZone(p)}
-                              onSaved={setHouse}
-                            />
-                          ));
-                        // A zone in a building follows it unless told otherwise, so
-                        // its own targets are folded away; one in no building has
-                        // nothing above it and is shown outright.
-                        return group.building ? (
-                          <details
-                            className="targets-more"
-                            // Open when a zone here has targets of its own, so an
-                            // override is never out of sight.
-                            open={(house.targets ?? []).some(
-                              (t) =>
-                                t.scope === "zone" &&
-                                group.items.some((z) => z.thermostat_entity_id === t.scope_id)
-                            )}
-                          >
-                            <summary>{`Targets for zones in ${group.building.name}`}</summary>
-                            {zoneRows}
-                          </details>
-                        ) : (
-                          zoneRows
-                        );
-                      })()}
                     </div>
-                  )}
-                  <div className="card-grid">
-                    {group.items.map((z) => (
-                      <ZoneCard
-                        key={z.thermostat_entity_id}
-                        zone={z}
-                        rooms={rooms}
-                        thermostats={thermostats}
-                        heldRoomIds={new Set(holds.map((h) => h.room_id))}
-                        temps={temps}
-                        smart={smart}
-                        onSuspendEco={(tid) => setEcoSuspendFor({ thermostat: tid })}
-                        showActiveRoomsSample={z === zones[0]}
-                      />
-                    ))}
-                  </div>
-                </section>
-              ))
-          )}
+                  </section>
+                ))
+            )}
 
-          {detailsFor && (
-            <RoomDetailsModal
-              level={levelOfRoom(detailsFor.id, detailsFor.name)}
-              house={house}
-              temp={
-                zones.flatMap((z) => z.rooms).find((a) => a.room_id === detailsFor.id)?.avg_temp ??
-                temps[detailsFor.id] ??
-                null
-              }
-              readings={readings[detailsFor.id] ?? []}
-              held={holds.some((h) => h.room_id === detailsFor.id)}
-              status={roomStatus(detailsFor.id)}
-              active={zones.flatMap((z) => z.rooms).find((a) => a.room_id === detailsFor.id)}
-              room={rooms.find((r) => r.id === detailsFor.id)}
-              onRoomSaved={load}
-              onClearedPresence={load}
-              onSaved={setHouse}
-              onHold={() => {
-                setHoldModalFor({ room: detailsFor.id });
-                setDetailsFor(null);
-              }}
-              onCancelHold={() => {
-                // Back to the page, which is where a failure is reported.
-                setDetailsFor(null);
-                void cancelHold(detailsFor.id);
-              }}
-              onOptions={() => {
-                setOptionsFor(detailsFor);
-                setDetailsFor(null);
-              }}
-              onClose={() => setDetailsFor(null)}
-            />
-          )}
+            {detailsFor && (
+              <RoomDetailsModal
+                level={levelOfRoom(detailsFor.id, detailsFor.name)}
+                house={house}
+                temp={
+                  zones.flatMap((z) => z.rooms).find((a) => a.room_id === detailsFor.id)
+                    ?.avg_temp ??
+                  temps[detailsFor.id] ??
+                  null
+                }
+                readings={readings[detailsFor.id] ?? []}
+                held={holds.some((h) => h.room_id === detailsFor.id)}
+                status={roomStatus(detailsFor.id)}
+                active={zones.flatMap((z) => z.rooms).find((a) => a.room_id === detailsFor.id)}
+                room={rooms.find((r) => r.id === detailsFor.id)}
+                onRoomSaved={load}
+                onClearedPresence={load}
+                onSaved={setHouse}
+                onHold={() => {
+                  setHoldModalFor({ room: detailsFor.id });
+                  setDetailsFor(null);
+                }}
+                onCancelHold={() => {
+                  // Back to the page, which is where a failure is reported.
+                  setDetailsFor(null);
+                  void cancelHold(detailsFor.id);
+                }}
+                onOptions={() => {
+                  setOptionsFor(detailsFor);
+                  setDetailsFor(null);
+                }}
+                onClose={() => setDetailsFor(null)}
+              />
+            )}
 
-          {showVacationModal && (
-            <VacationModeModal
-              current={vacationMode}
-              onClose={() => setShowVacationModal(false)}
-              onChanged={(updated) => {
-                setVacationMode(updated);
-                setShowVacationModal(false);
-              }}
-            />
-          )}
+            {showVacationModal && (
+              <VacationModeModal
+                current={vacationMode}
+                onClose={() => setShowVacationModal(false)}
+                onChanged={(updated) => {
+                  setVacationMode(updated);
+                  setShowVacationModal(false);
+                }}
+              />
+            )}
 
-          {ecoSuspendFor && (
-            <EcoSuspendModal
-              thermostats={thermostats}
-              initialThermostat={ecoSuspendFor.thermostat}
-              onClose={() => setEcoSuspendFor(null)}
-              onChanged={load}
-            />
-          )}
+            {ecoSuspendFor && (
+              <EcoSuspendModal
+                thermostats={thermostats}
+                initialThermostat={ecoSuspendFor.thermostat}
+                onClose={() => setEcoSuspendFor(null)}
+                onChanged={load}
+              />
+            )}
 
-          {holdModalFor && (
-            <HoldModal
-              rooms={holdModalFor.rooms ?? rooms}
-              initialRoom={holdModalFor.room}
-              holds={Object.fromEntries(holds.map((h) => [h.room_id, h]))}
-              onClose={() => setHoldModalFor(null)}
-              onChanged={load}
-            />
-          )}
-          {optionsFor && house && (
-            <RoomFollowDialog
-              roomId={optionsFor.id}
-              roomName={optionsFor.name}
-              switches={switchesFor(house, optionsFor.id)}
-              calendar={calendarFor(house, optionsFor.id)?.entity_id ?? null}
-              onSaved={setHouse}
-              onClose={() => setOptionsFor(null)}
-            />
-          )}
-        </div>
-      </OpenRoomContext.Provider>
+            {holdModalFor && (
+              <HoldModal
+                rooms={holdModalFor.rooms ?? rooms}
+                initialRoom={holdModalFor.room}
+                holds={Object.fromEntries(holds.map((h) => [h.room_id, h]))}
+                onClose={() => setHoldModalFor(null)}
+                onChanged={load}
+              />
+            )}
+            {optionsFor && house && (
+              <RoomFollowDialog
+                roomId={optionsFor.id}
+                roomName={optionsFor.name}
+                switches={switchesFor(house, optionsFor.id)}
+                calendar={calendarFor(house, optionsFor.id)?.entity_id ?? null}
+                onSaved={setHouse}
+                onClose={() => setOptionsFor(null)}
+              />
+            )}
+          </div>
+        </OpenRoomContext.Provider>
+      </JudgeContext.Provider>
     </HouseContext.Provider>
   );
 }

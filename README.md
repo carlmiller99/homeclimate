@@ -325,7 +325,7 @@ The Dashboard shows one card per thermostat zone with:
 - Friendly thermostat name and HA entity ID
 - Current HVAC action (heating / cooling / idle / off)
 - Ambient temperature and active setpoint
-- Cycle state and per-room progress bar
+- Each room's temperature and whether it is heating, cooling, at target, or below or above it
 - Live vent states (open/closed) for all active rooms
 
 It updates in real time via WebSocket.
