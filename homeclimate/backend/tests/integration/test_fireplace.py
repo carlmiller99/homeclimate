@@ -63,9 +63,9 @@ async def test_none_by_default(client):
     assert snap["fireplace_rooms"] == []
 
 
-async def test_a_new_fireplace_watches_only(client, fake_ha, house):
+async def test_a_new_fireplace_compensates(client, fake_ha, house):
     f = await _add(client, house)
-    assert f["control"] == "watch" and f["cooldown_min"] == 60
+    assert f["control"] == "on" and f["cooldown_min"] == 60
     assert f["room_ids"] == sorted([house["great"], house["loft"]])
     assert (f["state"], f["lit_since"], f["cooling_until"], f["setting_aside"]) == (
         "out",
@@ -76,10 +76,9 @@ async def test_a_new_fireplace_watches_only(client, fake_ha, house):
     await fake_ha.set_entity_state(RELAY, "on")
     f = await _one(client)
     assert f["state"] == "lit" and f["lit_since"] is not None
-    assert f["setting_aside"] is False  # watching changes nothing
+    assert f["setting_aside"] is True
     scheduler = client.app["scheduler"]
-    assert scheduler._pause_for(T1) == (False, frozenset())
-    assert await _events(client) == ["Great Room Fireplace is lit (watching only)"]
+    assert scheduler._pause_for(T1)[1] == frozenset({house["great"], house["loft"]})
 
 
 async def test_when_on_its_rooms_are_set_aside_through_the_cool_down(client, fake_ha, house):
@@ -221,7 +220,7 @@ async def test_a_signal_left_on_is_called_out_once(client, fake_ha, house):
 
 
 async def test_changing_the_rule_while_lit_applies_at_once(client, fake_ha, house):
-    f = await _add(client, house)  # watch only
+    f = await _add(client, house, control="off")
     await fake_ha.set_entity_state(RELAY, "on")
     scheduler = client.app["scheduler"]
     assert scheduler._pause_for(T1)[1] == frozenset()
@@ -310,7 +309,7 @@ async def test_validation_uses_fixed_messages(client, house):
         ({"room_ids": ["nope"]}, "One of those rooms does not exist"),
         ({"cooldown_min": 241}, "Cool-down must be a whole number of minutes from 0 to 240"),
         ({"cooldown_min": True}, "Cool-down must be a whole number of minutes from 0 to 240"),
-        ({"control": "auto"}, "control must be off, watch or on"),
+        ({"control": "watch"}, "control must be off or on"),
         ({"colour": "red"}, "Unknown fireplace field"),
     ):
         resp = await client.post("/api/fireplaces", json={**good, **patch})
@@ -340,7 +339,7 @@ async def test_a_fault_never_reaches_the_engine_tick(client, house, monkeypatch,
 
 
 async def test_readings_note_a_warm_fireplace(client, fake_ha, house):
-    await _add(client, house)  # watching is enough to mark the record
+    await _add(client, house)
     scheduler = client.app["scheduler"]
     conn = await scheduler.get_db()
     await scheduler._sample_rooms()

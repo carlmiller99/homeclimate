@@ -341,14 +341,14 @@ async def test_a_banking_run_neither_sets_nor_holds_the_buildings_side(
     for tid in (T, other):
         await client.put(f"/api/zones/{tid}", json={"building_id": main})
     resp = await client.put(
-        f"/api/building-modes/{main}", json={"mode": "auto", "auto_level": "on"}
+        f"/api/building-modes/{main}", json={"mode": "auto", "opposite_allowed": False}
     )
     assert resp.status == 200, await resp.text()
     scheduler = client.app["scheduler"]
     await tick()
     await tick()
     assert eng.cycle_mode == "cooling" and eng.optional_only
-    # The banking run is the building's only cycle, and has not put it on a side.
+    # The banking run is the building's only cycle, and has not put its zone on a side.
     assert scheduler.building_plan.side_for(T) == (None, True)
     assert scheduler._building_side(T) == (None, True)
     await client.post(f"/api/rooms/{study}/override", json={"target_temp": 73, "duration_hours": 2})
@@ -387,7 +387,10 @@ async def test_a_banking_run_neither_sets_nor_holds_the_buildings_side(
         assert scene != "late caller" or ids["office"] not in eng._active_rooms
     assert eng.cycle_state.value == "idle" and eng.bank_rooms == []
     assert waiting.cycle_mode == "heating"
-    assert scheduler.building_plan.side_for(T) == ("heating", True)
+    # The waiting zone took heating as its side; the banking zone, which never
+    # had one, is now held to what it runs.
+    assert scheduler.building_plan.side_for(other) == ("heating", True)
+    assert scheduler._building_side(T) == ("heating", True)
     # And the banking is not started again against it.
     for _ in range(3):
         await tick()

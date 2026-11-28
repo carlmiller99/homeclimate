@@ -163,20 +163,10 @@ async def test_an_occupied_zone_brings_a_lagging_one_to_within_the_limit(client,
     assert len(await _events(client)) == 2
 
 
-async def test_watching_only_says_what_it_would_do_and_gives_the_zone_nothing(client, site):
-    main, rooms, _temps = site
-    scheduler = client.app["scheduler"]
-    await client.post(
-        f"/api/rooms/{rooms[T1]}/override", json={"target_temp": 70, "duration_hours": 2}
-    )
-    await client.put(f"/api/building-modes/{main}", json={"mode": "heat_only"})
-    snap = await _set(client, main, level="watch", zone_gap=4)
-    assert (snap["level"], snap["zone_gap"]) == ("watch", 4.0)
-    assert scheduler.balance_calls == {T2: (zb.Call("heating", 66.0, T1, 6.0), False)}
-    assert scheduler._balance_call(T2) is None
-    assert await _events(client) == [
-        f"Zone Balance: {T2} is 6°F colder than {T1}; it would be asked (watching only) to heat to 66°F"
-    ]
+async def test_watch_only_is_gone(client, site):
+    main, _rooms, _temps = site
+    resp = await client.put(f"/api/zone-balance/{main}", json={"level": "watch"})
+    assert (resp.status, (await resp.json())["error"]) == (400, "level must be off or on")
 
 
 async def test_the_direction_comes_from_running_zones_when_the_building_has_no_side(client, site):
@@ -506,7 +496,7 @@ async def test_where_the_building_chooses_its_side_a_call_for_the_other_side_end
     for tid in (lead, lag):
         await client.put(f"/api/zones/{tid}", json={"building_id": main})
     resp = await client.put(
-        f"/api/building-modes/{main}", json={"mode": "auto", "auto_level": "on"}
+        f"/api/building-modes/{main}", json={"mode": "auto", "opposite_allowed": False}
     )
     assert resp.status == 200, await resp.text()
     for name, target in (("kitchen", 76), ("desk", 70)):

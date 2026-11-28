@@ -244,17 +244,21 @@ async def test_nothing_starts_while_another_zone_finishes_the_other_way():
     await conn.close()
 
 
-async def test_the_first_zone_to_start_sets_the_side_for_a_building_with_none():
+async def test_a_start_is_claimed_and_held_when_another_zone_starts_the_other_way():
     conn, engine, started = await _scheduled({"r1": 75.0, "r2": 72.0}, None, ambient=75.0)
     asked: list[str] = []
-    engine._claim_building_side = lambda d: asked.append(d) or "heating"
-    await engine._do_tick(conn)  # another zone claimed heating first
-    started.assert_not_awaited()
-    assert asked == ["cooling"] and engine.building_wait["direction"] == "cooling"
-    engine._claim_building_side = lambda d: d
-    await engine._do_tick(conn)
-    assert _started(started)[1] == "cooling"
-    await conn.close()
+    try:
+        engine._claim_building_side = lambda d: asked.append(d) or "hold"
+        await engine._do_tick(conn)  # another zone claimed heating first
+        started.assert_not_awaited()
+        assert asked == ["cooling"] and engine.held_for == "cooling"
+        assert engine.building_wait is None
+        engine._claim_building_side = lambda d: None
+        await engine._do_tick(conn)
+        assert _started(started)[1] == "cooling"
+        assert engine.held_for is None
+    finally:
+        await conn.close()
 
 
 async def test_a_zone_that_could_not_run_the_other_way_does_not_ask_for_a_switch():

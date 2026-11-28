@@ -245,6 +245,9 @@ class CycleEngine:
         self._protect_said_at: datetime | None = None
         # Set while this zone has demand its building's side does not allow.
         self.building_wait: dict | None = None
+        # The direction this zone wanted and could not start, because another
+        # zone of its building ran (or started) the other way.
+        self.held_for: str | None = None
         self._wait_past: list[tuple[datetime, float]] = []
         # Heat pump protection: guards for this zone, or None (conventional).
         self._get_heat_pump = get_heat_pump
@@ -680,6 +683,7 @@ class CycleEngine:
         # a pause, no demand, a running cycle) leaves the zone not waiting, so
         # the building is never switched for a zone that no longer wants it.
         self.building_wait = None
+        self.held_for = None
 
         # Expire holdovers and overrides first
         await expire_holdovers(conn)
@@ -6048,6 +6052,7 @@ class CycleEngine:
         cycle that runs against the building's side for that reason only
         brings those rooms back inside their limits.
         """
+        self.held_for = None
         if inferred not in ("heating", "cooling"):
             self._wait_started = None
             return inferred
@@ -6057,7 +6062,9 @@ class CycleEngine:
             if obey and side in ("heating", "cooling", "hold") and inferred != side:
                 await self._protect_against_side(active_rooms, breaches[inferred], inferred, tc)
             return inferred
-        claiming = side is None and obey and self._claim_building_side is not None
+        # Every start in a building that keeps its zones apart is claimed, so
+        # two zones cannot start opposite cycles in the same minute.
+        claiming = obey and self._claim_building_side is not None and side in (None, inferred)
         can_start = True
         if claiming or (side in ("heating", "cooling") and inferred != side):
             # Only worked out when the answer matters: it tries Eco on a copy.
@@ -6065,11 +6072,11 @@ class CycleEngine:
                 conn, inferred, active_rooms, tc, thermo_state, outside_temp, off_schedule_ok
             )
         if claiming and can_start:
-            # First cycle of a building with no side yet: the first zone to
-            # start sets it, so a second zone cannot start the other way.
             assert self._claim_building_side is not None
-            side = self._claim_building_side(inferred)
+            if self._claim_building_side(inferred) == "hold":
+                side = "hold"
         if side == "hold":
+            self.held_for = inferred
             # Only ever given to a zone that is being held to its building.
             if breaches:
                 # The vote went the other way, but a room is past a limit.
