@@ -87,6 +87,7 @@ export function RuleRow({
   enabled,
   disabled,
   onToggle,
+  group,
   children,
 }: {
   id: string;
@@ -95,6 +96,8 @@ export function RuleRow({
   enabled?: boolean;
   disabled?: boolean;
   onToggle?: (v: boolean) => void;
+  /** The row holds a set of controls that name themselves, not one field. */
+  group?: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -105,9 +108,13 @@ export function RuleRow({
         <span className="switch-spacer" />
       )}
       <div className="rule-text">
-        <label htmlFor={onToggle ? id : `${id}-min`} className="rule-title">
-          {title}
-        </label>
+        {group ? (
+          <span className="rule-title">{title}</span>
+        ) : (
+          <label htmlFor={onToggle ? id : `${id}-min`} className="rule-title">
+            {title}
+          </label>
+        )}
         <p className="rule-help">{help}</p>
       </div>
       <div className={`rule-value${onToggle && !enabled ? " is-off" : ""}`}>{children}</div>

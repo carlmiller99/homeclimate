@@ -327,6 +327,14 @@ class TestRoomDevicePickers:
             ("sensor.attic_temp", False, False),
         ]
         assert not any(e["named_for_room"] for e in other)
+        # A room name with nothing usable in it matches no device.
+        blank = await (
+            await client.get(
+                "/api/ha/entities",
+                params={"domain": "sensor", "kind": "temperature", "room": "!!!"},
+            )
+        ).json()
+        assert not any(e["named_for_room"] for e in blank)
         # Without a room nothing is looked up.
         plain = await (await client.get("/api/ha/entities?domain=sensor&kind=temperature")).json()
         assert all(e["area_name"] is None and e["in_room_area"] is False for e in plain)

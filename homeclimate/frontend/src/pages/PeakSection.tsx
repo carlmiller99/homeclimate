@@ -147,7 +147,7 @@ export default function PeakSection() {
           <ZoneHint />
         </span>
       </RuleRow>
-      <RuleRow id="peak-days" title="On These Days" help="The days your peak rate applies.">
+      <RuleRow id="peak-days" group title="On These Days" help="The days your peak rate applies.">
         <DayChips label="On These Days" selected={data.days} disabled={busy} onToggle={toggleDay} />
       </RuleRow>
       <RuleRow

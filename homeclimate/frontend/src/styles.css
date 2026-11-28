@@ -1096,6 +1096,16 @@ input:disabled {
   padding: 0 0.6rem;
   font-size: 0.875rem;
 }
+/* The same again with the weight to beat the field rules above. */
+input.form-control-sm,
+select.form-control-sm {
+  min-height: 36px;
+  padding: 0 0.6rem;
+  font-size: 0.875rem;
+}
+select.form-control-sm {
+  padding-right: 2rem;
+}
 /* Beside its words in a row, a field is only as wide as what it holds. */
 .rule-value .form-control,
 .rule-value select,
@@ -2311,6 +2321,9 @@ tr:hover td {
   background: transparent;
   border: none;
   cursor: pointer;
+  min-height: 0;
+  padding: 0;
+  appearance: auto;
 }
 .import-building {
   display: flex;
@@ -2543,6 +2556,7 @@ tr:hover td {
   gap: 0.5rem;
 }
 .minutes-input,
+input.minutes-input,
 .rule-value .minutes-input,
 .advanced-row .minutes-input,
 .sheet-row .minutes-input {
@@ -4362,4 +4376,7 @@ text.eco-chart-cool {
   margin-top: 4px;
   max-height: min(264px, 40vh);
   box-shadow: none;
+}
+.entity-row-note.is-ok {
+  color: var(--green-text, #1a7f37);
 }

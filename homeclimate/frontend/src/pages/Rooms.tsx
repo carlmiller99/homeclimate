@@ -988,7 +988,9 @@ function VentRow({ vent, onChanged }: { vent: RoomVent; onChanged: () => Promise
         </button>
       </span>
       {status && (
-        <p className={status.ok ? "entity-row-note" : "entity-row-note form-error"}>{status.msg}</p>
+        <p className={status.ok ? "entity-row-note is-ok" : "entity-row-note form-error"}>
+          {status.msg}
+        </p>
       )}
       {confirmRemove && (
         <ConfirmDialog

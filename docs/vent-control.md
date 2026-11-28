@@ -4,16 +4,16 @@ Every vent stores how HomeClimate should actually open and close it. The right m
 
 ## The four methods
 
-| Method | How "open" is sent | How "close" is sent | When to use |
-|---|---|---|---|
-| **`open_close`** (default) | `cover.open_cover` | `cover.close_cover` | Standard covers that support the basic open/close service pair. This is what most HA cover integrations implement. |
-| **`set_position`** | `cover.set_cover_position` with `position=100` | `cover.set_cover_position` with `position=0` | Vents that expose a position attribute (0–100) but don't implement the open/close shortcuts. |
-| **`set_tilt_position`** | `cover.set_cover_tilt_position` with `tilt_position=100` | `cover.set_cover_tilt_position` with `tilt_position=0` | Flair vents via the [RobertD502 HACS integration](https://github.com/RobertD502/home-assistant-flair) and any other cover that reports **`current_tilt_position`** instead of `current_position`. |
-| **`toggle`** | `cover.toggle` | `cover.toggle` | Stateful vents that flip between open and closed on the same service call. Use only if neither pair of services above works. |
+| Shown As | Method | How "open" is sent | How "close" is sent | When to use |
+|---|---|---|---|---|
+| **Open and Close** | `open_close` (default) | `cover.open_cover` | `cover.close_cover` | Standard covers that support the basic open/close service pair. This is what most HA cover integrations implement. |
+| **Set Position** | `set_position` | `cover.set_cover_position` with `position=100` | `cover.set_cover_position` with `position=0` | Vents that expose a position attribute (0–100) but don't implement the open/close shortcuts. |
+| **Set Tilt** | `set_tilt_position` | `cover.set_cover_tilt_position` with `tilt_position=100` | `cover.set_cover_tilt_position` with `tilt_position=0` | Flair vents via the [RobertD502 HACS integration](https://github.com/RobertD502/home-assistant-flair) and any other cover that reports **`current_tilt_position`** instead of `current_position`. |
+| **Toggle** | `toggle` | `cover.toggle` | `cover.toggle` | Stateful vents that flip between open and closed on the same service call. Use only if neither pair of services above works. |
 
 ## Picking the right method
 
-In the UI, the vent row has a **Test** button that lets you trial a method before saving. If a vent opens but the UI keeps showing it as closed, the attribute you're reading doesn't match — try `set_tilt_position` for Flair vents, or `set_position` for standard position-based covers.
+In My Home, open a room's **Smart Vents** box. Each vent has a **Moves By** choice and **Test Open** and **Test Close** buttons to try it. If a vent opens but the UI keeps showing it as closed, the attribute you're reading doesn't match — try `set_tilt_position` for Flair vents, or `set_position` for standard position-based covers.
 
 ## How HomeClimate reads vent state
 
