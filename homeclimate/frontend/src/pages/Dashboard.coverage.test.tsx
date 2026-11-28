@@ -167,9 +167,9 @@ describe("Dashboard — uncovered branches", () => {
 
   // ── modeColor / modeLabel (lines 27-39) ───────────────────────────────────
 
-  it("colours and labels a heating zone, and paints the progress bar for heat", async () => {
+  it("colours and labels a heating zone, and marks the room it is heating", async () => {
     // A heating cycle: modeColor → "orange", modeLabel → "Heating", and the
-    // progress fill takes the non-cooling ("heating") class.
+    // room with an open vent carries a Heating pill.
     vi.mocked(api.getStatus).mockResolvedValue([
       {
         thermostat_entity_id: "climate.a",
@@ -202,7 +202,7 @@ describe("Dashboard — uncovered branches", () => {
     vi.mocked(api.getRooms).mockResolvedValue([room("r1", "Den"), room("r2", "Study")]);
     vi.mocked(api.getThermostats).mockResolvedValue([thermostat("climate.a", "Upstairs")]);
 
-    const { container } = renderDashboard();
+    renderDashboard();
     await screen.findAllByText("Upstairs");
 
     // modeColor("heating") === "orange"; modeLabel("heating", …) === "Heating".
@@ -211,9 +211,8 @@ describe("Dashboard — uncovered branches", () => {
     expect(badge).toHaveTextContent("Heating");
     expect(badge.className).toBe("badge badge-orange");
 
-    // No progress bar: each room says how it stands instead. The room with an
-    // open vent in a heating cycle is Heating; the zone line counts the same.
-    expect(container.querySelector(".progress-fill")).toBeNull();
+    // The room with an open vent in a heating cycle is Heating; the zone line
+    // counts the same.
     const study = within(card).getByTestId("dash-room-r2");
     expect(within(study).getByText("Heating").className).toBe("badge badge-orange");
     await waitFor(() => expect(card).toHaveTextContent(/1 heating, 1 without a reading/));
@@ -283,7 +282,7 @@ describe("Dashboard — uncovered branches", () => {
     vi.mocked(api.getRooms).mockResolvedValue([room("r1", "Den"), room("r2", "Study")]);
     vi.mocked(api.getThermostats).mockResolvedValue([thermostat("climate.a", "Upstairs")]);
 
-    const { container } = renderDashboard();
+    renderDashboard();
     await screen.findAllByText("Upstairs");
     const card = cardFor("climate.a");
 
@@ -291,9 +290,6 @@ describe("Dashboard — uncovered branches", () => {
     // The thermostat's reading falls back to the em-dash; no setpoint, no "set to".
     expect(card).toHaveTextContent("Thermostat —");
     expect(card).not.toHaveTextContent("set to");
-
-    // An idle cycle shows no progress bar.
-    expect(container.querySelector(".progress-fill")).toBeNull();
 
     // Both rooms are listed, each with a dash and no reading to count.
     await waitFor(() => expect(card).toHaveTextContent("2 without a reading"));

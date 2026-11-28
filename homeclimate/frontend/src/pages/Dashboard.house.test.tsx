@@ -593,6 +593,56 @@ describe("each room says how it stands", () => {
     expect(screen.getByText("All rooms at target")).toBeInTheDocument();
   });
 
+  it("judges each room against what the engine is following for it now", async () => {
+    // Kitchen is on a one-target schedule with a drift of 1 and reads 2 high,
+    // so 74.5 is judged as 72.5: at its 72. Bunk Room is not in use, so it
+    // follows nothing and has no pill.
+    vi.mocked(api.getRooms).mockResolvedValue([
+      {
+        id: "kitchen",
+        name: "Kitchen",
+        thermostat_entity_id: "climate.main",
+        temp_offset: -2,
+        deadband_override: 1,
+      },
+      { id: "bunk", name: "Bunk Room", thermostat_entity_id: "climate.main" },
+    ] as api.Room[]);
+    const status = (room_id: string, over: Partial<api.RoomActiveStatus>) =>
+      ({ room_id, source: "idle", target_temp: null, ...over }) as api.RoomActiveStatus;
+    vi.mocked(api.getRoomActiveStatuses).mockResolvedValue({
+      kitchen: status("kitchen", { source: "schedule", target_temp: 72 }),
+      bunk: status("bunk", {}),
+    });
+    readings({ kitchen: 74.5, bunk: 90 });
+    show();
+    await waitFor(() => expect(pill("Kitchen")).toHaveTextContent("At Target"));
+    expect(pill("Bunk Room")).toBeNull();
+    // A band on the status wins over the one the house targets give.
+    vi.mocked(api.getRoomActiveStatuses).mockResolvedValue({
+      kitchen: status("kitchen", { source: "presence", target_temp: 60, heat_to: 60, cool_to: 65 }),
+      bunk: status("bunk", { source: "schedule" }),
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Refresh/ }));
+    await waitFor(() => expect(pill("Kitchen")).toHaveTextContent("Above Target"));
+    // A status with no target gives no pill either.
+    expect(pill("Bunk Room")).toBeNull();
+    // With no drift of its own, a room takes its thermostat's: 88 ± 2 holds 90.
+    vi.mocked(api.getThermostats).mockResolvedValue([
+      { thermostat_entity_id: "climate.main", name: "Main", deadband: 2 },
+    ] as api.ThermostatConfig[]);
+    vi.mocked(api.getRoomActiveStatuses).mockResolvedValue({
+      kitchen: status("kitchen", { source: "presence", target_temp: 60, heat_to: 60, cool_to: 65 }),
+      bunk: status("bunk", { source: "schedule", target_temp: 88 }),
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Refresh/ }));
+    await waitFor(() => expect(pill("Bunk Room")).toHaveTextContent("At Target"));
+    // A failed read keeps the last good one.
+    vi.mocked(api.getRoomActiveStatuses).mockRejectedValue(new Error("down"));
+    fireEvent.click(screen.getByRole("button", { name: /Refresh/ }));
+    await waitFor(() => expect(api.getRoomActiveStatuses).toHaveBeenCalledTimes(4));
+    expect(pill("Bunk Room")).toHaveTextContent("At Target");
+  });
+
   it("tells a room with no sensor from one whose sensor is silent", async () => {
     readings({ kitchen: null });
     show();

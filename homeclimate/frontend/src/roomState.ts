@@ -46,7 +46,7 @@ export const STATE_PILL: Record<RoomState, { text: string; cls: string; title: s
   },
   "no-reading": {
     text: "No Reading",
-    cls: "badge-orange",
+    cls: "badge-red",
     title: "None of this room's temperature sensors has reported recently.",
   },
   heating: { text: "Heating", cls: "badge-orange", title: "Being heated now, with its vent open." },
