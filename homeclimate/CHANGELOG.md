@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.24
+
+- Dashboard: each room shows whether it is **Heating**, **Cooling**, **At Target**, **Below Target**, **Above Target**, has **No Reading** or has **No Sensor**, beside its temperature. A room not in use shows none.
+- Rooms are judged against what they are following right now: a hold, a schedule, occupancy or the building's targets, with the room's temperature offset applied.
+- Each zone's line counts the same states, or says all rooms are at target. The "rooms asking" count and the "rooms at target" bar are gone; they counted rooms in the running cycle and rooms with closed vents, not what they said.
+- The zone line no longer shows "set to —" when the thermostat has no setpoint.
+
 ## 0.5.23
 
 - Every text box, dropdown, time field, checkbox and button now looks and sizes the same across the app. On/off settings are switches and either/or choices are buttons.
